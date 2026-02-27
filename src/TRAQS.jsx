@@ -850,6 +850,10 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
 
   const [fStat, setFStat] = useState("All");
   const [fPer, setFPer] = useState("All");
+  const [fRole, setFRole] = useState("All");  // filter by assigned person's role
+  const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filterRef = useRef(null);
   const [modal, setModal] = useState(null);
   const [engBlockError, setEngBlockError] = useState(null);
   const [engQueueOpen, setEngQueueOpen] = useState(true);
@@ -1073,16 +1077,39 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     return () => ro.disconnect();
   });
 
-  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
+  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
 
   const allItems = useMemo(() => { let r = []; const tc = t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.color : T.accent; }; tasks.forEach(t => { const c = tc(t); r.push({ ...t, color: c, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { r.push({ ...s, color: tc(s) || c, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: tc(op) || tc(s) || c, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks, people]);
   const taskColor = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.color : T.accent; }, [people]);
   const taskOwner = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.name.split(" ")[0] : null; }, [people]);
-  const filtered = useMemo(() => tasks.filter(t => { if (fStat !== "All" && t.status !== fStat) return false; if (fPer !== "All") { const p = +fPer; const onOp = (t.subs || []).some(panel => (panel.subs || []).some(op => op.team.includes(p))); if (!t.team.includes(p) && !onOp) return false; } if (fClient !== "All" && t.clientId !== fClient) return false; return true; }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPer, fClient, people]);
+  const filtered = useMemo(() => tasks.filter(t => {
+    if (fStat !== "All" && t.status !== fStat) return false;
+    if (fPer !== "All") { const p = +fPer; const onOp = (t.subs || []).some(panel => (panel.subs || []).some(op => op.team.includes(p))); if (!t.team.includes(p) && !onOp) return false; }
+    if (fClient !== "All" && t.clientId !== fClient) return false;
+    if (fRole !== "All") {
+      const hasRole = (t.subs || []).some(panel => (panel.subs || []).some(op => { const person = people.find(x => (op.team || []).includes(x.id)); return person && person.role?.toLowerCase() === fRole.toLowerCase(); }));
+      if (!hasRole) return false;
+    }
+    if (fHpd !== "All") {
+      const hpdVal = +fHpd;
+      const hasHpd = t.hpd === hpdVal || (t.subs || []).some(p => p.hpd === hpdVal || (p.subs || []).some(op => op.hpd === hpdVal));
+      if (!hasHpd) return false;
+    }
+    return true;
+  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPer, fClient, fRole, fHpd, people]);
   const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if (op.team.includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, op.team.length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if (t.team.includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, t.team.length); (t.subs || []).forEach(s => { if (s.team.includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, s.team.length); }); } }); return h; }, [tasks, isOff]);
+
+  // Unique roles and hpd values for filter panel
+  const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.role).filter(Boolean))].sort(), [people]);
+  const uniqueHpd = useMemo(() => {
+    const vals = new Set();
+    tasks.forEach(t => { if (t.hpd) vals.add(t.hpd); (t.subs || []).forEach(p => { if (p.hpd) vals.add(p.hpd); (p.subs || []).forEach(op => { if (op.hpd) vals.add(op.hpd); }); }); });
+    return [...vals].sort((a, b) => a - b);
+  }, [tasks]);
+  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0);
 
   // Check overlaps for a set of operations against a given task list
   // opsToCheck: [{ personId, start, end, opTitle, panelTitle, excludeOpId }]
@@ -2201,8 +2228,26 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             onChange={v => { setGanttViewMode(v); if (v==="calendar") { const d=new Date(gStart+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); setGMode("month"); } }}
           />
         </div>
-        {/* Right side: Clipboard + FAST TRAQS + New Job button */}
+        {/* Right side: Filter + Clipboard + FAST TRAQS + New Job button */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Filter button + panel */}
+          <div ref={filterRef} style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              Filters{activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, padding: "1px 6px", fontSize: 10, fontWeight: 700, lineHeight: 1.4 }}>{activeFilterCount}</span>}
+            </button>
+            {filterOpen && <div className="anim-ctx" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 1000, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
+                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
+                {["All", ...uniqueHpd].map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent : "transparent", color: fHpd === String(h) ? T.accentText : T.text, fontSize: 12, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{h === "All" ? "All" : `${h}h`}</button>)}
+              </div>
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+            </div>}
+          </div>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span>📋</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
@@ -2717,6 +2762,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     };
     // Build flat row list with subtask expansion
     const rowList = []; roles.forEach(role => {
+      if (fRole !== "All" && role?.toLowerCase() !== fRole.toLowerCase()) return;
       rowList.push({ type: "group", role, util: grpUtil(role) });
       if (!tCollapsed[role]) roleMap[role].forEach(p => {
         const bars = getPersonBars(p.id);
@@ -2765,14 +2811,34 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             }}>▶</Btn>
           </div>
         </div>
-        {can("editJobs") && <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {/* Filter button + panel (Team view) */}
+          <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              Filters{activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, padding: "1px 6px", fontSize: 10, fontWeight: 700, lineHeight: 1.4 }}>{activeFilterCount}</span>}
+            </button>
+            {filterOpen && <div className="anim-ctx" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 1000, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
+                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
+                {["All", ...uniqueHpd].map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent : "transparent", color: fHpd === String(h) ? T.accentText : T.text, fontSize: 12, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{h === "All" ? "All" : `${h}h`}</button>)}
+              </div>
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+            </div>}
+          </div>
+          {can("editJobs") && <>
           <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button>
           <button onClick={() => openNew()} style={{ padding: "10px 26px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.3px", transition: "all 0.15s", whiteSpace: "nowrap" }}
             onMouseEnter={e => e.currentTarget.style.transform = "scale(1.04)"}
             onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}>
             + New Job
           </button>
-        </div>}
+          </>}
+        </div>
       </div>
       {/* Resource timeline grid */}
       <div ref={teamContainerRef} style={{ width: "100%" }}>
@@ -3023,40 +3089,75 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                             }
                           }
                         }
-                        // Build the moved task state (apply move + log) — defined outside setTasks for onConfirm
-                        const applyMove = (tl) => tl.map(t => {
+                        // Use target person (may differ from original if dragged to a new row)
+                        const targetPid = lastDropPid || personId;
+                        const targetPerson = people.find(x => x.id === targetPid);
+                        const targetName = targetPerson ? targetPerson.name : "them";
+                        const opDuration = diffD(newStart, newEnd) + 1;
+                        // Check for scheduling conflicts against the target person
+                        const schedConflicts = checkOverlapsPure(reverted, [{
+                          personId: targetPid, start: newStart, end: newEnd,
+                          excludeOpId: bar.task.id, opTitle: bar.task.title, panelTitle: bar.task.panelTitle || ""
+                        }]);
+                        // Helper: find next open slot for target person
+                        const findNextSlot = () => {
+                          let candidate = addD(newStart, 1);
+                          for (let i = 0; i < 180; i++) {
+                            const dt = new Date(candidate + "T12:00:00");
+                            if (dt.getDay() === 0) { candidate = addD(candidate, 1); continue; }
+                            if (dt.getDay() === 6) { candidate = addD(candidate, 2); continue; }
+                            const slotEnd = addD(candidate, opDuration - 1);
+                            let ptoBusy = false;
+                            if (targetPerson) { for (const to of (targetPerson.timeOff || [])) { if (to.start <= slotEnd && to.end >= candidate) { ptoBusy = true; break; } } }
+                            if (!ptoBusy) {
+                              const c2 = checkOverlapsPure(reverted, [{ personId: targetPid, start: candidate, end: slotEnd, excludeOpId: bar.task.id, opTitle: "", panelTitle: "" }]);
+                              if (c2.length === 0) return { start: candidate, end: slotEnd };
+                            }
+                            candidate = addD(candidate, 1);
+                          }
+                          return null;
+                        };
+                        const makeApply = (toStart, toEnd) => (tl) => tl.map(t => {
                           if (taskPid) {
                             const pi2 = (t.subs || []).findIndex(s => s.id === taskPid);
                             if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => {
                               if (op.id === bar.task.id) {
-                                const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual move" };
-                                return { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] };
+                                const logEntry = { fromStart: os, fromEnd: oe, toStart, toEnd, date: TD, movedBy: movedByName, reason: lastDropPid && lastDropPid !== origPerson ? `Reassigned to ${targetName}` : "Manual move" };
+                                return { ...op, start: toStart, end: toEnd, moveLog: [...(op.moveLog || []), logEntry] };
                               }
                               return op;
                             }) }; return { ...t, subs: ns }; }
                           }
                           return t;
                         });
-                        // Check for scheduling conflicts — hard block if person is double-booked
-                        const schedConflicts = checkOverlapsPure(reverted, [{
-                          personId, start: newStart, end: newEnd,
-                          excludeOpId: bar.task.id, opTitle: bar.task.title, panelTitle: bar.task.panelTitle || ""
-                        }]);
                         if (schedConflicts.length > 0) {
-                          setTimeout(() => showOverlapIfAny(schedConflicts), 0);
+                          const nextSlot = findNextSlot();
+                          if (nextSlot) {
+                            setTimeout(() => setConfirmMove({
+                              title: "Schedule Conflict — Next Available",
+                              message: `${targetName} is busy ${fm(newStart)} → ${fm(newEnd)}.\n\nNext available: ${fm(nextSlot.start)} → ${fm(nextSlot.end)}. Move to that slot?`,
+                              onCancel: () => setConfirmMove(null),
+                              onConfirm: () => {
+                                setConfirmMove(null);
+                                setTasks(curr => recalcBounds(makeApply(nextSlot.start, nextSlot.end)(curr), movedByName));
+                                if (lastDropPid && lastDropPid !== origPerson) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
+                              }
+                            }), 0);
+                          } else {
+                            setTimeout(() => showOverlapIfAny(schedConflicts), 0);
+                          }
                           return reverted;
                         }
-                        // No conflicts — show confirmation before committing
+                        // No conflicts — confirm the move
+                        const reassignMsg = lastDropPid && lastDropPid !== origPerson ? ` and reassign to ${targetName}` : "";
                         setTimeout(() => setConfirmMove({
                           title: "Confirm Move",
-                          message: `Move "${bar.task.title}" from ${fm(os)} → ${fm(oe)} to ${fm(newStart)} → ${fm(newEnd)}?`,
+                          message: `Move "${bar.task.title}"${reassignMsg} from ${fm(os)} → ${fm(oe)} to ${fm(newStart)} → ${fm(newEnd)}?`,
                           onCancel: () => setConfirmMove(null),
                           onConfirm: () => {
                             setConfirmMove(null);
-                            setTasks(curr => recalcBounds(applyMove(curr), movedByName));
-                            if (lastDropPid && lastDropPid !== origPerson) {
-                              reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
-                            }
+                            setTasks(curr => recalcBounds(makeApply(newStart, newEnd)(curr), movedByName));
+                            if (lastDropPid && lastDropPid !== origPerson) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
                           }
                         }), 0);
                         return reverted;
