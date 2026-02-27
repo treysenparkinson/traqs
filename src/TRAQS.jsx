@@ -2458,7 +2458,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     {activeTasks.map((t, ti) => <Card key={t.id} delay={ti * 35} style={{ borderLeft: `4px solid ${t.color}`, padding: 16 }} onClick={() => openDetail(t)}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}><HealthIcon t={t} /><h3 style={{ margin: 0, color: T.text, fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{t.title}</h3></div>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 12 }} onClick={e => e.stopPropagation()}>{can("editJobs") && <><Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn><Btn variant="danger" size="sm" onClick={() => delTask(t.id)}>✕</Btn></>}</div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 12 }} onClick={e => e.stopPropagation()}>{can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn>}</div>
       </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>{t.clientId && <Badge t={clientName(t.clientId)} c={clientColor(t.clientId)} />}</div>
       <div style={{ fontSize: 12, color: T.textSec, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: T.mono, fontSize: 12 }}>{fm(t.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono, fontSize: 12 }}>{fm(t.end)}</span><span style={{ color: T.textDim }}>·</span><span>{t.hpd}h/day</span></div>
@@ -4599,7 +4599,10 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         </>}
 
         <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }} /></div>
-        <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => saveTask(ed, modal.parentId)}>Save Job</Btn></div>
+        <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
+          {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => { delTask(ed.id, modal.parentId); closeModal(); }} style={{ marginRight: "auto" }}>Delete Job</Btn> : <span />}
+          <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => saveTask(ed, modal.parentId)}>Save Job</Btn></div>
+        </div>
       </div></div>; }
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
       // If this is an operation (level 2), show focused operation popup
