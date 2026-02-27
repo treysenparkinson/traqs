@@ -3114,7 +3114,6 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                         const targetPerson = people.find(x => x.id === targetPid);
                         const targetName = targetPerson ? targetPerson.name : "them";
                         const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
-                        const origPersonName = people.find(x => x.id === origPerson)?.name || "them";
                         const opDuration = diffD(newStart, newEnd) + 1;
                         // Check for scheduling conflicts against the target person
                         const schedConflicts = checkOverlapsPure(reverted, [{
@@ -3170,30 +3169,9 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                           }
                           return reverted;
                         }
-                        // No conflicts — confirm the move
-                        const isDateChange = newStart !== os || newEnd !== oe;
-                        let confirmTitle, confirmMsg;
-                        if (isReassign && isDateChange) {
-                          confirmTitle = "Reassign & Move";
-                          confirmMsg = `Reassign "${bar.task.title}" from ${origPersonName} → ${targetName}\nand move from ${fm(os)}–${fm(oe)} to ${fm(newStart)}–${fm(newEnd)}?`;
-                        } else if (isReassign) {
-                          confirmTitle = "Reassign Job";
-                          confirmMsg = `Reassign "${bar.task.title}" from ${origPersonName} to ${targetName}?`;
-                        } else {
-                          confirmTitle = "Move Job";
-                          confirmMsg = `Move "${bar.task.title}" from ${fm(os)}–${fm(oe)} to ${fm(newStart)}–${fm(newEnd)}?`;
-                        }
-                        setTimeout(() => setConfirmMove({
-                          title: confirmTitle,
-                          message: confirmMsg,
-                          onCancel: () => setConfirmMove(null),
-                          onConfirm: () => {
-                            setConfirmMove(null);
-                            setTasks(curr => recalcBounds(makeApply(newStart, newEnd)(curr), movedByName));
-                            if (lastDropPid && lastDropPid !== origPerson) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
-                          }
-                        }), 0);
-                        return reverted;
+                        // No conflicts — apply immediately, no dialog needed
+                        if (isReassign) setTimeout(() => reassignTask(bar.task.id, origPerson, lastDropPid, taskPid), 0);
+                        return recalcBounds(makeApply(newStart, newEnd)(reverted), movedByName);
                       });
                     };
                     document.addEventListener("mousemove", onM);
