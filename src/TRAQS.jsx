@@ -2160,9 +2160,8 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         {/* Left: Today + Day/Week/Month + navigation */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn variant="ghost" size="sm" onClick={() => {
-            if (ganttViewMode === "calendar" || gMode === "month") { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); }
-            else if (gMode === "week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setGStart(mon); setGEnd(addD(mon,6)); }
-            else { setGStart(TD); setGEnd(TD); }
+            if (ganttViewMode === "calendar") { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); }
+            else { const span = diffD(gStart, gEnd); const half = Math.floor(span / 2); setGStart(addD(TD, -half)); setGEnd(addD(TD, span - half)); }
           }}>Today</Btn>
           {ganttViewMode === "linear" && <SlidingPill
             options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
