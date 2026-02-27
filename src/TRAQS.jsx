@@ -2941,12 +2941,18 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                 {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = [0, 6].includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
                 {/* Team drag ghost overlay — snapped position with glow */}
                 {teamDragInfo && teamDragInfo.targetPersonId === p.id && (() => {
-                  const { snapStart, snapEnd, hasOverlap } = teamDragInfo;
+                  const { snapStart, snapEnd, hasOverlap, taskTitle, barColor } = teamDragInfo;
                   const nDays = days.length;
                   const gx = (diffD(tStart, snapStart) / nDays * 100) + "%";
                   const gw = (Math.max(diffD(snapStart, snapEnd) + 1, 1) / nDays * 100) + "%";
-                  const gc = hasOverlap ? "#ef4444" : T.accent;
-                  return <div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${gx} + 1px)`, width: gw, height: rH - 8, borderRadius: 20, border: `2px solid ${gc}`, background: gc + "1a", boxShadow: `0 0 28px ${gc}77, 0 0 10px ${gc}55, 0 0 56px ${gc}33`, pointerEvents: "none", zIndex: 3, animation: "ghost-fade-in 0.2s cubic-bezier(0.34,1.56,0.64,1)" }} />;
+                  const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
+                  return <div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${gx} + 1px)`, width: gw, height: rH - 8, borderRadius: 20, border: `2px solid ${gc}`, background: gc + "22", boxShadow: `0 0 32px ${gc}99, 0 0 12px ${gc}77, 0 0 64px ${gc}44`, pointerEvents: "none", zIndex: 20, animation: "ghost-fade-in 0.15s ease-out", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 10px", overflow: "hidden" }}>
+                    {taskTitle && <span style={{ fontSize: 10, fontWeight: 700, color: gc, opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "60%" }}>{taskTitle}</span>}
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto", flexShrink: 0 }}>
+                      <div style={{ width: 16, height: 16, borderRadius: 8, background: p.color, border: `1.5px solid ${gc}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff" }}>{p.name.charAt(0)}</div>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: gc, whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</span>
+                    </div>
+                  </div>;
                 })()}
                 {/* Task/PTO bars */}
                 {bars.map(bar => {
@@ -3040,7 +3046,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                           }
                         }
                       }
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, targetPersonId: targetPid, hasOverlap });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent });
                     };
                     const onU = me => {
                       document.removeEventListener("mousemove", onM);
@@ -5820,6 +5826,23 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         <Btn onClick={() => setOverlapError(null)} style={{ minWidth: 140 }}>Got it</Btn>
       </div>
     </div>}
+
+    {/* Team drag cursor badge — follows mouse, shows target person */}
+    {teamDragInfo && teamDragInfo.cursorX != null && (() => {
+      const { cursorX, cursorY, targetPersonId, hasOverlap, taskTitle, barColor } = teamDragInfo;
+      const tgt = people.find(x => x.id === targetPersonId);
+      if (!tgt) return null;
+      const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
+      return <div style={{ position: "fixed", left: cursorX + 14, top: cursorY - 36, pointerEvents: "none", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
+        {/* Name badge */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, background: T.card, border: `1.5px solid ${gc}`, borderRadius: 20, padding: "4px 10px 4px 6px", boxShadow: `0 0 18px ${gc}88, 0 4px 16px rgba(0,0,0,0.4)`, backdropFilter: "blur(8px)" }}>
+          <div style={{ width: 20, height: 20, borderRadius: 10, background: tgt.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{tgt.name.charAt(0)}</div>
+          <span style={{ fontSize: 12, fontWeight: 700, color: gc, whiteSpace: "nowrap" }}>{tgt.name}</span>
+        </div>
+        {/* Job title tiny label */}
+        {taskTitle && <div style={{ fontSize: 10, color: T.textDim, background: T.surface + "cc", borderRadius: 6, padding: "2px 8px", border: `1px solid ${T.border}`, boxShadow: "0 2px 8px rgba(0,0,0,0.3)", backdropFilter: "blur(4px)", whiteSpace: "nowrap", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }}>{taskTitle}</div>}
+      </div>;
+    })()}
 
     {/* Confirm Move Modal */}
     {confirmMove && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
