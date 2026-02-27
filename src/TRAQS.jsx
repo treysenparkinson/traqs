@@ -3014,11 +3014,11 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                       barEl.style.transition = "box-shadow 0.08s, opacity 0.08s";
                       // Detect target row vertically
                       if (gridEl) {
-                        const personRows = gridEl.querySelectorAll("[data-person-id]");
+                        const personRows = gridEl.querySelectorAll("[data-rowtype='person']");
                         let found = null;
                         personRows.forEach(el => {
                           const rect = el.getBoundingClientRect();
-                          if (me.clientY >= rect.top && me.clientY <= rect.bottom) found = +el.getAttribute("data-person-id");
+                          if (me.clientY >= rect.top && me.clientY <= rect.bottom) found = el.getAttribute("data-rowid");
                         });
                         if (found !== lastDropPid) { lastDropPid = found; setDropTarget(found); }
                       }
@@ -3093,6 +3093,8 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                         const targetPid = lastDropPid || personId;
                         const targetPerson = people.find(x => x.id === targetPid);
                         const targetName = targetPerson ? targetPerson.name : "them";
+                        const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
+                        const origPersonName = people.find(x => x.id === origPerson)?.name || "them";
                         const opDuration = diffD(newStart, newEnd) + 1;
                         // Check for scheduling conflicts against the target person
                         const schedConflicts = checkOverlapsPure(reverted, [{
@@ -3135,7 +3137,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                           if (nextSlot) {
                             setTimeout(() => setConfirmMove({
                               title: "Schedule Conflict — Next Available",
-                              message: `${targetName} is busy ${fm(newStart)} → ${fm(newEnd)}.\n\nNext available: ${fm(nextSlot.start)} → ${fm(nextSlot.end)}. Move to that slot?`,
+                              message: `${targetName} is busy ${fm(newStart)}–${fm(newEnd)}.\n\nNext available: ${fm(nextSlot.start)}–${fm(nextSlot.end)}. Move${isReassign ? ` and reassign to ${targetName}` : ""} to that slot?`,
                               onCancel: () => setConfirmMove(null),
                               onConfirm: () => {
                                 setConfirmMove(null);
@@ -3149,10 +3151,21 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                           return reverted;
                         }
                         // No conflicts — confirm the move
-                        const reassignMsg = lastDropPid && lastDropPid !== origPerson ? ` and reassign to ${targetName}` : "";
+                        const isDateChange = newStart !== os || newEnd !== oe;
+                        let confirmTitle, confirmMsg;
+                        if (isReassign && isDateChange) {
+                          confirmTitle = "Reassign & Move";
+                          confirmMsg = `Reassign "${bar.task.title}" from ${origPersonName} → ${targetName}\nand move from ${fm(os)}–${fm(oe)} to ${fm(newStart)}–${fm(newEnd)}?`;
+                        } else if (isReassign) {
+                          confirmTitle = "Reassign Job";
+                          confirmMsg = `Reassign "${bar.task.title}" from ${origPersonName} to ${targetName}?`;
+                        } else {
+                          confirmTitle = "Move Job";
+                          confirmMsg = `Move "${bar.task.title}" from ${fm(os)}–${fm(oe)} to ${fm(newStart)}–${fm(newEnd)}?`;
+                        }
                         setTimeout(() => setConfirmMove({
-                          title: "Confirm Move",
-                          message: `Move "${bar.task.title}"${reassignMsg} from ${fm(os)} → ${fm(oe)} to ${fm(newStart)} → ${fm(newEnd)}?`,
+                          title: confirmTitle,
+                          message: confirmMsg,
                           onCancel: () => setConfirmMove(null),
                           onConfirm: () => {
                             setConfirmMove(null);
