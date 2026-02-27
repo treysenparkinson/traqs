@@ -2157,8 +2157,13 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     const tW = lW + days.length * cW, tH = hH + rows.length * rH;
     return <div>
       <div style={{ display: "flex", marginBottom: isMobile ? 10 : 20, alignItems: "center", position: "relative", minHeight: 44 }}>
-        {/* Left: Day/Week/Month + navigation */}
+        {/* Left: Today + Day/Week/Month + navigation */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Btn variant="ghost" size="sm" onClick={() => {
+            if (ganttViewMode === "calendar" || gMode === "month") { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); }
+            else if (gMode === "week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setGStart(mon); setGEnd(addD(mon,6)); }
+            else { setGStart(TD); setGEnd(TD); }
+          }}>Today</Btn>
           {ganttViewMode === "linear" && <SlidingPill
             options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
             value={gMode}
