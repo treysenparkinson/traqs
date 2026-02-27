@@ -5322,7 +5322,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       {can("editJobs") && (ctxMenu.item.level === 0 || (!ctxMenu.item.isSub && !ctxMenu.item.pid)) && <CtxMenuItem icon="➕" label="Add Panel" sub="Add a new panel to this job" onClick={() => {
         const it = ctxMenu.item;
         setCtxMenu(null);
-        setQuickAddSub({ type: "panel", parentId: it.id, grandParentId: null, parentTitle: it.title, title: "", start: it.start, end: it.end, x: ctxMenu.x, y: ctxMenu.y });
+        setQuickAddSub({ type: "panel", parentId: it.id, grandParentId: null, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y });
       }} />}
       {/* Quick add operation (panel level) */}
       {can("editJobs") && (ctxMenu.item.level === 1 || (ctxMenu.item.isSub && ctxMenu.item.pid && !ctxMenu.item.grandPid)) && <CtxMenuItem icon="➕" label="Add Operation" sub="Add a new operation to this panel" onClick={() => {
@@ -5331,7 +5331,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         let grandParentId = null;
         for (const job of tasks) { if ((job.subs || []).find(p => p.id === it.id)) { grandParentId = job.id; break; } }
         setCtxMenu(null);
-        setQuickAddSub({ type: "op", parentId: it.id, grandParentId, parentTitle: it.title, title: "", start: it.start, end: it.end, x: ctxMenu.x, y: ctxMenu.y });
+        setQuickAddSub({ type: "op", parentId: it.id, grandParentId, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y });
       }} />}
       {/* Quick reassign for operations */}
       {can("reassign") && (ctxMenu.item.level === 2 || (ctxMenu.item.isSub && ctxMenu.item.pid && !tasks.find(x => x.id === ctxMenu.item.id))) && (() => {
@@ -5402,7 +5402,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     })()}
     {/* Quick add subtask popup */}
     {quickAddSub && <div onClick={() => setQuickAddSub(null)} style={{ position: "fixed", inset: 0, zIndex: 9997 }}>
-      <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(quickAddSub.x, window.innerWidth - 310), top: Math.min(quickAddSub.y, window.innerHeight - 260), zIndex: 9998, width: 296, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
+      <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(quickAddSub.x, window.innerWidth - 320), top: Math.min(quickAddSub.y, window.innerHeight - 320), zIndex: 9998, width: 308, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
           {quickAddSub.type === "panel" ? "➕ Add Panel" : "➕ Add Operation"}
           <span style={{ fontWeight: 400, color: T.textDim, marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>to {quickAddSub.parentTitle}</span>
@@ -5412,7 +5412,6 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           placeholder={quickAddSub.type === "panel" ? "Panel name…" : "Operation name…"}
           value={quickAddSub.title}
           onChange={e => setQuickAddSub(p => ({ ...p, title: e.target.value }))}
-          onKeyDown={e => { if (e.key === "Enter") e.currentTarget.form?.requestSubmit?.(); }}
           style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", marginBottom: 10, boxSizing: "border-box" }}
         />
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -5427,11 +5426,27 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
               style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
           </div>
         </div>
+        {/* People picker */}
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 10, color: T.textDim, marginBottom: 6, fontWeight: 600 }}>ASSIGN</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+            {people.filter(p => p.userRole === "user" || p.userRole === "admin").map(p => {
+              const sel = (quickAddSub.team || []).includes(p.id);
+              return <button key={p.id} onClick={() => setQuickAddSub(prev => ({
+                ...prev,
+                team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id]
+              }))} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? "#fff" : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                <span style={{ width: 16, height: 16, borderRadius: 5, background: sel ? "rgba(255,255,255,0.25)" : p.color + "22", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? "#fff" : p.color, flexShrink: 0 }}>{p.name[0]}</span>
+                {p.name}
+              </button>;
+            })}
+          </div>
+        </div>
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={() => setQuickAddSub(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={() => {
             if (!quickAddSub.title.trim()) return;
-            const newItem = { id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: [], hpd: 8, notes: "", deps: [] };
+            const newItem = { id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: quickAddSub.team || [], hpd: 8, notes: "", deps: [] };
             if (quickAddSub.type === "panel") {
               setTasks(prev => prev.map(job => job.id === quickAddSub.parentId
                 ? { ...job, subs: [...(job.subs || []), { ...newItem, subs: [] }] }
