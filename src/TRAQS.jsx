@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE } from "./logo.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -933,6 +933,42 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep loggedInUser in sync with the live people array (e.g. after toggling isEngineer, role changes, etc.)
+  useEffect(() => {
+    if (!loggedInUser || people.length === 0) return;
+    const updated = people.find(p => p.id === loggedInUser.id);
+    if (updated && JSON.stringify(updated) !== JSON.stringify(loggedInUser)) {
+      setLoggedInUser(updated);
+    }
+  }, [people]);
+
+  // ─── Push notification token registration ────────────────────────────────
+  useEffect(() => {
+    if (!loggedInUser) return;
+    const register = async () => {
+      try {
+        const { PushNotifications } = await import("@capacitor/push-notifications");
+        const perm = await PushNotifications.checkPermissions();
+        const status = perm.receive === "granted" ? perm : await PushNotifications.requestPermissions();
+        if (status.receive !== "granted") return;
+        await PushNotifications.register();
+        PushNotifications.addListener("registration", async ({ value: token }) => {
+          if (loggedInUser.pushToken === token) return;
+          const updated = { ...loggedInUser, pushToken: token };
+          setLoggedInUser(updated);
+          setPeople(prev => {
+            const next = prev.map(p => p.id === loggedInUser.id ? updated : p);
+            savePeople(next, getToken, orgCode).catch(console.warn);
+            return next;
+          });
+        });
+      } catch {
+        // Not running in Capacitor (web browser) — skip silently
+      }
+    };
+    register();
+  }, [loggedInUser?.id]);
+
   // ─── Chat & notifications state ──────────────────────────────────────────
   const [messages, setMessages] = useState([]);
   const [chatThread, setChatThread] = useState(null);
@@ -1641,13 +1677,47 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
   const signOffEngineering = (jobId, panelId, step) => {
     if (!canSignOffEngineering) return;
     const record = { by: loggedInUser.id, byName: loggedInUser.name, at: new Date().toISOString() };
+    setTasks(prev => {
+      const next = prev.map(job =>
+        job.id !== jobId ? job : {
+          ...job,
+          subs: (job.subs || []).map(panel =>
+            panel.id !== panelId ? panel : {
+              ...panel,
+              engineering: { designed: null, verified: null, sentToPerforex: null, ...(panel.engineering || {}), [step]: record }
+            }
+          )
+        }
+      );
+      // Fire notifications after state is updated
+      const job = next.find(j => j.id === jobId);
+      const panel = job?.subs?.find(p => p.id === panelId);
+      if (job && panel) {
+        const stepLabel = engSteps.find(s => s.key === step)?.label || step;
+        const jobTeamIds = (job.subs || []).flatMap(p => (p.subs || []).flatMap(op => op.team || []));
+        const allDone = !!(panel.engineering?.designed && panel.engineering?.verified && panel.engineering?.sentToPerforex);
+        // Notify step sign-off
+        callNotify({ type: "step", jobTitle: job.title, jobNumber: job.jobNumber || null, panelTitle: panel.title, stepLabel, jobTeamIds }, getToken, orgCode).catch(console.warn);
+        // If all steps now done, also send ready-to-build notification
+        if (allDone) {
+          callNotify({ type: "ready", jobTitle: job.title, jobNumber: job.jobNumber || null, panelTitle: panel.title, stepLabel, jobTeamIds }, getToken, orgCode).catch(console.warn);
+        }
+      }
+      return next;
+    });
+  };
+  const revertEngineering = (jobId, panelId, step) => {
+    if (!canSignOffEngineering) return;
+    const stepOrder = ["designed", "verified", "sentToPerforex"];
+    const stepIdx = stepOrder.indexOf(step);
+    const toRevert = stepOrder.slice(stepIdx);
     setTasks(prev => prev.map(job =>
       job.id !== jobId ? job : {
         ...job,
         subs: (job.subs || []).map(panel =>
           panel.id !== panelId ? panel : {
             ...panel,
-            engineering: { designed: null, verified: null, sentToPerforex: null, ...(panel.engineering || {}), [step]: record }
+            engineering: { ...(panel.engineering || {}), ...Object.fromEntries(toRevert.map(s => [s, null])) }
           }
         )
       }
@@ -2270,69 +2340,131 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
   const finishedTasks = tasks.filter(t => t.status === "Finished");
   const activeTasks = filtered.filter(t => t.status !== "Finished");
 
-  // Engineering Queue: collect all panels (across all jobs) with engineering field and at least one step incomplete
+  // Engineering Queue: incomplete panels. Engineering Finished: all steps done.
   const engQueueItems = [];
+  const engFinishedItems = [];
   tasks.forEach(job => {
     (job.subs || []).forEach(panel => {
       if (panel.engineering === undefined) return;
       const e = panel.engineering || {};
-      if (e.designed && e.verified && e.sentToPerforex) return; // all done
-      engQueueItems.push({ job, panel });
+      if (e.designed && e.verified && e.sentToPerforex) engFinishedItems.push({ job, panel });
+      else engQueueItems.push({ job, panel });
     });
   });
 
   const renderTasks = () => <div>
-    {/* Engineering Queue */}
-    {(engQueueItems.length > 0 || canSignOffEngineering) && engQueueItems.length > 0 && <div style={{ marginBottom: 28 }}>
-      <div onClick={() => setEngQueueOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: engQueueOpen ? 14 : 0, cursor: "pointer", userSelect: "none" }}>
-        <span style={{ fontSize: 16 }}>🔧</span>
-        <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#3b82f6", flex: 1 }}>Engineering Queue <span style={{ fontSize: 13, color: T.textDim, fontWeight: 500 }}>({engQueueItems.length} panel{engQueueItems.length !== 1 ? "s" : ""})</span></h3>
-        <span style={{ fontSize: 12, color: T.textDim }}>{engQueueOpen ? "▲" : "▼"}</span>
+    {/* Engineering Queue — only for engineers/admins */}
+    {canSignOffEngineering && engQueueItems.length > 0 && <div style={{ marginBottom: 28 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <span style={{ fontSize: 18 }}>🔧</span>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#3b82f6" }}>Engineering Queue</h2>
+        <span style={{ fontSize: 12, fontWeight: 700, color: "#3b82f6", background: "#3b82f620", borderRadius: 10, padding: "2px 10px", border: "1px solid #3b82f633" }}>{engQueueItems.length}</span>
       </div>
-      {engQueueOpen && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
         {engQueueItems.map(({ job, panel }) => {
           const e = panel.engineering || {};
-          // Determine active step (first incomplete)
           const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
-          return <div key={panel.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid #3b82f6`, borderRadius: T.radiusSm, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <div style={{ minWidth: 0 }}>
-              <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{job.jobNumber ? `Job #${job.jobNumber} · ` : ""}{job.title}</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: T.text, marginLeft: 8, fontFamily: T.mono }}>{panel.title}</span>
+          return <div key={panel.id} style={{ background: T.card, border: `1px solid #3b82f630`, borderTop: `3px solid #3b82f6`, borderRadius: T.radiusSm, padding: "14px 16px", boxShadow: `0 2px 12px #3b82f610` }}>
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginBottom: 2 }}>{job.jobNumber ? `#${job.jobNumber} · ` : ""}{job.title}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{panel.title}</div>
+              <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginTop: 2 }}>{fm(panel.start)} → {fm(panel.end)}</div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto", flexWrap: "wrap" }}>
-              {engSteps.map((step, si) => {
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {engSteps.map(step => {
                 const done = !!e[step.key];
                 const isActive = step.key === activeStep;
-                const locked = !done && !isActive;
-                if (done) return <span key={step.key} style={{ fontSize: 12, color: "#10b981", display: "flex", alignItems: "center", gap: 4 }}>✓ <span style={{ color: T.textDim }}>{step.label}·{e[step.key].byName.split(" ")[0]}, {fm(e[step.key].at.split("T")[0])}</span></span>;
-                if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "4px 14px", borderRadius: 14, background: "#3b82f6", color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
-                if (isActive) return <span key={step.key} style={{ fontSize: 12, color: "#3b82f6", fontWeight: 600 }}>→ {step.label}</span>;
-                return <span key={step.key} style={{ fontSize: 12, color: T.textDim, opacity: 0.5 }}>○ {step.label}</span>;
+                if (done) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, background: "#10b98110", border: "1px solid #10b98130" }}>
+                  <span style={{ color: "#10b981", fontSize: 13, flexShrink: 0 }}>✓</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: "#10b981", flex: 1 }}>{step.label}</span>
+                  <span style={{ fontSize: 10, color: T.textDim }}>{e[step.key].byName.split(" ")[0]}, {fm(e[step.key].at.split("T")[0])}</span>
+                  {canSignOffEngineering && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ padding: "1px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}
+                </div>;
+                if (isActive) return <button key={step.key} onClick={() => canSignOffEngineering ? signOffEngineering(job.id, panel.id, step.key) : undefined} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusXs, background: canSignOffEngineering ? "#3b82f6" : "#3b82f615", border: "none", cursor: canSignOffEngineering ? "pointer" : "default", width: "100%", fontFamily: T.font }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: canSignOffEngineering ? "#fff" : "#3b82f6", flex: 1, textAlign: "left" }}>→ {step.label}</span>
+                  {canSignOffEngineering && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.65)" }}>Sign off</span>}
+                </button>;
+                return <div key={step.key} style={{ display: "flex", alignItems: "center", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, opacity: 0.35 }}>
+                  <span style={{ fontSize: 12, color: T.textDim }}>○ {step.label}</span>
+                </div>;
               })}
             </div>
           </div>;
         })}
-      </div>}
+      </div>
+    </div>}
+    {/* Engineering Finished — only for engineers/admins */}
+    {canSignOffEngineering && engFinishedItems.length > 0 && <div style={{ marginBottom: 28 }}>
+      <div style={{ borderTop: `1px solid #10b98133`, position: "relative", marginBottom: 16 }}>
+        <span style={{ position: "absolute", top: -10, left: 0, background: T.bg, paddingRight: 12, fontSize: 11, color: "#10b981", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Engineering Finished</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 10 }}>
+        {engFinishedItems.map(({ job, panel }) => {
+          const e = panel.engineering || {};
+          return <div key={panel.id} style={{ background: T.card, border: `1px solid #10b98130`, borderTop: `3px solid #10b981`, borderRadius: T.radiusSm, padding: "12px 14px", opacity: 0.85 }}>
+            <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginBottom: 2 }}>{job.jobNumber ? `#${job.jobNumber} · ` : ""}{job.title}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 8 }}>{panel.title}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {engSteps.map(step => <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: T.radiusXs, background: "#10b98108", border: "1px solid #10b98120" }}>
+                <span style={{ color: "#10b981", fontSize: 12, flexShrink: 0 }}>✓</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#10b981", flex: 1 }}>{step.label}</span>
+                <span style={{ fontSize: 10, color: T.textDim }}>{e[step.key]?.byName?.split(" ")[0]}, {fm(e[step.key]?.at?.split("T")[0])}</span>
+                {canSignOffEngineering && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ padding: "1px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}
+              </div>)}
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>}
+    {/* All Jobs separator */}
+    {canSignOffEngineering && (engQueueItems.length > 0 || engFinishedItems.length > 0) && <div style={{ margin: "0 0 14px", borderTop: `1px solid ${T.border}`, position: "relative" }}>
+      <span style={{ position: "absolute", top: -9, left: 0, background: T.bg, paddingRight: 10, fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>All Jobs</span>
     </div>}
     {/* Active tasks */}
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 20 }}>
-    {activeTasks.map((t, ti) => <Card key={t.id} delay={ti * 35} style={{ borderLeft: `4px solid ${t.color}` }} onClick={() => openDetail(t)}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><HealthIcon t={t} /><h3 style={{ margin: 0, color: T.text, fontSize: 18, fontWeight: 700, lineHeight: 1.3 }}>{t.title}</h3></div>
+    <>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
+    {activeTasks.map((t, ti) => <Card key={t.id} delay={ti * 35} style={{ borderLeft: `4px solid ${t.color}`, padding: 16 }} onClick={() => openDetail(t)}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><HealthIcon t={t} /><h3 style={{ margin: 0, color: T.text, fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{t.title}</h3></div>
         <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 12 }} onClick={e => e.stopPropagation()}>{can("editJobs") && <><Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn><Btn variant="danger" size="sm" onClick={() => delTask(t.id)}>✕</Btn></>}</div>
       </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>{t.clientId && <Badge t={clientName(t.clientId)} c={clientColor(t.clientId)} />}</div>
-      <div style={{ fontSize: 14, color: T.textSec, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: T.mono, fontSize: 13 }}>{fm(t.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono, fontSize: 13 }}>{fm(t.end)}</span><span style={{ color: T.textDim }}>·</span><span>{t.hpd}h/day</span></div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>{t.team.map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}</div>
-      {t.notes && <div style={{ fontSize: 13, color: T.textDim, fontStyle: "italic", marginBottom: 12, lineHeight: 1.5 }}>{t.notes.substring(0, 120)}</div>}
-      {(t.deps || []).length > 0 && <div style={{ fontSize: 13, color: "#f59e0b", marginBottom: 12 }}>⛓ {t.deps.length} dependency(s)</div>}
-      {(t.subs || []).length > 0 && <div style={{ marginTop: 8, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>{t.subs.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, padding: "6px 0" }}><HealthIcon t={s} size={12} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{s.title}</span></div>)}</div>}
-      {can("editJobs") && <div style={{ marginTop: 14, display: "flex", gap: 8 }} onClick={e => e.stopPropagation()}><Btn variant="ghost" size="sm" onClick={() => openNew(t.id)}>+ Subtask</Btn></div>}
+      <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>{t.clientId && <Badge t={clientName(t.clientId)} c={clientColor(t.clientId)} />}</div>
+      <div style={{ fontSize: 12, color: T.textSec, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: T.mono, fontSize: 12 }}>{fm(t.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono, fontSize: 12 }}>{fm(t.end)}</span><span style={{ color: T.textDim }}>·</span><span>{t.hpd}h/day</span></div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>{t.team.map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}</div>
+      {t.notes && <div style={{ fontSize: 12, color: T.textDim, fontStyle: "italic", marginBottom: 8, lineHeight: 1.5 }}>{t.notes.substring(0, 100)}</div>}
+      {(t.deps || []).length > 0 && <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 8 }}>⛓ {t.deps.length} dependency(s)</div>}
+      {(t.subs || []).length > 0 && <div style={{ marginTop: 6, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
+        {t.subs.map(s => {
+          const hasEng = s.engineering !== undefined;
+          const e = s.engineering || {};
+          const allDone = hasEng && !!(e.designed && e.verified && e.sentToPerforex);
+          const activeStep = hasEng ? (!e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex") : null;
+          return <div key={s.id} style={{ marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
+              <HealthIcon t={s} size={11} />
+              <span style={{ flex: 1, fontSize: 12, color: T.textSec, fontWeight: 500 }}>{s.title}</span>
+              {allDone && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>✓ Eng Ready</span>}
+            </div>
+            {hasEng && !allDone && <div style={{ display: "flex", gap: 6, paddingLeft: 19, flexWrap: "wrap", marginTop: 2 }}>
+              {engSteps.map(step => {
+                const done = !!e[step.key];
+                const isActive = step.key === activeStep;
+                if (done) return <span key={step.key} style={{ fontSize: 10, color: "#10b981", display: "flex", alignItems: "center", gap: 2 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
+                if (isActive) return <span key={step.key} style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700 }}>→ {step.label}</span>;
+                return <span key={step.key} style={{ fontSize: 10, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
+              })}
+            </div>}
+          </div>;
+        })}
+      </div>}
+      {can("editJobs") && <div style={{ marginTop: 10, display: "flex", gap: 8 }} onClick={e => e.stopPropagation()}><Btn variant="ghost" size="sm" onClick={() => openNew(t.id)}>+ Subtask</Btn></div>}
     </Card>)}
     </div>
-    {/* Finished section */}
+    {/* All Jobs Finished section */}
     {finishedTasks.length > 0 && <div style={{ marginTop: 32 }}>
-      <h3 style={{ fontSize: 18, fontWeight: 700, color: "#10b981", margin: "0 0 16px", display: "flex", alignItems: "center", gap: 10 }}>✅ Finished ({finishedTasks.length})</h3>
+      <div style={{ margin: "0 0 16px", borderTop: `1px solid ${T.border}`, position: "relative" }}>
+        <span style={{ position: "absolute", top: -10, left: 0, background: T.bg, paddingRight: 12, fontSize: 11, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>All Jobs Finished</span>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
         {finishedTasks.map(t => <div key={t.id} onClick={() => openDetail(t)}
           onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; e.currentTarget.style.borderColor = "#10b98166"; e.currentTarget.style.boxShadow = "0 2px 10px rgba(16,185,129,0.12)"; }}
@@ -2352,6 +2484,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         </div>)}
       </div>
     </div>}
+    </>
   </div>;
 
   // ═══════════════════ CLIENTS ═══════════════════
@@ -2618,6 +2751,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       {/* Top nav */}
       <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", flexWrap: "wrap", position: "relative", minHeight: 44, justifyContent: isAdmin ? "flex-start" : "center" }}>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>
           <Btn variant="teal" size="sm" onClick={openAvail}>🔍 Availability</Btn>
           <Btn variant="warn" size="sm" onClick={() => setTimeOffModal(true)}>📅 Time Off</Btn>
         </div>}
@@ -3310,7 +3444,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                   {engSteps.map(step => {
                     const done = !!e[step.key];
                     const isActive = step.key === activeStep;
-                    if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}</span>;
+                    if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canSignOffEngineering && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}</span>;
                     if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: 14, background: "#3b82f6", color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
                     if (isActive) return <span key={step.key} style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>→ {step.label}</span>;
                     return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {step.label}</span>;
@@ -4538,7 +4672,8 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       // Job-level detail (existing)
       const parent = tasks.find(x => x.id === fresh.id);
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>{cls}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}><HealthIcon t={fresh} size={22} style={{ flexShrink: 0, marginTop: 4 }} /><div style={{ flex: 1, minWidth: 0 }}><h3 style={{ margin: "0 0 6px", color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{fresh.title}</h3><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Job # {fresh.jobNumber}</span>}{fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}</div></div></div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}><HealthIcon t={fresh} size={22} style={{ flexShrink: 0 }} /><h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{fresh.title}</h3></div>
+        {(fresh.jobNumber || fresh.poNumber) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>{fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Job # {fresh.jobNumber}</span>}{fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}</div>}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>{fresh.clientId && <Badge t={"🏢 " + clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}<span style={{ fontSize: 15, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span><span style={{ color: T.textDim }}>·</span>{fresh.hpd}h/day</span></div>
         {fresh.dueDate && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "10px 16px", background: fresh.dueDate < TD ? "#ef444415" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b15" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${fresh.dueDate < TD ? "#ef444433" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b33" : T.border}` }}><span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Customer Due Date:</span><span style={{ fontSize: 14, fontWeight: 700, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text, fontFamily: T.mono }}>{fm(fresh.dueDate)}</span>{fresh.dueDate < TD && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>OVERDUE</span>}</div>}
         <div style={{ marginBottom: 16 }}>
@@ -4572,7 +4707,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                 })}
                 {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
               </div>}
-              {(panel.subs || []).length > 0 && <div style={{ paddingLeft: 24 }}>
+              {(panel.subs || []).length > 0 && <div>
                 {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
                   return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}` }}>
                     <HealthIcon t={op} size={12} />
@@ -5179,7 +5314,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     </div>}
 
     {/* Shared context menu */}
-    {ctxMenu && <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: isMobile ? 16 : Math.min(ctxMenu.x, window.innerWidth - 260), top: isMobile ? "auto" : Math.min(ctxMenu.y, window.innerHeight - 400), bottom: isMobile ? 16 : "auto", right: isMobile ? 16 : "auto", zIndex: 9999, minWidth: isMobile ? "auto" : 260, width: isMobile ? "calc(100% - 32px)" : "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
+    {ctxMenu && <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: isMobile ? 16 : Math.min(ctxMenu.x, window.innerWidth - 260), ...(isMobile ? { bottom: 16, right: 16 } : ctxMenu.y + 400 > window.innerHeight ? { bottom: window.innerHeight - ctxMenu.y } : { top: ctxMenu.y }), zIndex: 9999, minWidth: isMobile ? "auto" : 260, width: isMobile ? "calc(100% - 32px)" : "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
       <div style={{ padding: "12px 18px 10px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ctxMenu.item.title}</div>
         <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>{fm(ctxMenu.item.start)} → {fm(ctxMenu.item.end)}</div>

@@ -189,3 +189,19 @@ export async function callAI(payload, getToken) {
 export async function uploadAndProcess(payload, getToken) {
   return callAI(payload, getToken);
 }
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+// payload: { type, jobTitle, panelTitle, stepLabel, jobTeamIds, jobNumber }
+export async function callNotify(payload, getToken, orgCode) {
+  try {
+    const headers = await authHeaders(getToken, orgCode);
+    const res = await fetch(`${BASE}/notify`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) console.warn("callNotify failed:", res.status);
+  } catch (e) {
+    console.warn("callNotify error (non-fatal):", e);
+  }
+}
