@@ -942,32 +942,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     }
   }, [people]);
 
-  // ─── Push notification token registration ────────────────────────────────
-  useEffect(() => {
-    if (!loggedInUser) return;
-    const register = async () => {
-      try {
-        const { PushNotifications } = await import("@capacitor/push-notifications");
-        const perm = await PushNotifications.checkPermissions();
-        const status = perm.receive === "granted" ? perm : await PushNotifications.requestPermissions();
-        if (status.receive !== "granted") return;
-        await PushNotifications.register();
-        PushNotifications.addListener("registration", async ({ value: token }) => {
-          if (loggedInUser.pushToken === token) return;
-          const updated = { ...loggedInUser, pushToken: token };
-          setLoggedInUser(updated);
-          setPeople(prev => {
-            const next = prev.map(p => p.id === loggedInUser.id ? updated : p);
-            savePeople(next, getToken, orgCode).catch(console.warn);
-            return next;
-          });
-        });
-      } catch {
-        // Not running in Capacitor (web browser) — skip silently
-      }
-    };
-    register();
-  }, [loggedInUser?.id]);
+  // ─── Push notification token registration (disabled until APNs is ready) ──
 
   // ─── Chat & notifications state ──────────────────────────────────────────
   const [messages, setMessages] = useState([]);
