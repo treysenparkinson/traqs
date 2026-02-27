@@ -894,6 +894,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
   const [exp, setExp] = useState({});
   const [selBarId, setSelBarId] = useState(null);
   const [ctxMenu, setCtxMenu] = useState(null);
+  const [quickAddSub, setQuickAddSub] = useState(null); // { type:"panel"|"op", parentId, grandParentId, title, start, end, x, y }
   const [clipboard, setClipboard] = useState(null); // { level, item }
   const [pasteConfirm, setPasteConfirm] = useState(null); // { x, y, startDate, endDate }
   const [reminderModal, setReminderModal] = useState(null);
@@ -5289,7 +5290,13 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     </div>}
 
     {/* Shared context menu */}
-    {ctxMenu && <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: isMobile ? 16 : Math.min(ctxMenu.x, window.innerWidth - 260), ...(isMobile ? { bottom: 16, right: 16 } : ctxMenu.y + 400 > window.innerHeight ? { bottom: window.innerHeight - ctxMenu.y } : { top: ctxMenu.y }), zIndex: 9999, minWidth: isMobile ? "auto" : 260, width: isMobile ? "calc(100% - 32px)" : "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
+    {ctxMenu && (() => {
+      const spaceBelow = window.innerHeight - ctxMenu.y - 12;
+      const spaceAbove = ctxMenu.y - 12;
+      const flipUp = spaceBelow < 300 && spaceAbove > spaceBelow;
+      const maxH = flipUp ? Math.min(spaceAbove, window.innerHeight - 32) : Math.min(spaceBelow, window.innerHeight - 32);
+      const vPos = flipUp ? { bottom: window.innerHeight - ctxMenu.y } : { top: ctxMenu.y };
+      return <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: isMobile ? 16 : Math.min(ctxMenu.x, window.innerWidth - 268), ...(isMobile ? { bottom: 16, right: 16 } : vPos), zIndex: 9999, minWidth: isMobile ? "auto" : 260, width: isMobile ? "calc(100% - 32px)" : "auto", maxHeight: isMobile ? "80vh" : maxH, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
       <div style={{ padding: "12px 18px 10px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ctxMenu.item.title}</div>
         <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>{fm(ctxMenu.item.start)} → {fm(ctxMenu.item.end)}</div>
@@ -5310,6 +5317,21 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         } else {
           openEdit(it, it.isSub ? it.pid : null);
         }
+      }} />}
+      {/* Quick add panel (job level) */}
+      {can("editJobs") && (ctxMenu.item.level === 0 || (!ctxMenu.item.isSub && !ctxMenu.item.pid)) && <CtxMenuItem icon="➕" label="Add Panel" sub="Add a new panel to this job" onClick={() => {
+        const it = ctxMenu.item;
+        setCtxMenu(null);
+        setQuickAddSub({ type: "panel", parentId: it.id, grandParentId: null, parentTitle: it.title, title: "", start: it.start, end: it.end, x: ctxMenu.x, y: ctxMenu.y });
+      }} />}
+      {/* Quick add operation (panel level) */}
+      {can("editJobs") && (ctxMenu.item.level === 1 || (ctxMenu.item.isSub && ctxMenu.item.pid && !ctxMenu.item.grandPid)) && <CtxMenuItem icon="➕" label="Add Operation" sub="Add a new operation to this panel" onClick={() => {
+        const it = ctxMenu.item;
+        // Find grandParentId (the job that owns this panel)
+        let grandParentId = null;
+        for (const job of tasks) { if ((job.subs || []).find(p => p.id === it.id)) { grandParentId = job.id; break; } }
+        setCtxMenu(null);
+        setQuickAddSub({ type: "op", parentId: it.id, grandParentId, parentTitle: it.title, title: "", start: it.start, end: it.end, x: ctxMenu.x, y: ctxMenu.y });
       }} />}
       {/* Quick reassign for operations */}
       {can("reassign") && (ctxMenu.item.level === 2 || (ctxMenu.item.isSub && ctxMenu.item.pid && !tasks.find(x => x.id === ctxMenu.item.id))) && (() => {
@@ -5376,6 +5398,57 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         <span style={{ fontSize: 15, width: 22, textAlign: "center", flexShrink: 0 }}>🗑️</span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Task</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Permanently remove this task</div></div>
       </div>}
+    </div>;
+    })()}
+    {/* Quick add subtask popup */}
+    {quickAddSub && <div onClick={() => setQuickAddSub(null)} style={{ position: "fixed", inset: 0, zIndex: 9997 }}>
+      <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(quickAddSub.x, window.innerWidth - 310), top: Math.min(quickAddSub.y, window.innerHeight - 260), zIndex: 9998, width: 296, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
+          {quickAddSub.type === "panel" ? "➕ Add Panel" : "➕ Add Operation"}
+          <span style={{ fontWeight: 400, color: T.textDim, marginLeft: 6, textTransform: "none", letterSpacing: 0 }}>to {quickAddSub.parentTitle}</span>
+        </div>
+        <input
+          autoFocus
+          placeholder={quickAddSub.type === "panel" ? "Panel name…" : "Operation name…"}
+          value={quickAddSub.title}
+          onChange={e => setQuickAddSub(p => ({ ...p, title: e.target.value }))}
+          onKeyDown={e => { if (e.key === "Enter") e.currentTarget.form?.requestSubmit?.(); }}
+          style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", marginBottom: 10, boxSizing: "border-box" }}
+        />
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, color: T.textDim, marginBottom: 4, fontWeight: 600 }}>START</div>
+            <input type="date" value={quickAddSub.start} onChange={e => setQuickAddSub(p => ({ ...p, start: e.target.value }))}
+              style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, color: T.textDim, marginBottom: 4, fontWeight: 600 }}>END</div>
+            <input type="date" value={quickAddSub.end} onChange={e => setQuickAddSub(p => ({ ...p, end: e.target.value }))}
+              style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button onClick={() => setQuickAddSub(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => {
+            if (!quickAddSub.title.trim()) return;
+            const newItem = { id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: [], hpd: 8, notes: "", deps: [] };
+            if (quickAddSub.type === "panel") {
+              setTasks(prev => prev.map(job => job.id === quickAddSub.parentId
+                ? { ...job, subs: [...(job.subs || []), { ...newItem, subs: [] }] }
+                : job));
+            } else {
+              setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).map(panel =>
+                panel.id === quickAddSub.parentId
+                  ? { ...panel, subs: [...(panel.subs || []), newItem] }
+                  : panel
+              )})));
+            }
+            setQuickAddSub(null);
+          }} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            {quickAddSub.type === "panel" ? "Add Panel" : "Add Operation"}
+          </button>
+        </div>
+      </div>
     </div>}
     {/* Paste confirmation popup */}
     {pasteConfirm && <div onClick={() => setPasteConfirm(null)} style={{ position: "fixed", inset: 0, zIndex: 9997 }}>
