@@ -3065,7 +3065,6 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                     const onU = me => {
                       document.removeEventListener("mousemove", onM);
                       document.removeEventListener("mouseup", onU);
-                      // Reset visual styles
                       barEl.style.transform = "";
                       barEl.style.zIndex = "";
                       barEl.style.opacity = "";
@@ -3073,11 +3072,8 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                       barEl.style.transition = "";
                       setDropTarget(null);
                       setTeamDragInfo(null);
-                      if (!moved) {
-                        if (bar.task) openDetail(bar.task);
-                        return;
-                      }
-                      // Compute final dx from total mouse displacement
+                      if (!moved) { if (bar.task) openDetail(bar.task); return; }
+                      // Compute final position
                       const finalDx = Math.round((me.clientX - sx) / cW);
                       const personId = bar.task.team[0] || origPerson;
                       const rawStart = addD(os, finalDx);
@@ -3086,93 +3082,58 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                       const delta = diffD(rawStart, newStart);
                       const newEnd = addD(rawEnd, delta);
                       const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-                      // Revert first, then decide
-                      setTasks(prev => {
-                        let reverted = prev.map(t => {
-                          if (taskPid) {
-                            const pi2 = (t.subs || []).findIndex(s => s.id === taskPid);
-                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === bar.task.id ? { ...op, start: os, end: oe } : op) }; return { ...t, subs: ns }; }
+                      const targetPid = lastDropPid || personId;
+                      const targetPerson = people.find(x => x.id === targetPid);
+                      const targetName = targetPerson ? targetPerson.name : "them";
+                      const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
+                      const opDuration = diffD(newStart, newEnd) + 1;
+                      // Locked check (use closure tasks — unchanged during drag)
+                      let isLocked = false;
+                      tasks.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && op.locked) isLocked = true; })));
+                      if (isLocked) { showLockedError([{ opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]); return; }
+                      // PTO check
+                      const person = people.find(x => x.id === personId);
+                      if (person) { for (const to of (person.timeOff || [])) { if (to.start <= newEnd && to.end >= newStart) { showOverlapIfAny([{ person: person.name, isPto: true, panelTitle: to.reason || to.type || "PTO", start: to.start, end: to.end }]); return; } } }
+                      // Conflict check
+                      const schedConflicts = checkOverlapsPure(tasks, [{ personId: targetPid, start: newStart, end: newEnd, excludeOpId: bar.task.id, opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]);
+                      // Helper: apply the move and auto-expand team view range so bar stays visible
+                      const applyMove = (toStart, toEnd) => {
+                        const logEntry = { fromStart: os, fromEnd: oe, toStart, toEnd, date: TD, movedBy: movedByName, reason: isReassign ? `Reassigned to ${targetName}` : "Manual move" };
+                        setTasks(prev => recalcBounds(prev.map(t => {
+                          if (!taskPid) return t;
+                          const pi2 = (t.subs || []).findIndex(s => s.id === taskPid);
+                          if (pi2 < 0) return t;
+                          const ns = [...t.subs];
+                          ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === bar.task.id ? { ...op, start: toStart, end: toEnd, moveLog: [...(op.moveLog || []), logEntry] } : op) };
+                          return { ...t, subs: ns };
+                        }), movedByName));
+                        if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
+                        // Expand team view window so bar doesn't vanish off the edge
+                        if (toStart < tStart) setTStart(toStart);
+                        if (toEnd > tEnd) setTEnd(toEnd);
+                      };
+                      if (schedConflicts.length > 0) {
+                        let nextSlot = null;
+                        let candidate = addD(newStart, 1);
+                        for (let i = 0; i < 180; i++) {
+                          const dt = new Date(candidate + "T12:00:00");
+                          if (dt.getDay() === 0) { candidate = addD(candidate, 1); continue; }
+                          if (dt.getDay() === 6) { candidate = addD(candidate, 2); continue; }
+                          const slotEnd = addD(candidate, opDuration - 1);
+                          let ptoBusy = false;
+                          if (targetPerson) { for (const to of (targetPerson.timeOff || [])) { if (to.start <= slotEnd && to.end >= candidate) { ptoBusy = true; break; } } }
+                          if (!ptoBusy) {
+                            const c2 = checkOverlapsPure(tasks, [{ personId: targetPid, start: candidate, end: slotEnd, excludeOpId: bar.task.id, opTitle: "", panelTitle: "" }]);
+                            if (c2.length === 0) { nextSlot = { start: candidate, end: slotEnd }; break; }
                           }
-                          return t;
-                        });
-                        // Check locked
-                        let isLocked = false;
-                        reverted.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && op.locked) isLocked = true; })));
-                        if (isLocked) { setTimeout(() => showLockedError([{ opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]), 0); return reverted; }
-                        // Check PTO
-                        const person = people.find(x => x.id === personId);
-                        if (person) {
-                          for (const to of (person.timeOff || [])) {
-                            if (to.start <= newEnd && to.end >= newStart) {
-                              setTimeout(() => showOverlapIfAny([{ person: person.name, isPto: true, panelTitle: to.reason || to.type || "PTO", start: to.start, end: to.end }]), 0);
-                              return reverted;
-                            }
-                          }
+                          candidate = addD(candidate, 1);
                         }
-                        // Use target person (may differ from original if dragged to a new row)
-                        const targetPid = lastDropPid || personId;
-                        const targetPerson = people.find(x => x.id === targetPid);
-                        const targetName = targetPerson ? targetPerson.name : "them";
-                        const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
-                        const opDuration = diffD(newStart, newEnd) + 1;
-                        // Check for scheduling conflicts against the target person
-                        const schedConflicts = checkOverlapsPure(reverted, [{
-                          personId: targetPid, start: newStart, end: newEnd,
-                          excludeOpId: bar.task.id, opTitle: bar.task.title, panelTitle: bar.task.panelTitle || ""
-                        }]);
-                        // Helper: find next open slot for target person
-                        const findNextSlot = () => {
-                          let candidate = addD(newStart, 1);
-                          for (let i = 0; i < 180; i++) {
-                            const dt = new Date(candidate + "T12:00:00");
-                            if (dt.getDay() === 0) { candidate = addD(candidate, 1); continue; }
-                            if (dt.getDay() === 6) { candidate = addD(candidate, 2); continue; }
-                            const slotEnd = addD(candidate, opDuration - 1);
-                            let ptoBusy = false;
-                            if (targetPerson) { for (const to of (targetPerson.timeOff || [])) { if (to.start <= slotEnd && to.end >= candidate) { ptoBusy = true; break; } } }
-                            if (!ptoBusy) {
-                              const c2 = checkOverlapsPure(reverted, [{ personId: targetPid, start: candidate, end: slotEnd, excludeOpId: bar.task.id, opTitle: "", panelTitle: "" }]);
-                              if (c2.length === 0) return { start: candidate, end: slotEnd };
-                            }
-                            candidate = addD(candidate, 1);
-                          }
-                          return null;
-                        };
-                        const makeApply = (toStart, toEnd) => (tl) => tl.map(t => {
-                          if (taskPid) {
-                            const pi2 = (t.subs || []).findIndex(s => s.id === taskPid);
-                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => {
-                              if (op.id === bar.task.id) {
-                                const logEntry = { fromStart: os, fromEnd: oe, toStart, toEnd, date: TD, movedBy: movedByName, reason: lastDropPid && lastDropPid !== origPerson ? `Reassigned to ${targetName}` : "Manual move" };
-                                return { ...op, start: toStart, end: toEnd, moveLog: [...(op.moveLog || []), logEntry] };
-                              }
-                              return op;
-                            }) }; return { ...t, subs: ns }; }
-                          }
-                          return t;
-                        });
-                        if (schedConflicts.length > 0) {
-                          const nextSlot = findNextSlot();
-                          if (nextSlot) {
-                            setTimeout(() => setConfirmMove({
-                              title: "Schedule Conflict — Next Available",
-                              message: `${targetName} is busy ${fm(newStart)}–${fm(newEnd)}.\n\nNext available: ${fm(nextSlot.start)}–${fm(nextSlot.end)}. Move${isReassign ? ` and reassign to ${targetName}` : ""} to that slot?`,
-                              onCancel: () => setConfirmMove(null),
-                              onConfirm: () => {
-                                setConfirmMove(null);
-                                setTasks(curr => recalcBounds(makeApply(nextSlot.start, nextSlot.end)(curr), movedByName));
-                                if (lastDropPid && lastDropPid !== origPerson) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
-                              }
-                            }), 0);
-                          } else {
-                            setTimeout(() => showOverlapIfAny(schedConflicts), 0);
-                          }
-                          return reverted;
-                        }
-                        // No conflicts — apply immediately, no dialog needed
-                        if (isReassign) setTimeout(() => reassignTask(bar.task.id, origPerson, lastDropPid, taskPid), 0);
-                        return recalcBounds(makeApply(newStart, newEnd)(reverted), movedByName);
-                      });
+                        if (nextSlot) {
+                          setConfirmMove({ title: "Schedule Conflict — Next Available", message: `${targetName} is busy ${fm(newStart)}–${fm(newEnd)}.\n\nNext available: ${fm(nextSlot.start)}–${fm(nextSlot.end)}. Move${isReassign ? ` and reassign to ${targetName}` : ""} to that slot?`, onCancel: () => setConfirmMove(null), onConfirm: () => { setConfirmMove(null); applyMove(nextSlot.start, nextSlot.end); } });
+                        } else { showOverlapIfAny(schedConflicts); }
+                        return;
+                      }
+                      applyMove(newStart, newEnd);
                     };
                     document.addEventListener("mousemove", onM);
                     document.addEventListener("mouseup", onU);
