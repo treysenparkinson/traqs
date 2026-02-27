@@ -2242,9 +2242,16 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                 {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
-                {["All", ...uniqueHpd].map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent : "transparent", color: fHpd === String(h) ? T.accentText : T.text, fontSize: 12, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{h === "All" ? "All" : `${h}h`}</button>)}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <input type="number" min="1" max="24" placeholder="e.g. 4" value={fHpd === "All" ? "" : fHpd}
+                  onChange={e => { const v = e.target.value; setFHpd(v === "" ? "All" : v); }}
+                  onClick={e => e.stopPropagation()}
+                  style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fHpd !== "All" ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                {fHpd !== "All" && <button onClick={() => setFHpd("All")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
               </div>
+              {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
+                {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: 6, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
+              </div>}
               {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
@@ -2824,9 +2831,16 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                 {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
-                {["All", ...uniqueHpd].map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent : "transparent", color: fHpd === String(h) ? T.accentText : T.text, fontSize: 12, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{h === "All" ? "All" : `${h}h`}</button>)}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <input type="number" min="1" max="24" placeholder="e.g. 4" value={fHpd === "All" ? "" : fHpd}
+                  onChange={e => { const v = e.target.value; setFHpd(v === "" ? "All" : v); }}
+                  onClick={e => e.stopPropagation()}
+                  style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fHpd !== "All" ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                {fHpd !== "All" && <button onClick={() => setFHpd("All")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
               </div>
+              {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
+                {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: 6, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
+              </div>}
               {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
