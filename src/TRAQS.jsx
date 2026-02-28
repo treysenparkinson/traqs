@@ -201,6 +201,14 @@ animStyle.textContent = `
   100% { opacity: 1; transform: translateY(0)    scale(1);    }
 }
 
+@keyframes selectBubbleIn {
+  0%   { opacity: 0; transform: scale(0);    }
+  60%  { opacity: 1; transform: scale(1.25); }
+  80%  { transform: scale(0.88); }
+  100% { opacity: 1; transform: scale(1);    }
+}
+.select-bubble-in { animation: selectBubbleIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+
 /* ── Animation classes ─────────────────────────────────────────────── */
 .anim-view-enter  { animation: viewEnter   0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-card        { animation: cardPop     0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -672,14 +680,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
                 id: uid(), title: op.title, start: op.start || panel.start || job.start || TD,
                 end: op.end || panel.end || job.end || TD,
                 status, pri: "Medium", team: person ? [person.id] : [],
-                hpd: 8, notes: "", deps: []
+                hpd: 7.5, notes: "", deps: []
               };
             });
             const pStart = ops.length > 0 ? ops.reduce((a, b) => (a.start || "9") < (b.start || "9") ? a : b).start : (panel.start || job.start || TD);
             const pEnd = ops.length > 0 ? ops.reduce((a, b) => (a.end || "0") > (b.end || "0") ? a : b).end : (panel.end || job.end || TD);
             return {
               id: uid(), title: panel.title, start: pStart, end: pEnd,
-              pri: "Medium", status: panel.status || "Not Started", team: [], hpd: 8, notes: panel.notes || "", deps: [],
+              pri: "Medium", status: panel.status || "Not Started", team: [], hpd: 7.5, notes: panel.notes || "", deps: [],
               subs: ops
             };
           });
@@ -688,7 +696,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
           return {
             id: uid(), title: job.title || job.fullTitle, start: jStart, end: jEnd,
             pri: "Medium", status: job.status || "Not Started", team: [], color: "#3b82f6",
-            hpd: 8, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "",
+            hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "",
             deps: [], subs: panels
           };
         });
@@ -749,15 +757,15 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             const panels = (job.panels || []).map(panel => {
               const ops = (panel.ops || []).map(op => {
                 const person = op.assignedTo ? ap.find(p => p.name.toLowerCase() === op.assignedTo.toLowerCase()) : null;
-                return { id: uid(), title: op.title || "Wire", start: op.start || job.start, end: op.end || job.end, status: "Not Started", pri: "Medium", team: person ? [person.id] : [], hpd: 8, notes: "", deps: [] };
+                return { id: uid(), title: op.title || "Wire", start: op.start || job.start, end: op.end || job.end, status: "Not Started", pri: "Medium", team: person ? [person.id] : [], hpd: 7.5, notes: "", deps: [] };
               });
               const pS = ops.length ? ops.reduce((a, b) => a.start < b.start ? a : b).start : job.start;
               const pE = ops.length ? ops.reduce((a, b) => a.end > b.end ? a : b).end : job.end;
-              return { id: uid(), title: panel.title, start: pS, end: pE, pri: "Medium", status: "Not Started", team: [], hpd: 8, notes: "", deps: [], subs: ops };
+              return { id: uid(), title: panel.title, start: pS, end: pE, pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: ops };
             });
             const jS = panels.length ? panels.reduce((a, b) => a.start < b.start ? a : b).start : job.start;
             const jE = panels.length ? panels.reduce((a, b) => a.end > b.end ? a : b).end : job.end;
-            return { id: uid(), title: job.title, start: jS, end: jE, pri: "Medium", status: job.status || "Not Started", team: [], color: "#3b82f6", hpd: 8, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "", deps: [], subs: panels };
+            return { id: uid(), title: job.title, start: jS, end: jE, pri: "Medium", status: job.status || "Not Started", team: [], color: "#3b82f6", hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "", deps: [], subs: panels };
           });
           setTasks(prev => [...prev, ...nj]); totalJobs += nj.length;
         }
@@ -1475,7 +1483,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     setClientModal(null);
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
-  const openNew = (pid = null) => setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 8, notes: "", subs: [], deps: [], clientId: null, jobType: "panel", templateMode: "matrix", customOps: [] }, parentId: pid });
+  const openNew = (pid = null) => setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, jobType: "panel", templateMode: "matrix", customOps: [] }, parentId: pid });
   const openEdit = (t, pid = null) => setModal({ type: "edit", data: { ...t }, parentId: pid });
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
   const openDeps = id => setModal({ type: "deps", data: allItems.find(x => x.id === id), parentId: null });
@@ -2199,6 +2207,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             else { const span = diffD(gStart, gEnd); const half = Math.floor(span / 2); setGStart(addD(TD, -half)); setGEnd(addD(TD, span - half)); }
           }}>Today</Btn>
           {ganttViewMode === "linear" && <SlidingPill
+            size="sm"
             options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
             value={gMode}
             onChange={m => {
@@ -2214,7 +2223,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
               else if (gMode === "day") { setGStart(addD(gStart, -1)); setGEnd(addD(gEnd, -1)); }
               else if (gMode === "week") { setGStart(addD(gStart, -7)); setGEnd(addD(gEnd, -7)); }
             }}>◀</Btn>
-            <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 180, textAlign: "center" }}>{(() => {
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.text, minWidth: 150, textAlign: "center" }}>{(() => {
               const s = new Date(gStart + "T12:00:00");
               if (ganttViewMode === "calendar" || gMode === "month") return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
               if (gMode === "day") return s.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
@@ -2251,11 +2260,11 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
               {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
-          {can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} style={!jobSelectMode ? { background: "transparent" } : {}} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>}
         </div>
         {/* Center: Linear/Calendar toggle — absolutely centered */}
         <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
           <SlidingPill
+            size="sm"
             options={[{value:"linear",label:"Linear"},{value:"calendar",label:"Calendar"}]}
             value={ganttViewMode}
             onChange={v => { setGanttViewMode(v); if (v==="calendar") { const d=new Date(gStart+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); setGMode("month"); } }}
@@ -2362,12 +2371,13 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                 const personColor = r.level === 2 && (r.team || [])[0] ? (people.find(pp => pp.id === r.team[0]) || {}).color || T.accent : null;
                 const barColor = r.level === 2 ? (personColor || T.accent) : T.accent;
                 const barBg = r.level === 1 ? T.accent + "cc" : barColor;
+                const barTextColor = accentText(barColor);
                 return <div className="anim-gantt-bar" style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0.55 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
                   onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
                   <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />
                   {can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                   {can("moveJobs") && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                  <span style={{ fontSize: r.level === 2 ? 11 : 12, color: accentText(barColor), fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{r.level === 0 && r.jobNumber && <span style={{ opacity: 0.7, fontWeight: 500, flexShrink: 0 }}>{r.jobNumber} ·</span>}{r.title}{hasSubs && <span style={{ fontSize: 10, opacity: 0.6 }}>({r.subs.length})</span>}{taskOwner(r) && <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}>· {taskOwner(r)}</span>}</span>
+                  <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{r.level === 0 && r.jobNumber && <span style={{ opacity: 0.7, fontWeight: 500, flexShrink: 0 }}>{r.jobNumber} ·</span>}{r.title}{hasSubs && <span style={{ fontSize: 10, opacity: 0.6 }}>({r.subs.length})</span>}{taskOwner(r) && <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}>· {taskOwner(r)}</span>}</span>
                 </div>;
               })()}
             </div>
@@ -2640,7 +2650,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             {/* Jobs list */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
               <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Jobs ({selTasks.length})</h4>
-              {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 8, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
+              {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
             </div>
             {selTasks.length === 0 && <div style={{ textAlign: "center", padding: 32, color: T.textDim, fontSize: 14, background: T.card, borderRadius: T.radius, border: `1px solid ${T.border}` }}>No jobs assigned to this client yet.</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2812,8 +2822,6 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", flexWrap: "wrap", position: "relative", minHeight: 44, justifyContent: isAdmin ? "flex-start" : "center" }}>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>
-          <Btn variant="teal" size="sm" onClick={openAvail}>🔍 Availability</Btn>
-          <Btn variant="warn" size="sm" onClick={() => setTimeOffModal(true)}>📅 Time Off</Btn>
           <Btn size="sm" variant={teamSelectMode ? "primary" : "ghost"} style={!teamSelectMode ? { background: "transparent" } : {}} onClick={() => { setTeamSelectMode(m => !m); setSelPeople(new Set()); }}>{teamSelectMode ? "Done" : "Select"}</Btn>
         <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setFilterOpen(p => !p)} title="Filters" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
@@ -2970,11 +2978,11 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             const isBeingDragged = rowDragId === p.id;
             const isDragBefore = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "before";
             const isDragAfter  = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "after";
-            return <div key={p.id} data-rowtype="person" data-rowid={p.id} style={{ display: "flex", height: rH, borderBottom: `1px solid ${isDrop ? T.accent : T.bg + "55"}`, position: "relative", background: isDrop ? T.accent + "08" : "transparent", opacity: isBeingDragged ? 0.35 : 1, transition: "background 0.15s, border-color 0.15s, opacity 0.1s" }}>
+            return <div key={p.id} data-rowtype="person" data-rowid={p.id} onClick={teamSelectMode ? () => setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }) : undefined} style={{ display: "flex", height: rH, borderBottom: `1px solid ${isDrop ? T.accent : T.bg + "55"}`, position: "relative", background: teamSelectMode && selPeople.has(p.id) ? T.accent + "18" : isDrop ? T.accent + "08" : "transparent", opacity: isBeingDragged ? 0.35 : 1, transition: "background 0.15s, border-color 0.15s, opacity 0.1s", cursor: teamSelectMode ? "pointer" : "default" }}>
               {/* Insertion line indicators */}
               {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
               {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
-              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: isDrop ? T.accent + "0c" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
+              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
                 {/* Drag handle */}
                 <div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }} title="Drag to reorder">⠿</div>
                 <div style={{ width: 28, height: 28, borderRadius: 14, background: p.color + "22", border: `1.5px solid ${p.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: p.color, flexShrink: 0 }}>{p.teamNumber ? String(p.teamNumber) : p.name.charAt(0)}</div>
@@ -2983,7 +2991,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                   <div style={{ fontSize: 11, color: T.textDim }}>{p.role} · {p.cap}h</div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono, flexShrink: 0 }}>{row.util}%</span>
-                {teamSelectMode && <div onClick={e => { e.stopPropagation(); setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }); }} style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.15s" }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
+                {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
                 {!teamSelectMode && can("manageTeam") && <Btn variant="ghost" size="sm" style={{ padding: "4px 6px", fontSize: 11 }} onClick={() => setPersonModal({ ...p })}>Edit</Btn>}
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
@@ -4244,9 +4252,9 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
               })}
             </div>
             {/* Big centered + Add Subtask */}
-            <button onClick={() => setEd(p => ({ ...p, customOps: [...(p.customOps || []), { title: "", durationBD: 1, subs: [] }] }))} style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed #8b5cf655`, background: "#8b5cf608", color: "#8b5cf6", fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.background = "#8b5cf618"; e.currentTarget.style.borderColor = "#8b5cf6"; }}
-              onMouseLeave={e => { e.currentTarget.style.background = "#8b5cf608"; e.currentTarget.style.borderColor = "#8b5cf655"; }}>
+            <button onClick={() => setEd(p => ({ ...p, customOps: [...(p.customOps || []), { title: "", durationBD: 1, subs: [] }] }))} style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
               + Add Subtask
             </button>
           </div>}
@@ -4485,8 +4493,8 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                             newOps[oi] = { ...newOps[oi], team: sel ? [] : [p.id] };
                             newSubs[pi] = { ...newSubs[pi], subs: newOps };
                             setEd(prev => ({ ...prev, subs: newSubs }));
-                          }} title={busy ? `${p.name} is busy during this period` : isLead ? `${p.name} — Team ${p.teamNumber} Lead` : p.name} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? p.color : busy ? T.danger + "33" : T.border}`, background: sel ? p.color : busy ? T.danger + "08" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? "#fff" : busy ? T.danger + "88" : T.textSec, fontWeight: sel ? 700 : 400, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.5 : 1, transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap", textDecoration: busy ? "line-through" : "none" }}>
-                            <span style={{ width: 18, height: 18, borderRadius: 6, background: sel ? "rgba(255,255,255,0.25)" : busy ? T.danger + "15" : p.color + "22", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: sel ? "#fff" : busy ? T.danger + "88" : p.color, flexShrink: 0 }}>{p.name[0]}</span>
+                          }} title={busy ? `${p.name} is busy during this period` : isLead ? `${p.name} — Team ${p.teamNumber} Lead` : p.name} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? p.color : busy ? T.danger + "33" : T.border}`, background: sel ? p.color : busy ? T.danger + "08" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? accentText(p.color) : busy ? T.danger + "88" : T.textSec, fontWeight: sel ? 700 : 400, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.5 : 1, transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap", textDecoration: busy ? "line-through" : "none" }}>
+                            <span style={{ width: 18, height: 18, borderRadius: 6, background: sel ? p.color + "cc" : busy ? T.danger + "15" : p.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: sel ? accentText(p.color) : busy ? T.danger + "88" : accentText(p.color), flexShrink: 0 }}>{p.name[0]}</span>
                             {p.name}
                             {isLead && <span style={{ fontSize: 10, opacity: sel ? 0.85 : 0.6 }}>⭐</span>}
                           </button>;
@@ -5498,7 +5506,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           <button onClick={() => setQuickAddSub(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={() => {
             if (!quickAddSub.title.trim()) return;
-            const newItem = { id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: quickAddSub.team || [], hpd: 8, notes: "", deps: [] };
+            const newItem = { id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: quickAddSub.team || [], hpd: 7.5, notes: "", deps: [] };
             if (quickAddSub.type === "panel") {
               setTasks(prev => prev.map(job => job.id === quickAddSub.parentId
                 ? { ...job, subs: [...(job.subs || []), { ...newItem, subs: [] }] }
