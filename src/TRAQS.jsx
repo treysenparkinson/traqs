@@ -1126,6 +1126,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [ganttWidth, setGanttWidth] = useState(0);
   const ganttCWRef = useRef(8);
   const teamCWRef = useRef(8);
+  const ganttWheelAcc = useRef(0);
+  const teamWheelAcc = useRef(0);
   useEffect(() => {
     const el = ganttContainerRef.current;
     if (!el) return;
@@ -1984,6 +1986,30 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.addEventListener("mouseup", onUp);
   }, [isMobile]);
 
+  const handleGanttWheel = useCallback((e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    ganttWheelAcc.current += e.deltaX / ganttCWRef.current;
+    const days = Math.trunc(ganttWheelAcc.current);
+    if (days !== 0) {
+      ganttWheelAcc.current -= days;
+      setGStart(prev => addD(prev, days));
+      setGEnd(prev => addD(prev, days));
+    }
+  }, []);
+
+  const handleTeamWheel = useCallback((e) => {
+    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    teamWheelAcc.current += e.deltaX / teamCWRef.current;
+    const days = Math.trunc(teamWheelAcc.current);
+    if (days !== 0) {
+      teamWheelAcc.current -= days;
+      setTStart(prev => addD(prev, days));
+      setTEnd(prev => addD(prev, days));
+    }
+  }, []);
+
   // ═══════════════════ GANTT ═══════════════════
   const renderGantt = () => {
     const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
@@ -2360,7 +2386,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
           </div>)}
         </div>;
       })() : <div ref={ganttContainerRef} style={{ width: "100%" }}>
-      <div ref={ganttRef} onMouseDown={handleGanttPan} style={{ overflowX: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+      <div ref={ganttRef} onMouseDown={handleGanttPan} onWheel={handleGanttWheel} style={{ overflowX: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
         <div style={{ display: "flex", width: tW, flexDirection: "column", position: "relative" }}>
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
             {/* Group header row (months or weeks) */}
@@ -2548,7 +2574,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       <div style={{ minWidth: 300, maxWidth: 300, display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, position: "relative" }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
-          <div style={{ position: "relative" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
+            <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
             <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${(fStat !== "All" || fClient !== "All") ? T.accent : T.border}`, background: (fStat !== "All" || fClient !== "All") ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (fStat !== "All" || fClient !== "All") ? T.accent : T.textSec }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
             </button>
@@ -2584,12 +2611,13 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
             const health = getHealth(t);
             const healthColor = HEALTH_DOT[health];
-            return <div key={t.id} onClick={() => setSelTask(isSel ? null : t.id)}
-              style={{ background: isSel ? t.color + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${isSel ? t.color + "66" : T.border}`, borderLeft: `4px solid ${t.color}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${t.color}15` : "none" }}
+            return <div key={t.id} onClick={() => { if (jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); } else { setSelTask(isSel ? null : t.id); } }}
+              style={{ background: isSel ? t.color + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? t.color + "66" : T.border}`, borderLeft: `4px solid ${t.color}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${t.color}15` : "none" }}
               onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "44"; } }}
-              onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = T.border; } }}>
+              onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : T.border; } }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: healthColor, flexShrink: 0, boxShadow: `0 0 5px ${healthColor}66` }} />
+                {jobSelectMode && <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${selJobs.has(t.id) ? T.accent : T.border}`, background: selJobs.has(t.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{selJobs.has(t.id) && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
+                {!jobSelectMode && <div style={{ width: 7, height: 7, borderRadius: "50%", background: healthColor, flexShrink: 0, boxShadow: `0 0 5px ${healthColor}66` }} />}
                 <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <Badge t={t.status} c={STA_C[t.status]} />
               </div>
@@ -3094,7 +3122,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       </div>}
       {/* Resource timeline grid */}
       {people.length > 0 && <div ref={teamContainerRef} style={{ width: "100%" }}>
-      <div ref={teamRef} onMouseDown={handleTeamPan} style={{ overflow: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: "100%" }}>
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
