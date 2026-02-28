@@ -6,7 +6,7 @@ import { writeFileSync } from "fs";
 const netlifyRedirects = {
   name: "netlify-redirects",
   closeBundle() {
-    writeFileSync("./dist/_redirects", "/*  /index.html  200\n");
+    writeFileSync("./dist/_redirects", "/api/*  /.netlify/functions/:splat  200\n/*  /index.html  200\n");
   },
 };
 

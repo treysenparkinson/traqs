@@ -1,7 +1,7 @@
 // api.js — All fetch calls to Netlify backend functions
 // Each function that writes data requires an Auth0 Bearer token.
 
-const BASE = "/api";
+const BASE = "/.netlify/functions";
 
 // ─── Token helper ───────────────────────────────────────────────────────────
 async function authHeaders(getToken, orgCode) {
