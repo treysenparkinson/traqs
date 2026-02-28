@@ -10,8 +10,18 @@ const netlifyRedirects = {
   },
 };
 
+// Force full-page reload on every file change instead of HMR patching.
+// TRAQS.jsx is 500KB+ — HMR can't patch it reliably and causes white screens.
+const forceFullReload = {
+  name: "force-full-reload",
+  handleHotUpdate({ server }) {
+    server.ws.send({ type: "full-reload" });
+    return [];
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), netlifyRedirects],
+  plugins: [react(), netlifyRedirects, forceFullReload],
   server: {
     proxy: {
       "/api": {

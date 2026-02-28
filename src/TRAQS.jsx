@@ -482,7 +482,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       const excelFiles = uploadFiles.filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
       const otherFiles = uploadFiles.filter(f => !/\.(xlsx|xls|csv)$/i.test(f.name));
       
-      let totalPeople = 0, totalClients = 0, totalJobs = 0;
+      let totalPeople = 0, totalClients = 0, totalJobs = 0, totalUpdated = 0;
 
       // === DIRECT EXCEL PARSING ===
       for (const file of excelFiles) {
@@ -728,28 +728,63 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         const msgContent = [...imageBlocks];
         if (textContent.trim()) msgContent.push({ type: "text", text: textContent.trim() });
 
+        // ── SMART AI: auto-detect updates vs. new imports ─────────────────────
+        const existingJobsCtx = tasks.map(t => ({
+          id: t.id,
+          title: t.title,
+          jobNumber: t.jobNumber || "",
+          poNumber: t.poNumber || "",
+          status: t.status,
+          dueDate: t.dueDate || "",
+          clientName: t.clientId ? (clients.find(c => c.id === t.clientId)?.name || "") : "",
+        }));
         const existingPeople = [...people, ...Array(totalPeople)].map(p => p ? `${p.name} (${p.role})` : "").filter(Boolean).join(", ");
         const existingClients = clients.map(c => `${c.name} (id:${c.id})`).join(", ");
 
-        const systemPrompt = `You are a scheduling data parser for TRAQS by Matrix Systems LLC, a steel/metal fabrication & electrical panel shop.
-EXISTING: Team: ${existingPeople || "None"} | Clients: ${existingClients || "None"}
-Parse into JSON: {"people":[{"name":"str","role":"Shop","cap":8,"color":"#hex","userRole":"user"}],"clients":[{"name":"str","contact":"","email":"","phone":"","color":"#hex","notes":""}],"jobs":[{"title":"str","start":"YYYY-MM-DD","end":"YYYY-MM-DD","pri":"Medium","status":"Not Started","notes":"","clientName":"str or null","dueDate":"YYYY-MM-DD or null","panels":[{"title":"str","ops":[{"title":"Wire|Cut|Layout|Labels|Engineering|Programming","start":"YYYY-MM-DD","end":"YYYY-MM-DD","assignedTo":"name or null"}]}]}]}
-Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing people/clients. Return ONLY JSON.`;
+        const systemPrompt = `You are a JSON-only scheduling assistant for TRAQS (a steel/metal fabrication & electrical panel shop).\n\nEXISTING JOBS:\n${JSON.stringify(existingJobsCtx, null, 2)}\n\nEXISTING TEAM: ${existingPeople || "None"}\nEXISTING CLIENTS: ${existingClients || "None"}\n\nAnalyze the input and determine what action(s) to take:\n- If it references existing jobs by number or name and adds/changes info (PO numbers, status, due dates, notes) → add those to "updates"\n- If it describes new jobs, people, or clients not in the existing lists → add to "jobs", "people", "clients"\n- Do both in the same response if the input contains both kinds of information\n\nOutput format (JSON only, nothing else):\n{"updates":[{"id":"<job id>","poNumber":"<val>","jobNumber":"<val>","notes":"<val>","status":"<val>","dueDate":"YYYY-MM-DD"}],"people":[{"name":"str","role":"Shop","cap":8,"color":"#hex","userRole":"user"}],"clients":[{"name":"str","contact":"","email":"","phone":"","color":"#hex","notes":""}],"jobs":[{"title":"str","start":"YYYY-MM-DD","end":"YYYY-MM-DD","pri":"Medium","status":"Not Started","notes":"","clientName":"str or null","dueDate":"YYYY-MM-DD or null","panels":[{"title":"str","ops":[{"title":"Wire|Cut|Layout|Labels|Engineering|Programming","start":"YYYY-MM-DD","end":"YYYY-MM-DD","assignedTo":"name or null"}]}]}]}\n\nRules: Match updates by jobNumber or title. Only include changing fields in updates. Ops are SEQUENTIAL within panels. Panels run parallel. Skip people/clients already in existing lists. If nothing applies output {}.`;
 
         const data = await callAI({ system: systemPrompt, messages: [{ role: "user", content: msgContent }], max_tokens: 4000 }, getToken);
         const responseText = data.content?.map(b => b.text || "").join("") || "";
         const jsonStr = responseText.replace(/```json\s*|```\s*/g, "").trim();
-        const parsed = JSON.parse(jsonStr);
+        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          setUploadResult({ success: false, message: "Could not understand the input. Try providing more detail or rephrasing." });
+          setUploadText(""); setUploadFiles([]); setUploadProcessing(false); return;
+        }
+        let parsed;
+        try {
+          parsed = JSON.parse(jsonMatch[0]);
+        } catch {
+          setUploadResult({ success: false, message: "Could not parse the AI response. Please try rephrasing." });
+          setUploadText(""); setUploadFiles([]); setUploadProcessing(false); return;
+        }
 
+        // Apply updates to existing jobs
+        if (parsed.updates?.length > 0) {
+          parsed.updates.forEach(upd => {
+            const { id, ...fields } = upd;
+            if (!id || !tasks.find(t => t.id === id)) return;
+            const patch = {};
+            if (fields.poNumber !== undefined && fields.poNumber !== "") patch.poNumber = fields.poNumber;
+            if (fields.jobNumber !== undefined && fields.jobNumber !== "") patch.jobNumber = fields.jobNumber;
+            if (fields.notes !== undefined && fields.notes !== "") patch.notes = fields.notes;
+            if (fields.status !== undefined && STATUSES.includes(fields.status)) patch.status = fields.status;
+            if (fields.dueDate !== undefined && fields.dueDate !== "") patch.dueDate = fields.dueDate;
+            if (Object.keys(patch).length > 0) { updTask(id, patch); totalUpdated++; }
+          });
+        }
+        // Import new people
         if (parsed.people?.length > 0) {
           let mx = Math.max(0, ...people.map(p => p.id));
           const np = parsed.people.map((p, i) => ({ id: ++mx, name: p.name, role: p.role || "Shop", cap: 8, color: p.color || COLORS[i % COLORS.length], timeOff: [], userRole: p.userRole || "user" }));
           setPeople(prev => [...prev, ...np]); totalPeople += np.length;
         }
+        // Import new clients
         if (parsed.clients?.length > 0) {
           const nc = parsed.clients.map((c, i) => ({ id: "c" + (clients.length + totalClients + i + 1), name: c.name, contact: c.contact || "", email: c.email || "", phone: c.phone || "", color: c.color || COLORS[i % COLORS.length], notes: c.notes || "" }));
           setClients(prev => [...prev, ...nc]); totalClients += nc.length;
         }
+        // Import new jobs
         if (parsed.jobs?.length > 0) {
           const ap = [...people]; const ac = [...clients];
           const nj = parsed.jobs.map(job => {
@@ -771,11 +806,16 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         }
       }
 
-      if (totalPeople === 0 && totalClients === 0 && totalJobs === 0 && !uploadText.trim() && uploadFiles.length === 0) {
+      if (totalPeople === 0 && totalClients === 0 && totalJobs === 0 && totalUpdated === 0) {
         setUploadProcessing(false); return;
       }
 
-      setUploadResult({ success: true, message: `Added ${totalPeople} team member${totalPeople !== 1 ? "s" : ""}, ${totalClients} client${totalClients !== 1 ? "s" : ""}, and ${totalJobs} job${totalJobs !== 1 ? "s" : ""}.` });
+      const parts = [];
+      if (totalUpdated > 0) parts.push(`Updated ${totalUpdated} job${totalUpdated !== 1 ? "s" : ""}`);
+      if (totalPeople > 0) parts.push(`Added ${totalPeople} team member${totalPeople !== 1 ? "s" : ""}`);
+      if (totalClients > 0) parts.push(`Added ${totalClients} client${totalClients !== 1 ? "s" : ""}`);
+      if (totalJobs > 0) parts.push(`Imported ${totalJobs} new job${totalJobs !== 1 ? "s" : ""}`);
+      setUploadResult({ success: true, message: parts.join(" · ") + "." });
       setUploadText("");
       setUploadFiles([]);
     } catch (err) {
@@ -911,6 +951,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
   const [pasteConfirm, setPasteConfirm] = useState(null); // { x, y, startDate, endDate }
   const [reminderModal, setReminderModal] = useState(null);
   const [confirmDeleteClient, setConfirmDeleteClient] = useState(null); // client id
+  const [selTask, setSelTask] = useState(null);
   const [selJobs, setSelJobs] = useState(new Set());
   const [selClients, setSelClients] = useState(new Set());
   const [selPeople, setSelPeople] = useState(new Set());
@@ -1059,6 +1100,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
 
   const [clientModal, setClientModal] = useState(null);
   const [fClient, setFClient] = useState("All");
+  const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -2412,139 +2454,293 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     });
   });
 
-  const renderTasks = () => <div>
-    {/* Engineering Queue — only for engineers/admins */}
-    {canSignOffEngineering && engQueueItems.length > 0 && <div style={{ marginBottom: 28 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <span style={{ fontSize: 18 }}>🔧</span>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.accent }}>Engineering Queue</h2>
-        <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "2px 10px", border: `1px solid ${T.accent}33` }}>{engQueueItems.length}</span>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
-        {engQueueItems.map(({ job, panel }) => {
-          const e = panel.engineering || {};
-          const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
-          return <div key={panel.id} style={{ background: T.card, border: `1px solid ${T.accent}30`, borderTop: `3px solid ${T.accent}`, borderRadius: T.radiusSm, padding: "14px 16px", boxShadow: `0 2px 12px ${T.accent}10` }}>
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginBottom: 2 }}>{job.jobNumber ? `#${job.jobNumber} · ` : ""}{job.title}</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{panel.title}</div>
-              <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginTop: 2 }}>{fm(panel.start)} → {fm(panel.end)}</div>
+  const renderTasks = () => {
+    const sel = selTask ? (filtered.find(t => t.id === selTask) || tasks.find(t => t.id === selTask)) : null;
+    const fresh = sel ? (allItems.find(x => x.id === sel.id) || sel) : null;
+    const parent = fresh ? tasks.find(x => x.id === fresh.id) : null;
+
+    return <div style={{ display: "flex", flexDirection: "column", gap: 20, height: "100%", overflow: "auto" }}>
+      {/* ── Page top bar ── */}
+      {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Btn onClick={() => openNew()}>+ New Job</Btn>
+      </div>}
+      {/* ── Engineering Queue ── */}
+      {canSignOffEngineering && engQueueItems.length > 0 && <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <span style={{ fontSize: 20 }}>🔧</span>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.accent }}>Engineering Queue</h3>
+          <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "2px 10px" }}>{engQueueItems.length}</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
+          {engQueueItems.map(({ job, panel }) => {
+            const e = panel.engineering || {};
+            const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
+            const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
+            return <div key={panel.id} style={{ background: T.card, border: `2px solid ${T.accent}33`, borderRadius: T.radius, padding: "18px 20px", boxShadow: `0 2px 12px ${T.accent}0f` }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "flex", gap: 6, alignItems: "center" }}>
+                {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 6px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
+                {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4, lineHeight: 1.3 }}>{job.title}</div>
+              <div style={{ fontSize: 13, color: T.textSec, marginBottom: 14, fontFamily: T.mono }}>{panel.title}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {engSteps.map(step => {
+                  const rec = e[step.key];
+                  const done = !!rec;
+                  const isActive = step.key === activeStep;
+                  if (done) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
+                    <span style={{ fontSize: 13, color: "#10b981", fontWeight: 700 }}>✓</span>
+                    <span style={{ fontSize: 13, color: "#10b981", fontWeight: 600, flex: 1 }}>{step.label}</span>
+                    <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
+                    <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Undo" style={{ padding: "2px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩ Undo</button>
+                  </div>;
+                  if (isActive) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <button onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ flex: 1, padding: "8px 14px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {step.label}</button>
+                  </div>;
+                  return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: T.radiusSm, opacity: 0.4 }}>
+                    <span style={{ fontSize: 13, color: T.textDim }}>○</span>
+                    <span style={{ fontSize: 13, color: T.textDim }}>{step.label}</span>
+                  </div>;
+                })}
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>}
+
+      {/* ── Finished Engineering ── */}
+      {canSignOffEngineering && engFinishedItems.length > 0 && <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 16 }}>✅</span>
+          <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#10b981" }}>Engineering Complete</h4>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>{engFinishedItems.length}</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 10 }}>
+          {engFinishedItems.map(({ job, panel }) => {
+            const e = panel.engineering || {};
+            const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
+            return <div key={panel.id} style={{ background: T.card, border: "1px solid #10b98133", borderRadius: T.radiusSm, padding: "14px 16px" }}>
+              <div style={{ fontSize: 11, color: "#10b981", fontWeight: 700, marginBottom: 3, display: "flex", gap: 6, alignItems: "center" }}>
+                {job.jobNumber && <span style={{ fontFamily: T.mono }}>#{job.jobNumber}</span>}
+                {jobClient && <span>{jobClient.name}</span>}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T.text, marginBottom: 2 }}>{job.title}</div>
+              <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.mono, marginBottom: 10 }}>{panel.title}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                {engSteps.map(step => {
+                  const rec = e[step.key];
+                  return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
+                    <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{step.label}</span>
+                    {rec && <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>}
+                    <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Undo" style={{ padding: "1px 6px", borderRadius: 5, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩</button>
+                  </div>;
+                })}
+              </div>
+            </div>;
+          })}
+        </div>
+      </div>}
+
+      {/* ── Jobs List + Detail ── */}
+      <div style={{ display: "flex", gap: 24, flex: 1, minHeight: 0 }}>
+      {/* Job list sidebar */}
+      <div style={{ minWidth: 300, maxWidth: 300, display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, position: "relative" }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${(fStat !== "All" || fClient !== "All") ? T.accent : T.border}`, background: (fStat !== "All" || fClient !== "All") ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (fStat !== "All" || fClient !== "All") ? T.accent : T.textSec }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            </button>
+            {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 210, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
+                <select value={fStat} onChange={e => setFStat(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fStat !== "All" ? T.accent : T.border}`, background: T.surface, color: fStat !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+                  <option value="All">All Statuses</option>
+                  {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
+                <select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+                  <option value="All">All Clients</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              {(fStat !== "All" || fClient !== "All") && <button onClick={() => { setFStat("All"); setFClient("All"); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>Clear filters</button>}
+            </div>}
+          </div>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+          {tasks.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 16px", textAlign: "center", gap: 10 }}>
+            <div style={{ fontSize: 48, opacity: 0.35 }}>📋</div>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: T.text }}>No jobs yet</h3>
+            <p style={{ margin: "2px auto 0", fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Create a job or use FAST TRAQS to import</p>
+            {can("editJobs") && <Btn size="sm" style={{ marginTop: 6 }} onClick={() => openNew()}>+ New Job</Btn>}
+          </div>}
+          {/* Active jobs */}
+          {activeTasks.map(t => {
+            const isSel = selTask === t.id;
+            const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+            const health = getHealth(t);
+            const healthColor = HEALTH_DOT[health];
+            return <div key={t.id} onClick={() => setSelTask(isSel ? null : t.id)}
+              style={{ background: isSel ? t.color + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${isSel ? t.color + "66" : T.border}`, borderLeft: `4px solid ${t.color}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${t.color}15` : "none" }}
+              onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "44"; } }}
+              onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = T.border; } }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: healthColor, flexShrink: 0, boxShadow: `0 0 5px ${healthColor}66` }} />
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                <Badge t={t.status} c={STA_C[t.status]} />
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
+                {client && <span style={{ fontSize: 11, color: client.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: client.color, display: "inline-block" }} />{client.name}</span>}
+                <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>
+              </div>
+            </div>;
+          })}
+          {/* Finished jobs */}
+          {finishedTasks.length > 0 && <>
+            <div style={{ margin: "10px 0 6px", borderTop: `1px solid ${T.border}`, position: "relative" }}>
+              <span style={{ position: "absolute", top: -9, left: 0, background: T.bg, paddingRight: 8, fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Finished</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {engSteps.map(step => {
-                const done = !!e[step.key];
-                const isActive = step.key === activeStep;
-                if (done) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, background: "#10b98110", border: "1px solid #10b98130" }}>
-                  <span style={{ color: "#10b981", fontSize: 13, flexShrink: 0 }}>✓</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "#10b981", flex: 1 }}>{step.label}</span>
-                  <span style={{ fontSize: 10, color: T.textDim }}>{e[step.key].byName.split(" ")[0]}, {fm(e[step.key].at.split("T")[0])}</span>
-                  {canSignOffEngineering && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ padding: "1px 7px", borderRadius: T.radiusXs, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}
+            {finishedTasks.map(t => {
+              const isSel = selTask === t.id;
+              const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+              return <div key={t.id} onClick={() => setSelTask(isSel ? null : t.id)}
+                style={{ background: isSel ? "#10b98118" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${isSel ? "#10b98166" : T.border}`, borderLeft: "4px solid #10b981", padding: "9px 12px", cursor: "pointer", opacity: isSel ? 1 : 0.65, transition: "all 0.15s ease" }}
+                onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; if (!isSel) e.currentTarget.style.borderColor = "#10b98144"; }}
+                onMouseLeave={e => { if (!isSel) { e.currentTarget.style.opacity = "0.65"; e.currentTarget.style.borderColor = T.border; } }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                  <span style={{ fontSize: 11 }}>✅</span>
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                  {client && <span style={{ fontSize: 10, color: client.color, fontWeight: 600 }}>{client.name}</span>}
+                  <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>
+                </div>
+              </div>;
+            })}
+          </>}
+        </div>
+      </div>
+
+      {/* Job detail panel */}
+      <div style={{ flex: 1, minWidth: 0, overflow: "auto" }}>
+        {!fresh ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
+            <div style={{ fontSize: 48, opacity: 0.3 }}>📋</div>
+            <div style={{ fontSize: 16, color: T.textDim }}>Select a job to view details</div>
+          </div>
+        ) : (
+          <div>
+            {/* Job header */}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18, gap: 16, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <HealthIcon t={fresh} size={22} style={{ flexShrink: 0 }} />
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{fresh.title}</h2>
+                  {(fresh.jobNumber || fresh.poNumber) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                    {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Job # {fresh.jobNumber}</span>}
+                    {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
+                  </div>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                {can("editJobs") && <Btn size="sm" onClick={() => openEdit(fresh)}>Edit</Btn>}
+                {can("editJobs") && <Btn size="sm" variant="ghost" onClick={() => openNew()}>+ New Job</Btn>}
+              </div>
+            </div>
+
+            {/* Meta row */}
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+              {fresh.clientId && <Badge t={"🏢 " + clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}
+              <span style={{ fontSize: 14, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span><span style={{ color: T.textDim }}>·</span>{fresh.hpd}h/day
+              </span>
+              <Badge t={fresh.status} c={STA_C[fresh.status]} />
+              <Badge t={fresh.pri} c={PRI_C[fresh.pri]} />
+            </div>
+
+            {/* Due date */}
+            {fresh.dueDate && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "10px 16px", background: fresh.dueDate < TD ? "#ef444415" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b15" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${fresh.dueDate < TD ? "#ef444433" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b33" : T.border}` }}>
+              <span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Customer Due:</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text, fontFamily: T.mono }}>{fm(fresh.dueDate)}</span>
+              {fresh.dueDate < TD && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>OVERDUE</span>}
+            </div>}
+
+            {/* Notes */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Notes</div>
+              <textarea key={fresh.id} defaultValue={fresh.notes || ""} onBlur={e => updTask(fresh.id, { notes: e.target.value })} rows={3} placeholder="Add notes…" style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} />
+            </div>
+
+            {/* Panels and Operations */}
+            {parent && (parent.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
+              <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({parent.subs.length})</h4>
+              {parent.subs.map(panel => {
+                const hasEng = panel.engineering !== undefined;
+                const pEng = panel.engineering || {};
+                const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
+                const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
+                return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 14, marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                    <HealthIcon t={panel} size={14} />
+                    <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
+                    <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
+                  </div>
+                  {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, marginRight: 4 }}>ENG:</span>
+                    {engSteps.map(step => {
+                      const done = !!pEng[step.key];
+                      const isActive = step.key === pActiveStep;
+                      if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
+                      if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                      if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
+                      return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
+                    })}
+                    {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
+                  </div>}
+                  {(panel.subs || []).length > 0 && <div>
+                    {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
+                      return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}` }}>
+                        <HealthIcon t={op} size={12} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
+                        <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
+                        {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
+                        {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
+                      </div>; })}
+                  </div>}
                 </div>;
-                if (isActive) return <button key={step.key} onClick={() => canSignOffEngineering ? signOffEngineering(job.id, panel.id, step.key) : undefined} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusXs, background: canSignOffEngineering ? T.accent : `${T.accent}15`, border: "none", cursor: canSignOffEngineering ? "pointer" : "default", width: "100%", fontFamily: T.font }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: canSignOffEngineering ? T.accentText : T.accent, flex: 1, textAlign: "left" }}>→ {step.label}</span>
-                  {canSignOffEngineering && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.65)" }}>Sign off</span>}
-                </button>;
-                return <div key={step.key} style={{ display: "flex", alignItems: "center", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, opacity: 0.35 }}>
-                  <span style={{ fontSize: 12, color: T.textDim }}>○ {step.label}</span>
-                </div>;
-              })}
-            </div>
-          </div>;
-        })}
-      </div>
-    </div>}
-    {/* Engineering Finished — only for engineers/admins */}
-    {canSignOffEngineering && engFinishedItems.length > 0 && <div style={{ marginBottom: 28 }}>
-      <div style={{ borderTop: `1px solid #10b98133`, position: "relative", marginBottom: 16 }}>
-        <span style={{ position: "absolute", top: -10, left: 0, background: T.bg, paddingRight: 12, fontSize: 11, color: "#10b981", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Engineering Finished</span>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 10 }}>
-        {engFinishedItems.map(({ job, panel }) => {
-          const e = panel.engineering || {};
-          return <div key={panel.id} style={{ background: T.card, border: `1px solid #10b98130`, borderTop: `3px solid #10b981`, borderRadius: T.radiusSm, padding: "12px 14px", opacity: 0.85 }}>
-            <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginBottom: 2 }}>{job.jobNumber ? `#${job.jobNumber} · ` : ""}{job.title}</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 8 }}>{panel.title}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {engSteps.map(step => <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", borderRadius: T.radiusXs, background: "#10b98108", border: "1px solid #10b98120" }}>
-                <span style={{ color: "#10b981", fontSize: 12, flexShrink: 0 }}>✓</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#10b981", flex: 1 }}>{step.label}</span>
-                <span style={{ fontSize: 10, color: T.textDim }}>{e[step.key]?.byName?.split(" ")[0]}, {fm(e[step.key]?.at?.split("T")[0])}</span>
-                {canSignOffEngineering && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ padding: "1px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}
-              </div>)}
-            </div>
-          </div>;
-        })}
-      </div>
-    </div>}
-    {/* All Jobs separator */}
-    {canSignOffEngineering && (engQueueItems.length > 0 || engFinishedItems.length > 0) && <div style={{ margin: "0 0 14px", borderTop: `1px solid ${T.border}`, position: "relative" }}>
-      <span style={{ position: "absolute", top: -9, left: 0, background: T.bg, paddingRight: 10, fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>All Jobs</span>
-    </div>}
-    {/* Active tasks */}
-    <>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
-    {activeTasks.map((t, ti) => <Card key={t.id} delay={ti * 35} style={{ borderLeft: `4px solid ${t.color}`, padding: 16 }} onClick={() => openDetail(t)}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><HealthIcon t={t} /><h3 style={{ margin: 0, color: T.text, fontSize: 15, fontWeight: 700, lineHeight: 1.3 }}>{t.title}</h3></div>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0, marginLeft: 12 }} onClick={e => e.stopPropagation()}>{can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn>}</div>
-      </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>{t.clientId && <Badge t={clientName(t.clientId)} c={clientColor(t.clientId)} />}</div>
-      <div style={{ fontSize: 12, color: T.textSec, marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: T.mono, fontSize: 12 }}>{fm(t.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono, fontSize: 12 }}>{fm(t.end)}</span><span style={{ color: T.textDim }}>·</span><span>{t.hpd}h/day</span></div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>{t.team.map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}</div>
-      {t.notes && <div style={{ fontSize: 12, color: T.textDim, fontStyle: "italic", marginBottom: 8, lineHeight: 1.5 }}>{t.notes.substring(0, 100)}</div>}
-      {(t.deps || []).length > 0 && <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 8 }}>⛓ {t.deps.length} dependency(s)</div>}
-      {(t.subs || []).length > 0 && <div style={{ marginTop: 6, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-        {t.subs.map(s => {
-          const hasEng = s.engineering !== undefined;
-          const e = s.engineering || {};
-          const allDone = hasEng && !!(e.designed && e.verified && e.sentToPerforex);
-          const activeStep = hasEng ? (!e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex") : null;
-          return <div key={s.id} style={{ marginBottom: 6 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
-              <HealthIcon t={s} size={11} />
-              <span style={{ flex: 1, fontSize: 12, color: T.textSec, fontWeight: 500 }}>{s.title}</span>
-              {allDone && <span style={{ fontSize: 10, color: "#10b981", fontWeight: 700 }}>✓ Eng Ready</span>}
-            </div>
-            {hasEng && !allDone && <div style={{ display: "flex", gap: 6, paddingLeft: 19, flexWrap: "wrap", marginTop: 2 }}>
-              {engSteps.map(step => {
-                const done = !!e[step.key];
-                const isActive = step.key === activeStep;
-                if (done) return <span key={step.key} style={{ fontSize: 10, color: "#10b981", display: "flex", alignItems: "center", gap: 2 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                if (isActive) return <span key={step.key} style={{ fontSize: 10, color: T.accent, fontWeight: 700 }}>→ {step.label}</span>;
-                return <span key={step.key} style={{ fontSize: 10, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
               })}
             </div>}
-          </div>;
-        })}
-      </div>}
-      {can("editJobs") && <div style={{ marginTop: 10, display: "flex", gap: 8 }} onClick={e => e.stopPropagation()}><Btn variant="ghost" size="sm" onClick={() => openNew(t.id)}>+ Subtask</Btn></div>}
-    </Card>)}
-    </div>
-    {/* All Jobs Finished section */}
-    {finishedTasks.length > 0 && <div style={{ marginTop: 32 }}>
-      <div style={{ margin: "0 0 16px", borderTop: `1px solid ${T.border}`, position: "relative" }}>
-        <span style={{ position: "absolute", top: -10, left: 0, background: T.bg, paddingRight: 12, fontSize: 11, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>All Jobs Finished</span>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(380px, 1fr))", gap: 12 }}>
-        {finishedTasks.map(t => <div key={t.id} onClick={() => openDetail(t)}
-          onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; e.currentTarget.style.borderColor = "#10b98166"; e.currentTarget.style.boxShadow = "0 2px 10px rgba(16,185,129,0.12)"; }}
-          onMouseLeave={e => { e.currentTarget.style.opacity = "0.75"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.boxShadow = "none"; }}
-          style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid #10b981`, opacity: 0.75, cursor: "pointer", transition: "opacity 0.15s, border-color 0.15s, box-shadow 0.15s" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1, minWidth: 0 }}>
-              <span style={{ fontSize: 15 }}>✅</span>
-              <span style={{ fontSize: 15, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-              {t.clientId && <Badge t={clientName(t.clientId)} c={clientColor(t.clientId)} />}
-            </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-              <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
-            </div>
+
+            {/* Subtasks (non-panel) */}
+            {(!parent || (parent.subs || []).length === 0) && (fresh.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
+              <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Subtasks ({fresh.subs.length})</h4>
+              {fresh.subs.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: T.radiusSm, marginBottom: 6, background: T.surface, border: `1px solid ${T.border}` }}>
+                <HealthIcon t={s} size={13} />
+                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text }}>{s.title}</span>
+                <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(s.start)} → {fm(s.end)}</span>
+              </div>)}
+            </div>}
+
+            {/* Team */}
+            {(fresh.team || []).length > 0 && <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Team</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {fresh.team.map(id => { const p = people.find(x => x.id === id); if (!p) return null; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: p.color + "15", border: `1px solid ${p.color}44` }}>
+                  <div style={{ width: 24, height: 24, borderRadius: 8, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
+                  <span style={{ fontSize: 11, color: T.textDim }}>{p.role}</span>
+                </div>; })}
+              </div>
+            </div>}
           </div>
-        </div>)}
+        )}
       </div>
-    </div>}
-    </>
-  </div>;
+      </div>
+    </div>;
+  };
 
   // ═══════════════════ CLIENTS ═══════════════════
   const renderClients = () => {
@@ -4979,7 +5175,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       </div>
     </div>}
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto" }}>
-      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "gantt" && <div style={{ flex: 1 }}>{renderGantt()}</div>}{view === "tasks" && renderTasks()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "team" && renderTeam()}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
+      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "gantt" && <div style={{ flex: 1 }}>{renderGantt()}</div>}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "team" && renderTeam()}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     {renderModal()}
     {/* Users Modal */}
@@ -5091,15 +5287,15 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 10 }}>
             <h2 style={{ margin: 0, fontSize: 36, fontWeight: 900, color: T.accent, letterSpacing: "-0.02em", fontFamily: T.font, textShadow: `0 0 28px ${T.accent}77` }}>FAST TRAQS</h2>
           </div>
-          <p style={{ margin: "0 0 8px", fontSize: 15, fontWeight: 600, color: T.text, fontFamily: T.font }}>Intelligent Document Import</p>
+          <p style={{ margin: "0 0 8px", fontSize: 15, fontWeight: 600, color: T.text, fontFamily: T.font }}>Import & Update in Seconds</p>
           <p style={{ margin: "0 0 32px", fontSize: 13, color: T.textSec, fontFamily: T.font, lineHeight: 1.7, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
-            Drop in any document, spreadsheet, or paste your notes — FAST TRAQS reads it all and instantly builds your schedule, assigns your crew, and imports your clients.
+            Drop in any document, spreadsheet, or paste your notes — FAST TRAQS reads it all, builds your schedule, and updates existing jobs automatically.
           </p>
 
           {/* Feature grid */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 32, textAlign: "left" }}>
             {[
-              { icon: "📄", title: "Docs & Receipts",  desc: "PDFs, invoices, job orders, spreadsheets" },
+              { icon: "✏️", title: "Bulk Job Updates",  desc: "Update POs, status, due dates across jobs in plain text" },
               { icon: "👥", title: "Team Members",      desc: "Detects people and assigns them to roles" },
               { icon: "🏢", title: "Clients",           desc: "Identifies and imports contacts" },
               { icon: "📅", title: "Your Timeline",     desc: "Builds your full schedule automatically" },
@@ -5136,15 +5332,17 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "0.04em" }}>FAST TRAQS</span>
               </div>
-              <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>Drop in your documents or paste information below</div>
+              <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>Drop in your documents or paste information — AI handles imports and updates automatically</div>
             </div>
             <button onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>✕</button>
           </div>
 
           {/* Body */}
           <div style={{ padding: "20px 24px" }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>Paste information</label>
-            <textarea value={uploadText} onChange={e => setUploadText(e.target.value)} placeholder={"Paste scheduling data, team lists, job details, client info...\n\nExample:\nTeam: Caleb, Draven, Sean, Jason, Howie, Tyler, Quincy, Brayden\nJob 501200 for Wheeler CAT, due Mar 15\n2 panels, Wire→Cut→Layout each 2 days\nStart Feb 24"} style={{ width: "100%", minHeight: 160, padding: "12px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} disabled={uploadProcessing} />
+            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>Paste information or describe changes</label>
+            <textarea value={uploadText} onChange={e => setUploadText(e.target.value)}
+              placeholder={"Paste scheduling data, job details, or describe updates to existing jobs...\n\nExamples:\n• Team: Alex, Jordan, Morgan\n  Job 10055 for Riverside Electric, due Mar 15\n  2 panels, Wire→Cut→Layout each 2 days\n\n• Add PO-45123 to job 10042\n• Mark Riverside Pump Station as In Progress\n• Set due date for job 10055 to March 15"}
+              style={{ width: "100%", minHeight: 160, padding: "12px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} disabled={uploadProcessing} />
 
             <div style={{ marginTop: 16 }}>
               <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>Or upload files</label>
@@ -5174,7 +5372,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
             <Btn variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
             <Btn onClick={processUpload} disabled={uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0)} style={{ opacity: uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0) ? 0.5 : 1 }}>
-              {uploadProcessing ? "⏳ Processing with AI..." : "Process & Import"}
+              {uploadProcessing ? "⏳ Processing with AI..." : "⚡ Process"}
             </Btn>
           </div>
         </div>
