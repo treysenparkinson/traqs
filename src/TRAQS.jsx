@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify } from "./api.js";
-import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE } from "./logo.js";
+import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 const ADMIN_PERMS = [
@@ -902,6 +902,14 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
   const [clipboard, setClipboard] = useState(null); // { level, item }
   const [pasteConfirm, setPasteConfirm] = useState(null); // { x, y, startDate, endDate }
   const [reminderModal, setReminderModal] = useState(null);
+  const [confirmDeleteClient, setConfirmDeleteClient] = useState(null); // client id
+  const [selJobs, setSelJobs] = useState(new Set());
+  const [selClients, setSelClients] = useState(new Set());
+  const [selPeople, setSelPeople] = useState(new Set());
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(null); // { type, ids, count }
+  const [clientSelectMode, setClientSelectMode] = useState(false);
+  const [jobSelectMode, setJobSelectMode] = useState(false);
+  const [teamSelectMode, setTeamSelectMode] = useState(false);
   const [reminderNote, setReminderNote] = useState("");
   const [reminderSending, setReminderSending] = useState(false);
   const [linkingFrom, setLinkingFrom] = useState(null);
@@ -1582,10 +1590,10 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     let scope, jobId, panelId = null, opId = null, title;
     if (item.level === 2 || (item.isSub && item.grandPid)) {
       scope = "op"; opId = item.id; panelId = item.pid;
-      let parentJob = null;
-      for (const j of tasks) { for (const p of (j.subs || [])) { if ((p.subs || []).find(o => o.id === item.id)) { parentJob = j; break; } } if (parentJob) break; }
+      let parentJob = null, parentPanel = null;
+      for (const j of tasks) { for (const p of (j.subs || [])) { if ((p.subs || []).find(o => o.id === item.id)) { parentJob = j; parentPanel = p; break; } } if (parentJob) break; }
       jobId = parentJob?.id || item.grandPid;
-      title = `${item.title}`;
+      title = parentPanel ? `${parentPanel.title} — ${item.title}` : item.title;
     } else if (item.level === 1 || item.isSub) {
       scope = "panel"; panelId = item.id; jobId = item.pid;
       title = `${item.title}`;
@@ -1826,7 +1834,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       for (const j of tasks) { const p = (j.subs || []).find(s => s.id === panelId); if (p) return `${p.title}`; } return "Panel Chat";
     }
     if (scope === "op" || threadKey?.startsWith("op:")) {
-      for (const j of tasks) { for (const p of (j.subs || [])) { const o = (p.subs || []).find(x => x.id === opId); if (o) return `${o.title}`; } } return "Operation Chat";
+      for (const j of tasks) { for (const p of (j.subs || [])) { const o = (p.subs || []).find(x => x.id === opId); if (o) return `${p.title} — ${o.title}`; } } return "Operation Chat";
     }
     return "Chat";
   }
@@ -2219,6 +2227,31 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
               else if (gMode === "week") { setGStart(addD(gStart, 7)); setGEnd(addD(gEnd, 7)); }
             }}>▶</Btn>
           </div>
+          <div ref={filterRef} style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
+            <button onClick={() => setFilterOpen(p => !p)} title="Filters" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
+            </button>
+            {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
+                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <input type="number" min="1" max="24" placeholder="e.g. 4" value={fHpd === "All" ? "" : fHpd}
+                  onChange={e => { const v = e.target.value; setFHpd(v === "" ? "All" : v); }}
+                  onClick={e => e.stopPropagation()}
+                  style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fHpd !== "All" ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                {fHpd !== "All" && <button onClick={() => setFHpd("All")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
+              </div>
+              {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
+                {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
+              </div>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+            </div>}
+          </div>
+          {can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} style={!jobSelectMode ? { background: "transparent" } : {}} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>}
         </div>
         {/* Center: Linear/Calendar toggle — absolutely centered */}
         <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
@@ -2228,42 +2261,26 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             onChange={v => { setGanttViewMode(v); if (v==="calendar") { const d=new Date(gStart+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); setGMode("month"); } }}
           />
         </div>
-        {/* Right side: Filter + Clipboard + FAST TRAQS + New Job button */}
+        {/* Right side: Clipboard + FAST TRAQS + New Job button */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          {/* Filter button + panel */}
-          <div ref={filterRef} style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-              Filters{activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, padding: "1px 6px", fontSize: 10, fontWeight: 700, lineHeight: 1.4 }}>{activeFilterCount}</span>}
-            </button>
-            {filterOpen && <div className="anim-ctx" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 1000, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
-                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <input type="number" min="1" max="24" placeholder="e.g. 4" value={fHpd === "All" ? "" : fHpd}
-                  onChange={e => { const v = e.target.value; setFHpd(v === "" ? "All" : v); }}
-                  onClick={e => e.stopPropagation()}
-                  style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fHpd !== "All" ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                {fHpd !== "All" && <button onClick={() => setFHpd("All")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
-              </div>
-              {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
-                {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: 6, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
-              </div>}
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-            </div>}
-          </div>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span>📋</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
-          {can("editJobs") && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
+          {can("editJobs") && !jobSelectMode && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
         </div>
       </div>
-      {ganttViewMode === "calendar" ? (() => {
+
+      {tasks.length === 0
+        ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 24px", textAlign: "center", gap: 14 }}>
+            <div style={{ fontSize: 80, lineHeight: 1, marginBottom: 4, opacity: 0.45, filter: "grayscale(0.3)" }}>📋</div>
+            <h2 style={{ margin: 0, fontSize: 34, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>No jobs yet</h2>
+            <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 420, lineHeight: 1.75 }}>
+              Create your first job, or import an existing schedule instantly with <strong style={{ color: T.accent }}>FAST TRAQS</strong>
+            </p>
+          </div>
+        : ganttViewMode === "calendar" ? (() => {
         const calMonth = new Date(gStart + "T12:00:00");
         const yr = calMonth.getFullYear(), mo = calMonth.getMonth();
         const firstDay = new Date(yr, mo, 1), lastDay = new Date(yr, mo + 1, 0);
@@ -2308,6 +2325,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           </div>
           {rows.map((r) => { const indent = r.level || 0; return <div key={r.id} style={{ display: "flex", height: rH, borderBottom: `1px solid ${T.bg}55` }}>
             <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 16px", paddingLeft: 16 + indent * 16, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 10, cursor: "pointer" }} onClick={() => (r.subs || []).length > 0 ? setExp(p => ({ ...p, [r.id]: !p[r.id] })) : openDetail(r)}>
+              {r.level === 0 && jobSelectMode && <div onClick={e => { e.stopPropagation(); setSelJobs(prev => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; }); }} style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selJobs.has(r.id) ? T.accent : T.border}`, background: selJobs.has(r.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.15s" }}>{selJobs.has(r.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
               <span style={{ fontSize: indent === 2 ? 12 : 14, color: indent > 0 ? T.textSec : T.text, fontWeight: indent > 0 ? 400 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{indent === 2 ? "↳ " : ""}{r.title}</span>
               {taskOwner(r) && <span style={{ fontSize: 11, color: r.color, fontWeight: 500, flexShrink: 0, opacity: 0.8 }}>{taskOwner(r)}</span>}
               {(r.subs || []).length > 0 && <span style={{ fontSize: 10, color: T.textDim }}>({r.subs.length})</span>}
@@ -2389,14 +2407,14 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     {canSignOffEngineering && engQueueItems.length > 0 && <div style={{ marginBottom: 28 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <span style={{ fontSize: 18 }}>🔧</span>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#3b82f6" }}>Engineering Queue</h2>
-        <span style={{ fontSize: 12, fontWeight: 700, color: "#3b82f6", background: "#3b82f620", borderRadius: 10, padding: "2px 10px", border: "1px solid #3b82f633" }}>{engQueueItems.length}</span>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.accent }}>Engineering Queue</h2>
+        <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "2px 10px", border: `1px solid ${T.accent}33` }}>{engQueueItems.length}</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 12 }}>
         {engQueueItems.map(({ job, panel }) => {
           const e = panel.engineering || {};
           const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
-          return <div key={panel.id} style={{ background: T.card, border: `1px solid #3b82f630`, borderTop: `3px solid #3b82f6`, borderRadius: T.radiusSm, padding: "14px 16px", boxShadow: `0 2px 12px #3b82f610` }}>
+          return <div key={panel.id} style={{ background: T.card, border: `1px solid ${T.accent}30`, borderTop: `3px solid ${T.accent}`, borderRadius: T.radiusSm, padding: "14px 16px", boxShadow: `0 2px 12px ${T.accent}10` }}>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginBottom: 2 }}>{job.jobNumber ? `#${job.jobNumber} · ` : ""}{job.title}</div>
               <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{panel.title}</div>
@@ -2410,10 +2428,10 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                   <span style={{ color: "#10b981", fontSize: 13, flexShrink: 0 }}>✓</span>
                   <span style={{ fontSize: 12, fontWeight: 600, color: "#10b981", flex: 1 }}>{step.label}</span>
                   <span style={{ fontSize: 10, color: T.textDim }}>{e[step.key].byName.split(" ")[0]}, {fm(e[step.key].at.split("T")[0])}</span>
-                  {canSignOffEngineering && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ padding: "1px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}
+                  {canSignOffEngineering && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ padding: "1px 7px", borderRadius: T.radiusXs, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}
                 </div>;
-                if (isActive) return <button key={step.key} onClick={() => canSignOffEngineering ? signOffEngineering(job.id, panel.id, step.key) : undefined} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusXs, background: canSignOffEngineering ? "#3b82f6" : "#3b82f615", border: "none", cursor: canSignOffEngineering ? "pointer" : "default", width: "100%", fontFamily: T.font }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: canSignOffEngineering ? "#fff" : "#3b82f6", flex: 1, textAlign: "left" }}>→ {step.label}</span>
+                if (isActive) return <button key={step.key} onClick={() => canSignOffEngineering ? signOffEngineering(job.id, panel.id, step.key) : undefined} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusXs, background: canSignOffEngineering ? T.accent : `${T.accent}15`, border: "none", cursor: canSignOffEngineering ? "pointer" : "default", width: "100%", fontFamily: T.font }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: canSignOffEngineering ? T.accentText : T.accent, flex: 1, textAlign: "left" }}>→ {step.label}</span>
                   {canSignOffEngineering && <span style={{ fontSize: 10, color: "rgba(255,255,255,0.65)" }}>Sign off</span>}
                 </button>;
                 return <div key={step.key} style={{ display: "flex", alignItems: "center", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, opacity: 0.35 }}>
@@ -2482,7 +2500,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                 const done = !!e[step.key];
                 const isActive = step.key === activeStep;
                 if (done) return <span key={step.key} style={{ fontSize: 10, color: "#10b981", display: "flex", alignItems: "center", gap: 2 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                if (isActive) return <span key={step.key} style={{ fontSize: 10, color: "#3b82f6", fontWeight: 700 }}>→ {step.label}</span>;
+                if (isActive) return <span key={step.key} style={{ fontSize: 10, color: T.accent, fontWeight: 700 }}>→ {step.label}</span>;
                 return <span key={step.key} style={{ fontSize: 10, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
               })}
             </div>}
@@ -2510,7 +2528,6 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             </div>
             <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
               <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
-              {can("editJobs") && <Btn variant="danger" size="sm" onClick={() => delTask(t.id)}>✕</Btn>}
             </div>
           </div>
         </div>)}
@@ -2533,7 +2550,10 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       <div style={{ minWidth: 320, maxWidth: 320, display: "flex", flexDirection: "column", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Clients</h3>
-          {can("manageClients") && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            {can("manageClients") && <Btn size="sm" variant={clientSelectMode ? "primary" : "ghost"} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>}
+            {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
+          </div>
         </div>
         <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
           {clients.map(c => {
@@ -2541,28 +2561,36 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             const active = ct.filter(t => t.status !== "Finished").length;
             const done = ct.filter(t => t.status === "Finished").length;
             const isSel = selClient === c.id;
-            return <div key={c.id} onClick={() => setSelClient(isSel ? null : c.id)} style={{
-              background: isSel ? c.color + "18" : T.card, borderRadius: T.radius,
-              border: `1.5px solid ${isSel ? c.color + "66" : T.border}`,
+            const isBulkSel = selClients.has(c.id);
+            return <div key={c.id} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : setSelClient(isSel ? null : c.id)} style={{
+              background: isBulkSel ? T.accent + "12" : isSel ? c.color + "18" : T.card, borderRadius: T.radius,
+              border: `1.5px solid ${isBulkSel ? T.accent + "55" : isSel ? c.color + "66" : T.border}`,
               padding: "16px 18px", cursor: "pointer", transition: "all 0.15s ease",
-              boxShadow: isSel ? `0 0 20px ${c.color}15` : "none",
+              boxShadow: isBulkSel ? `0 0 20px ${T.accent}18` : isSel ? `0 0 20px ${c.color}15` : "none",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                <div style={{ width: 14, height: 14, borderRadius: 7, background: c.color, flexShrink: 0, boxShadow: `0 0 8px ${c.color}44` }} />
+                {clientSelectMode
+                  ? <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${isBulkSel ? T.accent : T.border}`, background: isBulkSel ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{isBulkSel && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>
+                  : <div style={{ width: 14, height: 14, borderRadius: 7, background: c.color, flexShrink: 0, boxShadow: `0 0 8px ${c.color}44` }} />}
                 <div style={{ flex: 1, fontWeight: 700, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-                <div style={{ display: "flex", gap: 4 }}>
-                  {can("manageClients") && <span onClick={e => { e.stopPropagation(); setClientModal({ ...c }); }} style={{ cursor: "pointer", fontSize: 13, color: T.textDim, padding: "2px 6px", borderRadius: 4 }}>Edit</span>}
+                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                  {!clientSelectMode && can("manageClients") && <span onClick={e => { e.stopPropagation(); setClientModal({ ...c }); }} style={{ cursor: "pointer", fontSize: 13, color: T.textDim, padding: "2px 6px", borderRadius: 4 }}>Edit</span>}
                 </div>
               </div>
               <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>{c.contact}</div>
               <div style={{ display: "flex", gap: 12, fontSize: 12, color: T.textDim }}>
                 <span>{ct.length} job{ct.length !== 1 ? "s" : ""}</span>
-                {active > 0 && <span style={{ color: "#3b82f6" }}>{active} active</span>}
+                {active > 0 && <span style={{ color: T.accent }}>{active} active</span>}
                 {done > 0 && <span style={{ color: "#10b981" }}>{done} done</span>}
               </div>
             </div>;
           })}
-          {clients.length === 0 && <div style={{ textAlign: "center", padding: 40, color: T.textDim, fontSize: 14 }}>No clients yet. Click <strong>+ Add</strong> to create one.</div>}
+          {clients.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", textAlign: "center", gap: 12 }}>
+            <div style={{ fontSize: 56, lineHeight: 1, marginBottom: 4, opacity: 0.45 }}>🏢</div>
+            <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>No clients yet</h3>
+            <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 240, lineHeight: 1.65 }}>Add your first client to organize jobs by company</p>
+            {can("manageClients") && <Btn size="sm" style={{ marginTop: 8 }} onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add Client</Btn>}
+          </div>}
         </div>
       </div>
 
@@ -2643,8 +2671,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{t.team.slice(0, 5).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{t.team.length > 5 && <Badge t={`+${t.team.length - 5}`} c={T.textDim} />}</div>
                     <div style={{ display: "flex", gap: 6 }}>
-                      {can("editJobs") && <><Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn>
-                      <Btn variant="danger" size="sm" onClick={() => delTask(t.id)}>✕</Btn></>}
+                      {can("editJobs") && <><Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn></>}
                     </div>
                   </div>
                 </div>;
@@ -2787,6 +2814,31 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>
           <Btn variant="teal" size="sm" onClick={openAvail}>🔍 Availability</Btn>
           <Btn variant="warn" size="sm" onClick={() => setTimeOffModal(true)}>📅 Time Off</Btn>
+          <Btn size="sm" variant={teamSelectMode ? "primary" : "ghost"} style={!teamSelectMode ? { background: "transparent" } : {}} onClick={() => { setTeamSelectMode(m => !m); setSelPeople(new Set()); }}>{teamSelectMode ? "Done" : "Select"}</Btn>
+        <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
+          <button onClick={() => setFilterOpen(p => !p)} title="Filters" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
+          </button>
+          {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
+                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <input type="number" min="1" max="24" placeholder="e.g. 4" value={fHpd === "All" ? "" : fHpd}
+                  onChange={e => { const v = e.target.value; setFHpd(v === "" ? "All" : v); }}
+                  onClick={e => e.stopPropagation()}
+                  style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fHpd !== "All" ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                {fHpd !== "All" && <button onClick={() => setFHpd("All")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
+              </div>
+              {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
+                {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
+              </div>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+            </div>}
+          </div>
         </div>}
         <div style={{ position: isAdmin ? "absolute" : "relative", left: isAdmin ? "50%" : "auto", transform: isAdmin ? "translateX(-50%)" : "none", display: "flex", gap: 12, alignItems: "center" }}>
           <SlidingPill
@@ -2819,43 +2871,25 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          {/* Filter button + panel (Team view) */}
-          <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-              Filters{activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, padding: "1px 6px", fontSize: 10, fontWeight: 700, lineHeight: 1.4 }}>{activeFilterCount}</span>}
-            </button>
-            {filterOpen && <div className="anim-ctx" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 1000, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
-                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <input type="number" min="1" max="24" placeholder="e.g. 4" value={fHpd === "All" ? "" : fHpd}
-                  onChange={e => { const v = e.target.value; setFHpd(v === "" ? "All" : v); }}
-                  onClick={e => e.stopPropagation()}
-                  style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fHpd !== "All" ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                {fHpd !== "All" && <button onClick={() => setFHpd("All")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
-              </div>
-              {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
-                {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: 6, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
-              </div>}
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-            </div>}
-          </div>
-          {can("editJobs") && <>
-          <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button>
-          <button onClick={() => openNew()} style={{ padding: "10px 26px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 15, fontWeight: 800, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.3px", transition: "all 0.15s", whiteSpace: "nowrap" }}
-            onMouseEnter={e => e.currentTarget.style.transform = "scale(1.04)"}
-            onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}>
-            + New Job
-          </button>
-          </>}
+          {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
+            <span>📋</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
+            <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          </div>}
+          {can("editJobs") && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
         </div>
       </div>
+
+      {people.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 24px", textAlign: "center", gap: 14 }}>
+        <div style={{ fontSize: 80, lineHeight: 1, marginBottom: 4, opacity: 0.45 }}>👥</div>
+        <h2 style={{ margin: 0, fontSize: 34, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>No team members yet</h2>
+        <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 400, lineHeight: 1.75 }}>
+          Add your first team member to start scheduling and assigning jobs
+        </p>
+        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
+      </div>}
       {/* Resource timeline grid */}
-      <div ref={teamContainerRef} style={{ width: "100%" }}>
+      {people.length > 0 && <div ref={teamContainerRef} style={{ width: "100%" }}>
       <div ref={teamRef} onMouseDown={handleTeamPan} style={{ overflow: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: "100%" }}>
           {/* Dual header: week groups + day numbers */}
@@ -2949,24 +2983,19 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                   <div style={{ fontSize: 11, color: T.textDim }}>{p.role} · {p.cap}h</div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono, flexShrink: 0 }}>{row.util}%</span>
-                {can("manageTeam") && <Btn variant="ghost" size="sm" style={{ padding: "4px 6px", fontSize: 11 }} onClick={() => setPersonModal({ ...p })}>Edit</Btn>}
+                {teamSelectMode && <div onClick={e => { e.stopPropagation(); setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }); }} style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.15s" }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
+                {!teamSelectMode && can("manageTeam") && <Btn variant="ghost" size="sm" style={{ padding: "4px 6px", fontSize: 11 }} onClick={() => setPersonModal({ ...p })}>Edit</Btn>}
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
                 {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = [0, 6].includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
-                {/* Team drag ghost overlay — snapped position with glow */}
+                {/* Team drag ghost overlay — cursor-tracking position with glow */}
                 {teamDragInfo && teamDragInfo.targetPersonId === p.id && (() => {
-                  const { snapStart, snapEnd, hasOverlap, taskTitle, barColor } = teamDragInfo;
+                  const { origStart, origEnd, translateX, hasOverlap, barColor } = teamDragInfo;
                   const nDays = days.length;
-                  const gx = (diffD(tStart, snapStart) / nDays * 100) + "%";
-                  const gw = (Math.max(diffD(snapStart, snapEnd) + 1, 1) / nDays * 100) + "%";
+                  const baseX = (diffD(tStart, origStart) / nDays * 100);
+                  const gw = (Math.max(diffD(origStart, origEnd) + 1, 1) / nDays * 100) + "%";
                   const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
-                  return <div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${gx} + 1px)`, width: gw, height: rH - 8, borderRadius: 20, border: `2px solid ${gc}`, background: gc + "22", boxShadow: `0 0 32px ${gc}99, 0 0 12px ${gc}77, 0 0 64px ${gc}44`, pointerEvents: "none", zIndex: 20, animation: "ghost-fade-in 0.15s ease-out", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 10px", overflow: "hidden" }}>
-                    {taskTitle && <span style={{ fontSize: 10, fontWeight: 700, color: gc, opacity: 0.9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "60%" }}>{taskTitle}</span>}
-                    <div style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto", flexShrink: 0 }}>
-                      <div style={{ width: 16, height: 16, borderRadius: 8, background: p.color, border: `1.5px solid ${gc}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff" }}>{p.name.charAt(0)}</div>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: gc, whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</span>
-                    </div>
-                  </div>;
+                  return <div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${baseX}% + ${translateX || 0}px + 1px)`, width: gw, height: rH - 8, borderRadius: 20, border: `2px solid ${gc}`, background: gc + "22", boxShadow: `0 0 32px ${gc}99, 0 0 12px ${gc}77, 0 0 64px ${gc}44`, pointerEvents: "none", zIndex: 40 }} />;
                 })()}
                 {/* Task/PTO bars */}
                 {bars.map(bar => {
@@ -3013,26 +3042,18 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                     }
                     if (!bar.task) return;
                     e.preventDefault();
+                    e.stopPropagation();
                     const sx = e.clientX, sy = e.clientY;
                     const os = bar.task.start, oe = bar.task.end;
                     const taskPid = bar.task.pid || null;
                     const origPerson = p.id;
-                    let moved = false, lastDropPid = null, lastDx = 0;
-                    const barEl = e.currentTarget;
-                    const origLeft = barEl.style.left;
+                    let moved = false, lastDropPid = null;
                     const gridEl = teamRef.current;
                     const onM = me => {
                       const pxDx = me.clientX - sx;
                       const pxDy = me.clientY - sy;
-                      const dx = Math.round(pxDx / cW);
                       if (Math.abs(pxDx) > 2 || Math.abs(pxDy) > 8) moved = true;
-                      // 2D free movement — bar follows cursor in both axes
-                      barEl.style.transform = `translate(${pxDx}px, ${pxDy}px)`;
-                      barEl.style.zIndex = "30";
-                      barEl.style.opacity = "0.82";
-                      barEl.style.boxShadow = `0 8px 40px rgba(0,0,0,0.45), 0 0 30px ${bar.color || "#6366f1"}99`;
-                      barEl.style.transition = "box-shadow 0.08s, opacity 0.08s";
-                      // Detect target row vertically
+                      // Detect target row for reassign
                       if (gridEl) {
                         const personRows = gridEl.querySelectorAll("[data-rowtype='person']");
                         let found = null;
@@ -3040,9 +3061,11 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                           const rect = el.getBoundingClientRect();
                           if (me.clientY >= rect.top && me.clientY <= rect.bottom) found = el.getAttribute("data-rowid");
                         });
+                        if (found !== null) { const pObj = people.find(x => String(x.id) === found); if (pObj) found = pObj.id; }
                         if (found !== lastDropPid) { lastDropPid = found; setDropTarget(found); }
                       }
-                      // Compute snap ghost position + overlap check
+                      // Ghost overlay at snap position
+                      const dx = Math.round(pxDx / cW);
                       const rawS = addD(os, dx);
                       const rawE = addD(oe, dx);
                       const snapS = nextBD(rawS);
@@ -3060,80 +3083,27 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                           }
                         }
                       }
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx });
                     };
                     const onU = me => {
                       document.removeEventListener("mousemove", onM);
                       document.removeEventListener("mouseup", onU);
-                      barEl.style.transform = "";
-                      barEl.style.zIndex = "";
-                      barEl.style.opacity = "";
-                      barEl.style.boxShadow = "";
-                      barEl.style.transition = "";
-                      setDropTarget(null);
-                      setTeamDragInfo(null);
+                      setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (bar.task) openDetail(bar.task); return; }
-                      // Compute final position
+                      // Use same raw delta as ghost — no business-day snap so card lands exactly where ghost shows
                       const finalDx = Math.round((me.clientX - sx) / cW);
-                      const personId = bar.task.team[0] || origPerson;
-                      const rawStart = addD(os, finalDx);
-                      const rawEnd = addD(oe, finalDx);
-                      const newStart = nextBD(rawStart);
-                      const delta = diffD(rawStart, newStart);
-                      const newEnd = addD(rawEnd, delta);
-                      const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-                      const targetPid = lastDropPid || personId;
-                      const targetPerson = people.find(x => x.id === targetPid);
-                      const targetName = targetPerson ? targetPerson.name : "them";
+                      const newStart = addD(os, finalDx);
+                      const newEnd = addD(oe, finalDx);
+                      const dropPerson = lastDropPid || origPerson;
+                      const dropConflicts = checkOverlapsPure(tasks, [{ personId: dropPerson, start: newStart, end: newEnd, excludeOpId: bar.task.id }]);
+                      if (showOverlapIfAny(dropConflicts)) return;
+                      updTask(bar.task.id, { start: newStart, end: newEnd }, taskPid);
+                      // Expand visible range if needed (functional update = always reads current state)
+                      setTStart(prev => newStart < prev ? newStart : prev);
+                      setTEnd(prev => newEnd > prev ? newEnd : prev);
+                      // Handle reassign to different person
                       const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
-                      const opDuration = diffD(newStart, newEnd) + 1;
-                      // Locked check (use closure tasks — unchanged during drag)
-                      let isLocked = false;
-                      tasks.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && op.locked) isLocked = true; })));
-                      if (isLocked) { showLockedError([{ opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]); return; }
-                      // PTO check
-                      const person = people.find(x => x.id === personId);
-                      if (person) { for (const to of (person.timeOff || [])) { if (to.start <= newEnd && to.end >= newStart) { showOverlapIfAny([{ person: person.name, isPto: true, panelTitle: to.reason || to.type || "PTO", start: to.start, end: to.end }]); return; } } }
-                      // Conflict check
-                      const schedConflicts = checkOverlapsPure(tasks, [{ personId: targetPid, start: newStart, end: newEnd, excludeOpId: bar.task.id, opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]);
-                      // Helper: apply the move and auto-expand team view range so bar stays visible
-                      const applyMove = (toStart, toEnd) => {
-                        const logEntry = { fromStart: os, fromEnd: oe, toStart, toEnd, date: TD, movedBy: movedByName, reason: isReassign ? `Reassigned to ${targetName}` : "Manual move" };
-                        setTasks(prev => recalcBounds(prev.map(t => {
-                          if (!taskPid) return t;
-                          const pi2 = (t.subs || []).findIndex(s => s.id === taskPid);
-                          if (pi2 < 0) return t;
-                          const ns = [...t.subs];
-                          ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === bar.task.id ? { ...op, start: toStart, end: toEnd, moveLog: [...(op.moveLog || []), logEntry] } : op) };
-                          return { ...t, subs: ns };
-                        }), movedByName));
-                        if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
-                        // Expand team view window so bar doesn't vanish off the edge
-                        if (toStart < tStart) setTStart(toStart);
-                        if (toEnd > tEnd) setTEnd(toEnd);
-                      };
-                      if (schedConflicts.length > 0) {
-                        let nextSlot = null;
-                        let candidate = addD(newStart, 1);
-                        for (let i = 0; i < 180; i++) {
-                          const dt = new Date(candidate + "T12:00:00");
-                          if (dt.getDay() === 0) { candidate = addD(candidate, 1); continue; }
-                          if (dt.getDay() === 6) { candidate = addD(candidate, 2); continue; }
-                          const slotEnd = addD(candidate, opDuration - 1);
-                          let ptoBusy = false;
-                          if (targetPerson) { for (const to of (targetPerson.timeOff || [])) { if (to.start <= slotEnd && to.end >= candidate) { ptoBusy = true; break; } } }
-                          if (!ptoBusy) {
-                            const c2 = checkOverlapsPure(tasks, [{ personId: targetPid, start: candidate, end: slotEnd, excludeOpId: bar.task.id, opTitle: "", panelTitle: "" }]);
-                            if (c2.length === 0) { nextSlot = { start: candidate, end: slotEnd }; break; }
-                          }
-                          candidate = addD(candidate, 1);
-                        }
-                        if (nextSlot) {
-                          setConfirmMove({ title: "Schedule Conflict — Next Available", message: `${targetName} is busy ${fm(newStart)}–${fm(newEnd)}.\n\nNext available: ${fm(nextSlot.start)}–${fm(nextSlot.end)}. Move${isReassign ? ` and reassign to ${targetName}` : ""} to that slot?`, onCancel: () => setConfirmMove(null), onConfirm: () => { setConfirmMove(null); applyMove(nextSlot.start, nextSlot.end); } });
-                        } else { showOverlapIfAny(schedConflicts); }
-                        return;
-                      }
-                      applyMove(newStart, newEnd);
+                      if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
                     };
                     document.addEventListener("mousemove", onM);
                     document.addEventListener("mouseup", onU);
@@ -3229,7 +3199,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                   return <div key={bar.id} title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "") + (barLocked ? " 🔒 Locked" : "") + (hasMoveLog ? " 📋 Has schedule changes" : "") + (bar.hasSubs ? " (click to expand)" : "")}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isPto ? 3 : 4, boxShadow: barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none" }}
+                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isPto ? 3 : 4, opacity: teamDragInfo?.barId === bar.id ? 0.35 : 1, boxShadow: barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none" }}
                     onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -3247,7 +3217,8 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           {TD >= tStart && TD <= tEnd && <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(diffD(tStart, TD) + 0.5) / days.length})`, width: 2, background: T.accent + "bb", zIndex: 12, pointerEvents: "none" }} />}
         </div>
       </div>
-      </div>
+      </div>}
+    {teamDragInfo && teamDragInfo.taskTitle && <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 8, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{teamDragInfo.taskTitle}</div>}
     </div>;
   };
   const renderAnalytics = () => { const tot = tasks.length; const bySt = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length })); const byPr = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length })); const cr = tot ? Math.round(tasks.filter(t => t.status === "Finished").length / tot * 100) : 0; const tl = people.map(p => ({ n: p.name.split(" ")[0], h: bookedHrs(p.id, TD), cap: p.cap })).sort((a, b) => b.h - a.h).slice(0, 12); const mx = Math.max(...tl.map(t => Math.max(t.h, t.cap)), 1);
@@ -3454,7 +3425,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           </div>
           {can("editJobs") && <div style={{ display: "flex", gap: 5, flexShrink: 0, alignItems: "center", paddingTop: 2 }} onClick={e => e.stopPropagation()}>
             <button onClick={() => openEdit(t)} style={{ background: T.accent + "18", border: "none", borderRadius: 6, padding: "5px 9px", fontSize: 11, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit</button>
-            <button onClick={() => delTask(t.id)} style={{ background: T.danger + "18", border: "none", borderRadius: 6, padding: "5px 7px", fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>✕</button>
+            <button onClick={() => setConfirmDelete({ title: t.title, id: t.id, pid: null })} style={{ background: T.danger + "18", border: "none", borderRadius: 6, padding: "5px 7px", fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>✕</button>
           </div>}
         </div>
         {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
@@ -3480,17 +3451,17 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       return <div style={{ padding: "8px 12px", overflow: "auto", flex: 1 }}>
         {/* Engineering Queue */}
         {engQueueItems.length > 0 && <div style={{ marginBottom: 12 }}>
-          <div onClick={() => setMobileExp(p => ({ ...p, eng_queue: !p.eng_queue }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#3b82f615", borderRadius: T.radiusSm, border: "1px solid #3b82f630", cursor: "pointer", marginBottom: mobileEngOpen ? 6 : 0 }}>
+          <div onClick={() => setMobileExp(p => ({ ...p, eng_queue: !p.eng_queue }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: `${T.accent}15`, borderRadius: T.radiusSm, border: `1px solid ${T.accent}30`, cursor: "pointer", marginBottom: mobileEngOpen ? 6 : 0 }}>
             <span style={{ fontSize: 14 }}>🔧</span>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "#3b82f6", flex: 1 }}>Engineering Queue</span>
-            <span style={{ fontSize: 12, color: "#3b82f6", fontWeight: 700, background: "#3b82f620", borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: T.accent, flex: 1 }}>Engineering Queue</span>
+            <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>
             <span style={{ fontSize: 11, color: T.textDim, marginLeft: 4 }}>{mobileEngOpen ? "▲" : "▼"}</span>
           </div>
           {mobileEngOpen && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {engQueueItems.map(({ job, panel }) => {
               const e = panel.engineering || {};
               const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
-              return <div key={panel.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: "3px solid #3b82f6", borderRadius: T.radiusSm, padding: "11px 13px" }}>
+              return <div key={panel.id} style={{ background: T.card, border: `1px solid ${T.border}`, borderLeft: `3px solid ${T.accent}`, borderRadius: T.radiusSm, padding: "11px 13px" }}>
                 <div style={{ fontSize: 11, color: T.textDim, marginBottom: 3, fontFamily: T.mono }}>{job.jobNumber ? `#${job.jobNumber} · ` : ""}{job.title}</div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: T.text, marginBottom: 8 }}>{panel.title}</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -3498,8 +3469,8 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                     const done = !!e[step.key];
                     const isActive = step.key === activeStep;
                     if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canSignOffEngineering && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}</span>;
-                    if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: 14, background: "#3b82f6", color: "#fff", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
-                    if (isActive) return <span key={step.key} style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>→ {step.label}</span>;
+                    if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                    if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                     return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {step.label}</span>;
                   })}
                 </div>
@@ -3521,7 +3492,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
               <span style={{ flex: 1, fontSize: 14, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
               <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(t.end)}</span>
             </div>
-            {can("editJobs") && <button onClick={() => delTask(t.id)} style={{ background: T.danger + "18", border: "none", borderRadius: 6, padding: "5px 7px", fontSize: 11, color: T.danger, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>✕</button>}
+            {can("editJobs") && <button onClick={() => setConfirmDelete({ title: t.title, id: t.id, pid: null })} style={{ background: T.danger + "18", border: "none", borderRadius: 6, padding: "5px 7px", fontSize: 11, color: T.danger, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>✕</button>}
           </div>)}
         </>}
       </div>;
@@ -3592,6 +3563,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
               <div style={{ fontSize: 10, color: T.textDim }}>today</div>
             </div>
             <span style={{ fontSize: 12, color: T.textDim, marginLeft: 4 }}>{isExp ? "▲" : "▼"}</span>
+            {teamSelectMode && <div onClick={e => { e.stopPropagation(); setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }); }} style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.15s" }}>{selPeople.has(p.id) && <svg width="11" height="11" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
           </div>
           {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "12px 14px" }}>
             <div style={{ display: "flex", gap: 20, marginBottom: 12 }}>
@@ -4291,7 +4263,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
 
         {/* AI Schedule Suggestion (panel + matrix only) */}
         {isPanel && isMatrix && <div style={{ marginBottom: 20 }}>
-          <button onClick={suggestSchedule} disabled={aiLoading || (ed.subs || []).length === 0} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 18px", borderRadius: T.radiusSm, border: "none", background: (ed.subs || []).length === 0 ? T.textDim + "33" : "#3b82f6", color: "#fff", fontSize: 15, fontWeight: 700, cursor: aiLoading || (ed.subs || []).length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.2s", width: "100%", opacity: (ed.subs || []).length === 0 ? 0.5 : 1, boxShadow: (ed.subs || []).length > 0 ? "0 4px 14px rgba(59,130,246,0.35)" : "none", letterSpacing: "0.3px" }}>
+          <button onClick={suggestSchedule} disabled={aiLoading || (ed.subs || []).length === 0} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 18px", borderRadius: T.radiusSm, border: "none", background: (ed.subs || []).length === 0 ? T.textDim + "33" : T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: aiLoading || (ed.subs || []).length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.2s", width: "100%", opacity: (ed.subs || []).length === 0 ? 0.5 : 1, boxShadow: (ed.subs || []).length > 0 ? `0 4px 14px ${T.accent}59` : "none", letterSpacing: "0.3px" }}>
             {aiLoading ? "⏳ Checking availability..." : "Check for Availability!"}
           </button>
 
@@ -4600,7 +4572,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
 
         <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }} /></div>
         <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
-          {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => { delTask(ed.id, modal.parentId); closeModal(); }} style={{ marginRight: "auto" }}>Delete Job</Btn> : <span />}
+          {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })} style={{ marginRight: "auto" }}>Delete Job</Btn> : <span />}
           <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => saveTask(ed, modal.parentId)}>Save Job</Btn></div>
         </div>
       </div></div>; }
@@ -4744,21 +4716,21 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             const pEng = panel.engineering || {};
             const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
             const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
-            return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? "#3b82f633" : T.border}`, padding: 14, marginBottom: 8 }}>
+            return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 14, marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <HealthIcon t={panel} size={14} />
                 <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
                 <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
               </div>
               {/* Engineering sign-off row — only for panel jobs */}
-              {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : "#3b82f608", border: `1px solid ${engAllDone ? "#10b98133" : "#3b82f622"}`, flexWrap: "wrap" }}>
+              {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, marginRight: 4 }}>ENG:</span>
                 {engSteps.map(step => {
                   const done = !!pEng[step.key];
                   const isActive = step.key === pActiveStep;
                   if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                  if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: "#3b82f6", color: "#fff", border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
-                  if (isActive) return <span key={step.key} style={{ fontSize: 11, color: "#3b82f6", fontWeight: 600 }}>→ {step.label}</span>;
+                  if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                  if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                   return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
                 })}
                 {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
@@ -4857,7 +4829,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
     {/* Main nav bar */}
     {!isMobile && <div className="anim-header" style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "12px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, position: "relative", zIndex: 100 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <img src={TRAQS_LOGO_WHITE} alt="TRAQS" style={{ height: 32, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
+        <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 32, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
         <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
           <button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canUndo ? T.border : "transparent"}`, background: canUndo ? T.bg : "transparent", cursor: canUndo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canUndo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↩</button>
           <button onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)" style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canRedo ? T.border : "transparent"}`, background: canRedo ? T.bg : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↪</button>
@@ -5030,7 +5002,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                     </div>
                     <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                       {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
-                      {person.isEngineer && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#3b82f620", color: "#3b82f6", border: "1px solid #3b82f633" }}>Eng</span>}
+                      {person.isEngineer && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Eng</span>}
                       {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
                     </div>
                     <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
@@ -5062,13 +5034,13 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
                       })}
                     </div>}
                     {/* Engineering toggle */}
-                    <div onClick={() => updPerson(person.id, { isEngineer: !person.isEngineer })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.isEngineer ? "#3b82f644" : T.border}`, background: person.isEngineer ? "#3b82f608" : T.surface, transition: "all 0.15s" }}>
+                    <div onClick={() => updPerson(person.id, { isEngineer: !person.isEngineer })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.isEngineer ? T.accent + "44" : T.border}`, background: person.isEngineer ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
                       <span style={{ fontSize: 15 }}>🔧</span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Engineering Sign-Off Access</div>
                         <div style={{ fontSize: 11, color: T.textDim }}>Can sign off Design, Verify & Perforex steps</div>
                       </div>
-                      <div style={{ width: 36, height: 20, borderRadius: 10, background: person.isEngineer ? "#3b82f6" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                      <div style={{ width: 36, height: 20, borderRadius: 10, background: person.isEngineer ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                         <div style={{ position: "absolute", top: 2, left: person.isEngineer ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>
@@ -5100,11 +5072,11 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           {/* Ambient glow orb */}
           <div style={{ position: "absolute", top: -100, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, background: `radial-gradient(circle, ${T.accent}18 0%, transparent 65%)`, pointerEvents: "none" }} />
           {/* Close */}
-          <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); }} style={{ position: "absolute", top: 16, right: 16, width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, zIndex: 2 }}>✕</button>
+          <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); }} style={{ position: "absolute", top: 20, right: 24, width: 32, height: 32, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, zIndex: 2 }}>✕</button>
 
           {/* TRAQS Logo */}
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 28 }}>
-            <img src={TRAQS_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
+            <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
           </div>
 
           {/* Title */}
@@ -5236,7 +5208,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
 
     {/* ─── Attachment lightbox ─── */}
     {lightboxAtt && <div onClick={() => setLightboxAtt(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <button onClick={() => setLightboxAtt(null)} style={{ position: "absolute", top: 18, right: 22, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "50%", width: 38, height: 38, color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
+      <button onClick={() => setLightboxAtt(null)} style={{ position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "50%", width: 38, height: 38, color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
       {lightboxAtt.mimeType?.startsWith("image/")
         ? <img src={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} alt={lightboxAtt.filename} onClick={e => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "88vh", borderRadius: 10, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.8)" }} />
         : <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, padding: "32px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16, maxWidth: 340 }}>
@@ -5599,10 +5571,28 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
           </div>
           <InputField label="Email" value={ed.email} onChange={v => setClientModal(p => ({ ...p, email: v }))} />
           <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setClientModal(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }} /></div>
-          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}><Btn variant="ghost" onClick={() => setClientModal(null)}>Cancel</Btn><Btn onClick={() => saveClient(ed)}>Save Client</Btn></div>
+          <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", alignItems: "center" }}>
+            {ed.id && <Btn variant="danger" onClick={() => setConfirmDeleteClient(ed.id)} style={{ marginRight: "auto" }}>Delete Client</Btn>}
+            <Btn variant="ghost" onClick={() => setClientModal(null)}>Cancel</Btn>
+            <Btn onClick={() => saveClient(ed)}>Save Client</Btn>
+          </div>
         </div>
       </div>;
     })()}
+    {/* Client delete confirm modal */}
+    {confirmDeleteClient && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 28 }}>🗑</div>
+        <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete Client?</h3>
+        <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>
+          This will permanently delete <strong style={{ color: T.text }}>{clients.find(c => c.id === confirmDeleteClient)?.name}</strong> and remove them from all associated jobs. This cannot be undone.
+        </p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <Btn variant="ghost" onClick={() => setConfirmDeleteClient(null)}>Cancel</Btn>
+          <Btn variant="danger" onClick={() => { delClient(confirmDeleteClient); setConfirmDeleteClient(null); setClientModal(null); setSelClient(null); }}>Delete</Btn>
+        </div>
+      </div>
+    </div>}
     {/* Person edit modal */}
     {personModal && (() => {
       const ed = personModal;
@@ -5763,7 +5753,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
         </div>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
           <Btn variant="ghost" onClick={() => setConfirmDelete(null)} style={{ minWidth: 120 }}>Cancel</Btn>
-          <Btn variant="danger" onClick={() => { delTask(confirmDelete.id, confirmDelete.pid); setConfirmDelete(null); }} style={{ minWidth: 120, background: T.danger, color: "#fff", border: "none" }}>Delete Forever</Btn>
+          <Btn variant="danger" onClick={() => { delTask(confirmDelete.id, confirmDelete.pid); if (confirmDelete.extra) confirmDelete.extra(); setConfirmDelete(null); }} style={{ minWidth: 120, background: T.danger, color: "#fff", border: "none" }}>Delete Forever</Btn>
         </div>
       </div>
     </div>}
@@ -5922,7 +5912,7 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
             <div style={{ fontSize: 13, color: T.textDim, marginTop: 4 }}>{item.title}{item.end ? ` · Due ${fm(item.end)}` : ""}</div>
           </div>
           <div style={{ padding: "16px 24px" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Notifying {recipients.length} team member{recipients.length !== 1 ? "s" : ""}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Notifying {recipients.length} team member{recipients.length !== 1 ? "s" : ""}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
               {recipients.map(p => <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: p.color + "18", border: `1px solid ${p.color}44`, borderRadius: 20, padding: "4px 10px 4px 6px" }}>
                 <div style={{ width: 20, height: 20, borderRadius: 6, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
@@ -5940,6 +5930,24 @@ Rules: Ops within panel are SEQUENTIAL. Panels can run parallel. Skip existing p
       </div>;
     })()}
 
+    {/* Floating bulk delete button(s) */}
+    {(selJobs.size > 0 || selClients.size > 0 || selPeople.size > 0) && <div style={{ position: "fixed", bottom: 32, right: 32, zIndex: 1200, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end", animation: "ghost-fade-in 0.2s ease" }}>
+      {selJobs.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "jobs", ids: [...selJobs], count: selJobs.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}>🗑 Delete {selJobs.size} Job{selJobs.size !== 1 ? "s" : ""}</button>}
+      {selClients.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "clients", ids: [...selClients], count: selClients.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}>🗑 Delete {selClients.size} Client{selClients.size !== 1 ? "s" : ""}</button>}
+      {selPeople.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "people", ids: [...selPeople], count: selPeople.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}>🗑 Delete {selPeople.size} Person{selPeople.size !== 1 ? "s" : ""}</button>}
+    </div>}
+    {/* Bulk delete confirmation modal */}
+    {bulkDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBulkDeleteConfirm(null)}>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 28 }}>🗑</div>
+        <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete {bulkDeleteConfirm.count} {bulkDeleteConfirm.type === "jobs" ? "Job" : bulkDeleteConfirm.type === "clients" ? "Client" : "Person"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}?</h3>
+        <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>This will permanently delete {bulkDeleteConfirm.count} selected {bulkDeleteConfirm.type === "jobs" ? "job" : bulkDeleteConfirm.type === "clients" ? "client" : "team member"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}. This cannot be undone.</p>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <Btn variant="ghost" onClick={() => setBulkDeleteConfirm(null)}>Cancel</Btn>
+          <Btn variant="danger" onClick={() => { const { type, ids } = bulkDeleteConfirm; if (type === "jobs") { ids.forEach(id => delTask(id)); setSelJobs(new Set()); } else if (type === "clients") { ids.forEach(id => delClient(id)); setSelClients(new Set()); } else if (type === "people") { ids.forEach(id => delPerson(id)); setSelPeople(new Set()); } setBulkDeleteConfirm(null); }}>Delete All</Btn>
+        </div>
+      </div>
+    </div>}
   </div>;
 }
 

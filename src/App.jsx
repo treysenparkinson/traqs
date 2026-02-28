@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import TRAQS from "./TRAQS.jsx";
-import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE } from "./logo.js";
+import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople } from "./api.js";
 
 const LS_CODE = "tq_org_code";
@@ -125,7 +125,7 @@ const HINT = {
 function LogoHeader({ subtitle }) {
   return (
     <div style={CARD_HEADER}>
-      <img src={TRAQS_LOGO_WHITE} alt="TRAQS" style={{ height: 36, objectFit: "contain", marginBottom: 8 }} />
+      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 36, objectFit: "contain", marginBottom: 8 }} />
       {subtitle && (
         <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.75)", letterSpacing: "0.06em" }}>
           {subtitle}
