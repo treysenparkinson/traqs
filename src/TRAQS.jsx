@@ -236,8 +236,8 @@ animStyle.textContent = `
   position: relative;
   overflow: hidden;
 }
-.anim-btn:hover  { transform: translateY(-2px) scale(1.03); box-shadow: 0 10px 28px rgba(0,0,0,0.22); }
-.anim-btn:active { transform: scale(0.94) translateY(0); transition-duration: 0.08s; }
+.anim-btn:hover  { box-shadow: 0 6px 20px rgba(0,0,0,0.2); filter: brightness(1.08); }
+.anim-btn:active { filter: brightness(0.95); transition-duration: 0.08s; }
 
 .anim-card-wrap {
   transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -348,7 +348,7 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
       pill.style.width = `${btn.offsetWidth}px`;
       mounted.current = true;
       requestAnimationFrame(() => {
-        if (pill) pill.style.transition = "transform 0.44s cubic-bezier(0.34,1.56,0.64,1), width 0.38s cubic-bezier(0.22,1,0.36,1)";
+        if (pill) pill.style.transition = "transform 0.28s cubic-bezier(0.34,1.56,0.64,1), width 0.22s cubic-bezier(0.22,1,0.36,1)";
       });
     } else {
       pill.style.transform = `translateX(${btn.offsetLeft}px)`;
@@ -361,12 +361,15 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
   return (
     <div style={{ display:"flex", background:T.bg, borderRadius:T.radiusSm, padding:3, position:"relative", isolation:"isolate", ...sx }}>
       <div ref={pillRef} style={{ position:"absolute", top:3, bottom:3, left:0, borderRadius:T.radiusXs, background:T.accent, boxShadow:`0 4px 18px ${T.accent}55`, zIndex:0, pointerEvents:"none" }} />
-      {options.map(opt => (
-        <button key={opt.value} ref={el => { btnRefs.current[opt.value] = el; }} onClick={() => onChange(opt.value)}
-          style={{ position:"relative", zIndex:1, padding:pad, borderRadius:T.radiusXs, border:"none", fontSize:fs, fontWeight:value===opt.value?fw:400, cursor:"pointer", fontFamily:T.font, background:"transparent", color:value===opt.value?T.accentText:T.text, transition:"color 0.3s ease", whiteSpace:"nowrap" }}>
-          {opt.label}
-        </button>
-      ))}
+      {options.map(opt => {
+        const isActive = value === opt.value;
+        return (
+          <button key={opt.value} ref={el => { btnRefs.current[opt.value] = el; }} onClick={() => onChange(opt.value)}
+            style={{ position:"relative", zIndex:1, padding:pad, borderRadius:T.radiusXs, border:"none", fontSize:fs, fontWeight:isActive?fw:400, cursor:"pointer", fontFamily:T.font, background:"transparent", color:isActive?T.accentText:T.text, whiteSpace:"nowrap" }}>
+            {opt.label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -1102,6 +1105,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [fClient, setFClient] = useState("All");
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
+  const [clientSearch, setClientSearch] = useState("");
+  const [jobSearch, setJobSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [overlapError, setOverlapError] = useState(null); // { message, details[] }
@@ -1560,10 +1565,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const conflicts = checkOverlapsPure(filteredTasks, opsToCheck);
     if (conflicts.length > 0) { showOverlapIfAny(conflicts); return; }
     // Generate IDs for panels and their operations
-    const withIds = { ...ed, subs: (ed.subs || []).map(panel => ({
-      ...panel, id: panel.id || uid(),
-      subs: (panel.subs || []).map(op => ({ ...op, id: op.id || uid() }))
-    })) };
+    const isGeneralTask = (ed.jobType || "panel") !== "panel";
+    const withIds = { ...ed, subs: (ed.subs || []).map(panel => isGeneralTask
+      ? { ...panel, id: panel.id || uid() }
+      : { ...panel, id: panel.id || uid(), subs: (panel.subs || []).map(op => ({ ...op, id: op.id || uid() })) }
+    ) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
     else { const nw = { ...withIds, id: uid() }; if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else setTasks(p => [...p, nw]); }
     closeModal();
@@ -1940,7 +1946,13 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const styleEl = document.createElement("style");
     styleEl.textContent = "* { cursor: grabbing !important; }";
     document.head.appendChild(styleEl);
+    const onUp = () => {
+      styleEl.remove();
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
     const onMove = (me) => {
+      if (me.buttons === 0) { onUp(); return; }
       const days = Math.round(-(me.clientX - startX) / ganttCWRef.current);
       if (days !== lastShift) {
         const delta = days - lastShift;
@@ -1948,11 +1960,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         setGStart(prev => addD(prev, delta));
         setGEnd(prev => addD(prev, delta));
       }
-    };
-    const onUp = () => {
-      styleEl.remove();
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -1968,7 +1975,13 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const styleEl = document.createElement("style");
     styleEl.textContent = "* { cursor: grabbing !important; }";
     document.head.appendChild(styleEl);
+    const onUp = () => {
+      styleEl.remove();
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
     const onMove = (me) => {
+      if (me.buttons === 0) { onUp(); return; }
       const days = Math.round(-(me.clientX - startX) / teamCWRef.current);
       if (days !== lastShift) {
         const delta = days - lastShift;
@@ -1976,11 +1989,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         setTStart(prev => addD(prev, delta));
         setTEnd(prev => addD(prev, delta));
       }
-    };
-    const onUp = () => {
-      styleEl.remove();
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -2465,8 +2473,17 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   // ═══════════════════ ANALYTICS ═══════════════════
 
   // ═══════════════════ TASKS ═══════════════════
-  const finishedTasks = tasks.filter(t => t.status === "Finished");
-  const activeTasks = filtered.filter(t => t.status !== "Finished");
+  const jobSearchMatch = (t) => {
+    if (!jobSearch) return true;
+    const q = jobSearch.toLowerCase();
+    if (t.title?.toLowerCase().includes(q)) return true;
+    if (t.jobNumber && String(t.jobNumber).includes(q)) return true;
+    const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+    if (client && client.name.toLowerCase().includes(q)) return true;
+    return false;
+  };
+  const finishedTasks = tasks.filter(t => t.status === "Finished" && jobSearchMatch(t));
+  const activeTasks = filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t));
 
   // Engineering Queue: incomplete panels. Engineering Finished: all steps done.
   const engQueueItems = [];
@@ -2485,11 +2502,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const fresh = sel ? (allItems.find(x => x.id === sel.id) || sel) : null;
     const parent = fresh ? tasks.find(x => x.id === fresh.id) : null;
 
-    return <div style={{ display: "flex", flexDirection: "column", gap: 20, height: "100%", overflow: "auto" }}>
-      {/* ── Page top bar ── */}
-      {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <Btn onClick={() => openNew()}>+ New Job</Btn>
-      </div>}
+    return <div style={{ display: "flex", flexDirection: "column", gap: 20, height: "100%", overflow: "auto", paddingTop: 6 }}>
       {/* ── Engineering Queue ── */}
       {canSignOffEngineering && engQueueItems.length > 0 && <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
@@ -2598,6 +2611,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             </div>}
           </div>
         </div>
+        <div style={{ position: "relative", marginBottom: 8 }}>
+          <svg style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "7px 28px 7px 28px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+          {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
+        </div>
         <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
           {tasks.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 16px", textAlign: "center", gap: 10 }}>
             <div style={{ fontSize: 48, opacity: 0.35 }}>📋</div>
@@ -2653,7 +2671,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       </div>
 
       {/* Job detail panel */}
-      <div style={{ flex: 1, minWidth: 0, overflow: "auto" }}>
+      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexShrink: 0 }}>
+          {fresh && <Btn variant="ghost" onClick={() => openEdit(fresh)}>Edit</Btn>}
+          <Btn onClick={() => openNew()}>+ New Job</Btn>
+        </div>}
+        <div style={{ flex: 1, overflow: "auto", overscrollBehavior: "contain" }}>
         {!fresh ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
             <div style={{ fontSize: 48, opacity: 0.3 }}>📋</div>
@@ -2672,10 +2695,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
                     {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
                   </div>}
                 </div>
-              </div>
-              <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                {can("editJobs") && <Btn size="sm" onClick={() => openEdit(fresh)}>Edit</Btn>}
-                {can("editJobs") && <Btn size="sm" variant="ghost" onClick={() => openNew()}>+ New Job</Btn>}
               </div>
             </div>
 
@@ -2765,6 +2784,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             </div>}
           </div>
         )}
+        </div>
       </div>
       </div>
     </div>;
@@ -2774,146 +2794,155 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const renderClients = () => {
     const sel = selClient ? clients.find(c => c.id === selClient) : null;
     const selTasks = selClient ? tasks.filter(t => t.clientId === selClient) : [];
-    const selAllItems = selClient ? allItems.filter(i => { const parent = tasks.find(t => t.id === (i.pid || i.id)); return parent && parent.clientId === selClient; }) : [];
     const completed = selTasks.filter(t => t.status === "Finished").length;
     const inProg = selTasks.filter(t => t.status === "In Progress").length;
     const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0) * (diffD(t.start, t.end) + 1), 0);
+    const filteredClients = clients.filter(c => !clientSearch || c.name.toLowerCase().includes(clientSearch.toLowerCase()) || (c.contact || "").toLowerCase().includes(clientSearch.toLowerCase()));
 
-    return <div style={{ display: "flex", gap: 24, height: "100%" }}>
-      {/* Client list sidebar */}
-      <div style={{ minWidth: 320, maxWidth: 320, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Clients</h3>
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            {can("manageClients") && <Btn size="sm" variant={clientSelectMode ? "primary" : "ghost"} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>}
-            {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
+    return <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 16 }}>
+      {/* Top bar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, flexShrink: 0 }}>Clients</h3>
+          <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+            <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
           </div>
         </div>
-        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
-          {clients.map(c => {
-            const ct = tasks.filter(t => t.clientId === c.id);
-            const active = ct.filter(t => t.status !== "Finished").length;
-            const done = ct.filter(t => t.status === "Finished").length;
-            const isSel = selClient === c.id;
-            const isBulkSel = selClients.has(c.id);
-            return <div key={c.id} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : setSelClient(isSel ? null : c.id)} style={{
-              background: isBulkSel ? T.accent + "12" : isSel ? c.color + "18" : T.card, borderRadius: T.radius,
-              border: `1.5px solid ${isBulkSel ? T.accent + "55" : isSel ? c.color + "66" : T.border}`,
-              padding: "16px 18px", cursor: "pointer", transition: "all 0.15s ease",
-              boxShadow: isBulkSel ? `0 0 20px ${T.accent}18` : isSel ? `0 0 20px ${c.color}15` : "none",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-                {clientSelectMode
-                  ? <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${isBulkSel ? T.accent : T.border}`, background: isBulkSel ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{isBulkSel && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>
-                  : <div style={{ width: 14, height: 14, borderRadius: 7, background: c.color, flexShrink: 0, boxShadow: `0 0 8px ${c.color}44` }} />}
-                <div style={{ flex: 1, fontWeight: 700, fontSize: 15, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  {!clientSelectMode && can("manageClients") && <span onClick={e => { e.stopPropagation(); setClientModal({ ...c }); }} style={{ cursor: "pointer", fontSize: 13, color: T.textDim, padding: "2px 6px", borderRadius: 4 }}>Edit</span>}
-                </div>
-              </div>
-              <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>{c.contact}</div>
-              <div style={{ display: "flex", gap: 12, fontSize: 12, color: T.textDim }}>
-                <span>{ct.length} job{ct.length !== 1 ? "s" : ""}</span>
-                {active > 0 && <span style={{ color: T.accent }}>{active} active</span>}
-                {done > 0 && <span style={{ color: "#10b981" }}>{done} done</span>}
-              </div>
-            </div>;
-          })}
-          {clients.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 24px", textAlign: "center", gap: 12 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+          {can("manageClients") && <Btn size="sm" variant={clientSelectMode ? "primary" : "ghost"} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>}
+          {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
+        </div>
+      </div>
+
+      {/* Card grid */}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        {clients.length === 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
             <div style={{ fontSize: 56, lineHeight: 1, marginBottom: 4, opacity: 0.45 }}>🏢</div>
             <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>No clients yet</h3>
             <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 240, lineHeight: 1.65 }}>Add your first client to organize jobs by company</p>
             {can("manageClients") && <Btn size="sm" style={{ marginTop: 8 }} onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add Client</Btn>}
-          </div>}
-        </div>
-      </div>
-
-      {/* Client detail panel */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {!sel ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
-            <div style={{ fontSize: 48, opacity: 0.3 }}>🏢</div>
-            <div style={{ fontSize: 16, color: T.textDim }}>Select a client to view their jobs</div>
           </div>
         ) : (
-          <div>
-            {/* Client header */}
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 16 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <div style={{ width: 48, height: 48, borderRadius: 14, background: sel.color + "22", border: `2px solid ${sel.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: sel.color }}>{sel.name.charAt(0)}</div>
-                <div>
-                  <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: T.text }}>{sel.name}</h2>
-                  <div style={{ fontSize: 14, color: T.textSec, marginTop: 4, display: "flex", gap: 16, flexWrap: "wrap" }}>
-                    {sel.contact && <span>👤 {sel.contact}</span>}
-                    {sel.email && <span>✉ {sel.email}</span>}
-                    {sel.phone && <span>📞 {sel.phone}</span>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+            {filteredClients.map(c => {
+              const ct = tasks.filter(t => t.clientId === c.id);
+              const active = ct.filter(t => t.status !== "Finished").length;
+              const done = ct.filter(t => t.status === "Finished").length;
+              const isSel = selClient === c.id;
+              const isBulkSel = selClients.has(c.id);
+              return <div key={c.id} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : setSelClient(isSel ? null : c.id)} style={{
+                background: isBulkSel ? T.accent + "12" : isSel ? c.color + "18" : T.card,
+                borderRadius: T.radius,
+                border: `1.5px solid ${isBulkSel ? T.accent + "55" : isSel ? c.color + "66" : T.border}`,
+                padding: "20px 20px 16px",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                boxShadow: isBulkSel ? `0 0 20px ${T.accent}18` : isSel ? `0 0 20px ${c.color}18` : "none",
+              }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+                  {clientSelectMode
+                    ? <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${isBulkSel ? T.accent : T.border}`, background: isBulkSel ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", marginTop: 2 }}>{isBulkSel && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>
+                    : <div style={{ width: 42, height: 42, borderRadius: 12, background: c.color + "22", border: `2px solid ${c.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: c.color, flexShrink: 0 }}>{c.name.charAt(0)}</div>
+                  }
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{c.name}</div>
+                    {c.contact && <div style={{ fontSize: 13, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.contact}</div>}
+                  </div>
+                  {!clientSelectMode && can("manageClients") && <span onClick={e => { e.stopPropagation(); setClientModal({ ...c }); }} style={{ cursor: "pointer", fontSize: 12, color: T.textDim, padding: "3px 8px", borderRadius: 4, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0 }}>Edit</span>}
+                </div>
+                <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontWeight: 700, fontSize: 18, color: c.color, fontFamily: T.mono }}>{ct.length}</div>
+                    <div style={{ color: T.textDim, marginTop: 1 }}>Total</div>
+                  </div>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontWeight: 700, fontSize: 18, color: "#3b82f6", fontFamily: T.mono }}>{active}</div>
+                    <div style={{ color: T.textDim, marginTop: 1 }}>Active</div>
+                  </div>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontWeight: 700, fontSize: 18, color: "#10b981", fontFamily: T.mono }}>{done}</div>
+                    <div style={{ color: T.textDim, marginTop: 1 }}>Done</div>
                   </div>
                 </div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {can("manageClients") && <Btn size="sm" onClick={() => setClientModal({ ...sel })}>Edit Client</Btn>}
-                {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); setSelClient(null); }}>Delete</Btn>}
-              </div>
-            </div>
-
-            {sel.notes && <div style={{ fontSize: 14, color: T.textSec, padding: 16, background: T.surface, borderRadius: T.radiusSm, marginBottom: 20, lineHeight: 1.6, border: `1px solid ${T.border}` }}>{sel.notes}</div>}
-
-            {/* Stats row */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-              {[
-                { label: "Total Jobs", val: selTasks.length, color: sel.color },
-                { label: "In Progress", val: inProg, color: "#3b82f6" },
-                { label: "Finished", val: completed, color: "#10b981" },
-                { label: "Est. Hours", val: totalHrs, color: "#f59e0b" },
-              ].map(s => <div key={s.label} style={{ background: T.card, borderRadius: T.radiusSm, padding: "16px 18px", border: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 28, fontWeight: 700, color: s.color, fontFamily: T.mono }}>{s.val}</div>
-                <div style={{ fontSize: 12, color: T.textDim, marginTop: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{s.label}</div>
-              </div>)}
-            </div>
-
-            {/* Jobs list */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: T.text }}>Jobs ({selTasks.length})</h4>
-              {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
-            </div>
-            {selTasks.length === 0 && <div style={{ textAlign: "center", padding: 32, color: T.textDim, fontSize: 14, background: T.card, borderRadius: T.radius, border: `1px solid ${T.border}` }}>No jobs assigned to this client yet.</div>}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {selTasks.map(t => {
-                const dur = diffD(t.start, t.end) + 1;
-                const pct = t.status === "Finished" ? 100 : t.status === "In Progress" ? 50 : t.status === "Pending" ? 15 : t.status === "On Hold" ? 25 : 0;
-                return <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "16px 20px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${t.color}`, opacity: t.status === "Finished" ? 0.7 : 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 12 }}>
-                    <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
-                      <HealthIcon t={t} />
-                      <span style={{ fontSize: 15, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => openDetail(t)}>{t.title}</span>
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-                      <Badge t={t.pri} c={PRI_C[t.pri]} />
-
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 13, color: T.textSec, marginBottom: 10 }}>
-                    <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
-                    <span>{dur} day{dur !== 1 ? "s" : ""}</span>
-                    <span>{t.hpd}h/day</span>
-                    {(t.subs || []).length > 0 && <span>{t.subs.length} subtask{t.subs.length !== 1 ? "s" : ""}</span>}
-                  </div>
-                  {/* Progress bar */}
-                  <div style={{ background: T.bg, borderRadius: 4, height: 6, overflow: "hidden", marginBottom: 10 }}>
-                    <div style={{ height: "100%", borderRadius: 4, background: t.color, width: `${pct}%`, transition: "width 0.3s" }} />
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{t.team.slice(0, 5).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{t.team.length > 5 && <Badge t={`+${t.team.length - 5}`} c={T.textDim} />}</div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      {can("editJobs") && <><Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn></>}
-                    </div>
-                  </div>
-                </div>;
-              })}
-            </div>
+              </div>;
+            })}
           </div>
         )}
       </div>
+
+      {/* Client detail slide-in panel */}
+      {sel && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} onClick={() => setSelClient(null)}>
+        <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 1000, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+          <button onClick={() => setSelClient(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, paddingRight: 32 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: sel.color + "22", border: `2px solid ${sel.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: sel.color }}>{sel.name.charAt(0)}</div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text }}>{sel.name}</h2>
+                <div style={{ fontSize: 13, color: T.textSec, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {sel.contact && <span>👤 {sel.contact}</span>}
+                  {sel.email && <span>✉ {sel.email}</span>}
+                  {sel.phone && <span>📞 {sel.phone}</span>}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {can("manageClients") && <Btn size="sm" onClick={() => setClientModal({ ...sel })}>Edit</Btn>}
+              {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); setSelClient(null); }}>Delete</Btn>}
+            </div>
+          </div>
+
+          {sel.notes && <div style={{ fontSize: 14, color: T.textSec, padding: 14, background: T.surface, borderRadius: T.radiusSm, marginBottom: 20, lineHeight: 1.6, border: `1px solid ${T.border}` }}>{sel.notes}</div>}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
+            {[
+              { label: "Total Jobs", val: selTasks.length, color: sel.color },
+              { label: "In Progress", val: inProg, color: "#3b82f6" },
+              { label: "Finished", val: completed, color: "#10b981" },
+              { label: "Est. Hours", val: totalHrs, color: "#f59e0b" },
+            ].map(s => <div key={s.label} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 16px", border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: s.color, fontFamily: T.mono }}>{s.val}</div>
+              <div style={{ fontSize: 11, color: T.textDim, marginTop: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{s.label}</div>
+            </div>)}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Jobs ({selTasks.length})</h4>
+            {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
+          </div>
+          {selTasks.length === 0 && <div style={{ textAlign: "center", padding: 28, color: T.textDim, fontSize: 14, background: T.card, borderRadius: T.radius, border: `1px solid ${T.border}` }}>No jobs assigned to this client yet.</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {selTasks.map(t => {
+              const dur = diffD(t.start, t.end) + 1;
+              const pct = t.status === "Finished" ? 100 : t.status === "In Progress" ? 50 : t.status === "Pending" ? 15 : t.status === "On Hold" ? 25 : 0;
+              return <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${t.color}`, opacity: t.status === "Finished" ? 0.7 : 1 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                    <HealthIcon t={t} />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => openDetail(t)}>{t.title}</span>
+                  </div>
+                  <Badge t={t.pri} c={PRI_C[t.pri]} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: T.textSec, marginBottom: 8 }}>
+                  <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
+                  <span>{dur} day{dur !== 1 ? "s" : ""}</span>
+                  <span>{t.hpd}h/day</span>
+                  {(t.subs || []).length > 0 && <span>{t.subs.length} subtask{t.subs.length !== 1 ? "s" : ""}</span>}
+                </div>
+                <div style={{ background: T.bg, borderRadius: 4, height: 5, overflow: "hidden", marginBottom: 8 }}>
+                  <div style={{ height: "100%", borderRadius: 4, background: t.color, width: `${pct}%`, transition: "width 0.3s" }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{t.team.slice(0, 4).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{t.team.length > 4 && <Badge t={`+${t.team.length - 4}`} c={T.textDim} />}</div>
+                  {can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn>}
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>
+      </div>}
     </div>;
   };
 
@@ -2984,18 +3013,32 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       });
       // Operation bars (level 2: Wire/Cut/Layout assigned to this person)
       tasks.forEach(job => {
-        (job.subs || []).forEach(panel => {
-          (panel.subs || []).forEach(op => {
-            if (!op.team.includes(pid)) return;
-            if (op.status === "Finished") return;
-            if (op.end < tStart || op.start > tEnd) return;
-            const s = op.start < tStart ? tStart : op.start;
-            const e = op.end > tEnd ? tEnd : op.end;
-            const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
-            const tc = (() => { const p0 = (op.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
-            bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+        if ((job.jobType || "panel") === "panel") {
+          (job.subs || []).forEach(panel => {
+            (panel.subs || []).forEach(op => {
+              if (!op.team.includes(pid)) return;
+              if (op.status === "Finished") return;
+              if (op.end < tStart || op.start > tEnd) return;
+              const s = op.start < tStart ? tStart : op.start;
+              const e = op.end > tEnd ? tEnd : op.end;
+              const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+              const tc = (() => { const p0 = (op.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
+              bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+            });
           });
-        });
+        } else {
+          // General task: flat subtasks assigned directly to people
+          (job.subs || []).forEach(sub => {
+            if (!(sub.team || []).includes(pid)) return;
+            if (sub.status === "Finished") return;
+            if (!sub.start || !sub.end || sub.end < tStart || sub.start > tEnd) return;
+            const s = sub.start < tStart ? tStart : sub.start;
+            const e = sub.end > tEnd ? tEnd : sub.end;
+            const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+            const tc = (() => { const p0 = (sub.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
+            bars.push({ type: "task", id: sub.id, start: s, end: e, title: `${job.title} · ${sub.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+          });
+        }
       });
       // Engineering task chips for engineers — one chip per panel with pending eng steps
       if (person && person.isEngineer) {
@@ -3145,7 +3188,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
                 <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: isGroupDrop ? T.accent + "18" : T.bg + "cc", zIndex: 10, cursor: "pointer", transition: "background 0.1s" }} onClick={() => setTCollapsed(p => ({ ...p, [row.role]: !p[row.role] }))}>
                   <span style={{ fontSize: 11, color: T.textSec, width: 14 }}>{isC ? "▶" : "▼"}</span>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>{row.role}</span>
-                  {can("manageTeam") && <button onClick={e => { e.stopPropagation(); setPersonModal({ name: "", email: "", role: row.role, cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], timeOff: [], userRole: row.role === "Admin" ? "admin" : "user" }); }} style={{ width: 24, height: 24, borderRadius: 8, background: T.accent, border: "none", color: T.accentText, fontSize: 16, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0 }} title={`Add ${row.role} member`}>+</button>}
                   <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono }}>{row.util}%</span>
                 </div>
                 <div style={{ flex: 1, display: "flex" }}>{days.map(day => { const wk = [0, 6].includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? T.bg + "cc" : T.bg + "44", borderRight: `1px solid ${T.bg}33` }} />; })}</div>
@@ -3209,10 +3251,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
               <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
                 {/* Drag handle */}
                 <div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }} title="Drag to reorder">⠿</div>
-                <div style={{ width: 28, height: 28, borderRadius: 14, background: p.color + "22", border: `1.5px solid ${p.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: p.color, flexShrink: 0 }}>{p.teamNumber ? String(p.teamNumber) : p.name.charAt(0)}</div>
+                <div style={{ width: 28, height: 28, borderRadius: 14, background: p.color + "22", border: `1.5px solid ${p.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: p.color, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.teamNumber ? `${p.teamNumber} - ${p.name}` : p.name}</div>
-                  <div style={{ fontSize: 11, color: T.textDim }}>{p.role} · {p.cap}h</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{p.role} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono, flexShrink: 0 }}>{row.util}%</span>
                 {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
