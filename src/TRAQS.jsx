@@ -3275,6 +3275,10 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           </div>
         </div>}
         <div style={{ position: isAdmin ? "absolute" : "relative", left: isAdmin ? "50%" : "auto", transform: isAdmin ? "translateX(-50%)" : "none", display: "flex", gap: 12, alignItems: "center" }}>
+          <Btn variant="ghost" size="sm" onClick={() => {
+            if (tMode === "day") { setTStart(TD); setTEnd(TD); }
+            else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
+          }}>Today</Btn>
           <SlidingPill
             options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
             value={tMode}
@@ -3285,10 +3289,6 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setTStart(toDS(first)); setTEnd(toDS(last)); }
             }}
           />
-          <Btn variant="ghost" size="sm" onClick={() => {
-            if (tMode === "day") { setTStart(TD); setTEnd(TD); }
-            else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
-          }}>Today</Btn>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Btn variant="ghost" size="sm" onClick={() => {
               if (tMode === "day") { setTStart(addD(tStart, -1)); setTEnd(addD(tEnd, -1)); }
