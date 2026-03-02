@@ -159,6 +159,10 @@ animStyle.textContent = `
   0%   { opacity: 0; transform: scale(0.97); }
   100% { opacity: 1; transform: scale(1);    }
 }
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40%           { transform: scale(1.0); opacity: 1;   }
+}
 @keyframes spin {
   from { transform: rotate(0deg);   }
   to   { transform: rotate(360deg); }
@@ -903,8 +907,18 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [fPer, setFPer] = useState("All");
   const [fRole, setFRole] = useState("All");  // filter by assigned person's role
   const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
+  const [jobSort, setJobSort] = useState("date"); // "date" | "project" | "client"
   const [filterOpen, setFilterOpen] = useState(false);
   const filterRef = useRef(null);
+  const [askOpen, setAskOpen] = useState(false);
+  const [askQ, setAskQ] = useState("");
+  const [askLoading, setAskLoading] = useState(false);
+  const [askHistory, setAskHistory] = useState([]);
+  const [askExpanded, setAskExpanded] = useState(false);
+  const [askBarQ, setAskBarQ] = useState("");
+  const askInputRef = useRef(null);
+  const askBarInputRef = useRef(null);
+  const askBarRef = useRef(null);
   const [modal, setModal] = useState(null);
   const [engBlockError, setEngBlockError] = useState(null);
   const [engQueueOpen, setEngQueueOpen] = useState(true);
@@ -945,6 +959,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [gMode, setGMode] = useState("month"); // day, week, month
+  const [gSort, setGSort] = useState("date"); // date, project, client
   const [ganttViewMode, setGanttViewMode] = useState("linear"); // linear | calendar
   const [exp, setExp] = useState({});
   const [selBarId, setSelBarId] = useState(null);
@@ -1117,7 +1132,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef(null);
   useEffect(() => {
-    const handler = e => { if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false); };
+    const handler = e => {
+      if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false);
+      if (askBarRef.current && !askBarRef.current.contains(e.target)) { setAskExpanded(false); setAskBarQ(""); }
+    };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
@@ -1535,6 +1553,57 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const openNew = (pid = null) => setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, jobType: "panel", templateMode: "matrix", customOps: [] }, parentId: pid });
   const openEdit = (t, pid = null) => setModal({ type: "edit", data: { ...t }, parentId: pid });
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
+
+  const handleAskTraqs = async (questionOverride = null) => {
+    const q = (questionOverride ?? askQ).trim();
+    if (!q || askLoading) return;
+    if (!questionOverride) setAskQ("");
+    // Only push to history if not already added by the caller (bar submits pre-add it)
+    if (!questionOverride) setAskHistory(h => [...h, { role: "user", content: q }]);
+    setAskLoading(true);
+    try {
+      // Build rich scheduling context
+      const todayStr = TD;
+      const peopleCtx = people.map(p => {
+        const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished" && t.end >= todayStr);
+        const todayH = bookedHrs(p.id, todayStr);
+        const weekJobs = tasks.filter(t => {
+          const hasOp = (t.subs || []).some(panel => (panel.subs || []).some(op => (op.team || []).includes(p.id) && op.start <= addD(todayStr, 7) && op.end >= todayStr));
+          return hasOp || ((t.team || []).includes(p.id) && t.start <= addD(todayStr, 7) && t.end >= todayStr);
+        });
+        return `${p.name} (${p.role}, ${p.cap}h/day cap): today=${todayH.toFixed(1)}h booked, active jobs: ${activeJobs.map(t => `"${t.title}" (${t.start}–${t.end}, ${t.hpd || "?"}h/day)`).join("; ") || "none"}`;
+      }).join("\n");
+      const jobsCtx = tasks.filter(t => t.status !== "Finished").map(t => {
+        const team = (t.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
+        const client = t.clientId ? clients.find(c => c.id === t.clientId)?.name || "" : "";
+        const ops = (t.subs || []).flatMap(panel => (panel.subs || []).map(op => {
+          const opTeam = (op.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
+          return `  ${panel.title}/${op.title}: ${op.start}–${op.end}, ${op.hpd || "?"}h/day${opTeam ? `, assigned: ${opTeam}` : ""}`;
+        }));
+        return `Job "${t.title}"${t.jobNumber ? ` (#${t.jobNumber})` : ""}${client ? ` [${client}]` : ""}: status=${t.status}, dates=${t.start}–${t.end}, hpd=${t.hpd || "?"}${team ? `, team: ${team}` : ""}${ops.length > 0 ? `\n${ops.join("\n")}` : ""}`;
+      }).join("\n\n");
+      const sysPrompt = `You are TRAQS AI, a scheduling assistant for a steel/metal fabrication and electrical panel shop. Today is ${todayStr}.
+
+TEAM MEMBERS & WORKLOAD:
+${peopleCtx || "No team members."}
+
+ACTIVE JOBS:
+${jobsCtx || "No active jobs."}
+
+Answer the user's scheduling questions conversationally. Be specific: name actual people, jobs, and dates. When asked about overbooking, check if total hpd exceeds daily capacity. When suggesting redistribution, name specific people with available capacity. Keep responses focused and actionable (2-4 sentences unless detail is needed).`;
+
+      const history = [...askHistory, { role: "user", content: q }];
+      const messages = history.map(m => ({ role: m.role, content: m.content }));
+      const data = await callAI({ system: sysPrompt, messages, max_tokens: 1024 }, getToken);
+      const answer = data.content?.map(b => b.text || "").join("") || "Sorry, I couldn't get a response. Please try again.";
+      setAskHistory(h => [...h, { role: "assistant", content: answer }]);
+    } catch (e) {
+      setAskHistory(h => [...h, { role: "assistant", content: `Error: ${e.message}` }]);
+    } finally {
+      setAskLoading(false);
+      setTimeout(() => askInputRef.current?.focus(), 50);
+    }
+  };
   const openDeps = id => setModal({ type: "deps", data: allItems.find(x => x.id === id), parentId: null });
   const openAvail = () => setModal({ type: "avail", data: null, parentId: null });
   const closeModal = () => { setModal(null); setAiSuggestion(null); setAiLoading(false); };
@@ -2043,7 +2112,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         } else groups[groups.length - 1].span++;
       }
     });
-    const rows = []; filtered.forEach(t => { rows.push({ ...t, isSub: false, pid: null, level: 0 }); if (exp[t.id]) (t.subs || []).forEach(s => { rows.push({ ...s, isSub: true, pid: t.id, level: 1 }); if (exp[s.id]) (s.subs || []).forEach(op => rows.push({ ...op, isSub: true, pid: s.id, grandPid: t.id, level: 2 })); }); });
+    const gSortedFiltered = [...filtered].sort((a, b) => {
+      if (gSort === "project") return String(a.jobNumber || a.title || "").localeCompare(String(b.jobNumber || b.title || ""), undefined, { numeric: true });
+      if (gSort === "client") { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || a.start.localeCompare(b.start); }
+      return a.start.localeCompare(b.start);
+    });
+    const rows = []; gSortedFiltered.forEach(t => { rows.push({ ...t, isSub: false, pid: null, level: 0 }); if (exp[t.id]) (t.subs || []).forEach(s => { rows.push({ ...s, isSub: true, pid: t.id, level: 1 }); if (exp[s.id]) (s.subs || []).forEach(op => rows.push({ ...op, isSub: true, pid: s.id, grandPid: t.id, level: 2 })); }); });
     const dToX = d => diffD(gStart, d) * cW;
     const ri4 = {}; rows.forEach((r, i) => { ri4[r.id] = i; });
     const arrows = [];
@@ -2318,6 +2392,22 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
               {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
             </button>
             {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Sort By</div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+                {[["date","Date"],["project","Project #"],["client","Client"]].map(([val,label]) => (
+                  <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Client</div>
+              <select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer", marginBottom: 14 }}>
+                <option value="All">All Clients</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Expand / Collapse</div>
+              <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+                <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
+                <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
+              </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
                 {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
@@ -2333,7 +2423,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
               {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
                 {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
               </div>}
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {(activeFilterCount > 0 || fClient !== "All") && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
         </div>
@@ -2393,6 +2483,50 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             })}
           </div>)}
         </div>;
+      })() : gMode === "day" ? (() => {
+        const HS = 7, HE = 19, NH = HE - HS;
+        const hours = Array.from({length: NH}, (_, i) => HS + i);
+        const effHW = Math.max(avail / NH, 56);
+        const hToX = h => (h - HS) * effHW;
+        const now = new Date();
+        const nowH = now.getHours() + now.getMinutes() / 60;
+        const isToday = gStart === TD;
+        return (
+          <div ref={ganttContainerRef} style={{width:"100%"}}>
+            <div ref={ganttRef} style={{overflowX:"auto", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
+              <div style={{display:"flex", flexDirection:"column", minWidth:lW+NH*effHW, position:"relative"}}>
+                {/* Hour header */}
+                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`, height:56}}>
+                  <div style={{minWidth:lW,maxWidth:lW,display:"flex",alignItems:"center",padding:"0 20px",fontSize:13,color:T.textSec,fontWeight:600,borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:15,letterSpacing:"0.04em",textTransform:"uppercase"}}>Task</div>
+                  {hours.map(h => { const label = h===12?"12pm":h<12?`${h}am`:`${h-12}pm`; const isCurH = isToday && Math.floor(nowH)===h; return <div key={h} style={{width:effHW,flexShrink:0,height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<8||h>=17?T.bg+"55":"transparent",boxSizing:"border-box"}}>{label}</div>; })}
+                </div>
+                {rows.length === 0 && <div style={{padding:"40px 0",textAlign:"center",color:T.textDim,fontSize:14}}>No tasks scheduled for this day</div>}
+                {rows.map(r => {
+                  const onDay = r.start <= gStart && r.end >= gStart;
+                  const hpd = r.hpd || 0;
+                  const barS = 8, barE = hpd > 0 ? Math.min(barS + hpd, HE) : 17;
+                  const indent = r.level || 0;
+                  return (
+                    <div key={r.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`}}>
+                      <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 16px",paddingLeft:16+indent*16,borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:10,cursor:"pointer"}} onClick={()=>(r.subs||[]).length>0?setExp(p=>({...p,[r.id]:!p[r.id]})):openDetail(r)}>
+                        <span style={{fontSize:indent===2?12:14,color:indent>0?T.textSec:T.text,fontWeight:indent>0?400:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{indent===2?"↳ ":""}{r.title}</span>
+                        {(r.subs||[]).length>0 && <span style={{fontSize:10,color:T.textDim}}>({r.subs.length})</span>}
+                        <HealthIcon t={r} size={13}/>
+                      </div>
+                      <div style={{width:NH*effHW,position:"relative",display:"flex",flexShrink:0}}>
+                        {hours.map(h => <div key={h} style={{width:effHW,height:"100%",background:h<8||h>=17?T.bg+"55":"transparent",borderRight:`1px solid ${T.bg}22`,flexShrink:0}}/>)}
+                        {onDay && <div onClick={()=>openDetail(r)} onContextMenu={e=>handleCtx(e,r)} style={{position:"absolute",top:5,left:Math.max((barS-HS)*effHW,0)+2,width:Math.max((Math.min(barE,HE)-Math.max(barS,HS))*effHW-4,24),height:rH-10,borderRadius:T.radiusXs,background:r.isSub?r.color+"aa":r.color,border:r.isSub?`1px solid ${r.color}`:"none",cursor:"pointer",display:"flex",alignItems:"center",padding:"0 10px",overflow:"hidden",boxShadow:`0 2px 8px ${r.color}33`}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(1.1)"} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
+                          <span style={{fontSize:11,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{hpd>0?`${hpd}h · `:""}{r.title}</span>
+                        </div>}
+                        {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:hToX(nowH),width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        );
       })() : <div ref={ganttContainerRef} style={{ width: "100%" }}>
       <div ref={ganttRef} onMouseDown={handleGanttPan} onWheel={handleGanttWheel} style={{ overflowX: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
         <div style={{ display: "flex", width: tW, flexDirection: "column", position: "relative" }}>
@@ -2482,8 +2616,13 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     if (client && client.name.toLowerCase().includes(q)) return true;
     return false;
   };
-  const finishedTasks = tasks.filter(t => t.status === "Finished" && jobSearchMatch(t));
-  const activeTasks = filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t));
+  const sortTasks = (arr) => {
+    if (jobSort === "project") return [...arr].sort((a, b) => String(a.jobNumber || a.title).localeCompare(String(b.jobNumber || b.title), undefined, { numeric: true }));
+    if (jobSort === "client") { return [...arr].sort((a, b) => { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || a.start.localeCompare(b.start); }); }
+    return [...arr].sort((a, b) => a.start.localeCompare(b.start));
+  };
+  const finishedTasks = sortTasks(tasks.filter(t => t.status === "Finished" && jobSearchMatch(t)));
+  const activeTasks = sortTasks(filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t)));
 
   // Engineering Queue: incomplete panels. Engineering Finished: all steps done.
   const engQueueItems = [];
@@ -2606,6 +2745,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
                   <option value="All">All Clients</option>
                   {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Sort By</div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {[["date","Date"],["project","Project #"],["client","Client"]].map(([val,label]) => (
+                    <button key={val} onClick={() => setJobSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${jobSort === val ? T.accent : T.border}`, background: jobSort === val ? T.accent + "22" : "transparent", color: jobSort === val ? T.accent : T.text, fontSize: 11, fontWeight: jobSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
+                  ))}
+                </div>
               </div>
               {(fStat !== "All" || fClient !== "All") && <button onClick={() => { setFStat("All"); setFClient("All"); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>Clear filters</button>}
             </div>}
@@ -3069,6 +3216,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
           });
         });
       }
+      bars.sort((a, b) => {
+        if (a.type !== "task" || b.type !== "task") return 0;
+        if (gSort === "project") return String(a.jobNumber || "").localeCompare(String(b.jobNumber || ""), undefined, { numeric: true });
+        if (gSort === "client") return (a.clientName || "").localeCompare(b.clientName || "") || a.start.localeCompare(b.start);
+        return a.start.localeCompare(b.start);
+      });
       return bars;
     };
     // Build flat row list with subtask expansion
@@ -3096,6 +3249,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
           </button>
           {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Sort By</div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+                {[["date","Date"],["project","Project #"],["client","Client"]].map(([val,label]) => (
+                  <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
+                ))}
+              </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
                 {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
@@ -3126,6 +3285,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
               else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setTStart(toDS(first)); setTEnd(toDS(last)); }
             }}
           />
+          <Btn variant="ghost" size="sm" onClick={() => {
+            if (tMode === "day") { setTStart(TD); setTEnd(TD); }
+            else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
+          }}>Today</Btn>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Btn variant="ghost" size="sm" onClick={() => {
               if (tMode === "day") { setTStart(addD(tStart, -1)); setTEnd(addD(tEnd, -1)); }
@@ -3163,8 +3326,88 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         </p>
         {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
       </div>}
+      {/* Hourly day view */}
+      {people.length > 0 && tMode === "day" && (() => {
+        const HS = 7, HE = 19, NH = HE - HS;
+        const hours = Array.from({length: NH}, (_, i) => HS + i);
+        const effHW = Math.max(tAvail / NH, 56);
+        const now = new Date();
+        const nowH = now.getHours() + now.getMinutes() / 60;
+        const isToday = tStart === TD;
+        return (
+          <div ref={teamContainerRef} style={{width:"100%"}}>
+            <div style={{overflowX:"auto", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
+              <div style={{display:"flex", flexDirection:"column", minWidth:lW+NH*effHW, position:"relative"}}>
+                {/* Hour header */}
+                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`}}>
+                  <div style={{minWidth:lW,maxWidth:lW,borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:15,height:56,display:"flex",alignItems:"center",padding:"0 20px",fontSize:13,color:T.textSec,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>Person</div>
+                  {hours.map(h => { const label = h===12?"12pm":h<12?`${h}am`:`${h-12}pm`; const isCurH = isToday && Math.floor(nowH)===h; return <div key={h} style={{width:effHW,flexShrink:0,height:56,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<8||h>=17?T.bg+"55":"transparent",boxSizing:"border-box"}}>{label}</div>; })}
+                </div>
+                {/* Rows */}
+                {rowList.map(row => {
+                  if (row.type === "group") {
+                    const isC = tCollapsed[row.role];
+                    const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
+                    return <div key={row.role} style={{display:"flex",height:grpH,borderBottom:`1px solid ${T.border}`,background:T.bg+"66"}}>
+                      <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:10,padding:"0 16px",borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.bg+"cc",zIndex:10,cursor:"pointer"}} onClick={()=>setTCollapsed(p=>({...p,[row.role]:!p[row.role]}))}>
+                        <span style={{fontSize:11,color:T.textSec,width:14}}>{isC?"▶":"▼"}</span>
+                        <span style={{fontSize:14,fontWeight:700,color:T.text,flex:1}}>{row.role}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:utilC,fontFamily:T.mono}}>{row.util}%</span>
+                      </div>
+                      <div style={{width:NH*effHW,display:"flex",flexShrink:0}}>
+                        {hours.map(h => <div key={h} style={{width:effHW,height:"100%",background:h<8||h>=17?T.bg+"cc":T.bg+"44",borderRight:`1px solid ${T.bg}33`,flexShrink:0}}/>)}
+                      </div>
+                    </div>;
+                  }
+                  const p = row.person;
+                  const todayBars = row.bars.filter(b => b.type !== "eng-chip" && b.start <= tStart && b.end >= tStart);
+                  const pOff = isOff(p.id, tStart);
+                  const offType = pOff ? ((p.timeOff||[]).find(to=>tStart>=to.start&&tStart<=to.end)||{}).type||"PTO" : null;
+                  const offR = pOff ? getOffReason(p.id, tStart) : null;
+                  const offColor = offType === "UTO" ? "#f59e0b" : "#10b981";
+                  let cumH = 8;
+                  const barPositions = todayBars.map(bar => {
+                    const hpd = bar.task?.hpd || 0;
+                    const barS = cumH;
+                    const barE = hpd > 0 ? Math.min(barS + hpd, HE) : Math.min(barS + 2, HE);
+                    cumH = barE;
+                    return { bar, barS, barE };
+                  });
+                  const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
+                  return <div key={p.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`}}>
+                    <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:10}}>
+                      <div style={{width:28,height:28,borderRadius:14,background:p.color+"22",border:`1.5px solid ${p.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:p.color,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
+                        <div style={{fontSize:11,color:T.textDim}}>{p.role} · {p.cap}h</div>
+                      </div>
+                      <span style={{fontSize:12,fontWeight:700,color:utilC,fontFamily:T.mono,flexShrink:0}}>{row.util}%</span>
+                    </div>
+                    <div style={{width:NH*effHW,position:"relative",display:"flex",flexShrink:0}}>
+                      {hours.map(h => <div key={h} style={{width:effHW,height:"100%",background:pOff?offColor+"12":h<8||h>=17?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative",flexShrink:0}}>
+                        {pOff && <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(135deg,${offColor}12,${offColor}12 4px,transparent 4px,transparent 8px)`,pointerEvents:"none"}}/>}
+                      </div>)}
+                      {!pOff && barPositions.map(({bar,barS,barE}) => {
+                        const x = Math.max((barS-HS)*effHW,0)+2;
+                        const w = Math.max((barE-Math.max(barS,HS))*effHW-4,24);
+                        return <div key={bar.id} onClick={()=>bar.task&&openDetail(bar.task)} onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")} style={{position:"absolute",top:4,left:x,width:w,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:"pointer",display:"flex",alignItems:"center",padding:"0 8px",overflow:"hidden",boxShadow:`0 2px 8px ${bar.color}33`}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(1.1)"} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
+                          <span style={{fontSize:10,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{bar.task?.hpd?`${bar.task.hpd}h · `:""}{bar.title}</span>
+                        </div>;
+                      })}
+                      {pOff && <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+                        <span style={{fontSize:12,color:offColor,fontWeight:600,background:T.surface+"cc",padding:"2px 8px",borderRadius:4}}>{offType}{offR?` · ${offR}`:""}</span>
+                      </div>}
+                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:(nowH-HS)*effHW,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
+                    </div>
+                  </div>;
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* Resource timeline grid */}
-      {people.length > 0 && <div ref={teamContainerRef} style={{ width: "100%" }}>
+      {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
       <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: "100%" }}>
           {/* Dual header: week groups + day numbers */}
@@ -5056,8 +5299,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
 
   return <div className={`traqs-${themeMode}`} style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column" }}>
     {/* Slim search bar */}
-    {!isMobile && <div style={{ padding: "16px 32px 8px", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, borderBottom: `1px solid ${T.border}22` }}>
-      <div ref={searchRef} style={{ position: "relative", width: "100%", maxWidth: 480 }}>
+    {!isMobile && <div style={{ padding: "10px 32px 8px", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, borderBottom: `1px solid ${T.border}22`, gap: 8 }}>
+      <div ref={searchRef} style={{ position: "relative", flex: 1, maxWidth: askExpanded ? 360 : 480, transition: "max-width 0.28s cubic-bezier(0.22,1,0.36,1)", minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 16px", borderRadius: 20, border: `1px solid ${searchOpen ? T.accent + "66" : T.border}`, background: T.bg, transition: "all 0.2s" }}>
           <span style={{ fontSize: 12, color: T.textDim }}>🔍</span>
           <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search jobs, clients, team members..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
@@ -5098,6 +5341,20 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             </div>}
           </div>;
         })()}
+      </div>
+      {/* Ask TRAQS companion bar */}
+      <div ref={askBarRef} style={{ position: "relative", flexShrink: 0, width: askExpanded ? 300 : 130, transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+        {!askExpanded
+          ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "6px 16px", borderRadius: 20, border: `1px solid ${T.accent}44`, background: `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.02em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}10)`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+              Ask TRAQS
+            </button>
+          : <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 20, border: `1px solid ${T.accent}66`, background: T.bg, boxShadow: `0 0 0 2px ${T.accent}18` }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill={T.accent} style={{ flexShrink: 0 }}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+              <input ref={askBarInputRef} value={askBarQ} onChange={e => setAskBarQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && askBarQ.trim()) { const q = askBarQ.trim(); setAskBarQ(""); setAskExpanded(false); setAskHistory(h => [...h, { role: "user", content: q }]); setAskOpen(true); setAskLoading(true); handleAskTraqs(q); } if (e.key === "Escape") { setAskExpanded(false); setAskBarQ(""); } }} placeholder="Ask anything…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font, minWidth: 0 }} />
+              {askBarQ && <span onClick={() => setAskBarQ("")} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 4, background: T.border + "44", flexShrink: 0 }}>✕</span>}
+            </div>
+        }
       </div>
     </div>}
     {/* Main nav bar */}
@@ -5247,6 +5504,63 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto" }}>
       {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "gantt" && <div style={{ flex: 1 }}>{renderGantt()}</div>}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "team" && renderTeam()}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
+    {/* Ask TRAQS Panel */}
+    {askOpen && <div style={{ position: "fixed", inset: 0, zIndex: 3000, display: "flex", justifyContent: "flex-end" }} onClick={() => setAskOpen(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "95vw", height: "100%", background: T.card, borderLeft: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", animation: "slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+        {/* Header */}
+        <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 10, background: `linear-gradient(135deg, ${T.accent}33, ${T.accent}18)`, border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill={T.accent}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+          </div>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Ask TRAQS</div>
+            <div style={{ fontSize: 11, color: T.textDim }}>AI scheduling assistant</div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            {askHistory.length > 0 && <button onClick={() => setAskHistory([])} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.textDim, fontSize: 11, padding: "3px 8px", cursor: "pointer", fontFamily: T.font }}>Clear</button>}
+            <button onClick={() => setAskOpen(false)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
+          </div>
+        </div>
+        {/* Conversation */}
+        <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
+          {askHistory.length === 0 && <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, padding: "40px 0" }}>
+            <div style={{ width: 56, height: 56, borderRadius: 18, background: `linear-gradient(135deg, ${T.accent}33, ${T.accent}18)`, border: `1px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill={T.accent}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+            </div>
+            <div style={{ textAlign: "center", maxWidth: 300 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 6 }}>What can I help you with?</div>
+              <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Ask about workloads, scheduling conflicts, job assignments, or anything about your team's capacity.</div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", maxWidth: 320 }}>
+              {["Who is overbooked this week?", "Which jobs are at risk of running late?", "Who has capacity to take on more work?"].map(s => <button key={s} onClick={() => { setAskQ(s); askInputRef.current?.focus(); }} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "9px 14px", cursor: "pointer", fontSize: 12, color: T.textSec, textAlign: "left", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.text; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>{s}</button>)}
+            </div>
+          </div>}
+          {askHistory.map((msg, i) => (
+            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 4 }}>
+              <div style={{ fontSize: 10, color: T.textDim, marginBottom: 2, padding: "0 4px" }}>{msg.role === "user" ? "You" : "TRAQS AI"}</div>
+              <div style={{ maxWidth: "88%", padding: "11px 14px", borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "4px 16px 16px 16px", background: msg.role === "user" ? T.accent : T.surface, color: msg.role === "user" ? T.accentText : T.text, fontSize: 13, lineHeight: 1.65, border: msg.role === "user" ? "none" : `1px solid ${T.border}`, whiteSpace: "pre-wrap" }}>
+                {msg.content}
+              </div>
+            </div>
+          ))}
+          {askLoading && <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <div style={{ padding: "11px 14px", borderRadius: "4px 16px 16px 16px", background: T.surface, border: `1px solid ${T.border}`, display: "flex", gap: 5, alignItems: "center" }}>
+              {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: `bounce 1.2s ease-in-out ${i*0.18}s infinite` }}/>)}
+            </div>
+          </div>}
+        </div>
+        {/* Input */}
+        <div style={{ padding: "14px 20px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "flex-end", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 12px", transition: "border 0.15s", boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)" }}>
+            <textarea ref={askInputRef} value={askQ} onChange={e => setAskQ(e.target.value)} onKeyDown={async e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); await handleAskTraqs(); } }} placeholder="Ask anything about your schedule…" rows={2} style={{ flex: 1, background: "transparent", border: "none", outline: "none", resize: "none", fontSize: 13, color: T.text, fontFamily: T.font, lineHeight: 1.55 }} />
+            <button onClick={handleAskTraqs} disabled={!askQ.trim() || askLoading} style={{ width: 34, height: 34, borderRadius: 10, background: askQ.trim() && !askLoading ? T.accent : T.border, border: "none", cursor: askQ.trim() && !askLoading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={askQ.trim() && !askLoading ? T.accentText : T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+          <div style={{ fontSize: 10, color: T.textDim, marginTop: 6, textAlign: "center" }}>Enter to send · Shift+Enter for new line</div>
+        </div>
+      </div>
+    </div>}
     {renderModal()}
     {/* Users Modal */}
     {usersOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
@@ -5703,6 +6017,25 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         </div>;
       })()}
 
+      {ctxMenu.source === "team" && (() => {
+        const it = ctxMenu.item;
+        let parentJob = null;
+        if (it.grandPid) parentJob = tasks.find(j => j.id === it.grandPid);
+        else if (it.pid) { parentJob = tasks.find(j => j.id === it.pid); if (!parentJob) for (const job of tasks) { if ((job.subs||[]).find(s => s.id === it.pid)) { parentJob = job; break; } } }
+        else parentJob = tasks.find(j => j.id === it.id);
+        if (!parentJob) return null;
+        return <CtxMenuItem icon="🎯" label="Go to Project" sub={parentJob.title || it.jobTitle || ""} onClick={() => {
+          setCtxMenu(null);
+          setView("gantt");
+          setGMode("month");
+          const sd = new Date(parentJob.start + "T12:00:00");
+          const first = new Date(sd.getFullYear(), sd.getMonth(), 1);
+          const last = new Date(sd.getFullYear(), sd.getMonth() + 1, 0);
+          setGStart(toDS(first));
+          setGEnd(toDS(last));
+          setExp(p => ({ ...p, [parentJob.id]: true }));
+        }} />;
+      })()}
       <CtxMenuItem icon="💬" label="Open Chat" sub={ctxMenu.item.level === 2 ? "Chat with op assignee + admins" : ctxMenu.item.level === 1 ? "Chat with panel team + admins" : "Chat with full job team"} onClick={() => openChat(ctxMenu.item)} />
       {can("editJobs") && <CtxMenuItem icon="🔔" label="Send Reminder" sub="Notify all team members on this job" onClick={() => { setReminderModal({ item: ctxMenu.item }); setCtxMenu(null); }} />}
       <CtxMenuItem icon="👁" label="View Details" onClick={() => { openDetail(ctxMenu.item); setCtxMenu(null); }} />
