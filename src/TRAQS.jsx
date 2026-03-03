@@ -4754,8 +4754,8 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
   // ═══════════════════ MODALS ═══════════════════
   const renderModal = () => {
     if (!modal) return null;
-    const ov = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" };
-    const bx = (wide) => ({ background: T.card, borderRadius: 16, padding: 32, maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" });
+    const ov = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px" : "40px 24px", overflow: "auto" };
+    const bx = (wide) => ({ background: T.card, borderRadius: isMobile ? 14 : 16, padding: isMobile ? 18 : 32, maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" });
     const cls = <button onClick={closeModal} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
     if (modal.type === "edit") { const [ed, setEd] = [modal.data, d => setModal(p => ({ ...p, data: typeof d === "function" ? d(p.data) : d }))];
       const addPanels = (count) => {
@@ -4959,11 +4959,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* ── Panel job fields ── */}
         {isPanel && <>
           <InputField label="Job Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title: v }))} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <InputField label="Job #" value={ed.jobNumber || ""} onChange={v => setEd(p => ({ ...p, jobNumber: v }))} placeholder="e.g. 2024-001" />
             <InputField label="PO #" value={ed.poNumber || ""} onChange={v => setEd(p => ({ ...p, poNumber: v }))} placeholder="e.g. PO-8821" />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <InputField label="Due Date (Customer)" value={ed.dueDate || ""} onChange={v => setEd(p => ({ ...p, dueDate: v }))} type="date" />
             <InputField label="Hours/day" value={ed.hpd} onChange={v => setEd(p => ({ ...p, hpd: +v }))} type="number" />
           </div>
@@ -4973,7 +4973,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* ── General task fields — simple ── */}
         {!isPanel && <>
           <InputField label="Task Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title: v }))} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <InputField label="Due Date (optional)" value={ed.dueDate || ""} onChange={v => setEd(p => ({ ...p, dueDate: v }))} type="date" />
             <InputField label="Hours/day" value={ed.hpd} onChange={v => setEd(p => ({ ...p, hpd: +v }))} type="number" />
           </div>
@@ -5228,7 +5228,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Panel-only sections */}
         {isPanel && <>
           {/* Completion dates (filled by AI or manual) */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" /></div>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" /></div>
 
           {/* Panels with operations */}
           {(ed.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
@@ -5278,7 +5278,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Non-panel sections */}
         {!isPanel && <>
           {/* Start / End date row */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <InputField label="Start Date" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" />
             <InputField label="End Date" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" />
           </div>
@@ -6440,7 +6440,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <button onClick={() => setClientModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
           <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Client" : "New Client"}</h3>
           <InputField label="Company Name" value={ed.name} onChange={v => setClientModal(p => ({ ...p, name: v }))} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <InputField label="Contact Person" value={ed.contact} onChange={v => setClientModal(p => ({ ...p, contact: v }))} />
             <InputField label="Phone" value={ed.phone} onChange={v => setClientModal(p => ({ ...p, phone: v }))} />
           </div>
@@ -6483,7 +6483,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             return { ...p, name: v, email: isAutoEmail ? autoEmail(v, domain) : p.email };
           })} />
           <InputField label="Email" value={ed.email || ""} onChange={v => setEd(p => ({ ...p, email: v.trim().toLowerCase() }))} type="email" placeholder="firstname@domain.com" />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <InputField label="Role" value={ed.role} onChange={v => setEd(p => ({ ...p, role: v }))} />
             <InputField label="Hours/Day Capacity" value={ed.cap} onChange={v => setEd(p => ({ ...p, cap: +v }))} type="number" />
           </div>
