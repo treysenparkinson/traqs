@@ -567,13 +567,17 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     setUploadProcessing(true);
     setUploadResult(null);
     try {
-      // Check if any Excel files — parse them directly (no AI needed)
+      // Separate Excel from other file types (Excel gets converted to text for AI)
       const excelFiles = uploadFiles.filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
       const otherFiles = uploadFiles.filter(f => !/\.(xlsx|xls|csv)$/i.test(f.name));
       
       let totalPeople = 0, totalClients = 0, totalJobs = 0, totalUpdated = 0;
 
-      // === DIRECT EXCEL PARSING ===
+      // === EXCEL → TEXT (AI reads and interprets columns flexibly) ===
+      let textContent = "";
+      if (uploadText.trim()) textContent += uploadText.trim() + "\n\n";
+      const imageBlocks = [];
+
       for (const file of excelFiles) {
         const ab = await new Promise((res, rej) => {
           const reader = new FileReader();
@@ -590,229 +594,15 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
           document.head.appendChild(script);
         });
         const wb = XLSX.read(ab, { type: "array", cellDates: true });
-        
-        // Find the schedule sheet (look for one with "Schedule" or "Dynamic" in name, or use first)
-        const sheetName = wb.SheetNames.find(n => /schedule|dynamic/i.test(n)) || wb.SheetNames[0];
-        const ws = wb.Sheets[sheetName];
-        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
-        console.log("[FAST TRAQS] Sheet:", sheetName, "| Rows:", rows.length, "| Sheets:", wb.SheetNames);
-
-        // Find header row — expanded keyword detection
-        let headerIdx = 0;
-        for (let i = 0; i < Math.min(rows.length, 10); i++) {
-          const row = rows[i];
-          if (row && row.some(v => typeof v === "string" && /project|due\s*date|start|end|sh\b|cust|client|assigned|title|job/i.test(v))) { headerIdx = i; break; }
+        for (const sheetName of wb.SheetNames) {
+          const ws = wb.Sheets[sheetName];
+          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+          const dataRows = rows.filter(row => row.some(v => String(v).trim() !== ""));
+          if (dataRows.length === 0) continue;
+          const csvText = dataRows.map(row => row.map(v => v == null ? "" : String(v)).join("\t")).join("\n");
+          textContent += `\n--- Spreadsheet: ${file.name} / Sheet: ${sheetName} ---\n${csvText}\n`;
         }
-        const header = rows[headerIdx] || [];
-        console.log("[FAST TRAQS] Header row:", headerIdx, "| Values:", header.filter(Boolean));
-        const col = {};
-        header.forEach((h, i) => { if (h) col[String(h).trim().toLowerCase()] = i; });
-        console.log("[FAST TRAQS] Column map:", col);
-
-        // Map column names (flexible matching — check many aliases)
-        const findCol = (...names) => { for (const n of names) { if (col[n] !== undefined) return col[n]; } return undefined; };
-        const cSH       = findCol("sh","level","lvl","hierarchy","#") ?? 0;
-        const cTitle    = findCol("mtx project","project","title","job","job name","description","name") ?? 1;
-        const cDue      = findCol("due date","due","due_date","duedate","customer due","cust due") ?? 2;
-        const cClient   = findCol("cust","client","customer","acct","account") ?? 3;
-        const cContact  = findCol("contact","contact name") ?? 4;
-        const cPO       = findCol("po","po #","po#","po number","purchase order") ?? 5;
-        const cComplete = findCol("% complete","% comp","complete","completion","percent","done") ?? 8;
-        const cNotes    = findCol("comments","notes","note","comment","remarks") ?? 9;
-        const cStart    = findCol("start","start date","begin","begin date") ?? 10;
-        const cEnd      = findCol("end","end date","finish","finish date","complete date") ?? 11;
-        const cAssigned = findCol("assigned to","assigned","assign","tech","technician","worker","person") ?? 12;
-        const cJobNum   = findCol("job #","job#","job number","job num","order #","order number","mtx #","mtx#") ?? -1;
-        console.log("[FAST TRAQS] Cols — SH:", cSH, "Title:", cTitle, "Client:", cClient, "Start:", cStart, "End:", cEnd, "Assigned:", cAssigned);
-
-        // Email-to-name mapping
-        const emailMap = {};
-        const nameResolve = (raw) => {
-          if (!raw) return null;
-          raw = String(raw).trim();
-          // Check email pattern
-          const emailMatch = raw.match(/^([^@]+)@/);
-          if (emailMatch) {
-            const n = emailMatch[1].charAt(0).toUpperCase() + emailMatch[1].slice(1).toLowerCase();
-            emailMap[raw.toLowerCase()] = n;
-            return n;
-          }
-          // Already a name - normalize
-          return raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
-        };
-
-        const parseDate = (v) => {
-          if (!v) return null;
-          if (v instanceof Date) return v.toISOString().split("T")[0];
-          const s = String(v).trim();
-          if (s === "TBD" || s === "N/A") return null;
-          // Try ISO parse
-          const d = new Date(s);
-          if (!isNaN(d.getTime())) return d.toISOString().split("T")[0];
-          return null;
-        };
-
-        const parseCompletion = (v) => {
-          if (v == null) return 0;
-          const n = parseFloat(String(v).replace("%", ""));
-          if (isNaN(n)) return 0;
-          return n > 1 ? n / 100 : n;
-        };
-
-        // Parse hierarchical rows
-        const dataRows = rows.slice(headerIdx + 1);
-        const jobs = [];
-        let curJob = null, curPanel = null;
-        let dbgSH1 = 0, dbgSH2 = 0, dbgSH3 = 0;
-
-        for (const row of dataRows) {
-          if (!row || row.every(v => v == null || String(v).trim() === "")) continue;
-          // Parse SH — accept "1", "1.0", " 1 ", 1 (number), etc.
-          const shRaw = row[cSH];
-          const sh = shRaw != null && String(shRaw).trim() !== "" ? Math.round(parseFloat(String(shRaw))) : null;
-          const title = row[cTitle] ? String(row[cTitle]).trim() : "";
-          const start = parseDate(row[cStart]);
-          const end = parseDate(row[cEnd]);
-          const assigned = nameResolve(row[cAssigned]);
-          const completion = parseCompletion(row[cComplete]);
-          const dueDate = parseDate(row[cDue]);
-          const clientCode = row[cClient] ? String(row[cClient]).trim() : null;
-          const contact = row[cContact] ? String(row[cContact]).trim() : null;
-          const notes = row[cNotes] ? String(row[cNotes]).trim() : "";
-          const jobNum = cJobNum >= 0 && row[cJobNum] ? String(row[cJobNum]).trim() : null;
-          if (sh === 1) dbgSH1++; else if (sh === 2) dbgSH2++; else if (sh === 3) dbgSH3++;
-          
-          if (sh === 1) {
-            // Job level
-            const status = completion >= 1 ? "Finished" : completion >= 0.5 ? "In Progress" : completion > 0 ? "In Progress" : "Not Started";
-            curJob = { title: title.replace(/\s*-\s*.*$/, "").trim() || title, fullTitle: title, start, end, dueDate, clientCode, contact, notes, status, completion, jobNum, panels: [] };
-            jobs.push(curJob);
-            curPanel = null;
-          } else if (sh === 2 && curJob) {
-            // Panel level
-            const status = completion >= 1 ? "Finished" : completion >= 0.5 ? "In Progress" : completion > 0 ? "In Progress" : "Not Started";
-            curPanel = { title: title || `${curJob.title}-panel`, start, end, assigned, dueDate, notes, status, completion, ops: [] };
-            curJob.panels.push(curPanel);
-          } else if (sh === 3 && curPanel) {
-            // Operation level
-            const opTitle = title.toUpperCase().replace(/^[\d-]+\s*/, "").trim();
-            // Normalize op titles
-            let normTitle = opTitle;
-            if (/^CUT/i.test(opTitle)) normTitle = "Cut";
-            else if (/^LABEL/i.test(opTitle)) normTitle = "Labels";
-            else if (/^LAYOUT/i.test(opTitle)) normTitle = "Layout";
-            else if (/^WIRE/i.test(opTitle)) normTitle = "Wire";
-            else if (/^ENGINEER/i.test(opTitle)) normTitle = "Engineering";
-            else if (/^PROGRAM/i.test(opTitle)) normTitle = "Programming";
-            else normTitle = opTitle.charAt(0).toUpperCase() + opTitle.slice(1).toLowerCase();
-            
-            curPanel.ops.push({ title: normTitle, start, end, assigned, completion });
-          } else if (!sh && curPanel && title) {
-            // Sometimes SH column is empty for sub-panels or ops
-            const upper = title.toUpperCase();
-            if (/^(CUT|LABEL|LAYOUT|WIRE|ENGINEER|PROGRAM)/.test(upper)) {
-              let normTitle = upper;
-              if (/^CUT/i.test(upper)) normTitle = "Cut";
-              else if (/^LABEL/i.test(upper)) normTitle = "Labels";
-              else if (/^LAYOUT/i.test(upper)) normTitle = "Layout";
-              else if (/^WIRE/i.test(upper)) normTitle = "Wire";
-              else if (/^ENGINEER/i.test(upper)) normTitle = "Engineering";
-              else if (/^PROGRAM/i.test(upper)) normTitle = "Programming";
-              curPanel.ops.push({ title: normTitle, start, end, assigned, completion });
-            } else if (/^\d{6}/.test(title)) {
-              // Looks like a panel number
-              const status = completion >= 1 ? "Finished" : completion > 0 ? "In Progress" : "Not Started";
-              curPanel = { title, start, end, assigned, dueDate, notes, status, completion, ops: [] };
-              curJob.panels.push(curPanel);
-            }
-          }
-        }
-
-        console.log(`[FAST TRAQS] Parsed — jobs(SH1):${dbgSH1}, panels(SH2):${dbgSH2}, ops(SH3):${dbgSH3} | Job objects:`, jobs.map(j => `"${j.title}" panels:${j.panels.length}`));
-
-        // Collect unique people from the data
-        const foundPeople = new Set();
-        jobs.forEach(j => j.panels.forEach(p => {
-          if (p.assigned) foundPeople.add(p.assigned);
-          p.ops.forEach(op => { if (op.assigned) foundPeople.add(op.assigned); });
-        }));
-
-        // Add new people not already in system
-        const newPeopleNames = [...foundPeople].filter(n => !people.find(p => p.name.toLowerCase() === n.toLowerCase()));
-        const personColors = ["#2563eb","#dc2626","#16a34a","#d97706","#7c3aed","#0891b2","#c026d3","#e11d48","#059669","#9333ea"];
-        let maxPid = Math.max(0, ...people.map(p => p.id));
-        const newPeople = newPeopleNames.map((n, i) => ({
-          id: ++maxPid, name: n, role: "Shop", cap: 8,
-          color: personColors[i % personColors.length], timeOff: [], userRole: "user"
-        }));
-        if (newPeople.length > 0) setPeople(prev => [...prev, ...newPeople]);
-        totalPeople += newPeople.length;
-        const allPeople = [...people, ...newPeople];
-
-        // Client code mapping
-        const clientMap = { "FLS": "FLS", "OTC": "OTC", "WTR": "WTR Engineering", "OVO": "OVO", "WHE": "Wheeler CAT", "ROY": "Royal", "Neu": "Nueman Machinery" };
-
-        // Collect unique clients
-        const foundClients = new Set();
-        jobs.forEach(j => { if (j.clientCode) foundClients.add(j.clientCode); });
-        const newClientNames = [...foundClients].filter(code => {
-          const fullName = clientMap[code] || code;
-          return !clients.find(c => c.name.toLowerCase() === fullName.toLowerCase());
-        });
-        const newClients = newClientNames.map((code, i) => ({
-          id: "c" + (clients.length + i + 1), name: clientMap[code] || code, contact: "", email: "", phone: "",
-          color: personColors[(i + 3) % personColors.length], notes: ""
-        }));
-        if (newClients.length > 0) setClients(prev => [...prev, ...newClients]);
-        totalClients += newClients.length;
-        const allClients = [...clients, ...newClients];
-
-        // Build TRAQS job structures
-        const findPerson = (name) => { if (!name) return null; return allPeople.find(p => p.name.toLowerCase() === name.toLowerCase()); };
-        const findClient = (code) => { if (!code) return null; const fullName = clientMap[code] || code; return allClients.find(c => c.name.toLowerCase() === fullName.toLowerCase()); };
-
-        const newJobs = jobs.map(job => {
-          const cl = findClient(job.clientCode);
-          if (job.panels.length === 0) {
-            return { id: uid(), title: job.title || job.fullTitle, start: job.start || TD, end: job.end || TD, pri: "Medium", status: job.status || "Not Started", team: [], color: T.accent, hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "", jobNumber: job.jobNum || "", deps: [], subs: [] };
-          }
-          const panels = job.panels.map(panel => {
-            const ops = panel.ops.map(op => {
-              const person = findPerson(op.assigned);
-              const opComp = op.completion || 0;
-              const status = opComp >= 1 ? "Finished" : opComp >= 0.5 ? "In Progress" : opComp > 0 ? "In Progress" : "Not Started";
-              return {
-                id: uid(), title: op.title, start: op.start || panel.start || job.start || TD,
-                end: op.end || panel.end || job.end || TD,
-                status, pri: "Medium", team: person ? [person.id] : [],
-                hpd: 7.5, notes: "", deps: []
-              };
-            });
-            const pStart = ops.length > 0 ? ops.reduce((a, b) => (a.start || "9") < (b.start || "9") ? a : b).start : (panel.start || job.start || TD);
-            const pEnd = ops.length > 0 ? ops.reduce((a, b) => (a.end || "0") > (b.end || "0") ? a : b).end : (panel.end || job.end || TD);
-            return {
-              id: uid(), title: panel.title, start: pStart, end: pEnd,
-              pri: "Medium", status: panel.status || "Not Started", team: [], hpd: 7.5, notes: panel.notes || "", deps: [],
-              subs: ops
-            };
-          });
-          const jStart = panels.reduce((a, b) => (a.start || "9") < (b.start || "9") ? a : b).start;
-          const jEnd = panels.reduce((a, b) => (a.end || "0") > (b.end || "0") ? a : b).end;
-          return {
-            id: uid(), title: job.title || job.fullTitle, start: jStart, end: jEnd,
-            pri: "Medium", status: job.status || "Not Started", team: [], color: "#3b82f6", jobNumber: job.jobNum || "",
-            hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "",
-            deps: [], subs: panels
-          };
-        });
-        if (newJobs.length > 0) setTasks(prev => [...prev, ...newJobs]);
-        totalJobs += newJobs.length;
       }
-
-      // === AI-BASED PARSING for text, images, PDFs ===
-      let textContent = "";
-      if (uploadText.trim()) textContent += uploadText.trim() + "\n\n";
-      const imageBlocks = [];
 
       for (const file of otherFiles) {
         const isImage = /\.(png|jpg|jpeg)$/i.test(file.name);
@@ -846,7 +636,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         const existingPeople = [...people, ...Array(totalPeople)].map(p => p ? `${p.name} (${p.role})` : "").filter(Boolean).join(", ");
         const existingClients = clients.map(c => `${c.name} (id:${c.id})`).join(", ");
 
-        const systemPrompt = `You are a JSON-only scheduling assistant for TRAQS (a steel/metal fabrication & electrical panel shop).\n\nEXISTING JOBS:\n${JSON.stringify(existingJobsCtx, null, 2)}\n\nEXISTING TEAM: ${existingPeople || "None"}\nEXISTING CLIENTS: ${existingClients || "None"}\n\nAnalyze the input and determine what action(s) to take:\n- If it references existing jobs by number or name and adds/changes info (PO numbers, status, due dates, notes) → add those to "updates"\n- If it describes new jobs, people, or clients not in the existing lists → add to "jobs", "people", "clients"\n- Do both in the same response if the input contains both kinds of information\n\nOutput format (JSON only, nothing else):\n{"updates":[{"id":"<job id>","poNumber":"<val>","jobNumber":"<val>","notes":"<val>","status":"<val>","dueDate":"YYYY-MM-DD"}],"people":[{"name":"str","role":"Shop","cap":8,"color":"#hex","userRole":"user"}],"clients":[{"name":"str","contact":"","email":"","phone":"","color":"#hex","notes":""}],"jobs":[{"title":"str","start":"YYYY-MM-DD","end":"YYYY-MM-DD","pri":"Medium","status":"Not Started","notes":"","clientName":"str or null","dueDate":"YYYY-MM-DD or null","panels":[{"title":"str","ops":[{"title":"Wire|Cut|Layout|Labels|Engineering|Programming","start":"YYYY-MM-DD","end":"YYYY-MM-DD","assignedTo":"name or null"}]}]}]}\n\nRules: Match updates by jobNumber or title. Only include changing fields in updates. Ops are SEQUENTIAL within panels. Panels run parallel. Skip people/clients already in existing lists. If nothing applies output {}.`;
+        const systemPrompt = `You are a JSON-only scheduling assistant for TRAQS (a steel/metal fabrication & electrical panel shop).\n\nEXISTING JOBS:\n${JSON.stringify(existingJobsCtx, null, 2)}\n\nEXISTING TEAM: ${existingPeople || "None"}\nEXISTING CLIENTS: ${existingClients || "None"}\n\nAnalyze the input and determine what action(s) to take:\n- If it references existing jobs by number or name and adds/changes info (PO numbers, status, due dates, notes) → add those to "updates"\n- If it describes new jobs, people, or clients not in the existing lists → add to "jobs", "people", "clients"\n- Do both in the same response if the input contains both kinds of information\n\nWhen analyzing spreadsheet data:\n- Column headers may vary widely — identify job numbers, titles, dates, statuses, and names by context, not exact header names\n- Match job numbers loosely: if a value looks like an existing job number (partial match, with/without leading zeros or prefixes) treat it as the same job\n- Any column that looks like a start or end/due date should be used as such regardless of the exact header name\n- If a row has a job-number-like value that matches an existing job, treat it as an update to that job\n- Build panels and ops if the data has a clear hierarchy (e.g. job → panel → operation rows)\n- If the data is flat (no hierarchy), import each row as a simple job or update\n\nOutput format (JSON only, nothing else):\n{"updates":[{"id":"<job id>","poNumber":"<val>","jobNumber":"<val>","notes":"<val>","status":"<val>","dueDate":"YYYY-MM-DD"}],"people":[{"name":"str","role":"Shop","cap":8,"color":"#hex","userRole":"user"}],"clients":[{"name":"str","contact":"","email":"","phone":"","color":"#hex","notes":""}],"jobs":[{"title":"str","start":"YYYY-MM-DD","end":"YYYY-MM-DD","pri":"Medium","status":"Not Started","notes":"","clientName":"str or null","dueDate":"YYYY-MM-DD or null","panels":[{"title":"str","ops":[{"title":"Wire|Cut|Layout|Labels|Engineering|Programming","start":"YYYY-MM-DD","end":"YYYY-MM-DD","assignedTo":"name or null"}]}]}]}\n\nRules: Match updates by jobNumber (loose/partial match ok) or title. Only include changing fields in updates. Ops are SEQUENTIAL within panels. Panels run parallel. Skip people/clients already in existing lists. If nothing applies output {}.`;
 
         const data = await callAI({ system: systemPrompt, messages: [{ role: "user", content: msgContent }], max_tokens: 4000 }, getToken);
         const responseText = data.content?.map(b => b.text || "").join("") || "";
@@ -912,9 +702,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       }
 
       if (totalPeople === 0 && totalClients === 0 && totalJobs === 0 && totalUpdated === 0) {
-        const hint = excelFiles.length > 0
-          ? "Excel parsed but no rows matched. Open browser DevTools (F12 → Console) to see column detection details. Expected columns: SH (1/2/3), project title, client, start, end. Make sure the SH column has values 1 (job), 2 (panel), 3 (operation)."
-          : "Nothing found to import. Make sure your file has job data, or add more context in the text box.";
+        const hint = "Nothing found to import. Try adding more context in the text box (e.g. 'import these jobs' or 'update job #1234 status to In Progress'), or make sure your file contains job data.";
         setUploadResult({ success: false, message: hint });
         setUploadProcessing(false); return;
       }
