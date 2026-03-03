@@ -905,6 +905,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
 
   const [fStat, setFStat] = useState("All");
   const [fPer, setFPer] = useState("All");
+  const [fJobNum, setFJobNum] = useState("");
   const [fRole, setFRole] = useState("All");  // filter by assigned person's role
   const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
   const [jobSort, setJobSort] = useState("date"); // "date" | "project" | "client"
@@ -1179,8 +1180,9 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       const hasHpd = t.hpd === hpdVal || (t.subs || []).some(p => p.hpd === hpdVal || (p.subs || []).some(op => op.hpd === hpdVal));
       if (!hasHpd) return false;
     }
+    if (fJobNum && !String(t.jobNumber || "").toLowerCase().includes(fJobNum.toLowerCase())) return false;
     return true;
-  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPer, fClient, fRole, fHpd, people]);
+  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPer, fClient, fRole, fHpd, fJobNum, people]);
   const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if (op.team.includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, op.team.length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if (t.team.includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, t.team.length); (t.subs || []).forEach(s => { if (s.team.includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, s.team.length); }); } }); return h; }, [tasks, isOff]);
@@ -1192,7 +1194,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     tasks.forEach(t => { if (t.hpd) vals.add(t.hpd); (t.subs || []).forEach(p => { if (p.hpd) vals.add(p.hpd); (p.subs || []).forEach(op => { if (op.hpd) vals.add(op.hpd); }); }); });
     return [...vals].sort((a, b) => a - b);
   }, [tasks]);
-  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0);
+  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + (fPer !== "All" ? 1 : 0) + (fJobNum ? 1 : 0);
 
   // Check overlaps for a set of operations against a given task list
   // opsToCheck: [{ personId, start, end, opTitle, panelTitle, excludeOpId }]
@@ -2394,7 +2396,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-                {[["date","Date"],["project","Project #"],["client","Client"]].map(([val,label]) => (
+                {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
                   <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                 ))}
               </div>
@@ -2403,6 +2405,16 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 <option value="All">All Clients</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Person</div>
+              <select value={fPer} onChange={e => setFPer(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fPer !== "All" ? T.accent : T.border}`, background: T.surface, color: fPer !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer", marginBottom: 14 }}>
+                <option value="All">All People</option>
+                {people.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+              </select>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Job #</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+                <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
+              </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Expand / Collapse</div>
               <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
                 <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
@@ -2423,7 +2435,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
                 {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
               </div>}
-              {(activeFilterCount > 0 || fClient !== "All") && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {(activeFilterCount > 0 || fClient !== "All") && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPer("All"); setFJobNum(""); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
         </div>
@@ -2641,7 +2653,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     const fresh = sel ? (allItems.find(x => x.id === sel.id) || sel) : null;
     const parent = fresh ? tasks.find(x => x.id === fresh.id) : null;
 
-    return <div style={{ display: "flex", flexDirection: "column", gap: 20, height: "100%", overflow: "auto", paddingTop: 6 }}>
+    return <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 6 }}>
       {/* ── Engineering Queue ── */}
       {canSignOffEngineering && engQueueItems.length > 0 && <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
@@ -2728,10 +2740,10 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
           <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
             <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-            <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${(fStat !== "All" || fClient !== "All") ? T.accent : T.border}`, background: (fStat !== "All" || fClient !== "All") ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (fStat !== "All" || fClient !== "All") ? T.accent : T.textSec }}>
+            <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${(fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent : T.border}`, background: (fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent : T.textSec }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
             </button>
-            {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 210, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 230, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
                 <select value={fStat} onChange={e => setFStat(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fStat !== "All" ? T.accent : T.border}`, background: T.surface, color: fStat !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
@@ -2747,14 +2759,28 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 </select>
               </div>
               <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Person</div>
+                <select value={fPer} onChange={e => setFPer(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fPer !== "All" ? T.accent : T.border}`, background: T.surface, color: fPer !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+                  <option value="All">All People</option>
+                  {people.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                  {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
+                </div>
+              </div>
+              <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Sort By</div>
                 <div style={{ display: "flex", gap: 4 }}>
-                  {[["date","Date"],["project","Project #"],["client","Client"]].map(([val,label]) => (
+                  {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
                     <button key={val} onClick={() => setJobSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${jobSort === val ? T.accent : T.border}`, background: jobSort === val ? T.accent + "22" : "transparent", color: jobSort === val ? T.accent : T.text, fontSize: 11, fontWeight: jobSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                   ))}
                 </div>
               </div>
-              {(fStat !== "All" || fClient !== "All") && <button onClick={() => { setFStat("All"); setFClient("All"); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>Clear filters</button>}
+              {(fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) && <button onClick={() => { setFStat("All"); setFClient("All"); setFPer("All"); setFJobNum(""); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear filters</button>}
             </div>}
           </div>
         </div>
@@ -2823,7 +2849,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {fresh && <Btn variant="ghost" onClick={() => openEdit(fresh)}>Edit</Btn>}
           <Btn onClick={() => openNew()}>+ New Job</Btn>
         </div>}
-        <div style={{ flex: 1, overflow: "auto", overscrollBehavior: "contain" }}>
+        <div style={{ flex: 1, overflow: "auto" }}>
         {!fresh ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
             <div style={{ fontSize: 48, opacity: 0.3 }}>📋</div>
@@ -3229,6 +3255,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       if (fRole !== "All" && role?.toLowerCase() !== fRole.toLowerCase()) return;
       rowList.push({ type: "group", role, util: grpUtil(role) });
       if (!tCollapsed[role]) roleMap[role].forEach(p => {
+        if (fPer !== "All" && p.id !== +fPer) return;
         const bars = getPersonBars(p.id);
         rowList.push({ type: "person", person: p, util: getUtil(p.id), bars });
       });
@@ -3251,13 +3278,23 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-                {[["date","Date"],["project","Project #"],["client","Client"]].map(([val,label]) => (
+                {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
                   <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                 ))}
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
                 {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Person</div>
+              <select value={fPer} onChange={e => setFPer(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fPer !== "All" ? T.accent : T.border}`, background: T.surface, color: fPer !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer", marginBottom: 14 }}>
+                <option value="All">All People</option>
+                {people.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+              </select>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Job #</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+                <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
               </div>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
@@ -3270,7 +3307,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
                 {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
               </div>}
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFPer("All"); setFJobNum(""); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
         </div>}
@@ -5297,7 +5334,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
   // Filter out admin users from the shop crew display (they don't get assigned tasks)
   const shopPeople = people.filter(p => p.userRole === "user");
 
-  return <div className={`traqs-${themeMode}`} style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column" }}>
+  return <div className={`traqs-${themeMode}`} style={{ height: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
     {/* Slim search bar */}
     {!isMobile && <div style={{ padding: "10px 32px 8px", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, borderBottom: `1px solid ${T.border}22`, gap: 8 }}>
       <div ref={searchRef} style={{ position: "relative", flex: 1, maxWidth: askExpanded ? 360 : 480, transition: "max-width 0.28s cubic-bezier(0.22,1,0.36,1)", minWidth: 0 }}>
