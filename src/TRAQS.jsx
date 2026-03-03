@@ -377,6 +377,45 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
     </div>
   );
 }
+function ColorSlidingPill({ options, value, onChange, style: sx = {} }) {
+  const pillRef = useRef(null);
+  const btnRefs = useRef({});
+  const mounted = useRef(false);
+  const activeColor = (options.find(o => o.value === value) || options[0])?.color || "#94a3b8";
+  useEffect(() => {
+    const btn = btnRefs.current[value];
+    const pill = pillRef.current;
+    if (!btn || !pill) return;
+    if (!mounted.current) {
+      pill.style.transition = "none";
+      pill.style.transform = `translateX(${btn.offsetLeft}px)`;
+      pill.style.width = `${btn.offsetWidth}px`;
+      pill.style.background = activeColor;
+      mounted.current = true;
+      requestAnimationFrame(() => {
+        if (pill) pill.style.transition = "transform 0.28s cubic-bezier(0.34,1.56,0.64,1), width 0.22s cubic-bezier(0.22,1,0.36,1), background 0.18s ease";
+      });
+    } else {
+      pill.style.transform = `translateX(${btn.offsetLeft}px)`;
+      pill.style.width = `${btn.offsetWidth}px`;
+      pill.style.background = activeColor;
+    }
+  }, [value, activeColor]);
+  return (
+    <div style={{ display: "flex", background: T.surface, borderRadius: T.radiusSm, padding: 3, position: "relative", isolation: "isolate", border: `1px solid ${T.border}`, ...sx }}>
+      <div ref={pillRef} style={{ position: "absolute", top: 3, bottom: 3, left: 0, borderRadius: T.radiusXs, background: activeColor, boxShadow: `0 2px 10px ${activeColor}55`, zIndex: 0, pointerEvents: "none" }} />
+      {options.map(opt => {
+        const isActive = value === opt.value;
+        return (
+          <button key={opt.value} ref={el => { btnRefs.current[opt.value] = el; }} onClick={() => onChange(opt.value)}
+            style={{ position: "relative", zIndex: 1, padding: "5px 11px", borderRadius: T.radiusXs, border: "none", fontSize: 12, fontWeight: isActive ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: isActive ? "#fff" : T.textSec, whiteSpace: "nowrap", transition: "color 0.15s" }}>
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 const HealthIcon = ({ t, size = 14 }) => { const h = getHealth(t); const c = HEALTH_DOT[h]; return <span title={h === "ontime" ? "On time" : h === "behind" ? "Slightly behind" : h === "critical" ? "Behind schedule" : "Done"} style={{ width: size, height: size, borderRadius: "50%", background: c, flexShrink: 0, display: "inline-block", boxShadow: "0 0 " + (size) + "px " + c + "55" }} />; };
 function StatusDrop({ value, onChange, size = "sm" }) {
   const [open, setOpen] = useState(false);
@@ -2887,8 +2926,16 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               <span style={{ fontSize: 14, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span><span style={{ color: T.textDim }}>·</span>{fresh.hpd}h/day
               </span>
-              <Badge t={fresh.status} c={STA_C[fresh.status]} />
-              <Badge t={fresh.pri} c={PRI_C[fresh.pri]} />
+              <ColorSlidingPill
+                options={STATUSES.map(s => ({ value: s, label: s, color: STA_C[s] }))}
+                value={fresh.status || "Not Started"}
+                onChange={v => updTask(fresh.id, { status: v })}
+              />
+              <ColorSlidingPill
+                options={["Low","Medium","High"].map(p => ({ value: p, label: p, color: PRI_C[p] }))}
+                value={fresh.pri || "Medium"}
+                onChange={v => updTask(fresh.id, { pri: v })}
+              />
             </div>
 
             {/* Due date */}
