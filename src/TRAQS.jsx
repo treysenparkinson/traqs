@@ -676,8 +676,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         const findPerson = (name) => { if (!name) return null; return allPeople.find(p => p.name.toLowerCase() === name.toLowerCase()); };
         const findClient = (code) => { if (!code) return null; const fullName = clientMap[code] || code; return allClients.find(c => c.name.toLowerCase() === fullName.toLowerCase()); };
 
-        const newJobs = jobs.filter(j => j.panels.length > 0).map(job => {
+        const newJobs = jobs.map(job => {
           const cl = findClient(job.clientCode);
+          if (job.panels.length === 0) {
+            return { id: uid(), title: job.title || job.fullTitle, start: job.start || TD, end: job.end || TD, pri: "Medium", status: job.status || "Not Started", team: [], color: T.accent, hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "", deps: [], subs: [] };
+          }
           const panels = job.panels.map(panel => {
             const ops = panel.ops.map(op => {
               const person = findPerson(op.assigned);
@@ -814,6 +817,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       }
 
       if (totalPeople === 0 && totalClients === 0 && totalJobs === 0 && totalUpdated === 0) {
+        setUploadResult({ success: false, message: "Nothing found to import. Make sure your file has job data, or add more context in the text box." });
         setUploadProcessing(false); return;
       }
 
@@ -1122,6 +1126,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
+  const [clientCompletedExpanded, setClientCompletedExpanded] = useState(false);
   const [jobSearch, setJobSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmLogout, setConfirmLogout] = useState(false);
@@ -2114,7 +2119,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         } else groups[groups.length - 1].span++;
       }
     });
-    const gSortedFiltered = [...filtered].sort((a, b) => {
+    const gSortedFiltered = [...filtered].filter(t => t.status !== "Finished").sort((a, b) => {
       if (gSort === "project") return String(a.jobNumber || a.title || "").localeCompare(String(b.jobNumber || b.title || ""), undefined, { numeric: true });
       if (gSort === "client") { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || a.start.localeCompare(b.start); }
       return a.start.localeCompare(b.start);
@@ -2806,6 +2811,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               style={{ background: isSel ? t.color + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? t.color + "66" : T.border}`, borderLeft: `4px solid ${t.color}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${t.color}15` : "none" }}
               onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "44"; } }}
               onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : T.border; } }}>
+              <div style={{ display: "flex", gap: 3, marginBottom: 7, flexWrap: "wrap" }}>
+                {["Pending", "In Progress", "On Hold", "Finished"].map(s => (
+                  <button key={s} onClick={e => { e.stopPropagation(); updTask(t.id, { status: s }); }} style={{ padding: "2px 8px", borderRadius: 20, border: `1px solid ${t.status === s ? STA_C[s] : T.border}`, background: t.status === s ? STA_C[s] + "22" : "transparent", color: t.status === s ? STA_C[s] : T.textDim, fontSize: 11, fontWeight: t.status === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>
+                ))}
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                 {jobSelectMode && <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${selJobs.has(t.id) ? T.accent : T.border}`, background: selJobs.has(t.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{selJobs.has(t.id) && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
                 {!jobSelectMode && <div style={{ width: 7, height: 7, borderRadius: "50%", background: healthColor, flexShrink: 0, boxShadow: `0 0 5px ${healthColor}66` }} />}
@@ -3081,28 +3091,25 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             </div>)}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Jobs ({selTasks.length})</h4>
-            {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
-          </div>
-          {selTasks.length === 0 && <div style={{ textAlign: "center", padding: 28, color: T.textDim, fontSize: 14, background: T.card, borderRadius: T.radius, border: `1px solid ${T.border}` }}>No jobs assigned to this client yet.</div>}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {selTasks.map(t => {
+          {(() => {
+            const activeJobs = selTasks.filter(t => t.status !== "Finished");
+            const completedJobs = selTasks.filter(t => t.status === "Finished");
+            const renderJobCard = (t) => {
               const dur = diffD(t.start, t.end) + 1;
               const pct = t.status === "Finished" ? 100 : t.status === "In Progress" ? 50 : t.status === "Pending" ? 15 : t.status === "On Hold" ? 25 : 0;
-              return <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${t.color}`, opacity: t.status === "Finished" ? 0.7 : 1 }}>
+              return <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${t.color}` }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
                     <HealthIcon t={t} />
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => openDetail(t)}>{t.title}</span>
+                    {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
                   </div>
-                  <Badge t={t.pri} c={PRI_C[t.pri]} />
+                  <Badge t={t.status} c={STA_C[t.status]} />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: T.textSec, marginBottom: 8 }}>
                   <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
                   <span>{dur} day{dur !== 1 ? "s" : ""}</span>
-                  <span>{t.hpd}h/day</span>
-                  {(t.subs || []).length > 0 && <span>{t.subs.length} subtask{t.subs.length !== 1 ? "s" : ""}</span>}
+                  {(t.subs || []).length > 0 && <span>{t.subs.length} panel{t.subs.length !== 1 ? "s" : ""}</span>}
                 </div>
                 <div style={{ background: T.bg, borderRadius: 4, height: 5, overflow: "hidden", marginBottom: 8 }}>
                   <div style={{ height: "100%", borderRadius: 4, background: t.color, width: `${pct}%`, transition: "width 0.3s" }} />
@@ -3112,8 +3119,42 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   {can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn>}
                 </div>
               </div>;
-            })}
-          </div>
+            };
+            return <>
+              {/* Active Jobs */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Active Jobs ({activeJobs.length})</h4>
+                {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
+              </div>
+              {activeJobs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: T.textDim, fontSize: 13, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>No active jobs for this client.</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                {activeJobs.map(renderJobCard)}
+              </div>
+              {/* Completed Jobs Folder */}
+              {completedJobs.length > 0 && <div style={{ border: `1px solid #10b98133`, borderRadius: T.radiusSm, overflow: "hidden" }}>
+                <div onClick={() => setClientCompletedExpanded(p => !p)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: "#10b98110", cursor: "pointer", userSelect: "none" }}>
+                  <span style={{ fontSize: 16 }}>{clientCompletedExpanded ? "📂" : "📁"}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#10b981", flex: 1 }}>Completed Jobs</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98122", borderRadius: 10, padding: "1px 10px" }}>{completedJobs.length}</span>
+                  <span style={{ fontSize: 12, color: "#10b981", opacity: 0.7 }}>{clientCompletedExpanded ? "▲" : "▼"}</span>
+                </div>
+                {clientCompletedExpanded && <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", background: T.surface }}>
+                  {completedJobs.map(t => <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "12px 14px", border: `1px solid #10b98122`, borderLeft: `4px solid #10b981` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 13 }}>✅</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} onClick={() => openDetail(t)}>{t.title}</span>
+                      {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: "#10b981", background: "#10b98115", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.textDim }}>
+                      <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
+                      {t.poNumber && <span>PO: {t.poNumber}</span>}
+                      {(t.subs || []).length > 0 && <span>{t.subs.length} panel{t.subs.length !== 1 ? "s" : ""}</span>}
+                    </div>
+                  </div>)}
+                </div>}
+              </div>}
+            </>;
+          })()}
         </div>
       </div>}
     </div>;
