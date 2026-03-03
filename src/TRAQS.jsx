@@ -323,11 +323,11 @@ THEMES.light = THEMES.frost;
 let T = THEMES.light;
 
 const Badge = ({ t, c, lg }) => <span style={{ display: "inline-flex", alignItems: "center", padding: lg ? "5px 14px" : "4px 12px", borderRadius: 20, fontSize: lg ? 13 : 12, fontWeight: 600, fontFamily: T.font, background: c + "18", color: c, border: `1px solid ${c}22`, whiteSpace: "nowrap" }}>{t}</span>;
-const Btn = ({ children, onClick, variant = "primary", size = "md", style: sx = {} }) => {
-  const base = { display: "inline-flex", alignItems: "center", gap: 8, fontFamily: T.font, fontWeight: 600, cursor: "pointer", borderRadius: T.radiusSm, border: "none" };
-  const sizes = { sm: { padding: "7px 14px", fontSize: 13 }, md: { padding: "10px 20px", fontSize: 14 } };
+const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = false, style: sx = {} }) => {
+  const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: T.font, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", borderRadius: T.radiusSm, border: "none", whiteSpace: "nowrap", flexShrink: 0 };
+  const sizes = { sm: { padding: "7px 16px", fontSize: 13 }, md: { padding: "10px 20px", fontSize: 14 } };
   const vars = { primary: { background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, color: T.accentText, boxShadow: 'none' }, ghost: { background: T.glass, color: T.textSec, border: `1px solid ${T.glassBorder}` }, danger: { background: "transparent", color: T.danger, border: `1px solid ${T.danger}33` }, teal: { background: "transparent", color: "#14b8a6", border: `1px solid #14b8a633` }, warn: { background: "transparent", color: "#f59e0b", border: `1px solid #f59e0b33` } };
-  return <button className="anim-btn" onClick={onClick} style={{ ...base, ...sizes[size], ...vars[variant], ...sx }}>{children}</button>;
+  return <button className="anim-btn" onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
 };
 const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div className="anim-card anim-card-wrap" onClick={onClick}
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
@@ -5864,18 +5864,18 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
 
           {/* Body */}
           <div style={{ padding: "20px 24px" }}>
-            <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>Paste information or describe changes</label>
+            <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Paste information or describe changes</label>
             <textarea value={uploadText} onChange={e => setUploadText(e.target.value)}
               placeholder={"Paste scheduling data, job details, or describe updates to existing jobs...\n\nExamples:\n• Team: Alex, Jordan, Morgan\n  Job 10055 for Riverside Electric, due Mar 15\n  2 panels, Wire→Cut→Layout each 2 days\n\n• Add PO-45123 to job 10042\n• Mark Riverside Pump Station as In Progress\n• Set due date for job 10055 to March 15"}
-              style={{ width: "100%", minHeight: 160, padding: "12px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} disabled={uploadProcessing} />
+              style={{ width: "100%", minHeight: 130, padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} disabled={uploadProcessing} />
 
-            <div style={{ marginTop: 16 }}>
-              <label style={{ display: "block", fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 8 }}>Or upload files</label>
-              <div style={{ border: `2px dashed ${T.border}`, borderRadius: T.radiusSm, padding: "20px 16px", textAlign: "center", cursor: "pointer", transition: "border-color 0.2s" }} onClick={() => document.getElementById("traqs-file-input").click()} onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; }} onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }} onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith(".xlsx") || f.name.endsWith(".xls") || f.name.endsWith(".csv") || f.name.endsWith(".pdf") || f.name.endsWith(".txt") || f.name.endsWith(".png") || f.name.endsWith(".jpg") || f.name.endsWith(".jpeg")); setUploadFiles(prev => [...prev, ...files]); }}>
+            <div style={{ marginTop: 14 }}>
+              <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Or upload files</label>
+              <div style={{ border: `2px dashed ${T.border}`, borderRadius: T.radiusSm, padding: "14px 16px", textAlign: "center", cursor: "pointer", transition: "border-color 0.2s" }} onClick={() => document.getElementById("traqs-file-input").click()} onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; }} onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }} onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith(".xlsx") || f.name.endsWith(".xls") || f.name.endsWith(".csv") || f.name.endsWith(".pdf") || f.name.endsWith(".txt") || f.name.endsWith(".png") || f.name.endsWith(".jpg") || f.name.endsWith(".jpeg")); setUploadFiles(prev => [...prev, ...files]); }}>
                 <input id="traqs-file-input" type="file" multiple accept=".xlsx,.xls,.csv,.pdf,.txt,.png,.jpg,.jpeg" style={{ display: "none" }} onChange={e => { const files = Array.from(e.target.files); setUploadFiles(prev => [...prev, ...files]); e.target.value = ""; }} />
-                <div style={{ fontSize: 28, marginBottom: 6 }}>📁</div>
+                <div style={{ fontSize: 22, marginBottom: 4 }}>📁</div>
                 <div style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Drop files here or click to browse</div>
-                <div style={{ fontSize: 11, color: T.textSec, marginTop: 4 }}>Supports Excel (.xlsx, .xls), CSV, PDF, images (.png, .jpg), and text files</div>
+                <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>Excel, CSV, PDF, images, text</div>
               </div>
               {uploadFiles.length > 0 && <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                 {uploadFiles.map((f, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderRadius: T.radiusXs, fontSize: 12 }}>
@@ -5894,12 +5894,14 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           </div>
 
           {/* Footer */}
-          <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>⚠️ FAST TRAQS may make mistakes — always review imported data before use.</span>
-            <Btn variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
-            <Btn onClick={processUpload} disabled={uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0)} style={{ opacity: uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0) ? 0.5 : 1 }}>
-              {uploadProcessing ? "⏳ Processing with AI..." : "⚡ Process"}
-            </Btn>
+          <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>⚠️ Always review imported data — FAST TRAQS may make mistakes.</span>
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              <Btn size="sm" variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
+              <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0)}>
+                {uploadProcessing ? "⏳ Processing..." : "⚡ Process"}
+              </Btn>
+            </div>
           </div>
         </div>
       )}
