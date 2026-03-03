@@ -489,7 +489,7 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
   const selected = options.find(o => o.value === value);
   return <div ref={ref} style={{ position: "relative", marginBottom: 16 }}>
     {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500, fontFamily: T.font }}>{label}</label>}
-    <div onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.surface, cursor: "pointer", transition: "border 0.15s" }}>
+    <div onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
       {selected ? <><div style={{ width: 10, height: 10, borderRadius: 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 500 }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: 14, color: T.textDim }}>No client selected</span>}
       <span style={{ fontSize: 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
     </div>
@@ -4948,7 +4948,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* ── Template toggle (panel only) — seamless pill switch ── */}
         {isPanel && <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: isMatrix ? 0 : 14 }}>
-            <label style={{ fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 10 }}>Template</label>
+            <label style={{ display: "block", fontSize: 13, color: T.textSec, fontWeight: 600, marginBottom: 8 }}>Template</label>
             <SlidingPill
               options={[{value:"matrix",label:"Matrix"},{value:"custom",label:"Custom"}]}
               value={ed.templateMode || "matrix"}
@@ -4994,7 +4994,9 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {isPanel && isMatrix && !ed.id && <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Number of Panels</label>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <input type="number" min="1" max="50" value={(ed.subs || []).length || ""} onChange={e => { const n = Math.max(1, Math.min(50, parseInt(e.target.value) || 0)); if (n > 0) addPanels(n); }} style={{ width: 80, padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 16, fontWeight: 700, fontFamily: T.mono, textAlign: "center", boxSizing: "border-box" }} />
+            <input type="number" min="1" max="50" value={(ed.subs || []).length || ""} onChange={e => { const n = Math.max(1, Math.min(50, parseInt(e.target.value) || 0)); if (n > 0) addPanels(n); }} style={{ width: 96, padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 16, fontWeight: 700, fontFamily: T.mono, textAlign: "center", boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }}
+              onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }}
+              onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />
             <span style={{ fontSize: 13, color: T.textDim }}>panels for this job</span>
           </div>
         </div>}
@@ -5308,7 +5310,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           </div>
         </>}
 
-        <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }} /></div>
+        <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>
         <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
           {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })} style={{ marginRight: "auto" }}>Delete Job</Btn> : <span />}
           <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => saveTask(ed, modal.parentId)}>Save Job</Btn></div>
