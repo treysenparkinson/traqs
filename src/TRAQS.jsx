@@ -439,9 +439,9 @@ function MobileNav({ tabs, activeId, onChange }) {
     btn.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   }, [activeId]);
   return (
-    <div style={{ overflowX: "auto", flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, scrollbarWidth: "none", msOverflowStyle: "none" }}>
+    <div style={{ overflowX: "auto", flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, scrollbarWidth: "none", msOverflowStyle: "none", display: "flex", justifyContent: "center" }}>
       <style>{`.mn-wrap::-webkit-scrollbar{display:none}`}</style>
-      <div className="mn-wrap" style={{ display: "flex", position: "relative", isolation: "isolate", padding: "0 4px" }}>
+      <div className="mn-wrap" style={{ display: "flex", position: "relative", isolation: "isolate", padding: "0 4px", minWidth: "min-content" }}>
         <div ref={pillRef} style={{ position: "absolute", top: 4, bottom: 4, left: 0, borderRadius: T.radiusXs, background: T.accent + "22", zIndex: 0, pointerEvents: "none" }} />
         {tabs.map(tab => {
           const isActive = activeId === tab.id;
@@ -4097,7 +4097,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         options={[{value:"mytasks",label:"My Tasks"},{value:"viewall",label:"View All"}]}
         value={mobileTab}
         onChange={setMobileTab}
-        style={{ margin:"8px 12px" }}
+        style={{ margin:"8px auto", alignSelf:"center" }}
       />
       <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", paddingBottom: 88 }}>
         {mobileTab === "viewall" ? renderMobileCal() : renderMyTasks()}
@@ -4358,7 +4358,9 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
           <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
         </div>
-        {can("editJobs") && <button onClick={() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", fontSize: 16, flexShrink: 0, color: T.accent }} title="Fast TRAQS">⚡</button>}
+        {can("editJobs") && <button onClick={() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: T.accent + "18", border: `1px solid ${T.accent}66`, borderRadius: 10, cursor: "pointer", flexShrink: 0, animation: "glow-pulse 2.8s ease-in-out infinite" }} title="Fast TRAQS">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
+        </button>}
         {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New</button>}
         <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
           🔔
