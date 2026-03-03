@@ -4099,7 +4099,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         onChange={setMobileTab}
         style={{ margin:"8px 12px" }}
       />
-      <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", paddingBottom: 88 }}>
         {mobileTab === "viewall" ? renderMobileCal() : renderMyTasks()}
       </div>
     </div>;
@@ -4150,7 +4150,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       const active = filtered.filter(t => t.status !== "Finished");
       const finished = filtered.filter(t => t.status === "Finished");
       const mobileEngOpen = mobileExp["eng_queue"];
-      return <div style={{ padding: "8px 12px", overflow: "auto", flex: 1 }}>
+      return <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
         {/* Engineering Queue */}
         {engQueueItems.length > 0 && <div style={{ marginBottom: 12 }}>
           <div onClick={() => setMobileExp(p => ({ ...p, eng_queue: !p.eng_queue }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: `${T.accent}15`, borderRadius: T.radiusSm, border: `1px solid ${T.accent}30`, cursor: "pointer", marginBottom: mobileEngOpen ? 6 : 0 }}>
@@ -4200,7 +4200,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       </div>;
     };
 
-    const renderMobileClients = () => <div style={{ padding: "8px 12px", overflow: "auto", flex: 1 }}>
+    const renderMobileClients = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
       {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
         <button onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", notes: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Client</button>
       </div>}
@@ -4239,7 +4239,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       })}
     </div>;
 
-    const renderMobileTeam = () => <div style={{ padding: "8px 12px", overflow: "auto", flex: 1 }}>
+    const renderMobileTeam = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
       {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
         <button onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
       </div>}
@@ -4312,7 +4312,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       const totalTasks = tasks.length;
       const totalSubs = allItems.length - tasks.length;
       const avgHpd = tasks.length > 0 ? (tasks.reduce((a, t) => a + (t.hpd || 0), 0) / tasks.length).toFixed(1) : 0;
-      return <div style={{ padding: "8px 12px", overflow: "auto", flex: 1 }}>
+      return <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
         {/* Stats row */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 12 }}>
           {[{ label: "Jobs", val: totalTasks }, { label: "Subtasks", val: totalSubs }, { label: "Avg h/d", val: avgHpd }].map(s => <div key={s.label} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 10px", textAlign: "center", border: `1px solid ${T.border}` }}>
@@ -4358,13 +4358,13 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
           <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
         </div>
-        {can("editJobs") && <button onClick={() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: 8, padding: "6px 9px", cursor: "pointer", fontSize: 15, lineHeight: 1, color: T.accent }} title="Fast TRAQS">⚡</button>}
-        {can("editJobs") && <button onClick={() => openNew()} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ New</button>}
-        <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontSize: 14 }}>
+        {can("editJobs") && <button onClick={() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", fontSize: 16, flexShrink: 0, color: T.accent }} title="Fast TRAQS">⚡</button>}
+        {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New</button>}
+        <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>
           🔔
-          {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 2, right: 2, width: 14, height: 14, borderRadius: 7, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff" }}>{unreadMessages.length > 9 ? "9+" : unreadMessages.length}</span>}
+          {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{unreadMessages.length > 9 ? "9+" : unreadMessages.length}</span>}
         </button>
-        <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontSize: 14 }}>⚙️</button>
+        <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 10, cursor: "pointer", fontSize: 16, flexShrink: 0 }}>⚙️</button>
       </div>
       {/* Search bar */}
       <div style={{ padding: "8px 12px", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
@@ -4485,8 +4485,8 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       </div>}
       {/* Ask TRAQS FAB — always visible on mobile */}
       {!askOpen && <button onClick={() => setAskOpen(true)} title="Ask TRAQS"
-        style={{ position: "fixed", bottom: 24, right: 20, zIndex: 1500, width: 52, height: 52, borderRadius: 26, background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${T.accent}55, 0 2px 8px rgba(0,0,0,0.3)`, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill={T.accentText}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+        style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom, 0px))", right: 20, zIndex: 1500, width: 56, height: 56, borderRadius: 28, background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${T.accent}55, 0 2px 8px rgba(0,0,0,0.3)`, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
+        <svg width="24" height="24" viewBox="0 0 24 24" fill={T.accentText}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
       </button>}
     </div>;
   };
