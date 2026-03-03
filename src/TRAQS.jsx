@@ -4406,12 +4406,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       {/* Top nav */}
       <MobileNav
         tabs={[
-          { id: "home",      icon: "📅", label: "Home" },
-          { id: "tasks",     icon: "📋", label: "Jobs" },
-          { id: "team",      icon: "👥", label: "Team" },
-          { id: "clients",   icon: "🏢", label: "Clients" },
-          { id: "messages",  icon: "💬", label: "Chat", badge: unreadMessages.length },
-          { id: "analytics", icon: "📈", label: "Analytics" },
+          { id: "home",     icon: "📅", label: "Home" },
+          { id: "tasks",    icon: "📋", label: "Jobs" },
+          { id: "team",     icon: "👥", label: "Team" },
+          { id: "clients",  icon: "🏢", label: "Clients" },
+          { id: "messages", icon: "💬", label: "Chat", badge: unreadMessages.length },
         ]}
         activeId={mobileView}
         onChange={id => setView(id === "home" ? "gantt" : id)}
@@ -4474,6 +4473,14 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               </div>
             </div>}
           </div>
+          <button onClick={() => { setSettingsOpen(false); setView("analytics"); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>📈</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Analytics</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>View performance & insights</div>
+            </div>
+            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+          </button>
           {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ fontSize: 22, flexShrink: 0 }}>👥</span>
             <div style={{ flex: 1 }}>
