@@ -3974,7 +3974,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       {/* Selected day header */}
       <div style={{ padding: "10px 16px 6px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{dayLabel}</span>
-        {can("editJobs") && <button onClick={() => openNew()} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 20, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ New</button>}
+        {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New</button>}
       </div>
       {/* Day schedule */}
       <div style={{ flex: 1, overflow: "auto", padding: "4px 8px 16px" }}>
@@ -4185,7 +4185,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Active jobs */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "4px 0" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Active · {active.length}</div>
-          {can("editJobs") && <button onClick={() => openNew()} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ New Job</button>}
+          {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Job</button>}
         </div>
         {active.map(t => renderMobileTaskRow(t))}
         {finished.length > 0 && <>
@@ -4601,7 +4601,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Groups header */}
         <div style={{ padding: "14px 14px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Groups</span>
-          {can("editJobs") && <button onClick={() => setNewGroupModal(true)} title="New group" style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 6, width: 22, height: 22, fontSize: 14, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>+</button>}
+          {can("editJobs") && <button onClick={() => setNewGroupModal(true)} title="New group" style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button>}
         </div>
         {groups.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No groups yet</div>}
         {groups.slice().sort((a, b) => {
