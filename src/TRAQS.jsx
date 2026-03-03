@@ -597,12 +597,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         for (const sheetName of wb.SheetNames) {
           const ws = wb.Sheets[sheetName];
           const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
-          const dataRows = rows.filter(row => row.some(v => String(v).trim() !== ""));
+          const dataRows = rows.filter(row => row.some(v => String(v).trim() !== "")).slice(0, 300);
           if (dataRows.length === 0) continue;
           const csvText = dataRows.map(row => row.map(v => v == null ? "" : String(v)).join("\t")).join("\n");
           textContent += `\n--- Spreadsheet: ${file.name} / Sheet: ${sheetName} ---\n${csvText}\n`;
         }
       }
+      // Cap total text to avoid AI timeout on very large files
+      if (textContent.length > 24000) textContent = textContent.slice(0, 24000) + "\n[...truncated]";
 
       for (const file of otherFiles) {
         const isImage = /\.(png|jpg|jpeg)$/i.test(file.name);

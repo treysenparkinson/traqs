@@ -173,16 +173,26 @@ export async function uploadAttachment(payload, getToken, orgCode) {
 // payload: { system: string, messages: array, max_tokens: number }
 export async function callAI(payload, getToken) {
   const headers = await authHeaders(getToken);
-  const res = await fetch(`${BASE}/ai-schedule`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`callAI failed: ${res.status} — ${text}`);
+  const controller = new AbortController();
+  const tid = setTimeout(() => controller.abort(), 35000); // 35s client timeout
+  try {
+    const res = await fetch(`${BASE}/ai-schedule`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(tid);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`callAI failed: ${res.status} — ${text}`);
+    }
+    return res.json(); // returns Anthropic response shape { content: [...] }
+  } catch (e) {
+    clearTimeout(tid);
+    if (e.name === "AbortError") throw new Error("Request timed out — try a smaller file or add context in the text box.");
+    throw e;
   }
-  return res.json(); // returns Anthropic response shape { content: [...] }
 }
 
 // ─── Upload & Parse (alias kept for future direct-upload flows) ───────────────
