@@ -416,6 +416,50 @@ function ColorSlidingPill({ options, value, onChange, style: sx = {} }) {
     </div>
   );
 }
+function MobileNav({ tabs, activeId, onChange }) {
+  const pillRef = useRef(null);
+  const btnRefs = useRef({});
+  const mounted = useRef(false);
+  useEffect(() => {
+    const btn = btnRefs.current[activeId];
+    const pill = pillRef.current;
+    if (!btn || !pill) return;
+    if (!mounted.current) {
+      pill.style.transition = "none";
+      pill.style.transform = `translateX(${btn.offsetLeft}px)`;
+      pill.style.width = `${btn.offsetWidth}px`;
+      mounted.current = true;
+      requestAnimationFrame(() => {
+        if (pill) pill.style.transition = "transform 0.28s cubic-bezier(0.34,1.56,0.64,1), width 0.22s cubic-bezier(0.22,1,0.36,1)";
+      });
+    } else {
+      pill.style.transform = `translateX(${btn.offsetLeft}px)`;
+      pill.style.width = `${btn.offsetWidth}px`;
+    }
+    btn.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }, [activeId]);
+  return (
+    <div style={{ overflowX: "auto", flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, scrollbarWidth: "none", msOverflowStyle: "none" }}>
+      <style>{`.mn-wrap::-webkit-scrollbar{display:none}`}</style>
+      <div className="mn-wrap" style={{ display: "flex", position: "relative", isolation: "isolate", padding: "0 4px" }}>
+        <div ref={pillRef} style={{ position: "absolute", top: 4, bottom: 4, left: 0, borderRadius: T.radiusXs, background: T.accent + "22", zIndex: 0, pointerEvents: "none" }} />
+        {tabs.map(tab => {
+          const isActive = activeId === tab.id;
+          return (
+            <button key={tab.id} ref={el => { btnRefs.current[tab.id] = el; }} onClick={() => onChange(tab.id)}
+              style={{ position: "relative", zIndex: 1, padding: "8px 14px", border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0, minWidth: 60 }}>
+              <span style={{ fontSize: 18, lineHeight: 1, position: "relative", display: "inline-block" }}>
+                {tab.icon}
+                {tab.badge > 0 && <span style={{ position: "absolute", top: -4, right: -6, minWidth: 14, height: 14, borderRadius: 7, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", padding: "0 3px", boxSizing: "border-box" }}>{tab.badge > 9 ? "9+" : tab.badge}</span>}
+              </span>
+              <span style={{ fontSize: 10, fontWeight: isActive ? 700 : 400, color: isActive ? T.accent : T.textDim, whiteSpace: "nowrap" }}>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 const HealthIcon = ({ t, size = 14 }) => { const h = getHealth(t); const c = HEALTH_DOT[h]; return <span title={h === "ontime" ? "On time" : h === "behind" ? "Slightly behind" : h === "critical" ? "Behind schedule" : "Done"} style={{ width: size, height: size, borderRadius: "50%", background: c, flexShrink: 0, display: "inline-block", boxShadow: "0 0 " + (size) + "px " + c + "55" }} />; };
 function StatusDrop({ value, onChange, size = "sm" }) {
   const [open, setOpen] = useState(false);
@@ -4306,37 +4350,6 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       </div>;
     };
 
-    const renderMobileMore = () => <div style={{ padding: "8px 12px", overflow: "auto", flex: 1 }}>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {[
-          { icon: "🏢", label: "Clients", sub: `${clients.length} client${clients.length !== 1 ? "s" : ""}`, action: () => setView("clients") },
-          { icon: "📈", label: "Analytics", sub: "Charts & stats", action: () => setView("analytics") },
-          ...(isAdmin ? [{ icon: "👤", label: "Users", sub: "Manage team access", action: () => setUsersOpen(true) }] : []),
-          { icon: "⚙️", label: "Appearance", sub: "Theme & preferences", action: () => setSettingsOpen(p => !p) },
-        ].map(item => <div key={item.label} onClick={item.action} style={{ display: "flex", gap: 14, padding: "16px 14px", background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = T.card}>
-          <span style={{ fontSize: 22, flexShrink: 0 }}>{item.icon}</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{item.label}</div>
-            <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{item.sub}</div>
-          </div>
-          <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-        </div>)}
-        <div onClick={() => setConfirmLogout(true)} style={{ display: "flex", gap: 14, padding: "16px 14px", background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.danger}22`, cursor: "pointer", alignItems: "center", marginTop: 4 }} onTouchStart={e => e.currentTarget.style.background = T.danger + "10"} onTouchEnd={e => e.currentTarget.style.background = T.card}>
-          <span style={{ fontSize: 22, flexShrink: 0 }}>🚪</span>
-          <div style={{ fontSize: 16, fontWeight: 600, color: T.danger }}>Log Out</div>
-        </div>
-      </div>
-    </div>;
-
-    const bottomTabs = [
-      { id: "home", icon: "📅", label: "Home", setV: () => setView("gantt") },
-      { id: "tasks", icon: "📋", label: "Jobs", setV: () => setView("tasks") },
-      { id: "team", icon: "👥", label: "Team", setV: () => setView("team") },
-      { id: "messages", icon: "💬", label: "Chat", setV: () => setView("messages"), badge: unreadMessages.length },
-      { id: "more", icon: "⋯", label: "More", setV: () => setView("more") },
-    ];
-    const moreActive = mobileView === "more" || mobileView === "clients" || mobileView === "analytics";
-
     return <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
       {/* Mobile header bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
@@ -4345,6 +4358,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
           <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
         </div>
+        {can("editJobs") && <button onClick={() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: 8, padding: "6px 9px", cursor: "pointer", fontSize: 15, lineHeight: 1, color: T.accent }} title="Fast TRAQS">⚡</button>}
         {can("editJobs") && <button onClick={() => openNew()} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ New</button>}
         <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 8px", cursor: "pointer", fontSize: 14 }}>
           🔔
@@ -4384,32 +4398,96 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           })()}
         </div>
       </div>
-      {/* Page title */}
-      {mobileView !== "home" && mobileView !== "messages" && <div style={{ padding: "10px 16px 4px", flexShrink: 0 }}>
-        <span style={{ fontSize: 18, fontWeight: 700, color: T.text }}>{{ tasks: "📋 Jobs", clients: "🏢 Clients", team: "👥 Team", analytics: "📈 Analytics", more: "⋯ More" }[mobileView] || ""}</span>
-      </div>}
-      {/* Content */}
-      <div style={{ flex: 1, minHeight: 0, overflow: mobileView === "messages" ? "hidden" : "auto", display: "flex", flexDirection: "column" }}>
+      {/* Top nav */}
+      <MobileNav
+        tabs={[
+          { id: "home",      icon: "📅", label: "Home" },
+          { id: "tasks",     icon: "📋", label: "Jobs" },
+          { id: "team",      icon: "👥", label: "Team" },
+          { id: "clients",   icon: "🏢", label: "Clients" },
+          { id: "messages",  icon: "💬", label: "Chat", badge: unreadMessages.length },
+          { id: "analytics", icon: "📈", label: "Analytics" },
+        ]}
+        activeId={mobileView}
+        onChange={id => setView(id === "home" ? "gantt" : id)}
+      />
+      {/* Animated content */}
+      <AnimatedView viewKey={mobileView} style={{ flex: 1, minHeight: 0, overflow: mobileView === "messages" ? "hidden" : "auto", display: "flex", flexDirection: "column" }}>
         {mobileView === "home" && renderMobileHome()}
         {mobileView === "tasks" && renderMobileTasks()}
         {mobileView === "clients" && renderMobileClients()}
         {mobileView === "team" && renderMobileTeam()}
         {mobileView === "analytics" && renderMobileAnalytics()}
         {mobileView === "messages" && renderMessages()}
-        {mobileView === "more" && renderMobileMore()}
-      </div>
-      {/* Bottom tab bar */}
-      <div style={{ display: "flex", background: T.surface, borderTop: `1px solid ${T.border}`, flexShrink: 0, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-        {bottomTabs.map(tab => {
-          const isActive = tab.id === "more" ? moreActive : mobileView === tab.id;
-          return <button key={tab.id} onClick={tab.setV} style={{ flex: 1, padding: "10px 4px 8px", border: "none", background: "transparent", display: "flex", flexDirection: "column", alignItems: "center", gap: 3, cursor: "pointer", color: isActive ? T.accent : T.textDim, fontFamily: T.font, position: "relative", transition: "color 0.15s" }}>
-            {isActive && <div style={{ position: "absolute", top: 0, left: "15%", right: "15%", height: 2, background: T.accent, borderRadius: "0 0 2px 2px" }} />}
-            <span style={{ fontSize: tab.icon === "⋯" ? 22 : 20, lineHeight: 1 }}>{tab.icon}</span>
-            <span style={{ fontSize: 10, fontWeight: isActive ? 700 : 400 }}>{tab.label}</span>
-            {tab.badge > 0 && <span style={{ position: "absolute", top: 6, right: "calc(50% - 16px)", minWidth: 14, height: 14, borderRadius: 7, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", padding: "0 3px", boxSizing: "border-box" }}>{tab.badge > 9 ? "9+" : tab.badge}</span>}
-          </button>;
-        })}
-      </div>
+      </AnimatedView>
+      {/* Mobile Settings Overlay */}
+      {settingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
+          <button onClick={() => setSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
+          <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Settings</span>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Theme</div>
+            <div style={{ display: "flex", gap: 7 }}>
+              {[
+                { id: "midnight", label: "Dark",   bg: "#080d18", accent: "#3d7fff" },
+                { id: "frost",    label: "White",  bg: "#f0f4f9", accent: "#0ea5e9" },
+                { id: "custom",   label: "Custom", bg: customTheme.bg, accent: customTheme.accent },
+              ].map(th => {
+                const active = themeMode === th.id;
+                return <button key={th.id} onClick={() => setThemeMode(th.id)} title={th.label}
+                  style={{ flex: 1, padding: "10px 4px 8px", background: th.bg, border: `2px solid ${active ? th.accent : "transparent"}`, borderRadius: T.radiusXs, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "border 0.18s, transform 0.18s", transform: active ? "scale(1.06)" : "scale(1)" }}>
+                  {th.id === "custom"
+                    ? <div style={{ width: 18, height: 18, borderRadius: 9, background: "conic-gradient(#f43f5e,#f59e0b,#10b981,#3d7fff,#7c3aed,#f43f5e)", boxShadow: active ? `0 0 8px ${th.accent}88` : "none", transition: "box-shadow 0.18s" }} />
+                    : <div style={{ width: 18, height: 18, borderRadius: 9, background: th.accent, boxShadow: active ? `0 0 8px ${th.accent}88` : "none", transition: "box-shadow 0.18s" }} />}
+                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? th.accent : "#888", letterSpacing: "0.02em" }}>{th.label}</span>
+                </button>;
+              })}
+            </div>
+            {themeMode === "custom" && <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Customize</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {[
+                  { key: "bg",     label: "Background", sub: "App background & surfaces" },
+                  { key: "accent", label: "Accent",     sub: "Buttons, highlights & indicators" },
+                ].map(({ key, label, sub }) => (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <label style={{ position: "relative", width: 38, height: 38, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }} title={`Pick ${label}`}>
+                      <div style={{ width: "100%", height: "100%", background: customTheme[key] }} />
+                      <input type="color" value={customTheme[key]}
+                        onChange={e => setCustomTheme(p => ({ ...p, [key]: e.target.value }))}
+                        style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+                    </label>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
+                      <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
+                    </div>
+                    <div style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{customTheme[key]}</div>
+                  </div>
+                ))}
+              </div>
+            </div>}
+          </div>
+          {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>👥</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Users</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Manage permissions & access</div>
+            </div>
+            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+          </button>}
+          <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.danger}22`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left" }}>
+            <span style={{ fontSize: 22, flexShrink: 0 }}>🚪</span>
+            <div style={{ fontSize: 15, fontWeight: 600, color: T.danger }}>Log Out</div>
+          </button>
+        </div>
+      </div>}
+      {/* Ask TRAQS FAB — always visible on mobile */}
+      {!askOpen && <button onClick={() => setAskOpen(true)} title="Ask TRAQS"
+        style={{ position: "fixed", bottom: 24, right: 20, zIndex: 1500, width: 52, height: 52, borderRadius: 26, background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${T.accent}55, 0 2px 8px rgba(0,0,0,0.3)`, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill={T.accentText}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+      </button>}
     </div>;
   };
 
@@ -5873,10 +5951,15 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Or upload files</label>
               <div style={{ border: `2px dashed ${T.border}`, borderRadius: T.radiusSm, padding: "14px 16px", textAlign: "center", cursor: "pointer", transition: "border-color 0.2s" }} onClick={() => document.getElementById("traqs-file-input").click()} onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; }} onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }} onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith(".xlsx") || f.name.endsWith(".xls") || f.name.endsWith(".csv") || f.name.endsWith(".pdf") || f.name.endsWith(".txt") || f.name.endsWith(".png") || f.name.endsWith(".jpg") || f.name.endsWith(".jpeg")); setUploadFiles(prev => [...prev, ...files]); }}>
                 <input id="traqs-file-input" type="file" multiple accept=".xlsx,.xls,.csv,.pdf,.txt,.png,.jpg,.jpeg" style={{ display: "none" }} onChange={e => { const files = Array.from(e.target.files); setUploadFiles(prev => [...prev, ...files]); e.target.value = ""; }} />
+              <input id="traqs-camera-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => { const files = Array.from(e.target.files); setUploadFiles(prev => [...prev, ...files]); e.target.value = ""; }} />
                 <div style={{ fontSize: 22, marginBottom: 4 }}>📁</div>
                 <div style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Drop files here or click to browse</div>
                 <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>Excel, CSV, PDF, images, text</div>
               </div>
+              {isMobile && <button onClick={() => document.getElementById("traqs-camera-input").click()} disabled={uploadProcessing}
+                style={{ width: "100%", marginTop: 8, padding: "11px", borderRadius: T.radiusSm, border: `1px dashed ${T.accent}55`, background: T.accent + "08", cursor: uploadProcessing ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 13, color: T.accent, fontWeight: 600, fontFamily: T.font, opacity: uploadProcessing ? 0.5 : 1 }}>
+                <span style={{ fontSize: 18 }}>📷</span> Take Photo of Drawing or Document
+              </button>}
               {uploadFiles.length > 0 && <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                 {uploadFiles.map((f, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderRadius: T.radiusXs, fontSize: 12 }}>
                   <span style={{ fontSize: 14 }}>{f.name.endsWith(".pdf") ? "📄" : f.name.endsWith(".xlsx") || f.name.endsWith(".xls") ? "📊" : /\.(png|jpg|jpeg)$/i.test(f.name) ? "🖼️" : "📝"}</span>
