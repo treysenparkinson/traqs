@@ -5910,42 +5910,42 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       </div>
     </div>}
     {/* TRAQS Information Upload Modal */}
-    {uploadModal && <div className="anim-modal-overlay" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(14px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    {uploadModal && <div className="anim-modal-overlay" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(14px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24 }}>
 
       {/* ── Phase 1: FAST TRAQS splash intro ─────────────────────────── */}
       {fastTraqsPhase === "intro" && (
-        <div className={fastTraqsExiting ? "ft-intro-exit" : "ft-intro-enter"} onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 24, padding: "44px 36px 36px", width: "100%", maxWidth: 500, border: `1px solid ${T.accent}44`, boxShadow: `0 48px 120px rgba(0,0,0,0.75), 0 0 80px ${T.accent}18`, textAlign: "center", position: "relative", overflow: "hidden" }}>
+        <div className={fastTraqsExiting ? "ft-intro-exit" : "ft-intro-enter"} onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: isMobile ? 18 : 24, padding: isMobile ? "24px 20px 20px" : "44px 36px 36px", width: "100%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", border: `1px solid ${T.accent}44`, boxShadow: `0 48px 120px rgba(0,0,0,0.75), 0 0 80px ${T.accent}18`, textAlign: "center", position: "relative" }}>
           {/* Ambient glow orb */}
-          <div style={{ position: "absolute", top: -100, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, background: `radial-gradient(circle, ${T.accent}18 0%, transparent 65%)`, pointerEvents: "none" }} />
+          {!isMobile && <div style={{ position: "absolute", top: -100, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, background: `radial-gradient(circle, ${T.accent}18 0%, transparent 65%)`, pointerEvents: "none" }} />}
           {/* Close */}
-          <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); }} style={{ position: "absolute", top: 20, right: 24, width: 32, height: 32, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, zIndex: 2 }}>✕</button>
+          <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); }} style={{ position: "absolute", top: isMobile ? 14 : 20, right: isMobile ? 16 : 24, width: 32, height: 32, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, zIndex: 2 }}>✕</button>
 
           {/* TRAQS Logo */}
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 28 }}>
-            <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: isMobile ? 12 : 28 }}>
+            <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: isMobile ? 30 : 40, objectFit: "contain", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
           </div>
 
           {/* Title */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 10 }}>
-            <h2 style={{ margin: 0, fontSize: 36, fontWeight: 900, color: T.accent, letterSpacing: "-0.02em", fontFamily: T.font, textShadow: `0 0 28px ${T.accent}77` }}>FAST TRAQS</h2>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 8 }}>
+            <h2 style={{ margin: 0, fontSize: isMobile ? 26 : 36, fontWeight: 900, color: T.accent, letterSpacing: "-0.02em", fontFamily: T.font, textShadow: `0 0 28px ${T.accent}77` }}>FAST TRAQS</h2>
           </div>
-          <p style={{ margin: "0 0 8px", fontSize: 15, fontWeight: 600, color: T.text, fontFamily: T.font }}>Import & Update in Seconds</p>
-          <p style={{ margin: "0 0 32px", fontSize: 13, color: T.textSec, fontFamily: T.font, lineHeight: 1.7, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+          <p style={{ margin: "0 0 6px", fontSize: isMobile ? 13 : 15, fontWeight: 600, color: T.text, fontFamily: T.font }}>Import & Update in Seconds</p>
+          <p style={{ margin: isMobile ? "0 0 16px" : "0 0 32px", fontSize: 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.6, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
             Drop in any document, spreadsheet, or paste your notes — FAST TRAQS reads it all, builds your schedule, and updates existing jobs automatically.
           </p>
 
           {/* Feature grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 32, textAlign: "left" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: isMobile ? 8 : 10, marginBottom: isMobile ? 16 : 32, textAlign: "left" }}>
             {[
               { icon: "✏️", title: "Bulk Job Updates",  desc: "Update POs, status, due dates across jobs in plain text" },
               { icon: "👥", title: "Team Members",      desc: "Detects people and assigns them to roles" },
               { icon: "🏢", title: "Clients",           desc: "Identifies and imports contacts" },
               { icon: "📅", title: "Your Timeline",     desc: "Builds your full schedule automatically" },
             ].map((f, i) => (
-              <div key={f.title} style={{ background: T.bg, borderRadius: 14, padding: "14px 16px", border: `1px solid ${T.border}`, animation: `ftFeaturePop 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.12 + i * 0.08}s both` }}>
-                <div style={{ fontSize: 24, marginBottom: 6 }}>{f.icon}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: T.font, marginBottom: 3 }}>{f.title}</div>
-                <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.5 }}>{f.desc}</div>
+              <div key={f.title} style={{ background: T.bg, borderRadius: isMobile ? 10 : 14, padding: isMobile ? "10px 12px" : "14px 16px", border: `1px solid ${T.border}`, animation: `ftFeaturePop 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.12 + i * 0.08}s both` }}>
+                <div style={{ fontSize: isMobile ? 18 : 24, marginBottom: isMobile ? 4 : 6 }}>{f.icon}</div>
+                <div style={{ fontSize: isMobile ? 11 : 13, fontWeight: 700, color: T.text, fontFamily: T.font, marginBottom: 2 }}>{f.title}</div>
+                <div style={{ fontSize: isMobile ? 11 : 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.4 }}>{f.desc}</div>
               </div>
             ))}
           </div>
@@ -5953,7 +5953,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {/* BEGIN button */}
           <button
             onClick={() => { setFastTraqsExiting(true); setTimeout(() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); }, 420); }}
-            style={{ width: "100%", padding: "17px 0", borderRadius: 16, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, color: T.accentText, fontSize: 18, fontWeight: 900, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.06em", animation: "glow-pulse 2.4s ease-in-out infinite", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, transition: "transform 0.15s ease" }}
+            style={{ width: "100%", padding: isMobile ? "14px 0" : "17px 0", borderRadius: 16, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, color: T.accentText, fontSize: isMobile ? 16 : 18, fontWeight: 900, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.06em", animation: "glow-pulse 2.4s ease-in-out infinite", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, transition: "transform 0.15s ease" }}
             onMouseEnter={e => e.currentTarget.style.transform = "scale(1.02)"}
             onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
             onMouseDown={e => e.currentTarget.style.transform = "scale(0.97)"}
