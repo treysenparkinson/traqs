@@ -552,29 +552,35 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         const sheetName = wb.SheetNames.find(n => /schedule|dynamic/i.test(n)) || wb.SheetNames[0];
         const ws = wb.Sheets[sheetName];
         const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
-        
-        // Find header row
+        console.log("[FAST TRAQS] Sheet:", sheetName, "| Rows:", rows.length, "| Sheets:", wb.SheetNames);
+
+        // Find header row — expanded keyword detection
         let headerIdx = 0;
-        for (let i = 0; i < Math.min(rows.length, 5); i++) {
+        for (let i = 0; i < Math.min(rows.length, 10); i++) {
           const row = rows[i];
-          if (row && row.some(v => typeof v === "string" && /project|due date|start|end/i.test(v))) { headerIdx = i; break; }
+          if (row && row.some(v => typeof v === "string" && /project|due\s*date|start|end|sh\b|cust|client|assigned|title|job/i.test(v))) { headerIdx = i; break; }
         }
         const header = rows[headerIdx] || [];
+        console.log("[FAST TRAQS] Header row:", headerIdx, "| Values:", header.filter(Boolean));
         const col = {};
         header.forEach((h, i) => { if (h) col[String(h).trim().toLowerCase()] = i; });
-        
-        // Map column names (flexible matching)
-        const cSH = col["sh"] ?? 0;
-        const cTitle = col["mtx project"] ?? col["project"] ?? col["title"] ?? 1;
-        const cDue = col["due date"] ?? col["due"] ?? 2;
-        const cClient = col["cust"] ?? col["client"] ?? col["customer"] ?? 3;
-        const cContact = col["contact"] ?? 4;
-        const cPO = col["po"] ?? 5;
-        const cComplete = col["% complete"] ?? col["complete"] ?? 8;
-        const cNotes = col["comments"] ?? col["notes"] ?? 9;
-        const cStart = col["start"] ?? 10;
-        const cEnd = col["end"] ?? 11;
-        const cAssigned = col["assigned to"] ?? col["assigned"] ?? 12;
+        console.log("[FAST TRAQS] Column map:", col);
+
+        // Map column names (flexible matching — check many aliases)
+        const findCol = (...names) => { for (const n of names) { if (col[n] !== undefined) return col[n]; } return undefined; };
+        const cSH       = findCol("sh","level","lvl","hierarchy","#") ?? 0;
+        const cTitle    = findCol("mtx project","project","title","job","job name","description","name") ?? 1;
+        const cDue      = findCol("due date","due","due_date","duedate","customer due","cust due") ?? 2;
+        const cClient   = findCol("cust","client","customer","acct","account") ?? 3;
+        const cContact  = findCol("contact","contact name") ?? 4;
+        const cPO       = findCol("po","po #","po#","po number","purchase order") ?? 5;
+        const cComplete = findCol("% complete","% comp","complete","completion","percent","done") ?? 8;
+        const cNotes    = findCol("comments","notes","note","comment","remarks") ?? 9;
+        const cStart    = findCol("start","start date","begin","begin date") ?? 10;
+        const cEnd      = findCol("end","end date","finish","finish date","complete date") ?? 11;
+        const cAssigned = findCol("assigned to","assigned","assign","tech","technician","worker","person") ?? 12;
+        const cJobNum   = findCol("job #","job#","job number","job num","order #","order number","mtx #","mtx#") ?? -1;
+        console.log("[FAST TRAQS] Cols — SH:", cSH, "Title:", cTitle, "Client:", cClient, "Start:", cStart, "End:", cEnd, "Assigned:", cAssigned);
 
         // Email-to-name mapping
         const emailMap = {};
@@ -614,10 +620,13 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         const dataRows = rows.slice(headerIdx + 1);
         const jobs = [];
         let curJob = null, curPanel = null;
+        let dbgSH1 = 0, dbgSH2 = 0, dbgSH3 = 0;
 
         for (const row of dataRows) {
           if (!row || row.every(v => v == null || String(v).trim() === "")) continue;
-          const sh = row[cSH] != null ? parseInt(String(row[cSH])) : null;
+          // Parse SH — accept "1", "1.0", " 1 ", 1 (number), etc.
+          const shRaw = row[cSH];
+          const sh = shRaw != null && String(shRaw).trim() !== "" ? Math.round(parseFloat(String(shRaw))) : null;
           const title = row[cTitle] ? String(row[cTitle]).trim() : "";
           const start = parseDate(row[cStart]);
           const end = parseDate(row[cEnd]);
@@ -627,11 +636,13 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
           const clientCode = row[cClient] ? String(row[cClient]).trim() : null;
           const contact = row[cContact] ? String(row[cContact]).trim() : null;
           const notes = row[cNotes] ? String(row[cNotes]).trim() : "";
+          const jobNum = cJobNum >= 0 && row[cJobNum] ? String(row[cJobNum]).trim() : null;
+          if (sh === 1) dbgSH1++; else if (sh === 2) dbgSH2++; else if (sh === 3) dbgSH3++;
           
           if (sh === 1) {
             // Job level
             const status = completion >= 1 ? "Finished" : completion >= 0.5 ? "In Progress" : completion > 0 ? "In Progress" : "Not Started";
-            curJob = { title: title.replace(/\s*-\s*.*$/, "").trim() || title, fullTitle: title, start, end, dueDate, clientCode, contact, notes, status, completion, panels: [] };
+            curJob = { title: title.replace(/\s*-\s*.*$/, "").trim() || title, fullTitle: title, start, end, dueDate, clientCode, contact, notes, status, completion, jobNum, panels: [] };
             jobs.push(curJob);
             curPanel = null;
           } else if (sh === 2 && curJob) {
@@ -673,6 +684,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             }
           }
         }
+
+        console.log(`[FAST TRAQS] Parsed — jobs(SH1):${dbgSH1}, panels(SH2):${dbgSH2}, ops(SH3):${dbgSH3} | Job objects:`, jobs.map(j => `"${j.title}" panels:${j.panels.length}`));
 
         // Collect unique people from the data
         const foundPeople = new Set();
@@ -718,7 +731,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
         const newJobs = jobs.map(job => {
           const cl = findClient(job.clientCode);
           if (job.panels.length === 0) {
-            return { id: uid(), title: job.title || job.fullTitle, start: job.start || TD, end: job.end || TD, pri: "Medium", status: job.status || "Not Started", team: [], color: T.accent, hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "", deps: [], subs: [] };
+            return { id: uid(), title: job.title || job.fullTitle, start: job.start || TD, end: job.end || TD, pri: "Medium", status: job.status || "Not Started", team: [], color: T.accent, hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "", jobNumber: job.jobNum || "", deps: [], subs: [] };
           }
           const panels = job.panels.map(panel => {
             const ops = panel.ops.map(op => {
@@ -744,7 +757,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
           const jEnd = panels.reduce((a, b) => (a.end || "0") > (b.end || "0") ? a : b).end;
           return {
             id: uid(), title: job.title || job.fullTitle, start: jStart, end: jEnd,
-            pri: "Medium", status: job.status || "Not Started", team: [], color: "#3b82f6",
+            pri: "Medium", status: job.status || "Not Started", team: [], color: "#3b82f6", jobNumber: job.jobNum || "",
             hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "",
             deps: [], subs: panels
           };
@@ -856,7 +869,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       }
 
       if (totalPeople === 0 && totalClients === 0 && totalJobs === 0 && totalUpdated === 0) {
-        setUploadResult({ success: false, message: "Nothing found to import. Make sure your file has job data, or add more context in the text box." });
+        const hint = excelFiles.length > 0
+          ? "Excel parsed but no rows matched. Open browser DevTools (F12 → Console) to see column detection details. Expected columns: SH (1/2/3), project title, client, start, end. Make sure the SH column has values 1 (job), 2 (panel), 3 (operation)."
+          : "Nothing found to import. Make sure your file has job data, or add more context in the text box.";
+        setUploadResult({ success: false, message: hint });
         setUploadProcessing(false); return;
       }
 
