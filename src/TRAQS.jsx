@@ -439,15 +439,14 @@ function MobileNav({ tabs, activeId, onChange }) {
     btn.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
   }, [activeId]);
   return (
-    <div style={{ overflowX: "auto", flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}`, scrollbarWidth: "none", msOverflowStyle: "none", display: "flex", justifyContent: "center" }}>
-      <style>{`.mn-wrap::-webkit-scrollbar{display:none}`}</style>
-      <div className="mn-wrap" style={{ display: "flex", position: "relative", isolation: "isolate", padding: "0 4px", minWidth: "min-content" }}>
+    <div style={{ flexShrink: 0, background: T.surface, borderBottom: `1px solid ${T.border}` }}>
+      <div className="mn-wrap" style={{ display: "flex", position: "relative", isolation: "isolate" }}>
         <div ref={pillRef} style={{ position: "absolute", top: 4, bottom: 4, left: 0, borderRadius: T.radiusXs, background: T.accent + "22", zIndex: 0, pointerEvents: "none" }} />
         {tabs.map(tab => {
           const isActive = activeId === tab.id;
           return (
             <button key={tab.id} ref={el => { btnRefs.current[tab.id] = el; }} onClick={() => onChange(tab.id)}
-              style={{ position: "relative", zIndex: 1, padding: "8px 14px", border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0, minWidth: 60 }}>
+              style={{ position: "relative", zIndex: 1, flex: 1, padding: "8px 4px", border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
               <span style={{ fontSize: 18, lineHeight: 1, position: "relative", display: "inline-block" }}>
                 {tab.icon}
                 {tab.badge > 0 && <span style={{ position: "absolute", top: -4, right: -6, minWidth: 14, height: 14, borderRadius: 7, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", padding: "0 3px", boxSizing: "border-box" }}>{tab.badge > 9 ? "9+" : tab.badge}</span>}
