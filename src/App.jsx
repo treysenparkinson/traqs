@@ -686,9 +686,15 @@ function AuthGate() {
     })();
 
     const inRoster = roster.find(p => p.email?.toLowerCase() === user.email?.toLowerCase());
-    const isOrgAdmin = user.email?.toLowerCase() === orgConfig.adminEmail?.toLowerCase();
+    // Support single adminEmail + adminEmails array; also allow through if roster is empty (bootstrap/recovery)
+    const adminEmailList = [
+      orgConfig.adminEmail,
+      ...(orgConfig.adminEmails || []),
+    ].filter(Boolean).map(e => e.toLowerCase());
+    const isOrgAdmin = adminEmailList.includes(user.email?.toLowerCase());
+    const rosterIsEmpty = roster.length === 0;
 
-    if (!inRoster && !isOrgAdmin) {
+    if (!inRoster && !isOrgAdmin && !rosterIsEmpty) {
       setStep("not-in-team");
     }
   }, [isAuthenticated, user, orgConfig, teamPeople]);
