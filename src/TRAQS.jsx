@@ -4092,13 +4092,15 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     const mobileView = view === "gantt" ? "home" : view;
 
     const renderMobileHome = () => <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-      {/* My Tasks / View All toggle */}
-      <SlidingPill
-        options={[{value:"mytasks",label:"My Tasks"},{value:"viewall",label:"View All"}]}
-        value={mobileTab}
-        onChange={setMobileTab}
-        style={{ margin:"8px auto", alignSelf:"center" }}
-      />
+      {/* Toggle + New Job row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", flexShrink: 0 }}>
+        <SlidingPill
+          options={[{value:"mytasks",label:"My Tasks"},{value:"viewall",label:"View All"}]}
+          value={mobileTab}
+          onChange={setMobileTab}
+        />
+        {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New</button>}
+      </div>
       <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", paddingBottom: 88 }}>
         {mobileTab === "viewall" ? renderMobileCal() : renderMyTasks()}
       </div>
@@ -4361,7 +4363,6 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {can("editJobs") && <button onClick={() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: T.accent + "18", border: `1px solid ${T.accent}66`, borderRadius: 10, cursor: "pointer", flexShrink: 0, animation: "glow-pulse 2.8s ease-in-out infinite" }} title="Fast TRAQS">
           <svg width="17" height="17" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
         </button>}
-        {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New</button>}
         <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? T.accent + "15" : T.bg, border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{unreadMessages.length > 9 ? "9+" : unreadMessages.length}</span>}
