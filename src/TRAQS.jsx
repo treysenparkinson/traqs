@@ -558,7 +558,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   }, [themeMode, customTheme.bg]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [mobileTab, setMobileTab] = useState("viewall");
+  const [mobileTab, setMobileTab] = useState("mytasks");
   const [loggedInUser, setLoggedInUser] = useState(null);
   const [loginStep] = useState("user"); // kept for any remaining refs
   const handleLogin = () => {};
