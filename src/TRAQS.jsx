@@ -5894,7 +5894,8 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           </div>
 
           {/* Footer */}
-          <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>⚠️ FAST TRAQS may make mistakes — always review imported data before use.</span>
             <Btn variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
             <Btn onClick={processUpload} disabled={uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0)} style={{ opacity: uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0) ? 0.5 : 1 }}>
               {uploadProcessing ? "⏳ Processing with AI..." : "⚡ Process"}
