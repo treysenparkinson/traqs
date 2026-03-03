@@ -4487,37 +4487,39 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           </button>
         </div>
       </div>}
-      {/* Mobile Notifications Overlay */}
-      {notifOpen && <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
-        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
-          <button onClick={() => setNotifOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
-          <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Notifications</span>
-          {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 12, color: T.accent, cursor: "pointer", fontFamily: T.font, fontWeight: 600 }}>Mark all read</button>}
-        </div>
-        <div style={{ flex: 1, overflow: "auto" }}>
-          {unreadByThread.length === 0 ? (
-            <div style={{ padding: "48px 24px", textAlign: "center", color: T.textDim, fontSize: 15 }}>All caught up! 🎉</div>
-          ) : unreadByThread.map(item => {
-            const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
-            return <div key={item.threadKey} onClick={() => {
-              const gId = item.scope === "group" ? item.threadKey.replace("group:", "") : null;
-              const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
-              setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
-              setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
-            }} style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 12, alignItems: "flex-start" }}
-              onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
-              <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 5 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-                  <span style={{ fontSize: 11, color: T.textDim, flexShrink: 0, marginLeft: 8 }}>{item.count} new</span>
+      {/* Mobile Notifications Dropdown */}
+      {notifOpen && <>
+        <div onClick={() => setNotifOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
+        <div onClick={e => e.stopPropagation()} style={{ position: "fixed", top: 56, right: 12, width: "min(300px, calc(100vw - 24px))", maxHeight: "60vh", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: T.font }}>
+          <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Notifications</div>
+            {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font, fontWeight: 600 }}>Mark all read</button>}
+          </div>
+          <div style={{ overflow: "auto" }}>
+            {unreadByThread.length === 0 ? (
+              <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up! 🎉</div>
+            ) : unreadByThread.map(item => {
+              const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
+              return <div key={item.threadKey} onClick={() => {
+                const gId = item.scope === "group" ? item.threadKey.replace("group:", "") : null;
+                const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
+                setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
+                setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
+              }} style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start" }}
+                onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+                <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 4 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+                    <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0, marginLeft: 8 }}>{item.count} new</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{item.latest.authorName}:</strong> {item.latest.text}</div>
                 </div>
-                <div style={{ fontSize: 13, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{item.latest.authorName}:</strong> {item.latest.text}</div>
-              </div>
-            </div>;
-          })}
+              </div>;
+            })}
+          </div>
         </div>
-      </div>}
+      </>}
       {/* Ask TRAQS FAB — always visible on mobile */}
       {!askOpen && <button onClick={() => setAskOpen(true)} title="Ask TRAQS"
         style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom, 0px))", right: 20, zIndex: 1500, width: 56, height: 56, borderRadius: 28, background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${T.accent}55, 0 2px 8px rgba(0,0,0,0.3)`, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
