@@ -4,14 +4,14 @@ import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 const ADMIN_PERMS = [
-  { key: "editJobs",      icon: "✏️",  label: "Create, edit & delete jobs" },
-  { key: "moveJobs",      icon: "📅",  label: "Move & resize jobs on Gantt and team view" },
-  { key: "reassign",      icon: "👤",  label: "Reassign operations to team members" },
-  { key: "lockJobs",      icon: "🔒",  label: "Lock & unlock jobs" },
-  { key: "manageTeam",    icon: "👥",  label: "Add, edit & remove team members" },
-  { key: "manageClients", icon: "🏢",  label: "Add, edit & delete clients" },
-  { key: "undoHistory",   icon: "↩️",  label: "Undo schedule history changes" },
-  { key: "orgSettings",   icon: "⚙️",  label: "Access organization settings" },
+  { key: "editJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>, label: "Create, edit & delete jobs" },
+  { key: "moveJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>, label: "Move & resize jobs on Gantt and team view" },
+  { key: "reassign",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>, label: "Reassign operations to team members" },
+  { key: "lockJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>, label: "Lock & unlock jobs" },
+  { key: "manageTeam",    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Add, edit & remove team members" },
+  { key: "manageClients", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="10" y1="6" x2="14" y2="6"/><line x1="10" y1="10" x2="14" y2="10"/><line x1="10" y1="14" x2="14" y2="14"/><line x1="10" y1="18" x2="14" y2="18"/></svg>, label: "Add, edit & delete clients" },
+  { key: "undoHistory",   icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.86"/></svg>, label: "Undo schedule history changes" },
+  { key: "orgSettings",   icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>, label: "Access organization settings" },
 ];
 const PRIORITIES = ["Low","Medium","High"];
 const STATUSES = ["Not Started","Pending","In Progress","On Hold","Finished"];
@@ -447,7 +447,7 @@ function MobileNav({ tabs, activeId, onChange }) {
           return (
             <button key={tab.id} ref={el => { btnRefs.current[tab.id] = el; }} onClick={() => onChange(tab.id)}
               style={{ position: "relative", zIndex: 1, flex: 1, padding: "8px 4px", border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-              <span style={{ fontSize: 18, lineHeight: 1, position: "relative", display: "inline-block" }}>
+              <span style={{ lineHeight: 0, position: "relative", display: "inline-block", color: isActive ? T.accent : T.textDim }}>
                 {tab.icon}
                 {tab.badge > 0 && <span style={{ position: "absolute", top: -4, right: -6, minWidth: 14, height: 14, borderRadius: 7, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", padding: "0 3px", boxSizing: "border-box" }}>{tab.badge > 9 ? "9+" : tab.badge}</span>}
               </span>
@@ -4166,7 +4166,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       <div style={{ padding: "8px 12px", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
         <div ref={searchRef} style={{ position: "relative" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, border: `1px solid ${searchOpen ? T.accent : T.border}`, background: T.bg, transition: "border 0.15s" }}>
-            <span style={{ fontSize: 13, color: T.textDim }}>🔍</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 14, fontFamily: T.font }} />
             {searchQ && <span onClick={() => { setSearchQ(""); setSearchOpen(false); }} style={{ cursor: "pointer", fontSize: 11, color: T.textDim, padding: "2px 6px", borderRadius: 4, background: T.border + "44" }}>✕</span>}
           </div>
@@ -4197,11 +4197,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       {/* Top nav */}
       <MobileNav
         tabs={[
-          { id: "home",     icon: "📅", label: "Home" },
-          { id: "tasks",    icon: "📋", label: "Jobs" },
-          { id: "team",     icon: "👥", label: "Team" },
-          { id: "clients",  icon: "🏢", label: "Clients" },
-          { id: "messages", icon: "💬", label: "Chat", badge: unreadMessages.length },
+          { id: "home",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, label: "Home" },
+          { id: "tasks",    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" },
+          { id: "team",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Team" },
+          { id: "clients",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="10" y1="6" x2="14" y2="6"/><line x1="10" y1="10" x2="14" y2="10"/><line x1="10" y1="14" x2="14" y2="14"/><line x1="10" y1="18" x2="14" y2="18"/></svg>, label: "Clients" },
+          { id: "messages", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Chat", badge: unreadMessages.length },
         ]}
         activeId={mobileView}
         onChange={id => setView(id === "home" ? "gantt" : id)}
@@ -4265,7 +4265,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             </div>}
           </div>
           <button onClick={() => { setSettingsOpen(false); setView("analytics"); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-            <span style={{ fontSize: 22, flexShrink: 0 }}>📈</span>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Analytics</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>View performance & insights</div>
@@ -4273,7 +4273,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
           {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-            <span style={{ fontSize: 22, flexShrink: 0 }}>👥</span>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Users</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Manage permissions & access</div>
@@ -4281,7 +4281,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>}
           <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.danger}22`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left" }}>
-            <span style={{ fontSize: 22, flexShrink: 0 }}>🚪</span>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.danger }}>Log Out</div>
           </button>
         </div>
@@ -4365,7 +4365,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       const ts = latest ? new Date(latest.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : null;
       return <div key={threadKey} onClick={() => {
         const t = threadMap[threadKey];
-        if (icon === "👥") {
+        if (threadKey.startsWith("group:")) {
           const gId = threadKey.replace("group:", "");
           const g = groups.find(x => x.id === gId);
           if (g) openThread(threadKey, title, "group", null, null, null, gId);
@@ -4376,7 +4376,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           openThread(threadKey, title, "group", null, null, null, gId);
         }
       }} style={{ display: "flex", gap: 10, padding: "10px 14px", cursor: "pointer", alignItems: "flex-start", background: isActive ? T.accent + "15" : "transparent", borderLeft: `3px solid ${isActive ? T.accent : "transparent"}`, transition: "all 0.15s" }} onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.accent + "08"; }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
-        <div style={{ width: 36, height: 36, borderRadius: 18, background: isActive ? T.accent + "30" : T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, flexShrink: 0 }}>{icon}</div>
+        <div style={{ width: 36, height: 36, borderRadius: 18, background: isActive ? T.accent + "30" : T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: isActive ? T.accent : T.textSec }}>{icon}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4 }}>
             <span style={{ fontSize: 13, fontWeight: unread ? 700 : 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
@@ -4411,7 +4411,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           const latest = messages.filter(m => m.threadKey === tk).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
           const isPinned = pinnedGroups.includes(g.id);
           return <div key={g.id} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setGroupCtxMenu({ x: e.clientX, y: e.clientY, groupId: g.id, groupName: g.name }); }}>
-            {renderThread(tk, (isPinned ? "📌 " : "") + g.name, latest, unreadCount(tk), "👥")}
+            {renderThread(tk, (isPinned ? "📌 " : "") + g.name, latest, unreadCount(tk), <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>)}
           </div>;
         })}
         {/* Job threads */}
@@ -4426,7 +4426,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           }).map(t => {
             const title = getThreadTitle(t.threadKey, t.scope, t.jobId, t.panelId, t.opId);
             const isPinned = pinnedThreads.includes(t.threadKey);
-            const icon = t.scope === "op" ? "🔧" : t.scope === "panel" ? "📦" : "🏗";
+            const icon = t.scope === "op"
+              ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+              : t.scope === "panel"
+              ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+              : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>;
             return <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setThreadCtxMenu({ x: e.clientX, y: e.clientY, threadKey: t.threadKey, title, scope: t.scope, jobId: t.jobId, panelId: t.panelId, opId: t.opId }); }}>
               {renderThread(t.threadKey, (isPinned ? "📌 " : "") + title, t.latest, unreadCount(t.threadKey), icon)}
             </div>;
@@ -4439,7 +4443,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       {showChat && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {!chatThread ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.textDim, gap: 12 }}>
-            <div style={{ fontSize: 48 }}>💬</div>
+            <div style={{ lineHeight: 0, color: T.textDim }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
             <div style={{ fontSize: 16, fontWeight: 600, color: T.textSec }}>Select a conversation</div>
             <div style={{ fontSize: 13 }}>Choose a group or job chat from the left</div>
           </div>
@@ -5656,7 +5660,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   {isSelected && <div style={{ margin: "2px 0 4px", padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
                     {/* Admin toggle */}
                     <div onClick={() => updPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
-                      <span style={{ fontSize: 15 }}>🔑</span>
+                      <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
                         <div style={{ fontSize: 11, color: T.textDim }}>Full control over jobs and team</div>
@@ -5680,7 +5684,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                     </div>}
                     {/* Engineering toggle */}
                     <div onClick={() => updPerson(person.id, { isEngineer: !person.isEngineer })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.isEngineer ? T.accent + "44" : T.border}`, background: person.isEngineer ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
-                      <span style={{ fontSize: 15 }}>🔧</span>
+                      <span style={{ lineHeight: 0, color: person.isEngineer ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Engineering Sign-Off Access</div>
                         <div style={{ fontSize: 11, color: T.textDim }}>Can sign off Design, Verify & Perforex steps</div>
@@ -5691,7 +5695,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                     </div>
                     {/* No Auto-Schedule toggle */}
                     <div onClick={() => updPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
-                      <span style={{ fontSize: 15 }}>⛔</span>
+                      <span style={{ lineHeight: 0, color: person.noAutoSchedule ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Exclude from Auto-Scheduling</div>
                         <div style={{ fontSize: 11, color: T.textDim }}>Never auto-assigned by the scheduler</div>
