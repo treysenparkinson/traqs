@@ -335,7 +335,7 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
   style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.glassBorder}`, padding: 24, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
 const InputField = ({ label, value, onChange, type = "text", placeholder }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;
 const SelectField = ({ label, value, onChange, options }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><select value={value} onChange={e => onChange(e.target.value)} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }}>{options.map(o => <option key={o} value={o}>{o}</option>)}</select></div>;
-function CtxMenuItem({ icon, label, sub, onClick }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ fontSize: 15, width: 22, textAlign: "center", flexShrink: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
+function CtxMenuItem({ icon, label, sub, onClick }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
 
 /** Reusable sliding-pill toggle. options=[{value,label}], value=active key */
 function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) {
@@ -1538,7 +1538,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     else { const nw = { ...withIds, id: uid() }; if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else setTasks(p => [...p, nw]); }
     closeModal();
   };
-  const views = [{ id: "gantt", icon: "📊", label: "Gantt" }, { id: "tasks", icon: "📋", label: "Tasks" }, { id: "clients", icon: "🏢", label: "Clients" }, { id: "team", icon: "👥", label: "Team" }, { id: "analytics", icon: "📈", label: "Analytics" }, { id: "messages", icon: "💬", label: "Messages" }];
+  const views = [{ id: "gantt", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>, label: "Gantt" }, { id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg>, label: "Tasks" }, { id: "clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, label: "Clients" }, { id: "team", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Team" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
@@ -2346,7 +2346,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Right side: Clipboard + FAST TRAQS + New Job button */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
-            <span>📋</span>
+            <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
@@ -2356,7 +2356,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
 
       {tasks.length === 0
         ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 24px", textAlign: "center", gap: 14 }}>
-            <div style={{ fontSize: 80, lineHeight: 1, marginBottom: 4, opacity: 0.45, filter: "grayscale(0.3)" }}>📋</div>
+            <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg></div>
             <h2 style={{ margin: 0, fontSize: 34, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>No jobs yet</h2>
             <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 420, lineHeight: 1.75 }}>
               Create your first job, or import an existing schedule instantly with <strong style={{ color: T.accent }}>FAST TRAQS</strong>
@@ -2552,7 +2552,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       {/* ── Engineering Queue ── */}
       {canSignOffEngineering && engQueueItems.length > 0 && <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <span style={{ fontSize: 20 }}>🔧</span>
+          <span style={{ lineHeight: 0, color: T.accent }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.accent }}>Engineering Queue</h3>
           <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "2px 10px" }}>{engQueueItems.length}</span>
         </div>
@@ -2596,7 +2596,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       {/* ── Finished Engineering ── */}
       {canSignOffEngineering && engFinishedItems.length > 0 && <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-          <span style={{ fontSize: 16 }}>✅</span>
+          <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#10b981" }}>Engineering Complete</h4>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>{engFinishedItems.length}</span>
         </div>
@@ -2686,7 +2686,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         </div>
         <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
           {tasks.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 16px", textAlign: "center", gap: 10 }}>
-            <div style={{ fontSize: 48, opacity: 0.35 }}>📋</div>
+            <div style={{ opacity: 0.35 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg></div>
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: T.text }}>No jobs yet</h3>
             <p style={{ margin: "2px auto 0", fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Create a job or use FAST TRAQS to import</p>
             {can("editJobs") && <Btn size="sm" style={{ marginTop: 6 }} onClick={() => openNew()}>+ New Job</Btn>}
@@ -2752,7 +2752,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         <div style={{ flex: 1, overflow: "auto" }}>
         {!fresh ? (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
-            <div style={{ fontSize: 48, opacity: 0.3 }}>📋</div>
+            <div style={{ opacity: 0.3 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/></svg></div>
             <div style={{ fontSize: 16, color: T.textDim }}>Select a job to view details</div>
           </div>
         ) : (
@@ -2900,7 +2900,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       <div style={{ flex: 1, overflow: "auto" }}>
         {clients.length === 0 ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
-            <div style={{ fontSize: 56, lineHeight: 1, marginBottom: 4, opacity: 0.45 }}>🏢</div>
+            <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></div>
             <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>No clients yet</h3>
             <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 240, lineHeight: 1.65 }}>Add your first client to organize jobs by company</p>
             {can("manageClients") && <Btn size="sm" style={{ marginTop: 8 }} onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add Client</Btn>}
@@ -2963,9 +2963,9 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               <div>
                 <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text }}>{sel.name}</h2>
                 <div style={{ fontSize: 13, color: T.textSec, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                  {sel.contact && <span>👤 {sel.contact}</span>}
-                  {sel.email && <span>✉ {sel.email}</span>}
-                  {sel.phone && <span>📞 {sel.phone}</span>}
+                  {sel.contact && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>{sel.contact}</span>}
+                  {sel.email && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>{sel.email}</span>}
+                  {sel.phone && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.55a16 16 0 0 0 6.06 6.06l.91-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>{sel.phone}</span>}
                 </div>
               </div>
             </div>
@@ -3286,7 +3286,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
-            <span>📋</span>
+            <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
@@ -3295,7 +3295,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       </div>
 
       {people.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 24px", textAlign: "center", gap: 14 }}>
-        <div style={{ fontSize: 80, lineHeight: 1, marginBottom: 4, opacity: 0.45 }}>👥</div>
+        <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
         <h2 style={{ margin: 0, fontSize: 34, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>No team members yet</h2>
         <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 400, lineHeight: 1.75 }}>
           Add your first team member to start scheduling and assigning jobs
@@ -3696,7 +3696,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                     onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {barLocked && <span style={{ fontSize: 11, marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9 }}>🔒</span>}
+                    {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
                     {hasMoveLog && <span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} title="Schedule was changed" />}
                     {bar.hasSubs && <span style={{ fontSize: 9, color: "#fff", marginRight: 4, opacity: 0.7, flexShrink: 0, position: "relative", zIndex: 3 }}>{isExp ? "▼" : "▶"}</span>}
                     <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.jobNumber ? <>{bar.jobNumber && <span style={{ opacity: 0.75, fontWeight: 500, marginRight: 4 }}>{bar.jobNumber} ·</span>}{bar.title}</> : bar.title}</span>
@@ -4468,7 +4468,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <div style={{ flex: 1, overflow: "auto", padding: "12px 0" }}>
             {threadMessages.length === 0 && (
               <div style={{ textAlign: "center", padding: "40px 20px", color: T.textDim }}>
-                <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, opacity: 0.5 }}><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: T.textSec, marginBottom: 6 }}>No messages yet</div>
                 <div style={{ fontSize: 12, color: T.textDim }}>{canPost ? "Be the first to send a message." : "This thread has no messages."}</div>
               </div>
@@ -4848,13 +4848,13 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {aiSuggestion && <div style={{ marginTop: 12 }}>
             {/* Header message based on result */}
             {aiSuggestion.canMeetDue === true && <div style={{ padding: "12px 16px", background: "#10b98112", border: "1px solid #10b98133", borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 20 }}>✅</span>
+              <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
               <div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
               <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>Found {aiSuggestion.slots.length} schedule option{aiSuggestion.slots.length > 1 ? "s" : ""} for {aiSuggestion.numPanels} panel{aiSuggestion.numPanels > 1 ? "s" : ""}</div></div>
             </div>}
             {aiSuggestion.canMeetDue === false && <div style={{ padding: "12px 16px", background: "#ef444412", border: "1px solid #ef444433", borderRadius: T.radiusSm, marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                <span style={{ fontSize: 20 }}>⚠️</span>
+                <span style={{ lineHeight: 0, color: "#ef4444" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>Cannot meet the {fm(aiSuggestion.dueDate)} deadline</div>
               </div>
               <div style={{ fontSize: 12, color: T.textSec }}>Not enough crew available before the due date for {aiSuggestion.numPanels} panel{aiSuggestion.numPanels > 1 ? "s" : ""}.</div>
@@ -5066,7 +5066,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                           }} title={busy ? `${p.name} is busy during this period` : isLead ? `${p.name} — Team ${p.teamNumber} Lead` : p.name} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? p.color : busy ? T.danger + "33" : T.border}`, background: sel ? p.color : busy ? T.danger + "08" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? accentText(p.color) : busy ? T.danger + "88" : T.textSec, fontWeight: sel ? 700 : 400, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.5 : 1, transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap", textDecoration: busy ? "line-through" : "none" }}>
                             <span style={{ width: 18, height: 18, borderRadius: 6, background: sel ? p.color + "cc" : busy ? T.danger + "15" : p.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: sel ? accentText(p.color) : busy ? T.danger + "88" : accentText(p.color), flexShrink: 0 }}>{p.name[0]}</span>
                             {p.name}
-                            {isLead && <span style={{ fontSize: 10, opacity: sel ? 0.85 : 0.6 }}>⭐</span>}
+                            {isLead && <span style={{ lineHeight: 0, opacity: sel ? 0.85 : 0.6 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>}
                           </button>;
                         })}
                       </div>
@@ -5101,7 +5101,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 10, border: `2px solid ${sel ? p.color : busy ? T.danger + "44" : T.border}`, background: sel ? p.color : busy ? T.danger + "08" : T.surface, color: sel ? "#fff" : busy ? T.danger + "88" : T.textSec, fontWeight: sel ? 700 : 400, fontSize: 13, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.55 : 1, transition: "all 0.15s", fontFamily: T.font, textDecoration: busy ? "line-through" : "none" }}>
                   <span style={{ width: 22, height: 22, borderRadius: 7, background: sel ? "rgba(255,255,255,0.25)" : busy ? T.danger + "15" : p.color + "22", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: sel ? "#fff" : busy ? T.danger + "88" : p.color, flexShrink: 0 }}>{p.name[0]}</span>
                   {pName(p.id)}
-                  {isLead && <span style={{ fontSize: 10, opacity: sel ? 0.85 : 0.6 }}>⭐</span>}
+                  {isLead && <span style={{ lineHeight: 0, opacity: sel ? 0.85 : 0.6 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>}
                   {busy && <span style={{ fontSize: 10 }}>✗</span>}
                 </button>;
               })}
@@ -5182,7 +5182,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               <span style={{ fontSize: 13, fontWeight: 700, color: healthColor }}>{healthLabel}</span>
             </div>
             {isOpLocked && <div style={{ background: "#f59e0b15", border: "1px solid #f59e0b33", borderRadius: T.radiusSm, padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 14 }}>🔒</span>
+              <span style={{ lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
               <span style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b" }}>Locked</span>
             </div>}
           </div>
@@ -5270,7 +5270,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {/* Actions */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {can("editJobs") && <Btn onClick={() => { closeModal(); if (parentPanel) openEdit(parentJob, null); }}>Edit Job</Btn>}
-            {can("lockJobs") && parentPanel && <Btn variant={isOpLocked ? "warn" : "ghost"} onClick={() => { toggleLock(opData.id, parentPanel.id); closeModal(); }}>{isOpLocked ? "🔓 Unlock" : "🔒 Lock"}</Btn>}
+            {can("lockJobs") && parentPanel && <Btn variant={isOpLocked ? "warn" : "ghost"} onClick={() => { toggleLock(opData.id, parentPanel.id); closeModal(); }}>{isOpLocked ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>Unlock</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Lock</>}</Btn>}
             {parentJob && <Btn variant="ghost" onClick={() => { closeModal(); openDetail(parentJob); }}>View Full Job</Btn>}
           </div>
         </div></div>;
@@ -5363,7 +5363,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {!isMobile && <div style={{ padding: "10px 32px 8px", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, borderBottom: `1px solid ${T.border}22`, gap: 8 }}>
       <div ref={searchRef} style={{ position: "relative", flex: 1, maxWidth: askExpanded ? 360 : 480, transition: "max-width 0.28s cubic-bezier(0.22,1,0.36,1)", minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 16px", borderRadius: 20, border: `1px solid ${searchOpen ? T.accent + "66" : T.border}`, background: T.bg, transition: "all 0.2s" }}>
-          <span style={{ fontSize: 12, color: T.textDim }}>🔍</span>
+          <span style={{ lineHeight: 0, color: T.textDim }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
           <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search jobs, clients, team members..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
           {searchQ && <span onClick={() => { setSearchQ(""); setSearchOpen(false); }} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 4, background: T.border + "44" }}>✕</span>}
         </div>
@@ -5432,8 +5432,8 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         <div ref={navPillRef} style={{ position: "absolute", top: 3, bottom: 3, left: 0, borderRadius: T.radiusXs, background: T.accent, boxShadow: `0 4px 18px ${T.accent}55`, zIndex: 0, pointerEvents: "none" }} />
         {views.map(v => (
           <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => setView(v.id)}
-            style={{ position: "relative", zIndex: 1, padding: "8px 16px", borderRadius: T.radiusXs, border: "none", fontSize: 13, fontWeight: view === v.id ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: view === v.id ? T.accentText : T.text, transition: "color 0.3s ease, font-weight 0.2s ease", whiteSpace: "nowrap" }}>
-            {v.icon} {v.label}
+            style={{ position: "relative", zIndex: 1, padding: "8px 16px", borderRadius: T.radiusXs, border: "none", fontSize: 13, fontWeight: view === v.id ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: view === v.id ? T.accentText : T.text, transition: "color 0.3s ease, font-weight 0.2s ease", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+            {v.icon}{v.label}
           </button>
         ))}
       </div>
@@ -5544,7 +5544,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               </div>}
             </div>
             <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ fontSize: 15, width: 22, textAlign: "center" }}>👥</span>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Users</div>
                 <div style={{ fontSize: 11, color: T.textDim }}>Manage permissions & access</div>
@@ -5552,7 +5552,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             </button>
             <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
             <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = "#ef444411"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ fontSize: 15, width: 22, textAlign: "center" }}>🚪</span>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#ef4444" }}>Log Out</div>
                 <div style={{ fontSize: 11, color: T.textDim }}>{loggedInUser.name}</div>
@@ -5740,13 +5740,13 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {/* Feature grid */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: isMobile ? 8 : 10, marginBottom: isMobile ? 16 : 32, textAlign: "left" }}>
             {[
-              { icon: "✏️", title: "Bulk Job Updates",  desc: "Update POs, status, due dates across jobs in plain text" },
-              { icon: "👥", title: "Team Members",      desc: "Detects people and assigns them to roles" },
-              { icon: "🏢", title: "Clients",           desc: "Identifies and imports contacts" },
-              { icon: "📅", title: "Your Timeline",     desc: "Builds your full schedule automatically" },
+              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>, title: "Bulk Job Updates",  desc: "Update POs, status, due dates across jobs in plain text" },
+              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, title: "Team Members",      desc: "Detects people and assigns them to roles" },
+              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, title: "Clients",           desc: "Identifies and imports contacts" },
+              { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>, title: "Your Timeline",     desc: "Builds your full schedule automatically" },
             ].map((f, i) => (
               <div key={f.title} style={{ background: T.bg, borderRadius: isMobile ? 10 : 14, padding: isMobile ? "10px 12px" : "14px 16px", border: `1px solid ${T.border}`, animation: `ftFeaturePop 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.12 + i * 0.08}s both` }}>
-                <div style={{ fontSize: isMobile ? 18 : 24, marginBottom: isMobile ? 4 : 6 }}>{f.icon}</div>
+                <div style={{ width: isMobile ? 18 : 24, height: isMobile ? 18 : 24, marginBottom: isMobile ? 4 : 6, color: T.accent }}>{React.cloneElement(f.icon, { width: isMobile ? 18 : 24, height: isMobile ? 18 : 24 })}</div>
                 <div style={{ fontSize: isMobile ? 11 : 13, fontWeight: 700, color: T.text, fontFamily: T.font, marginBottom: 2 }}>{f.title}</div>
                 <div style={{ fontSize: isMobile ? 11 : 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.4 }}>{f.desc}</div>
               </div>
@@ -5820,7 +5820,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
 
           {/* Footer */}
           <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>⚠️ Always review imported data — FAST TRAQS can make mistakes.</span>
+            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Always review imported data — FAST TRAQS can make mistakes.</span>
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <Btn size="sm" variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
               <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0)}>
@@ -5834,7 +5834,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* ─── Clear/Delete chat confirmation ─── */}
     {confirmClearChat && <div onClick={() => setConfirmClearChat(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
-        <div style={{ fontSize: 40, textAlign: "center", marginBottom: 16 }}>🗑️</div>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 16, color: T.danger, opacity: 0.8 }}><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 18, fontWeight: 700, textAlign: "center" }}>
           {confirmClearChat.isGroup ? "Delete Group?" : "Clear Chat?"}
         </h3>
@@ -5901,7 +5901,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             const tMsgs = messages.filter(m => m.threadKey === quickChat.threadKey).slice(-40);
             if (tMsgs.length === 0) return (
               <div style={{ textAlign: "center", padding: "40px 20px", color: T.textDim }}>
-                <div style={{ fontSize: 32, marginBottom: 10 }}>💬</div>
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: 10, opacity: 0.5 }}><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
                 <div style={{ fontSize: 13 }}>No messages yet. Send the first one!</div>
               </div>
             );
@@ -5972,7 +5972,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         </>}
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
         {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: `group:${groupCtxMenu.groupId}`, label: groupCtxMenu.groupName, isGroup: true, groupId: groupCtxMenu.groupId }); setGroupCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-          <span style={{ fontSize: 15, width: 22, textAlign: "center", flexShrink: 0 }}>🗑️</span>
+          <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Group</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this group and its messages</div></div>
         </div>}
       </div>
@@ -5994,7 +5994,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         }} />
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
         {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-          <span style={{ fontSize: 15, width: 22, textAlign: "center", flexShrink: 0 }}>🗑️</span>
+          <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Clear Chat</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this thread</div></div>
         </div>}
       </div>
@@ -6012,7 +6012,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         <div style={{ fontSize: 15, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ctxMenu.item.title}</div>
         <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>{fm(ctxMenu.item.start)} → {fm(ctxMenu.item.end)}</div>
       </div>
-      {can("editJobs") && <CtxMenuItem icon="✏️" label="Edit Job" onClick={() => {
+      {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit Job" onClick={() => {
         const it = ctxMenu.item; setCtxMenu(null);
         // For operations (level 2), open the parent job so all panels/assignments are visible
         if (it.level === 2 || (it.isSub && it.pid && !tasks.find(x => x.id === it.id))) {
@@ -6030,13 +6030,13 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         }
       }} />}
       {/* Quick add panel (job level) */}
-      {can("editJobs") && (ctxMenu.item.level === 0 || (!ctxMenu.item.isSub && !ctxMenu.item.pid)) && <CtxMenuItem icon="➕" label="Add Panel" sub="Add a new panel to this job" onClick={() => {
+      {can("editJobs") && (ctxMenu.item.level === 0 || (!ctxMenu.item.isSub && !ctxMenu.item.pid)) && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>} label="Add Panel" sub="Add a new panel to this job" onClick={() => {
         const it = ctxMenu.item;
         setCtxMenu(null);
         setQuickAddSub({ type: "panel", parentId: it.id, grandParentId: null, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y });
       }} />}
       {/* Quick add operation (panel level) */}
-      {can("editJobs") && (ctxMenu.item.level === 1 || (ctxMenu.item.isSub && ctxMenu.item.pid && !ctxMenu.item.grandPid)) && <CtxMenuItem icon="➕" label="Add Operation" sub="Add a new operation to this panel" onClick={() => {
+      {can("editJobs") && (ctxMenu.item.level === 1 || (ctxMenu.item.isSub && ctxMenu.item.pid && !ctxMenu.item.grandPid)) && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>} label="Add Operation" sub="Add a new operation to this panel" onClick={() => {
         const it = ctxMenu.item;
         // Find grandParentId (the job that owns this panel)
         let grandParentId = null;
@@ -6093,7 +6093,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         else if (it.pid) { parentJob = tasks.find(j => j.id === it.pid); if (!parentJob) for (const job of tasks) { if ((job.subs||[]).find(s => s.id === it.pid)) { parentJob = job; break; } } }
         else parentJob = tasks.find(j => j.id === it.id);
         if (!parentJob) return null;
-        return <CtxMenuItem icon="🎯" label="Go to Project" sub={parentJob.title || it.jobTitle || ""} onClick={() => {
+        return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>} label="Go to Project" sub={parentJob.title || it.jobTitle || ""} onClick={() => {
           setCtxMenu(null);
           setView("gantt");
           setGMode("month");
@@ -6105,9 +6105,9 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           setExp(p => ({ ...p, [parentJob.id]: true }));
         }} />;
       })()}
-      <CtxMenuItem icon="💬" label="Open Chat" sub={ctxMenu.item.level === 2 ? "Chat with op assignee + admins" : ctxMenu.item.level === 1 ? "Chat with panel team + admins" : "Chat with full job team"} onClick={() => openChat(ctxMenu.item)} />
-      {can("editJobs") && <CtxMenuItem icon="🔔" label="Send Reminder" sub="Notify all team members on this job" onClick={() => { setReminderModal({ item: ctxMenu.item }); setCtxMenu(null); }} />}
-      <CtxMenuItem icon="👁" label="View Details" onClick={() => { openDetail(ctxMenu.item); setCtxMenu(null); }} />
+      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>} label="Open Chat" sub={ctxMenu.item.level === 2 ? "Chat with op assignee + admins" : ctxMenu.item.level === 1 ? "Chat with panel team + admins" : "Chat with full job team"} onClick={() => openChat(ctxMenu.item)} />
+      {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>} label="Send Reminder" sub="Notify all team members on this job" onClick={() => { setReminderModal({ item: ctxMenu.item }); setCtxMenu(null); }} />}
+      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => { openDetail(ctxMenu.item); setCtxMenu(null); }} />
       {(() => {
         const it = ctxMenu.item;
         let logCount = 0;
@@ -6119,13 +6119,13 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         } else if (it.level === 1 || (it.isSub && !it.grandPid)) {
           tasks.forEach(job => { const pnl = (job.subs || []).find(s => s.id === it.id); if (pnl) (pnl.subs || []).forEach(op => { logCount += (op.moveLog || []).length; }); });
         }
-        return <CtxMenuItem icon="📋" label={logCount > 0 ? `Schedule Log (${logCount})` : "Schedule Log"} sub={logCount > 0 ? "View move history" : "No changes recorded"} onClick={() => { openDetail(ctxMenu.item); setCtxMenu(null); }} />;
+        return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>} label={logCount > 0 ? `Schedule Log (${logCount})` : "Schedule Log"} sub={logCount > 0 ? "View move history" : "No changes recorded"} onClick={() => { openDetail(ctxMenu.item); setCtxMenu(null); }} />;
       })()}
-      {can("lockJobs") && (ctxMenu.item.level === 2 || (ctxMenu.item.isSub && ctxMenu.item.pid)) && <CtxMenuItem icon={ctxMenu.item.locked ? "🔓" : "🔒"} label={ctxMenu.item.locked ? "Unlock Job" : "Lock Job"} sub={ctxMenu.item.locked ? "Allow this job to be moved" : "Prevent this job from being moved"} onClick={() => { const it = ctxMenu.item; toggleLock(it.id, it.pid); setCtxMenu(null); }} />}
-      <CtxMenuItem icon="📋" label="Copy" sub={`Copy this ${ctxMenu.item.level === 2 ? "operation" : ctxMenu.item.level === 1 ? "panel" : "job"} to clipboard`} onClick={() => copyItem(ctxMenu.item)} />
+      {can("lockJobs") && (ctxMenu.item.level === 2 || (ctxMenu.item.isSub && ctxMenu.item.pid)) && <CtxMenuItem icon={ctxMenu.item.locked ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>} label={ctxMenu.item.locked ? "Unlock Job" : "Lock Job"} sub={ctxMenu.item.locked ? "Allow this job to be moved" : "Prevent this job from being moved"} onClick={() => { const it = ctxMenu.item; toggleLock(it.id, it.pid); setCtxMenu(null); }} />}
+      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>} label="Copy" sub={`Copy this ${ctxMenu.item.level === 2 ? "operation" : ctxMenu.item.level === 1 ? "panel" : "job"} to clipboard`} onClick={() => copyItem(ctxMenu.item)} />
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => { const it = ctxMenu.item; setCtxMenu(null); setConfirmDelete({ id: it.id, title: it.title, pid: it.isSub ? it.pid : null }); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-        <span style={{ fontSize: 15, width: 22, textAlign: "center", flexShrink: 0 }}>🗑️</span>
+        <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Task</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Permanently remove this task</div></div>
       </div>}
     </div>;
@@ -6198,7 +6198,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* Paste confirmation popup */}
     {pasteConfirm && <div onClick={() => setPasteConfirm(null)} style={{ position: "fixed", inset: 0, zIndex: 9997 }}>
       <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(pasteConfirm.x, window.innerWidth - 310), top: Math.min(pasteConfirm.y, window.innerHeight - 170), zIndex: 9998, width: 300, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 18, boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>📋 Paste here?</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Paste here?</div>
         <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{clipboard?.item?.title} <span style={{ fontWeight: 400, color: T.textDim }}>(Copy)</span></div>
         <div style={{ fontSize: 12, color: T.textSec, marginBottom: 6 }}>
           {clipboard?.level === 2 ? "Operation" : clipboard?.level === 1 ? "Panel → new job" : "Job"}
@@ -6219,7 +6219,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* PTO context menu */}
     {ptoCtx && <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(ptoCtx.x, window.innerWidth - 260), top: Math.min(ptoCtx.y, window.innerHeight - 200), zIndex: 9999, minWidth: 240, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
       <div style={{ padding: "12px 18px 10px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#f59e0b" }}>📅 {ptoCtx.bar.title}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "#f59e0b", display: "flex", alignItems: "center", gap: 5 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{ptoCtx.bar.title}</div>
         <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>{fm(ptoCtx.bar.fullStart)} → {fm(ptoCtx.bar.fullEnd)}</div>
       </div>
       <CtxMenuItem icon="✏️" label="Edit Time Off" sub="Change dates or reason" onClick={() => {
@@ -6231,7 +6231,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       }} />
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       <div onClick={() => { delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-        <span style={{ fontSize: 15, width: 22, textAlign: "center", flexShrink: 0 }}>🗑️</span>
+        <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Time Off</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this entry</div></div>
       </div>
     </div>}
@@ -6260,7 +6260,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* Client delete confirm modal */}
     {confirmDeleteClient && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 28 }}>🗑</div>
+        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete Client?</h3>
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>
           This will permanently delete <strong style={{ color: T.text }}>{clients.find(c => c.id === confirmDeleteClient)?.name}</strong> and remove them from all associated jobs. This cannot be undone.
@@ -6323,7 +6323,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {/* Team Lead toggle — only when team is assigned */}
           {ed.teamNumber && <div style={{ marginBottom: 20, padding: "14px 16px", borderRadius: T.radiusSm, border: `1px solid ${ed.isTeamLead ? "#10b98155" : T.border}`, background: ed.isTeamLead ? "#10b98108" : T.surface, display: "flex", alignItems: "center", justifyContent: "space-between", cursor: isAdmin ? "pointer" : "default", transition: "all 0.2s" }} onClick={() => isAdmin && setEd(p => ({ ...p, isTeamLead: !p.isTeamLead }))}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 16 }}>⭐</span>
+              <span style={{ lineHeight: 0, color: "#f59e0b" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="#f59e0b" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Team {ed.teamNumber} Lead</div>
                 <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{isAdmin ? "Designate as the lead for this team" : "Team lead designation (admin-only)"}</div>
@@ -6339,7 +6339,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {/* Time Off management */}
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <label style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>📅 Time Off / Unavailable Dates</label>
+              <label style={{ fontSize: 13, color: T.textSec, fontWeight: 500, display: "flex", alignItems: "center", gap: 5 }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Time Off / Unavailable Dates</label>
               <Btn variant="ghost" size="sm" onClick={() => setEd(p => ({ ...p, timeOff: [...(p.timeOff || []), { start: TD, end: addD(TD, 1), reason: "" }] }))}>+ Add</Btn>
             </div>
             {(ed.timeOff || []).length === 0 && <div style={{ padding: 16, textAlign: "center", fontSize: 13, color: T.textDim, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>No time off scheduled</div>}
@@ -6360,7 +6360,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* Time Off edit modal */}
     {timeOffEdit && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 28, maxWidth: 420, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
-        <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 20, fontWeight: 700 }}>✏️ Edit Time Off</h3>
+        <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit Time Off</h3>
         <div style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "center" }}>
           <div>
             <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Person</label>
@@ -6419,7 +6419,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* Delete confirmation modal */}
     {confirmDelete && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-delete-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 28 }}>🗑️</div>
+        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 12px", color: T.text, fontSize: 20, fontWeight: 700 }}>Delete Task?</h3>
         <p style={{ margin: "0 0 8px", fontSize: 15, color: T.textSec, lineHeight: 1.5 }}>You are about to permanently delete:</p>
         <div style={{ padding: "12px 18px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>
@@ -6439,7 +6439,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* Overlap Error Modal */}
     {overlapError && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 28 }}>{overlapError.message.includes("Locked") ? "🔒" : "⚠️"}</div>
+        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}>{overlapError.message.includes("Locked") ? <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>}</div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>{overlapError.message}</h3>
         <p style={{ margin: "0 0 16px", fontSize: 14, color: T.textSec, lineHeight: 1.5 }}>{overlapError.message.includes("Locked") ? "One or more jobs in the path are locked and cannot be moved or pushed forward." : "This action would create a scheduling conflict. Team members cannot work on multiple tasks at the same time."}</p>
         <div style={{ textAlign: "left", maxHeight: 200, overflow: "auto", marginBottom: 24 }}>
@@ -6471,7 +6471,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* Confirm Move Modal */}
     {confirmMove && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 480, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.accent + "15", border: `2px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 28 }}>📋</div>
+        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.accent + "15", border: `2px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.accent }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
         <h3 style={{ margin: "0 0 12px", color: T.text, fontSize: 20, fontWeight: 700 }}>{confirmMove.title || "Move Entire Job?"}</h3>
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>{confirmMove.message}</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
@@ -6484,7 +6484,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     {/* Push confirmation modal */}
     {confirmPush && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 560, width: "100%", border: `1px solid #f59e0b33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: "#f59e0b15", border: "2px solid #f59e0b33", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 28 }}>⚠️</div>
+        <div style={{ width: 56, height: 56, borderRadius: 28, background: "#f59e0b15", border: "2px solid #f59e0b33", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: "#f59e0b" }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 20, fontWeight: 700, textAlign: "center" }}>Scheduling Conflict</h3>
         <p style={{ margin: "0 0 20px", fontSize: 14, color: T.textSec, lineHeight: 1.5, textAlign: "center" }}>This move affects <strong style={{ color: "#f59e0b" }}>{confirmPush.pushes.length}</strong> other {confirmPush.pushes.length === 1 ? "job" : "jobs"}. How would you like to proceed?</p>
         <div style={{ maxHeight: 260, overflow: "auto", marginBottom: 24, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
@@ -6586,7 +6586,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       return <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }} onClick={() => { setReminderModal(null); setReminderNote(""); }}>
         <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, width: "100%", maxWidth: 420, boxShadow: "0 24px 64px rgba(0,0,0,0.7)", fontFamily: T.font, overflow: "hidden" }} onClick={e => e.stopPropagation()}>
           <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}` }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>🔔 Send Reminder</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 7 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>Send Reminder</div>
             <div style={{ fontSize: 13, color: T.textDim, marginTop: 4 }}>{item.title}{item.end ? ` · Due ${fm(item.end)}` : ""}</div>
           </div>
           <div style={{ padding: "16px 24px" }}>
@@ -6610,14 +6610,14 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
 
     {/* Floating bulk delete button(s) */}
     {(selJobs.size > 0 || selClients.size > 0 || selPeople.size > 0) && <div style={{ position: "fixed", bottom: 32, right: 32, zIndex: 1200, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end", animation: "ghost-fade-in 0.2s ease" }}>
-      {selJobs.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "jobs", ids: [...selJobs], count: selJobs.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}>🗑 Delete {selJobs.size} Job{selJobs.size !== 1 ? "s" : ""}</button>}
-      {selClients.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "clients", ids: [...selClients], count: selClients.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}>🗑 Delete {selClients.size} Client{selClients.size !== 1 ? "s" : ""}</button>}
-      {selPeople.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "people", ids: [...selPeople], count: selPeople.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}>🗑 Delete {selPeople.size} Person{selPeople.size !== 1 ? "s" : ""}</button>}
+      {selJobs.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "jobs", ids: [...selJobs], count: selJobs.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selJobs.size} Job{selJobs.size !== 1 ? "s" : ""}</button>}
+      {selClients.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "clients", ids: [...selClients], count: selClients.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selClients.size} Client{selClients.size !== 1 ? "s" : ""}</button>}
+      {selPeople.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "people", ids: [...selPeople], count: selPeople.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selPeople.size} Person{selPeople.size !== 1 ? "s" : ""}</button>}
     </div>}
     {/* Bulk delete confirmation modal */}
     {bulkDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBulkDeleteConfirm(null)}>
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", fontSize: 28 }}>🗑</div>
+        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete {bulkDeleteConfirm.count} {bulkDeleteConfirm.type === "jobs" ? "Job" : bulkDeleteConfirm.type === "clients" ? "Client" : "Person"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}?</h3>
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>This will permanently delete {bulkDeleteConfirm.count} selected {bulkDeleteConfirm.type === "jobs" ? "job" : bulkDeleteConfirm.type === "clients" ? "client" : "team member"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}. This cannot be undone.</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
@@ -6638,7 +6638,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
     <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 32, maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
-      <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700 }}>🔍 Availability Finder</h3>
+      <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Availability Finder</h3>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Find available team members for a date range</p>
       
       {/* Input fields */}
@@ -6730,7 +6730,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
     <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 560, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
-      <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700 }}>📅 Manage Time Off</h3>
+      <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Manage Time Off</h3>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Schedule time off for team members</p>
 
       {/* Add new */}
