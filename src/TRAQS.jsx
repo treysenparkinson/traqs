@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement } from "react";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 
@@ -5749,7 +5749,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>, title: "Your Timeline",     desc: "Builds your full schedule automatically" },
             ].map((f, i) => (
               <div key={f.title} style={{ background: T.bg, borderRadius: isMobile ? 10 : 14, padding: isMobile ? "10px 12px" : "14px 16px", border: `1px solid ${T.border}`, animation: `ftFeaturePop 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.12 + i * 0.08}s both` }}>
-                <div style={{ width: isMobile ? 18 : 24, height: isMobile ? 18 : 24, marginBottom: isMobile ? 4 : 6, color: T.accent }}>{React.cloneElement(f.icon, { width: isMobile ? 18 : 24, height: isMobile ? 18 : 24 })}</div>
+                <div style={{ width: isMobile ? 18 : 24, height: isMobile ? 18 : 24, marginBottom: isMobile ? 4 : 6, color: T.accent }}>{cloneElement(f.icon, { width: isMobile ? 18 : 24, height: isMobile ? 18 : 24 })}</div>
                 <div style={{ fontSize: isMobile ? 11 : 13, fontWeight: 700, color: T.text, fontFamily: T.font, marginBottom: 2 }}>{f.title}</div>
                 <div style={{ fontSize: isMobile ? 11 : 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.4 }}>{f.desc}</div>
               </div>
