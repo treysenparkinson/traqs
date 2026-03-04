@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement } from "react";
+import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 
@@ -562,164 +563,348 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [loginStep] = useState("user"); // kept for any remaining refs
   const handleLogin = () => {};
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } });
+  const switchView = (v) => {
+    setView(v);
+    setJobSelectMode(false);    setSelJobs(new Set());
+    setClientSelectMode(false); setSelClients(new Set());
+    setTeamSelectMode(false);   setSelPeople(new Set());
+    if (v !== "tasks") setTaskSubView("cards");
+  };
 
   const processUpload = async () => {
     setUploadProcessing(true);
     setUploadResult(null);
     try {
-      // Separate Excel from other file types (Excel gets converted to text for AI)
       const excelFiles = uploadFiles.filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
-      const otherFiles = uploadFiles.filter(f => !/\.(xlsx|xls|csv)$/i.test(f.name));
-      
-      let totalPeople = 0, totalClients = 0, totalJobs = 0, totalUpdated = 0;
+      if (excelFiles.length === 0) {
+        setUploadResult({ success: false, message: "Please upload an Excel or CSV file (.xlsx, .xls, or .csv)." });
+        setUploadProcessing(false); return;
+      }
 
-      // === EXCEL → TEXT (AI reads and interprets columns flexibly) ===
-      let textContent = "";
-      if (uploadText.trim()) textContent += uploadText.trim() + "\n\n";
-      const imageBlocks = [];
+      // ── Column scoring ─────────────────────────────────────────────────────
+      function scoreCol(header, high, med) {
+        const h = String(header || "").toLowerCase().replace(/[_.\\/\-]/g, " ").trim();
+        let s = 0;
+        for (const t of high) { if (h === t) s += 20; else if (h.includes(t) || t.includes(h)) s += 10; }
+        for (const t of med)  { if (h === t) s += 6;  else if (h.includes(t)) s += 3; else if (t.includes(h) && h.length > 2) s += 1; }
+        return s;
+      }
+      function detectCols(headers) {
+        const FIELDS = {
+          jobNumber:  { high: ["work order","wo #","job #","job number","mtx project","project number","wo number"], med: ["job","order","wo","number"] },
+          title:      { high: ["job name","job title","project name","mtx project","project title","description"], med: ["title","name","project","scope","task"] },
+          startDate:  { high: ["start date","begin date","planned start","date start","start date","scheduled start"], med: ["start","begin","from"] },
+          endDate:    { high: ["end date","finish date","completion date","scheduled end","date end","scheduled finish"], med: ["end","finish","complete"] },
+          dueDate:    { high: ["ship date","due date","required date","delivery date","target date","must ship","need by"], med: ["due","ship","delivery","deadline","required"] },
+          client:     { high: ["customer name","client name","end user","sold to","bill to"], med: ["client","customer","cust","company","account"] },
+          assignedTo: { high: ["assigned to","project manager","responsible party","lead tech","tech","email"], med: ["assign","engineer","pm","manager","worker","team","lead","owner"] },
+          notes:      { high: ["special instructions","additional notes","job notes","comments"], med: ["note","comment","remark","memo","instruction"] },
+          poNumber:   { high: ["purchase order","po #","po#","po number","po"], med: ["purchase"] },
+          level:      { high: ["sh","level","lvl","lv","indent","hierarchy","tier","type"], med: [] },
+        };
+        const claimed = new Set();
+        const map = {};
+        for (const [field, { high, med }] of Object.entries(FIELDS)) {
+          const ranked = headers.map((h, i) => ({ col: i, s: scoreCol(h, high, med) }))
+            .filter(x => x.s > 0).sort((a, b) => b.s - a.s);
+          const best = ranked.find(x => !claimed.has(x.col));
+          if (best) { claimed.add(best.col); map[field] = best.col; }
+        }
+        return map;
+      }
+
+      // ── Value helpers ──────────────────────────────────────────────────────
+      const today = new Date().toISOString().split("T")[0];
+      const addDays = (d, n) => { const dt = new Date(d + "T12:00:00"); dt.setDate(dt.getDate() + n); return dt.toISOString().split("T")[0]; };
+      function getV(row, col) { return col !== undefined ? String(row[col] ?? "").trim() : ""; }
+      function parseDate(v) {
+        if (!v) return "";
+        if (v instanceof Date) return isNaN(v) ? "" : v.toISOString().split("T")[0];
+        const d = new Date(v);
+        return isNaN(d.getTime()) ? "" : d.toISOString().split("T")[0];
+      }
+      // "401964 - Thacker pass" → { num:"401964", title:"Thacker pass" }
+      // "401944" → { num:"401944", title:"" }
+      function splitJobVal(v) {
+        const m = v.match(/^([A-Z]{0,4}\d{3,})\s*[-–]\s*(.+)$/);
+        if (m) return { num: m[1].trim(), title: m[2].trim() };
+        if (/^[A-Z]{0,4}\d{4,}$/.test(v.replace(/\s/g, ""))) return { num: v.trim(), title: "" };
+        return null;
+      }
+      // 401999-01 or 401999-01 (2) or 401999-01A
+      function isPanelVal(v) { return /^[A-Z]{0,4}\d{4,}-\d+/i.test(v.replace(/\s/g, "")); }
+      // Extract parent job number: 401999-01 → 401999
+      function parentJobNum(v) { return v.replace(/\s*\(.*\).*$/, "").trim().replace(/-\d+[A-Z]?$/i, ""); }
+      // Strip trailing "(2)" from panel title
+      function cleanPanel(v) { return v.replace(/\s*\(\d+\).*$/, "").trim(); }
+      const OP_NAMES = new Set(["wire","cut","layout","labels","engineering","programming","assembly","test","inspection","paint","ship","install","startup","wiring","cutting","prep","testing","punch"]);
+
+      // ── People / clients resolver (closes over component state) ───────────
+      const pendingPeople  = {};
+      const pendingClients = {};
+      function nameFromEmail(raw) {
+        // draven@matrixpci.com → "Draven"   john.smith@co.com → "John Smith"
+        const local = raw.split("@")[0];
+        return local.replace(/[._\-+]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
+      }
+      function resolvePerson(raw) {
+        if (!raw) return null;
+        // Extract display name from email if needed
+        const name = raw.includes("@") ? nameFromEmail(raw) : raw.trim();
+        if (!name) return null;
+        const lo = name.toLowerCase();
+        // Exact match first
+        const exact = people.find(p => p.name.toLowerCase() === lo);
+        if (exact) return exact.id;
+        // Partial match — e.g. "Draven" matches "Draven Doe"
+        const partial = people.find(p => p.name.toLowerCase().startsWith(lo + " ") || p.name.toLowerCase() === lo);
+        if (partial) return partial.id;
+        // Check pending
+        if (pendingPeople[lo]) return pendingPeople[lo].id;
+        // Also check if already pending under a slightly different casing
+        const pendingPartial = Object.values(pendingPeople).find(p => p.name.toLowerCase().startsWith(lo + " ") || p.name.toLowerCase() === lo);
+        if (pendingPartial) return pendingPartial.id;
+        pendingPeople[lo] = { id: uid(), name, role: "Shop", cap: 8, color: COLORS[Object.keys(pendingPeople).length % COLORS.length], timeOff: [], userRole: "user" };
+        return pendingPeople[lo].id;
+      }
+      function resolveClient(name) {
+        if (!name) return null;
+        const lo = name.toLowerCase().trim();
+        const ex = clients.find(c => c.name.toLowerCase() === lo);
+        if (ex) return ex.id;
+        if (!pendingClients[lo]) pendingClients[lo] = { id: "c" + uid(), name: name.trim(), contact: "", email: "", phone: "", color: COLORS[(clients.length + Object.keys(pendingClients).length) % COLORS.length], notes: "" };
+        return pendingClients[lo].id;
+      }
+
+      // ── Parse files ────────────────────────────────────────────────────────
+      const importedJobs = [];
+      const jobByNum = {}; // jobNumber → job obj
+      let totalJobs = 0, totalUpdated = 0;
 
       for (const file of excelFiles) {
         const ab = await new Promise((res, rej) => {
-          const reader = new FileReader();
-          reader.onload = () => res(reader.result);
-          reader.onerror = () => rej(new Error("Failed to read file"));
-          reader.readAsArrayBuffer(file);
-        });
-        const XLSX = await new Promise((resolve, reject) => {
-          if (window.XLSX) { resolve(window.XLSX); return; }
-          const script = document.createElement("script");
-          script.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-          script.onload = () => resolve(window.XLSX);
-          script.onerror = () => reject(new Error("Failed to load spreadsheet library"));
-          document.head.appendChild(script);
+          const r = new FileReader();
+          r.onload  = () => res(r.result);
+          r.onerror = () => rej(new Error("Failed to read " + file.name));
+          r.readAsArrayBuffer(file);
         });
         const wb = XLSX.read(ab, { type: "array", cellDates: true });
+
         for (const sheetName of wb.SheetNames) {
-          const ws = wb.Sheets[sheetName];
+          const ws   = wb.Sheets[sheetName];
           const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
-          const dataRows = rows.filter(row => row.some(v => String(v).trim() !== "")).slice(0, 300);
-          if (dataRows.length === 0) continue;
-          const csvText = dataRows.map(row => row.map(v => v == null ? "" : String(v)).join("\t")).join("\n");
-          textContent += `\n--- Spreadsheet: ${file.name} / Sheet: ${sheetName} ---\n${csvText}\n`;
-        }
-      }
-      // Cap total text to avoid AI timeout on very large files
-      if (textContent.length > 24000) textContent = textContent.slice(0, 24000) + "\n[...truncated]";
+          const data = rows.filter(r => r.some(v => String(v).trim() !== ""));
+          if (data.length < 2) continue;
 
-      for (const file of otherFiles) {
-        const isImage = /\.(png|jpg|jpeg)$/i.test(file.name);
-        const isPdf = /\.pdf$/i.test(file.name);
-        if (isImage) {
-          const base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = () => rej(new Error("Read failed")); r.readAsDataURL(file); });
-          imageBlocks.push({ type: "image", source: { type: "base64", media_type: file.name.endsWith(".png") ? "image/png" : "image/jpeg", data: base64 } });
-        } else if (isPdf) {
-          const base64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(",")[1]); r.onerror = () => rej(new Error("Read failed")); r.readAsDataURL(file); });
-          imageBlocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } });
-        } else {
-          const text = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error("Read failed")); r.readAsText(file); });
-          textContent += `\n--- File: ${file.name} ---\n${text}\n`;
-        }
-      }
+          const headers  = data[0];
+          const bodyRows = data.slice(1);
+          const C = detectCols(headers);
+          console.log("[FastTRAQS] Sheet:", sheetName, "| Headers:", headers.map((h,i)=>`${i}:${h}`).join(", "));
+          console.log("[FastTRAQS] Column map:", JSON.stringify(Object.fromEntries(Object.entries(C).map(([k,v])=>[k, headers[v]]))));
 
-      if (textContent.trim() || imageBlocks.length > 0) {
-        const msgContent = [...imageBlocks];
-        if (textContent.trim()) msgContent.push({ type: "text", text: textContent.trim() });
-
-        // ── SMART AI: auto-detect updates vs. new imports ─────────────────────
-        const existingJobsCtx = tasks.map(t => ({
-          id: t.id,
-          title: t.title,
-          jobNumber: t.jobNumber || "",
-          poNumber: t.poNumber || "",
-          status: t.status,
-          dueDate: t.dueDate || "",
-          clientName: t.clientId ? (clients.find(c => c.id === t.clientId)?.name || "") : "",
-        }));
-        const existingPeople = [...people, ...Array(totalPeople)].map(p => p ? `${p.name} (${p.role})` : "").filter(Boolean).join(", ");
-        const existingClients = clients.map(c => `${c.name} (id:${c.id})`).join(", ");
-
-        const systemPrompt = `You are a JSON-only scheduling assistant for TRAQS (a steel/metal fabrication & electrical panel shop).\n\nEXISTING JOBS:\n${JSON.stringify(existingJobsCtx, null, 2)}\n\nEXISTING TEAM: ${existingPeople || "None"}\nEXISTING CLIENTS: ${existingClients || "None"}\n\nAnalyze the input and determine what action(s) to take:\n- If it references existing jobs by number or name and adds/changes info (PO numbers, status, due dates, notes) → add those to "updates"\n- If it describes new jobs, people, or clients not in the existing lists → add to "jobs", "people", "clients"\n- Do both in the same response if the input contains both kinds of information\n\nWhen analyzing spreadsheet data:\n- Column headers may vary widely — identify job numbers, titles, dates, statuses, and names by context, not exact header names\n- Match job numbers loosely: if a value looks like an existing job number (partial match, with/without leading zeros or prefixes) treat it as the same job\n- Any column that looks like a start or end/due date should be used as such regardless of the exact header name\n- If a row has a job-number-like value that matches an existing job, treat it as an update to that job\n- Build panels and ops if the data has a clear hierarchy (e.g. job → panel → operation rows)\n- If the data is flat (no hierarchy), import each row as a simple job or update\n\nOutput format (JSON only, nothing else):\n{"updates":[{"id":"<job id>","poNumber":"<val>","jobNumber":"<val>","notes":"<val>","status":"<val>","dueDate":"YYYY-MM-DD"}],"people":[{"name":"str","role":"Shop","cap":8,"color":"#hex","userRole":"user"}],"clients":[{"name":"str","contact":"","email":"","phone":"","color":"#hex","notes":""}],"jobs":[{"title":"str","start":"YYYY-MM-DD","end":"YYYY-MM-DD","pri":"Medium","status":"Not Started","notes":"","clientName":"str or null","dueDate":"YYYY-MM-DD or null","panels":[{"title":"str","ops":[{"title":"Wire|Cut|Layout|Labels|Engineering|Programming","start":"YYYY-MM-DD","end":"YYYY-MM-DD","assignedTo":"name or null"}]}]}]}\n\nRules: Match updates by jobNumber (loose/partial match ok) or title. Only include changing fields in updates. Ops are SEQUENTIAL within panels. Panels run parallel. Skip people/clients already in existing lists. If nothing applies output {}.`;
-
-        const data = await callAI({ system: systemPrompt, messages: [{ role: "user", content: msgContent }], max_tokens: 4000 }, getToken);
-        const responseText = data.content?.map(b => b.text || "").join("") || "";
-        const jsonStr = responseText.replace(/```json\s*|```\s*/g, "").trim();
-        const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-          setUploadResult({ success: false, message: "Could not understand the input. Try providing more detail or rephrasing." });
-          setUploadText(""); setUploadFiles([]); setUploadProcessing(false); return;
-        }
-        let parsed;
-        try {
-          parsed = JSON.parse(jsonMatch[0]);
-        } catch {
-          setUploadResult({ success: false, message: "Could not parse the AI response. Please try rephrasing." });
-          setUploadText(""); setUploadFiles([]); setUploadProcessing(false); return;
-        }
-
-        // Apply updates to existing jobs
-        if (parsed.updates?.length > 0) {
-          parsed.updates.forEach(upd => {
-            const { id, ...fields } = upd;
-            if (!id || !tasks.find(t => t.id === id)) return;
-            const patch = {};
-            if (fields.poNumber !== undefined && fields.poNumber !== "") patch.poNumber = fields.poNumber;
-            if (fields.jobNumber !== undefined && fields.jobNumber !== "") patch.jobNumber = fields.jobNumber;
-            if (fields.notes !== undefined && fields.notes !== "") patch.notes = fields.notes;
-            if (fields.status !== undefined && STATUSES.includes(fields.status)) patch.status = fields.status;
-            if (fields.dueDate !== undefined && fields.dueDate !== "") patch.dueDate = fields.dueDate;
-            if (Object.keys(patch).length > 0) { updTask(id, patch); totalUpdated++; }
-          });
-        }
-        // Import new people
-        if (parsed.people?.length > 0) {
-          let mx = Math.max(0, ...people.map(p => p.id));
-          const np = parsed.people.map((p, i) => ({ id: ++mx, name: p.name, role: p.role || "Shop", cap: 8, color: p.color || COLORS[i % COLORS.length], timeOff: [], userRole: p.userRole || "user" }));
-          setPeople(prev => [...prev, ...np]); totalPeople += np.length;
-        }
-        // Import new clients
-        if (parsed.clients?.length > 0) {
-          const nc = parsed.clients.map((c, i) => ({ id: "c" + (clients.length + totalClients + i + 1), name: c.name, contact: c.contact || "", email: c.email || "", phone: c.phone || "", color: c.color || COLORS[i % COLORS.length], notes: c.notes || "" }));
-          setClients(prev => [...prev, ...nc]); totalClients += nc.length;
-        }
-        // Import new jobs
-        if (parsed.jobs?.length > 0) {
-          const ap = [...people]; const ac = [...clients];
-          const nj = parsed.jobs.map(job => {
-            const cl = job.clientName ? ac.find(c => c.name.toLowerCase().includes(job.clientName.toLowerCase())) : null;
-            const panels = (job.panels || []).map(panel => {
-              const ops = (panel.ops || []).map(op => {
-                const person = op.assignedTo ? ap.find(p => p.name.toLowerCase() === op.assignedTo.toLowerCase()) : null;
-                return { id: uid(), title: op.title || "Wire", start: op.start || job.start, end: op.end || job.end, status: "Not Started", pri: "Medium", team: person ? [person.id] : [], hpd: 7.5, notes: "", deps: [] };
-              });
-              const pS = ops.length ? ops.reduce((a, b) => a.start < b.start ? a : b).start : job.start;
-              const pE = ops.length ? ops.reduce((a, b) => a.end > b.end ? a : b).end : job.end;
-              return { id: uid(), title: panel.title, start: pS, end: pE, pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: ops };
+          // Pre-pass: build level-value → rowType map dynamically from SH/level column
+          // This avoids hardcoded conflicts (e.g. "1" meaning job vs panel)
+          const levelMap = {};
+          if (C.level !== undefined) {
+            const seenNums = [];
+            for (const r of bodyRows) {
+              const v = getV(r, C.level);
+              if (!v) continue;
+              const n = parseFloat(v);
+              if (!isNaN(n) && !seenNums.includes(n)) seenNums.push(n);
+            }
+            seenNums.sort((a, b) => a - b);
+            // smallest → job, next → panel, rest → op
+            seenNums.forEach((n, i) => {
+              if (i === 0) levelMap[String(n)] = "job";
+              else if (i === 1) levelMap[String(n)] = "panel";
+              else levelMap[String(n)] = "op";
             });
-            const jS = panels.length ? panels.reduce((a, b) => a.start < b.start ? a : b).start : job.start;
-            const jE = panels.length ? panels.reduce((a, b) => a.end > b.end ? a : b).end : job.end;
-            return { id: uid(), title: job.title, start: jS, end: jE, pri: "Medium", status: job.status || "Not Started", team: [], color: "#3b82f6", hpd: 7.5, notes: job.notes || "", clientId: cl ? cl.id : null, dueDate: job.dueDate || "", deps: [], subs: panels };
-          });
-          setTasks(prev => [...prev, ...nj]); totalJobs += nj.length;
+            // Also handle string level values
+            for (const r of bodyRows) {
+              const v = getV(r, C.level);
+              if (!v || levelMap[v]) continue;
+              const lv = v.toLowerCase();
+              if (["job","project","main","wbs"].includes(lv)) levelMap[v] = "job";
+              else if (["panel","sub","subproject","section"].includes(lv)) levelMap[v] = "panel";
+              else if (["op","operation","task","step","activity"].includes(lv)) levelMap[v] = "op";
+            }
+            console.log("[FastTRAQS] Level map:", levelMap);
+          }
+
+          let curJob   = null;
+          let curPanel = null;
+
+          for (const row of bodyRows) {
+            const titleRaw  = getV(row, C.title);
+            const jobNumRaw = getV(row, C.jobNumber);
+            const mainId    = jobNumRaw || titleRaw;
+            if (!mainId) continue;
+
+            const startRaw = parseDate(getV(row, C.startDate)) || today;
+            const endRaw   = parseDate(getV(row, C.endDate))   || addDays(startRaw, 14);
+            const dueRaw   = parseDate(getV(row, C.dueDate))   || ""; // details only
+            const personId = resolvePerson(getV(row, C.assignedTo));
+            const clientId = resolveClient(getV(row, C.client));
+            const notes    = getV(row, C.notes);
+            const poNum    = getV(row, C.poNumber);
+
+            // ── Detect row type ────────────────────────────────────────────
+            let rowType = null;
+            let opTitle = titleRaw || mainId; // label used when rowType="op"
+
+            // 1. Level/SH column (most reliable when present)
+            if (C.level !== undefined) {
+              const lv = getV(row, C.level);
+              rowType = levelMap[lv] ?? null;
+            }
+
+            // 2. Value pattern matching (runs if no level column or value not mapped)
+            if (!rowType) {
+              const numId = jobNumRaw || mainId;
+              if (isPanelVal(numId)) {
+                // Panel ID in number col — but if title is an op name, this is an op row
+                // (common when panel number repeats for each op: "401988-01 | Wire")
+                if (titleRaw && OP_NAMES.has(titleRaw.toLowerCase())) {
+                  rowType = "op";
+                  opTitle = titleRaw;
+                } else {
+                  rowType = "panel";
+                }
+              } else if (splitJobVal(numId)) {
+                rowType = "job";
+              } else if (OP_NAMES.has(mainId.toLowerCase())) {
+                rowType = "op";
+              } else if (titleRaw && OP_NAMES.has(titleRaw.toLowerCase())) {
+                rowType = "op";
+                opTitle = titleRaw;
+              }
+            }
+
+            // 3. Context fallback — don't force everything to "job"
+            if (!rowType) {
+              if (curPanel) rowType = "op";      // unknown under panel → treat as op
+              else if (!curJob) rowType = "job"; // very first row, no context → job
+              // else: unknown row under a job with no panel — skip it
+            }
+
+            console.log(`[FastTRAQS] "${mainId}" / "${titleRaw}" → ${rowType}`);
+
+            // ── Build objects ──────────────────────────────────────────────
+            if (rowType === "job") {
+              const split  = splitJobVal(mainId);
+              const jNum   = split ? split.num : (jobNumRaw || mainId);
+              const jTitle = split && split.title ? split.title
+                           : (titleRaw && titleRaw !== jNum && !isPanelVal(titleRaw) ? titleRaw : jNum);
+
+              const existing = tasks.find(t => t.jobNumber && t.jobNumber === jNum);
+              if (existing) {
+                const patch = {};
+                if (dueRaw)   patch.dueDate   = dueRaw;
+                if (poNum)    patch.poNumber  = poNum;
+                if (clientId) patch.clientId  = clientId;
+                if (notes)    patch.notes     = notes;
+                if (Object.keys(patch).length) updTask(existing.id, patch);
+                curJob = { ...existing, _existing: true };
+                jobByNum[jNum] = curJob;
+                totalUpdated++;
+                curPanel = null;
+              } else if (!jobByNum[jNum]) {
+                curJob = { id: uid(), title: jTitle, jobNumber: jNum, start: startRaw, end: endRaw,
+                  dueDate: dueRaw, pri: "Medium", status: "Not Started",
+                  team: personId ? [personId] : [], color: "#3b82f6", hpd: 7.5,
+                  notes, clientId: clientId || null, poNumber: poNum, deps: [], subs: [] };
+                importedJobs.push(curJob);
+                jobByNum[jNum] = curJob;
+                totalJobs++;
+                curPanel = null;
+              } else {
+                curJob = jobByNum[jNum];
+                curPanel = null;
+              }
+
+            } else if (rowType === "panel") {
+              const rawPanelId = cleanPanel(jobNumRaw || titleRaw);
+              const pJobNum    = parentJobNum(rawPanelId);
+
+              if (!curJob || curJob.jobNumber !== pJobNum) {
+                const found = jobByNum[pJobNum] || tasks.find(t => t.jobNumber === pJobNum);
+                if (found) {
+                  curJob = found;
+                } else {
+                  curJob = { id: uid(), title: pJobNum, jobNumber: pJobNum,
+                    start: startRaw, end: endRaw, dueDate: dueRaw,
+                    pri: "Medium", status: "Not Started", team: [], color: "#3b82f6",
+                    hpd: 7.5, notes: "", clientId: null, poNumber: "", deps: [], subs: [] };
+                  importedJobs.push(curJob);
+                  jobByNum[pJobNum] = curJob;
+                  totalJobs++;
+                }
+              }
+
+              curPanel = { id: uid(), title: rawPanelId, start: startRaw, end: endRaw,
+                pri: "Medium", status: "Not Started",
+                team: personId ? [personId] : [], hpd: 7.5, notes, deps: [], subs: [] };
+              if (!curJob._existing) curJob.subs.push(curPanel);
+
+            } else if (rowType === "op") {
+              // If op was detected from a repeated panel ID (e.g. "401988-01 | Wire"),
+              // auto-create/find the panel object so we can attach to it
+              if (!curPanel && jobNumRaw && isPanelVal(jobNumRaw)) {
+                const rawPanelId = cleanPanel(jobNumRaw);
+                const pJobNum    = parentJobNum(rawPanelId);
+                if (!curJob || curJob.jobNumber !== pJobNum) {
+                  curJob = jobByNum[pJobNum] || tasks.find(t => t.jobNumber === pJobNum) || null;
+                }
+                if (curJob) {
+                  const already = curJob.subs?.find(p => p.title === rawPanelId);
+                  if (already) {
+                    curPanel = already;
+                  } else {
+                    curPanel = { id: uid(), title: rawPanelId, start: startRaw, end: endRaw,
+                      pri: "Medium", status: "Not Started", team: [], hpd: 7.5,
+                      notes: "", deps: [], subs: [] };
+                    if (!curJob._existing) curJob.subs.push(curPanel);
+                  }
+                }
+              }
+              if (curPanel) {
+                curPanel.subs.push({ id: uid(), title: opTitle,
+                  start: startRaw, end: endRaw, pri: "Medium", status: "Not Started",
+                  team: personId ? [personId] : [], hpd: 7.5, notes,
+                  deps: [], locked: false, subs: [] });
+              }
+            }
+            // Unknown row type → skip (no fallback job creation)
+          }
         }
       }
 
-      if (totalPeople === 0 && totalClients === 0 && totalJobs === 0 && totalUpdated === 0) {
-        const hint = "Nothing found to import. Try adding more context in the text box (e.g. 'import these jobs' or 'update job #1234 status to In Progress'), or make sure your file contains job data.";
-        setUploadResult({ success: false, message: hint });
+      const newPeopleList  = Object.values(pendingPeople);
+      const newClientsList = Object.values(pendingClients);
+      if (newPeopleList.length)  setPeople(prev  => [...prev, ...newPeopleList]);
+      if (newClientsList.length) setClients(prev => [...prev, ...newClientsList]);
+      if (importedJobs.length)   setTasks(prev   => [...prev, ...importedJobs]);
+
+      const totalPeople  = newPeopleList.length;
+      const totalClients = newClientsList.length;
+
+      if (totalJobs === 0 && totalUpdated === 0) {
+        setUploadResult({ success: false, message: "No jobs found. Make sure the file has job numbers starting with 40 (e.g. 401999 or 401999-01)." });
         setUploadProcessing(false); return;
       }
 
       const parts = [];
-      if (totalUpdated > 0) parts.push(`Updated ${totalUpdated} job${totalUpdated !== 1 ? "s" : ""}`);
-      if (totalPeople > 0) parts.push(`Added ${totalPeople} team member${totalPeople !== 1 ? "s" : ""}`);
+      if (totalJobs    > 0) parts.push(`Imported ${totalJobs} job${totalJobs !== 1 ? "s" : ""}`);
+      if (totalUpdated > 0) parts.push(`Updated ${totalUpdated} existing`);
+      if (totalPeople  > 0) parts.push(`Added ${totalPeople} team member${totalPeople !== 1 ? "s" : ""}`);
       if (totalClients > 0) parts.push(`Added ${totalClients} client${totalClients !== 1 ? "s" : ""}`);
-      if (totalJobs > 0) parts.push(`Imported ${totalJobs} new job${totalJobs !== 1 ? "s" : ""}`);
       setUploadResult({ success: true, message: parts.join(" · ") + "." });
       setUploadText("");
       setUploadFiles([]);
     } catch (err) {
       console.error(err);
-      setUploadResult({ success: false, message: "Error processing data: " + err.message });
+      setUploadResult({ success: false, message: "Error reading file: " + err.message });
     }
     setUploadProcessing(false);
   };
@@ -731,7 +916,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const [view, setView] = useState("gantt");
+  const [view, setView] = useState("schedule");
+  const [taskSubView, setTaskSubView] = useState("cards"); // "cards" | "gantt"
   const [tasks, _setTasks] = useState([]);
   const [people, setPeople] = useState([]);
   const [saveStatus, setSaveStatus] = useState("saved");
@@ -830,23 +1016,26 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const navPillRef  = useRef(null);
   const navBtnRefs  = useRef({});
   const navPillTransitioned = useRef(false);
-  // Single layout effect: instant on first paint, animated on every subsequent view change
+  // Runs after every render until pill is initialized — handles nav bar appearing after async auth
   useLayoutEffect(() => {
+    if (navPillTransitioned.current) return;
     const btn = navBtnRefs.current[view];
     const pill = navPillRef.current;
     if (!btn || !pill) return;
-    if (!navPillTransitioned.current) {
-      pill.style.transition = "none";
-      pill.style.transform = `translateX(${btn.offsetLeft}px)`;
-      pill.style.width = `${btn.offsetWidth}px`;
-      navPillTransitioned.current = true;
-      requestAnimationFrame(() => {
-        if (pill) pill.style.transition = "transform 0.44s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.38s cubic-bezier(0.22, 1, 0.36, 1)";
-      });
-    } else {
-      pill.style.transform = `translateX(${btn.offsetLeft}px)`;
-      pill.style.width = `${btn.offsetWidth}px`;
-    }
+    pill.style.transition = "none";
+    pill.style.transform = `translateX(${btn.offsetLeft}px)`;
+    pill.style.width = `${btn.offsetWidth}px`;
+    navPillTransitioned.current = true;
+    requestAnimationFrame(() => { if (navPillRef.current) navPillRef.current.style.transition = "transform 0.44s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.38s cubic-bezier(0.22, 1, 0.36, 1)"; });
+  }); // intentionally no dep array — bails immediately after first success
+  // Animates pill on view change (only after initialization)
+  useLayoutEffect(() => {
+    if (!navPillTransitioned.current) return;
+    const btn = navBtnRefs.current[view];
+    const pill = navPillRef.current;
+    if (!btn || !pill) return;
+    pill.style.transform = `translateX(${btn.offsetLeft}px)`;
+    pill.style.width = `${btn.offsetWidth}px`;
   }, [view]);
   const [timeOffModal, setTimeOffModal] = useState(false);
   const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
@@ -1538,7 +1727,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     else { const nw = { ...withIds, id: uid() }; if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else setTasks(p => [...p, nw]); }
     closeModal();
   };
-  const views = [{ id: "gantt", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>, label: "Gantt" }, { id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg>, label: "Tasks" }, { id: "clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, label: "Clients" }, { id: "team", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Team" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
+  const views = [{ id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>, label: "Jobs" }, { id: "clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, label: "Clients" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
@@ -2250,10 +2439,9 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Left: Today + Day/Week/Month + navigation */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn variant="ghost" size="sm" onClick={() => {
-            if (ganttViewMode === "calendar") { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); }
-            else { const span = diffD(gStart, gEnd); const half = Math.floor(span / 2); setGStart(addD(TD, -half)); setGEnd(addD(TD, span - half)); }
+            const span = diffD(gStart, gEnd); const half = Math.floor(span / 2); setGStart(addD(TD, -half)); setGEnd(addD(TD, span - half));
           }}>Today</Btn>
-          {ganttViewMode === "linear" && <SlidingPill
+          <SlidingPill
             size="sm"
             options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
             value={gMode}
@@ -2263,22 +2451,22 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setGStart(mon); setGEnd(addD(mon,6)); }
               else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); }
             }}
-          />}
+          />
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <Btn variant="ghost" size="sm" onClick={() => {
-              if (ganttViewMode === "calendar" || gMode === "month") { const d = new Date(gStart + "T12:00:00"); d.setMonth(d.getMonth() - 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); }
+              if (gMode === "month") { const d = new Date(gStart + "T12:00:00"); d.setMonth(d.getMonth() - 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); }
               else if (gMode === "day") { setGStart(addD(gStart, -1)); setGEnd(addD(gEnd, -1)); }
               else if (gMode === "week") { setGStart(addD(gStart, -7)); setGEnd(addD(gEnd, -7)); }
             }}>◀</Btn>
             <span style={{ fontSize: 13, fontWeight: 700, color: T.text, minWidth: 150, textAlign: "center" }}>{(() => {
               const s = new Date(gStart + "T12:00:00");
-              if (ganttViewMode === "calendar" || gMode === "month") return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+              if (gMode === "month") return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
               if (gMode === "day") return s.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
               if (gMode === "week") { const e = new Date(gEnd + "T12:00:00"); return `${s.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`; }
               return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
             })()}</span>
             <Btn variant="ghost" size="sm" onClick={() => {
-              if (ganttViewMode === "calendar" || gMode === "month") { const d = new Date(gStart + "T12:00:00"); d.setMonth(d.getMonth() + 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); }
+              if (gMode === "month") { const d = new Date(gStart + "T12:00:00"); d.setMonth(d.getMonth() + 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); }
               else if (gMode === "day") { setGStart(addD(gStart, 1)); setGEnd(addD(gEnd, 1)); }
               else if (gMode === "week") { setGStart(addD(gStart, 7)); setGEnd(addD(gEnd, 7)); }
             }}>▶</Btn>
@@ -2334,15 +2522,6 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             </div>}
           </div>
         </div>
-        {/* Center: Linear/Calendar toggle — absolutely centered */}
-        <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
-          <SlidingPill
-            size="sm"
-            options={[{value:"linear",label:"Linear"},{value:"calendar",label:"Calendar"}]}
-            value={ganttViewMode}
-            onChange={v => { setGanttViewMode(v); if (v==="calendar") { const d=new Date(gStart+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); setGMode("month"); } }}
-          />
-        </div>
         {/* Right side: Clipboard + FAST TRAQS + New Job button */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
@@ -2362,35 +2541,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               Create your first job, or import an existing schedule instantly with <strong style={{ color: T.accent }}>FAST TRAQS</strong>
             </p>
           </div>
-        : ganttViewMode === "calendar" ? (() => {
-        const calMonth = new Date(gStart + "T12:00:00");
-        const yr = calMonth.getFullYear(), mo = calMonth.getMonth();
-        const firstDay = new Date(yr, mo, 1), lastDay = new Date(yr, mo + 1, 0);
-        const offset = firstDay.getDay();
-        const totalCells = Math.ceil((offset + lastDay.getDate()) / 7) * 7;
-        const calDays = Array.from({ length: totalCells }, (_, i) => { const n = i - offset + 1; return (n < 1 || n > lastDay.getDate()) ? null : toDS(new Date(yr, mo, n)); });
-        const weeks = []; for (let i = 0; i < calDays.length; i += 7) weeks.push(calDays.slice(i, i + 7));
-        const allRows = []; filtered.forEach(t => { allRows.push({...t, lvl: 0}); (t.subs||[]).forEach(s => { allRows.push({...s, lvl: 1}); (s.subs||[]).forEach(op => allRows.push({...op, lvl: 2})); }); });
-        const dNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-        return <div style={{ border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: `2px solid ${T.border}` }}>
-            {dNames.map(d => <div key={d} style={{ padding: "10px 0", textAlign: "center", fontSize: 12, fontWeight: 700, color: T.textSec, letterSpacing: "0.05em", textTransform: "uppercase" }}>{d}</div>)}
-          </div>
-          {weeks.map((week, wi) => <div key={wi} style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", borderBottom: wi < weeks.length - 1 ? `1px solid ${T.border}` : "none" }}>
-            {week.map((day, di) => {
-              const isToday = day === TD;
-              const dayJobs = day ? allRows.filter(r => r.start <= day && r.end >= day && r.lvl === 0) : [];
-              const dt = day ? new Date(day + "T12:00:00") : null;
-              const isWknd = dt && [0,6].includes(dt.getDay());
-              return <div key={di} style={{ borderRight: di < 6 ? `1px solid ${T.border}` : "none", padding: "6px 4px", background: isToday ? T.accent + "0a" : isWknd ? T.bg + "88" : "transparent", minHeight: 120 }}>
-                {day && <div style={{ fontSize: 13, fontWeight: isToday ? 700 : 400, marginBottom: 4, width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: isToday ? T.accent : "transparent", color: isToday ? T.accentText : isWknd ? T.textDim : T.text }}>{dt.getDate()}</div>}
-                {dayJobs.slice(0, 4).map(job => <div key={job.id} title={job.title} onClick={() => openDetail(job)} onContextMenu={e => handleCtx(e, job)} style={{ fontSize: 11, fontWeight: 500, color: T.accentText, background: T.accent, borderRadius: 3, padding: "2px 6px", marginBottom: 2, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.title}</div>)}
-                {dayJobs.length > 4 && <div style={{ fontSize: 10, color: T.textSec, padding: "1px 4px" }}>+{dayJobs.length - 4} more</div>}
-              </div>;
-            })}
-          </div>)}
-        </div>;
-      })() : gMode === "day" ? (() => {
+        : gMode === "day" ? (() => {
         const HS = 7, HE = 19, NH = HE - HS;
         const hours = Array.from({length: NH}, (_, i) => HS + i);
         const effHW = Math.max(avail / NH, 56);
@@ -2548,7 +2699,31 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     const fresh = sel ? (allItems.find(x => x.id === sel.id) || sel) : null;
     const parent = fresh ? tasks.find(x => x.id === fresh.id) : null;
 
+    // Gantt sub-view: render full Gantt inside Tasks tab
+    if (taskSubView === "gantt") {
+      return <div style={{ display: "flex", flexDirection: "column", gap: 0, paddingTop: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
+          <SlidingPill
+            size="sm"
+            options={[{value:"cards",label:"Cards"},{value:"gantt",label:"Gantt"}]}
+            value={taskSubView}
+            onChange={setTaskSubView}
+          />
+        </div>
+        {renderGantt()}
+      </div>;
+    }
+
     return <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 6 }}>
+      {/* ── Card / Gantt toggle ── */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <SlidingPill
+          size="sm"
+          options={[{value:"cards",label:"Cards"},{value:"gantt",label:"Gantt"}]}
+          value={taskSubView}
+          onChange={setTaskSubView}
+        />
+      </div>
       {/* ── Engineering Queue ── */}
       {canSignOffEngineering && engQueueItems.length > 0 && <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
@@ -3883,7 +4058,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
   };
 
   const renderMobileApp = () => {
-    const mobileView = view === "gantt" ? "home" : view;
+    const mobileView = view === "schedule" ? "home" : view;
 
     const renderMobileHome = () => <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
       {/* Toggle + New Job row */}
@@ -4181,11 +4356,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             const hasResults = jobResults.length > 0 || clientResults.length > 0 || personResults.length > 0;
             return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.glass, border: `1px solid ${T.glassBorder}`, borderRadius: T.radiusSm, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", maxHeight: 300, overflow: "auto" }}>
               {!hasResults && <div style={{ padding: "20px 12px", textAlign: "center", color: T.textDim, fontSize: 13 }}>No results</div>}
-              {personResults.slice(0, 4).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); setView("team"); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
+              {personResults.slice(0, 4).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
                 <div style={{ width: 22, height: 22, borderRadius: 11, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
                 <span style={{ fontWeight: 500 }}>{p.name}</span>
               </div>)}
-              {clientResults.slice(0, 4).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); setView("clients"); setMobileExp(p => ({ ...p, ["c_" + c.id]: true })); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
+              {clientResults.slice(0, 4).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("clients"); setMobileExp(p => ({ ...p, ["c_" + c.id]: true })); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: c.color }} />
                 <span style={{ fontWeight: 500 }}>{c.name}</span>
               </div>)}
@@ -4202,19 +4377,19 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         tabs={[
           { id: "home",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, label: "Home" },
           { id: "tasks",    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" },
-          { id: "team",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Team" },
+          { id: "schedule", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Schedule" },
           { id: "clients",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="10" y1="6" x2="14" y2="6"/><line x1="10" y1="10" x2="14" y2="10"/><line x1="10" y1="14" x2="14" y2="14"/><line x1="10" y1="18" x2="14" y2="18"/></svg>, label: "Clients" },
           { id: "messages", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Chat", badge: unreadMessages.length },
         ]}
         activeId={mobileView}
-        onChange={id => setView(id === "home" ? "gantt" : id)}
+        onChange={id => setView(id === "home" ? "schedule" : id)}
       />
       {/* Animated content */}
       <AnimatedView viewKey={mobileView} style={{ flex: 1, minHeight: 0, overflow: mobileView === "messages" ? "hidden" : "auto", display: "flex", flexDirection: "column" }}>
         {mobileView === "home" && renderMobileHome()}
         {mobileView === "tasks" && renderMobileTasks()}
         {mobileView === "clients" && renderMobileClients()}
-        {mobileView === "team" && renderMobileTeam()}
+        {mobileView === "schedule" && renderMobileTeam()}
         {mobileView === "analytics" && renderMobileAnalytics()}
         {mobileView === "messages" && renderMessages()}
       </AnimatedView>
@@ -4267,7 +4442,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               </div>
             </div>}
           </div>
-          <button onClick={() => { setSettingsOpen(false); setView("analytics"); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          <button onClick={() => { setSettingsOpen(false); switchView("analytics"); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Analytics</div>
@@ -5380,7 +5555,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             {!hasResults && <div style={{ padding: "24px 16px", textAlign: "center", color: T.textDim, fontSize: 14 }}>No results for \"{searchQ}\"</div>}
             {personResults.length > 0 && <div>
               <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Members</div>
-              {personResults.slice(0, 5).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); setView("team"); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              {personResults.slice(0, 5).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <div style={{ width: 24, height: 24, borderRadius: 12, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
                 <span style={{ fontWeight: 500 }}>{p.name}</span>
                 <span style={{ fontSize: 12, color: T.textDim }}>{p.role}</span>
@@ -5388,7 +5563,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             </div>}
             {clientResults.length > 0 && <div>
               <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", borderTop: personResults.length > 0 ? `1px solid ${T.border}` : "none" }}>Clients</div>
-              {clientResults.slice(0, 5).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); setView("clients"); setSelClient(c.id); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              {clientResults.slice(0, 5).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("clients"); setSelClient(c.id); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: c.color }} />
                 <span style={{ fontWeight: 500 }}>{c.name}</span>
                 {c.contact && <span style={{ fontSize: 12, color: T.textDim }}>{c.contact}</span>}
@@ -5434,7 +5609,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Sliding pill — repositioned via refs, animates on view change */}
         <div ref={navPillRef} style={{ position: "absolute", top: 3, bottom: 3, left: 0, borderRadius: T.radiusXs, background: T.accent, boxShadow: `0 4px 18px ${T.accent}55`, zIndex: 0, pointerEvents: "none" }} />
         {views.map(v => (
-          <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => setView(v.id)}
+          <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
             style={{ position: "relative", zIndex: 1, padding: "8px 16px", borderRadius: T.radiusXs, border: "none", fontSize: 13, fontWeight: view === v.id ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: view === v.id ? T.accentText : T.text, transition: "color 0.3s ease, font-weight 0.2s ease", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
             {v.icon}{v.label}
           </button>
@@ -5566,7 +5741,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       </div>
     </div>}
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto" }}>
-      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "gantt" && <div style={{ flex: 1 }}>{renderGantt()}</div>}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "team" && renderTeam()}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
+      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     {/* Ask TRAQS Panel */}
     {askOpen && <div style={{ position: "fixed", inset: 0, zIndex: 3000, display: "flex", justifyContent: "flex-end" }} onClick={() => setAskOpen(false)}>
@@ -5735,9 +5910,9 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 8 }}>
             <h2 style={{ margin: 0, fontSize: isMobile ? 26 : 36, fontWeight: 900, color: T.accent, letterSpacing: "-0.02em", fontFamily: T.font, textShadow: `0 0 28px ${T.accent}77` }}>FAST TRAQS</h2>
           </div>
-          <p style={{ margin: "0 0 6px", fontSize: isMobile ? 13 : 15, fontWeight: 600, color: T.text, fontFamily: T.font }}>Import & Update in Seconds</p>
-          <p style={{ margin: isMobile ? "0 0 16px" : "0 0 32px", fontSize: 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.6, maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
-            Drop in any document, spreadsheet, or paste your notes — FAST TRAQS reads it all, builds your schedule, and updates existing jobs automatically.
+          <p style={{ margin: "0 0 6px", fontSize: isMobile ? 13 : 15, fontWeight: 600, color: T.text, fontFamily: T.font }}>Your Entire Schedule, Imported in Seconds</p>
+          <p style={{ margin: isMobile ? "0 0 16px" : "0 0 32px", fontSize: 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.6, maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
+            Drop in any spreadsheet or document and FAST TRAQS instantly reads every job, assigns work to the right people, adds clients, and builds your full schedule — no manual entry needed.
           </p>
 
           {/* Feature grid */}
@@ -5780,7 +5955,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "0.04em" }}>FAST TRAQS</span>
               </div>
-              <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>Drop in your documents or paste information — AI handles imports and updates automatically</div>
+              <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>Drop in your Excel or CSV file — FAST TRAQS detects jobs, panels, and assignments automatically</div>
             </div>
             <button onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>✕</button>
           </div>
@@ -5794,7 +5969,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
 
             <div style={{ marginTop: 14 }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Or upload files</label>
-              <div style={{ border: `2px dashed ${T.border}`, borderRadius: T.radiusSm, padding: "14px 16px", textAlign: "center", cursor: "pointer", transition: "border-color 0.2s" }} onClick={() => document.getElementById("traqs-file-input").click()} onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; }} onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }} onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith(".xlsx") || f.name.endsWith(".xls") || f.name.endsWith(".csv") || f.name.endsWith(".pdf") || f.name.endsWith(".txt") || f.name.endsWith(".png") || f.name.endsWith(".jpg") || f.name.endsWith(".jpeg")); setUploadFiles(prev => [...prev, ...files]); }}>
+              <div style={{ border: `2px dashed ${T.border}`, borderRadius: T.radiusSm, padding: "14px 16px", textAlign: "center", cursor: "pointer", transition: "border-color 0.2s" }} onClick={() => document.getElementById("traqs-file-input").click()} onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; }} onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }} onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; const files = Array.from(e.dataTransfer.files); setUploadFiles(prev => [...prev, ...files]); }}>
                 <input id="traqs-file-input" type="file" multiple accept=".xlsx,.xls,.csv,.pdf,.txt,.png,.jpg,.jpeg" style={{ display: "none" }} onChange={e => { const files = Array.from(e.target.files); setUploadFiles(prev => [...prev, ...files]); e.target.value = ""; }} />
               <input id="traqs-camera-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => { const files = Array.from(e.target.files); setUploadFiles(prev => [...prev, ...files]); e.target.value = ""; }} />
                 <div style={{ fontSize: 22, marginBottom: 4 }}>📁</div>
@@ -5823,10 +5998,10 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
 
           {/* Footer */}
           <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Always review imported data — FAST TRAQS can make mistakes.</span>
+            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Review imported jobs — column mapping may need adjustment.</span>
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <Btn size="sm" variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
-              <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || (!uploadText.trim() && uploadFiles.length === 0)}>
+              <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || uploadFiles.length === 0}>
                 {uploadProcessing ? "⏳ Processing..." : "⚡ Process"}
               </Btn>
             </div>
@@ -6098,7 +6273,8 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         if (!parentJob) return null;
         return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>} label="Go to Project" sub={parentJob.title || it.jobTitle || ""} onClick={() => {
           setCtxMenu(null);
-          setView("gantt");
+          setView("tasks");
+          setTaskSubView("gantt");
           setGMode("month");
           const sd = new Date(parentJob.start + "T12:00:00");
           const first = new Date(sd.getFullYear(), sd.getMonth(), 1);
@@ -6625,7 +6801,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>This will permanently delete {bulkDeleteConfirm.count} selected {bulkDeleteConfirm.type === "jobs" ? "job" : bulkDeleteConfirm.type === "clients" ? "client" : "team member"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}. This cannot be undone.</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
           <Btn variant="ghost" onClick={() => setBulkDeleteConfirm(null)}>Cancel</Btn>
-          <Btn variant="danger" onClick={() => { const { type, ids } = bulkDeleteConfirm; if (type === "jobs") { ids.forEach(id => delTask(id)); setSelJobs(new Set()); } else if (type === "clients") { ids.forEach(id => delClient(id)); setSelClients(new Set()); } else if (type === "people") { ids.forEach(id => delPerson(id)); setSelPeople(new Set()); } setBulkDeleteConfirm(null); }}>Delete All</Btn>
+          <Btn variant="danger" onClick={() => { const { type, ids } = bulkDeleteConfirm; if (type === "jobs") { ids.forEach(id => delTask(id)); setSelJobs(new Set()); setJobSelectMode(false); } else if (type === "clients") { ids.forEach(id => delClient(id)); setSelClients(new Set()); setClientSelectMode(false); } else if (type === "people") { ids.forEach(id => delPerson(id)); setSelPeople(new Set()); setTeamSelectMode(false); } setBulkDeleteConfirm(null); }}>Delete All</Btn>
         </div>
       </div>
     </div>}
