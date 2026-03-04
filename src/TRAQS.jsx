@@ -3370,7 +3370,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                         const x = Math.max((barS-HS)*effHW,0)+2;
                         const w = Math.max((barE-Math.max(barS,HS))*effHW-4,24);
                         return <div key={bar.id} onClick={()=>bar.task&&openDetail(bar.task)} onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")} style={{position:"absolute",top:4,left:x,width:w,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:"pointer",display:"flex",alignItems:"center",padding:"0 8px",overflow:"hidden",boxShadow:`0 2px 8px ${bar.color}33`}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(1.1)"} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
-                          <span style={{fontSize:10,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{bar.task?.hpd?`${bar.task.hpd}h · `:""}{bar.title}</span>
+                          <span style={{fontSize:10,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{`${bar.task?.title || bar.title} — ${p.name.split(" ")[0]}`}</span>
                         </div>;
                       })}
                       {pOff && <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
@@ -3702,7 +3702,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
                     {hasMoveLog && <span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} title="Schedule was changed" />}
                     {bar.hasSubs && <span style={{ fontSize: 9, color: "#fff", marginRight: 4, opacity: 0.7, flexShrink: 0, position: "relative", zIndex: 3 }}>{isExp ? "▼" : "▶"}</span>}
-                    <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.jobNumber ? <>{bar.jobNumber && <span style={{ opacity: 0.75, fontWeight: 500, marginRight: 4 }}>{bar.jobNumber} ·</span>}{bar.title}</> : bar.title}</span>
+                    <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : `${bar.task?.title || bar.title} — ${p.name.split(" ")[0]}`}</span>
 
                   </div>;
                 })}
