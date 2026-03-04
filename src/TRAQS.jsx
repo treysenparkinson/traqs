@@ -2635,6 +2635,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
           <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
             <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+            {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
             <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${(fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent : T.border}`, background: (fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent : T.textSec }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
             </button>
@@ -2892,6 +2893,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
           {can("manageClients") && <Btn size="sm" variant={clientSelectMode ? "primary" : "ghost"} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>}
+          {can("manageClients") && clientSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelClients(selClients.size === filteredClients.length ? new Set() : new Set(filteredClients.map(c => c.id)))}>{selClients.size === filteredClients.length ? "None" : "All"}</Btn>}
           {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
         </div>
       </div>
@@ -3209,6 +3211,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>
           <Btn size="sm" variant={teamSelectMode ? "primary" : "ghost"} style={!teamSelectMode ? { background: "transparent" } : {}} onClick={() => { setTeamSelectMode(m => !m); setSelPeople(new Set()); }}>{teamSelectMode ? "Done" : "Select"}</Btn>
+          {teamSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelPeople(selPeople.size === people.length ? new Set() : new Set(people.map(p => p.id)))}>{selPeople.size === people.length ? "None" : "All"}</Btn>}
         <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setFilterOpen(p => !p)} title="Filters" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
