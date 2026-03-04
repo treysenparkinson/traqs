@@ -2297,7 +2297,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             return tl.map(t => {
               if (t.id !== item.id) return t;
               const logEntry = { fromStart: t.start, fromEnd: t.end, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Job moved" };
-              const childDelta = diffD(t.start, newStart);
+              const childDelta = actualDelta;
               return { ...t, start: newStart, end: newEnd, subs: (t.subs || []).map(s => ({
                 ...s, start: addD(s.start, childDelta), end: addD(s.end, childDelta),
                 subs: (s.subs || []).map(op => ({
@@ -2324,7 +2324,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   return { ...t, subs: (t.subs || []).map(s => {
                     if (s.id !== item.id) return s;
                     const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Panel moved" };
-                    const opDelta = diffD(s.start, newStart);
+                    const opDelta = actualDelta;
                     return { ...s, start: newStart, end: newEnd, moveLog: [...(s.moveLog || []), logEntry],
                       subs: (s.subs || []).map(op => ({
                         ...op, start: addD(op.start, opDelta), end: addD(op.end, opDelta),
@@ -2423,7 +2423,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             onCancel: () => setConfirmMove(null),
             onConfirm: () => {
               setConfirmMove(null);
-              setTasks(curr => recalcBounds(applyMoveWithLog(curr), movedByName));
+              // For job-level drags (level 0), applyMoveWithLog already sets all bounds
+              // correctly (job.start = newStart, all children shifted). Calling recalcBounds
+              // would override job.start with min(op.start) which can be further than the
+              // ghost position if the job's start was before its earliest operation.
+              setTasks(curr => item.level === 0 ? applyMoveWithLog(curr) : recalcBounds(applyMoveWithLog(curr), movedByName));
               if (pendingReassign) reassignTask(pendingReassign.id, pendingReassign.fromPid, pendingReassign.toPid, pendingReassign.pidArg);
             }
           }), 0);
@@ -3659,14 +3663,14 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
                 {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = [0, 6].includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
-                {/* Team drag ghost overlay — cursor-tracking position with glow */}
+                {/* Ghost: shows snapped drop position while card follows cursor */}
                 {teamDragInfo && teamDragInfo.targetPersonId === p.id && (() => {
-                  const { origStart, origEnd, translateX, hasOverlap, barColor } = teamDragInfo;
+                  const { snapStart, snapEnd, hasOverlap, barColor } = teamDragInfo;
                   const nDays = days.length;
-                  const baseX = (diffD(tStart, origStart) / nDays * 100);
-                  const gw = (Math.max(diffD(origStart, origEnd) + 1, 1) / nDays * 100) + "%";
+                  const snapX = (diffD(tStart, snapStart) / nDays * 100);
+                  const gw = (Math.max(diffD(snapStart, snapEnd) + 1, 1) / nDays * 100) + "%";
                   const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
-                  return <div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${baseX}% + ${translateX || 0}px + 1px)`, width: gw, height: rH - 8, borderRadius: 20, border: `2px solid ${gc}`, background: gc + "22", boxShadow: `0 0 32px ${gc}99, 0 0 12px ${gc}77, 0 0 64px ${gc}44`, pointerEvents: "none", zIndex: 40 }} />;
+                  return <div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${snapX}% + 2px)`, width: `calc(${gw} - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />;
                 })()}
                 {/* Task/PTO bars */}
                 {bars.map(bar => {
@@ -3720,6 +3724,10 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                     const origPerson = p.id;
                     let moved = false, lastDropPid = null;
                     const gridEl = teamRef.current;
+                    // Measure actual rendered column width from the grid area div so drop
+                    // snaps to exactly where the bar visually is, regardless of cW state lag.
+                    const gridAreaEl = e.currentTarget?.parentElement;
+                    const liveCW = gridAreaEl ? gridAreaEl.getBoundingClientRect().width / days.length : cW;
                     const onM = me => {
                       const pxDx = me.clientX - sx;
                       const pxDy = me.clientY - sy;
@@ -3735,13 +3743,10 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                         if (found !== null) { const pObj = people.find(x => String(x.id) === found); if (pObj) found = pObj.id; }
                         if (found !== lastDropPid) { lastDropPid = found; setDropTarget(found); }
                       }
-                      // Ghost overlay at snap position
-                      const dx = Math.round(pxDx / cW);
-                      const rawS = addD(os, dx);
-                      const rawE = addD(oe, dx);
-                      const snapS = nextBD(rawS);
-                      const snapDelta = diffD(rawS, snapS);
-                      const snapE = snapDelta > 0 ? addD(rawE, snapDelta) : rawE;
+                      // Use live-measured column width so overlap preview matches actual render
+                      const dx = Math.round(pxDx / liveCW);
+                      const snapS = addD(os, dx);
+                      const snapE = addD(oe, dx);
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
                       let hasOverlap = false;
@@ -3754,15 +3759,14 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                           }
                         }
                       }
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy });
                     };
                     const onU = me => {
                       document.removeEventListener("mousemove", onM);
                       document.removeEventListener("mouseup", onU);
                       setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (bar.task) openDetail(bar.task); return; }
-                      // Use same raw delta as ghost — no business-day snap so card lands exactly where ghost shows
-                      const finalDx = Math.round((me.clientX - sx) / cW);
+                      const finalDx = Math.round((me.clientX - sx) / liveCW);
                       const newStart = addD(os, finalDx);
                       const newEnd = addD(oe, finalDx);
                       const dropPerson = lastDropPid || origPerson;
@@ -3867,10 +3871,14 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   const barLocked = !isPto && bar.task && bar.task.locked;
                   const hasMoveLog = !isPto && bar.task && (bar.task.moveLog || []).length > 0;
                   const bc = bar.color;
+                  const isDraggingThis = teamDragInfo?.barId === bar.id;
+                  const dragTx = isDraggingThis ? (teamDragInfo.translateX || 0) : 0;
+                  const dragTy = isDraggingThis ? (teamDragInfo.translateY || 0) : 0;
+                  const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
                   return <div key={bar.id} title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "") + (barLocked ? " 🔒 Locked" : "") + (hasMoveLog ? " 📋 Has schedule changes" : "") + (bar.hasSubs ? " (click to expand)" : "")}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isPto ? 3 : 4, opacity: teamDragInfo?.barId === bar.id ? 0.35 : 1, boxShadow: barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none" }}
+                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none" }}
                     onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
