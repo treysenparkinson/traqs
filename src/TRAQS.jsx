@@ -2108,11 +2108,12 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             return tl.map(t => {
               if (t.id !== item.id) return t;
               const logEntry = { fromStart: t.start, fromEnd: t.end, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Job moved" };
+              const childDelta = diffD(t.start, newStart);
               return { ...t, start: newStart, end: newEnd, subs: (t.subs || []).map(s => ({
-                ...s, start: addD(s.start, actualDelta), end: addD(s.end, actualDelta),
+                ...s, start: addD(s.start, childDelta), end: addD(s.end, childDelta),
                 subs: (s.subs || []).map(op => ({
-                  ...op, start: addD(op.start, actualDelta), end: addD(op.end, actualDelta),
-                  moveLog: [...(op.moveLog || []), { fromStart: op.start, fromEnd: op.end, toStart: addD(op.start, actualDelta), toEnd: addD(op.end, actualDelta), date: TD, movedBy: movedByName, reason: "Job moved" }]
+                  ...op, start: addD(op.start, childDelta), end: addD(op.end, childDelta),
+                  moveLog: [...(op.moveLog || []), { fromStart: op.start, fromEnd: op.end, toStart: addD(op.start, childDelta), toEnd: addD(op.end, childDelta), date: TD, movedBy: movedByName, reason: "Job moved" }]
                 }))
               })), moveLog: [...(t.moveLog || []), logEntry] };
             });
@@ -2134,10 +2135,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   return { ...t, subs: (t.subs || []).map(s => {
                     if (s.id !== item.id) return s;
                     const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Panel moved" };
+                    const opDelta = diffD(s.start, newStart);
                     return { ...s, start: newStart, end: newEnd, moveLog: [...(s.moveLog || []), logEntry],
                       subs: (s.subs || []).map(op => ({
-                        ...op, start: addD(op.start, actualDelta), end: addD(op.end, actualDelta),
-                        moveLog: [...(op.moveLog || []), { fromStart: op.start, fromEnd: op.end, toStart: addD(op.start, actualDelta), toEnd: addD(op.end, actualDelta), date: TD, movedBy: movedByName, reason: "Panel moved" }]
+                        ...op, start: addD(op.start, opDelta), end: addD(op.end, opDelta),
+                        moveLog: [...(op.moveLog || []), { fromStart: op.start, fromEnd: op.end, toStart: addD(op.start, opDelta), toEnd: addD(op.end, opDelta), date: TD, movedBy: movedByName, reason: "Panel moved" }]
                       }))
                     };
                   }) };
@@ -2487,7 +2489,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 const barColor = r.level === 2 ? (personColor || T.accent) : T.accent;
                 const barBg = r.level === 1 ? T.accent + "cc" : barColor;
                 const barTextColor = accentText(barColor);
-                return <div className="anim-gantt-bar" style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0.55 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
+                return <div className="anim-gantt-bar" style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
                   onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
                   <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />
                   {can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
