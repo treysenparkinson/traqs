@@ -652,10 +652,17 @@ function AuthGate() {
           }
           if (!isAuthenticated) setStep("team");
         })
-        .catch(() => {
-          localStorage.removeItem(LS_CODE);
-          localStorage.removeItem(LS_CONFIG);
-          localStorage.removeItem(LS_PEOPLE);
+        .catch((e) => {
+          // Only clear the org code if the org truly doesn't exist (404).
+          // For transient errors (network, 500), keep the code so the user
+          // isn't forced to re-enter it on every blip.
+          if (e?.status === 404) {
+            localStorage.removeItem(LS_CODE);
+            localStorage.removeItem(LS_CONFIG);
+            localStorage.removeItem(LS_PEOPLE);
+            setOrgCode("");
+            setOrgConfig(null);
+          }
           setStep("org");
         });
     }
@@ -818,6 +825,23 @@ function AuthGate() {
       <NotInTeamError
         userEmail={user.email}
         onLogout={handleDomainLogout}
+      />
+    );
+  }
+
+  // If authenticated but org code is missing, go back to org step
+  if (!orgCode || step === "create-org" || step === "forgot-org") {
+    if (step === "create-org") {
+      return <CreateOrgStep onSuccess={handleOrgResolved} onBack={() => setStep("org")} />;
+    }
+    if (step === "forgot-org") {
+      return <ForgotOrgStep onBack={() => setStep("org")} />;
+    }
+    return (
+      <OrgCodeStep
+        onContinue={handleOrgResolved}
+        onCreateOrg={() => setStep("create-org")}
+        onForgot={() => setStep("forgot-org")}
       />
     );
   }

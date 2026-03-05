@@ -76,7 +76,9 @@ export async function fetchOrgConfig(code) {
   const res = await fetch(`${BASE}/org?code=${encodeURIComponent(code)}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `fetchOrgConfig failed: ${res.status}`);
+    const e = new Error(body.error || `fetchOrgConfig failed: ${res.status}`);
+    e.status = res.status;
+    throw e;
   }
   return res.json();
 }

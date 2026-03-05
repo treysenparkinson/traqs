@@ -1005,6 +1005,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [usersOpen, setUsersOpen] = useState(false);
   const [settingsUser, setSettingsUser] = useState(null);
+  const [tagInputs, setTagInputs] = useState({}); // keyed by person.id
+  const [saveTemplateModal, setSaveTemplateModal] = useState(false);
+  const [templateNameInput, setTemplateNameInput] = useState("");
+  const [dayDragInfo, setDayDragInfo] = useState(null);
+  const [dayDragTarget, setDayDragTarget] = useState(null); // personId being hovered during team-day drag
   const [uploadModal, setUploadModal] = useState(false);
   const [fastTraqsPhase, setFastTraqsPhase] = useState("intro"); // "intro" | "input"
   const [fastTraqsExiting, setFastTraqsExiting] = useState(false);
@@ -1125,6 +1130,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [newGroupModal, setNewGroupModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupPeople, setNewGroupPeople] = useState([]);
+  const [newGroupSaving, setNewGroupSaving] = useState(false);
   const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, name, memberIds }
   const [quickChat, setQuickChat] = useState(null);
   const [quickChatInput, setQuickChatInput] = useState("");
@@ -1269,6 +1275,18 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if (op.team.includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, op.team.length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if (t.team.includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, t.team.length); (t.subs || []).forEach(s => { if (s.team.includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, s.team.length); }); } }); return h; }, [tasks, isOff]);
 
+  // Job-tag claim rule: tagged people exclusively own matching contexts; untagged fill unclaimed slots
+  const canAssignPerson = (person, opTitle, jobTitle, jobNum, clientName) => {
+    const context = `${opTitle || ""} ${jobTitle || ""} ${jobNum || ""} ${clientName || ""}`.toLowerCase();
+    const personTags = person.jobTags || [];
+    if (personTags.length === 0) {
+      return !people.some(p => (p.jobTags || []).length > 0 &&
+        (p.jobTags || []).some(t => context.includes(t.toLowerCase())));
+    } else {
+      return personTags.some(t => context.includes(t.toLowerCase()));
+    }
+  };
+
   // Unique roles and hpd values for filter panel
   const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.role).filter(Boolean))].sort(), [people]);
   const uniqueHpd = useMemo(() => {
@@ -1286,17 +1304,33 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       if (!check.personId || !check.start || !check.end) continue;
       const person = people.find(x => x.id === check.personId);
       if (!person) continue;
-      for (const job of taskList) {
-        for (const panel of (job.subs || [])) {
-          for (const op of (panel.subs || [])) {
-            if (op.id === check.excludeOpId) continue;
-            if (!op.team.includes(check.personId)) continue;
-            if (op.status === "Finished") continue;
-            if (op.start <= check.end && op.end >= check.start) {
-              conflicts.push({ person: person.name, personColor: person.color, opTitle: op.title, panelTitle: panel.title, jobTitle: job.title, start: op.start, end: op.end });
+      const cap = person.cap || 8;
+      const newHpd = (check.hpd || 7.5) / Math.max(1, check.teamLength || 1);
+      let d = check.start;
+      while (d <= check.end) {
+        if (!isOff(check.personId, d)) {
+          let existingH = 0;
+          for (const job of taskList) {
+            for (const panel of (job.subs || [])) {
+              for (const op of (panel.subs || [])) {
+                if (op.id === check.excludeOpId || op.status === "Finished") continue;
+                if (!(op.team || []).includes(check.personId)) continue;
+                if (d >= op.start && d <= op.end)
+                  existingH += (op.hpd || 7.5) / Math.max(1, op.team.length);
+              }
             }
           }
+          if (existingH + newHpd > cap) {
+            conflicts.push({
+              person: person.name, personColor: person.color,
+              opTitle: `Over capacity (${Math.round((existingH + newHpd) * 10) / 10}h / ${cap}h)`,
+              panelTitle: check.panelTitle || "", jobTitle: check.opTitle || "",
+              start: d, end: d
+            });
+            break;
+          }
         }
+        d = addD(d, 1);
       }
       for (const to of (person.timeOff || [])) {
         if (to.start <= check.end && to.end >= check.start) {
@@ -1634,7 +1668,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     setClientModal(null);
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
-  const openNew = (pid = null) => setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, jobType: "panel", templateMode: "matrix", customOps: [] }, parentId: pid });
+  const openNew = (pid = null) => setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", drawingNumber: "", start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid });
   const openEdit = (t, pid = null) => setModal({ type: "edit", data: { ...t }, parentId: pid });
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
@@ -1664,15 +1698,15 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
           const opTeam = (op.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
           return `  ${panel.title}/${op.title}: ${op.start}–${op.end}, ${op.hpd || "?"}h/day${opTeam ? `, assigned: ${opTeam}` : ""}`;
         }));
-        return `Job "${t.title}"${t.jobNumber ? ` (#${t.jobNumber})` : ""}${client ? ` [${client}]` : ""}: status=${t.status}, dates=${t.start}–${t.end}, hpd=${t.hpd || "?"}${team ? `, team: ${team}` : ""}${ops.length > 0 ? `\n${ops.join("\n")}` : ""}`;
+        return `Task "${t.title}"${t.jobNumber ? ` (#${t.jobNumber})` : ""}${client ? ` [${client}]` : ""}: status=${t.status}, dates=${t.start}–${t.end}, hpd=${t.hpd || "?"}${team ? `, team: ${team}` : ""}${ops.length > 0 ? `\n${ops.join("\n")}` : ""}`;
       }).join("\n\n");
       const sysPrompt = `You are TRAQS AI, a scheduling assistant for a steel/metal fabrication and electrical panel shop. Today is ${todayStr}.
 
 TEAM MEMBERS & WORKLOAD:
 ${peopleCtx || "No team members."}
 
-ACTIVE JOBS:
-${jobsCtx || "No active jobs."}
+ACTIVE TASKS:
+${jobsCtx || "No active tasks."}
 
 Answer the user's scheduling questions conversationally. Be specific: name actual people, jobs, and dates. When asked about overbooking, check if total hpd exceeds daily capacity. When suggesting redistribution, name specific people with available capacity. Keep responses focused and actionable (2-4 sentences unless detail is needed).`;
 
@@ -1700,12 +1734,12 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         // Panel-style: nested ops
         (sub.subs || []).forEach(op => {
           if (op.team && op.team[0]) {
-            opsToCheck.push({ personId: op.team[0], start: op.start, end: op.end, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id });
+            opsToCheck.push({ personId: op.team[0], start: op.start, end: op.end, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id, hpd: op.hpd, teamLength: (op.team || []).length });
           }
         });
       } else if ((sub.team || []).length > 0) {
         // Flat subtask (non-panel job)
-        opsToCheck.push({ personId: sub.team[0], start: sub.start, end: sub.end, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id });
+        opsToCheck.push({ personId: sub.team[0], start: sub.start, end: sub.end, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id, hpd: sub.hpd, teamLength: (sub.team || []).length });
       }
     });
     // Exclude all ops from the job being edited
@@ -2051,10 +2085,12 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
   }
 
   async function saveNewGroup() {
-    if (!newGroupName.trim() || !loggedInUser) return;
+    if (!newGroupName.trim() || newGroupSaving) return;
+    if (!loggedInUser) { alert("Could not identify your user account. Please refresh and try again."); return; }
+    setNewGroupSaving(true);
     const memberIds = newGroupPeople.length > 0 ? newGroupPeople : [loggedInUser.id];
     const newGroup = { id: uid(), name: newGroupName.trim(), memberIds, createdBy: loggedInUser.id, createdAt: new Date().toISOString() };
-    const updated = [...groups, newGroup];
+    const updated = [...(Array.isArray(groups) ? groups : []), newGroup];
     try {
       await saveGroups(updated, getToken, orgCode);
       setGroups(updated);
@@ -2065,7 +2101,9 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       markThreadRead(threadKey);
     } catch (e) {
       console.error("Failed to save group:", e);
-      alert("Failed to create group. Please try again.");
+      alert(`Failed to create group: ${e?.message || "unknown error"}. Check the browser console for details.`);
+    } finally {
+      setNewGroupSaving(false);
     }
   }
 
@@ -2275,18 +2313,18 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             // Job-level: all child ops shift by delta
             (item.subs || []).forEach(s => {
               (s.subs || []).forEach(op => {
-                if (op.team[0]) ops.push({ personId: op.team[0], start: addD(op.start, actualDelta), end: addD(op.end, actualDelta), opId: op.id, opTitle: op.title, panelTitle: s.title });
+                if (op.team[0]) ops.push({ personId: op.team[0], start: addD(op.start, actualDelta), end: addD(op.end, actualDelta), opId: op.id, opTitle: op.title, panelTitle: s.title, hpd: op.hpd, teamLength: (op.team || []).length });
               });
-              if ((s.subs || []).length === 0 && s.team && s.team[0]) ops.push({ personId: s.team[0], start: addD(s.start, actualDelta), end: addD(s.end, actualDelta), opId: s.id, opTitle: s.title, panelTitle: item.title });
+              if ((s.subs || []).length === 0 && s.team && s.team[0]) ops.push({ personId: s.team[0], start: addD(s.start, actualDelta), end: addD(s.end, actualDelta), opId: s.id, opTitle: s.title, panelTitle: item.title, hpd: s.hpd, teamLength: (s.team || []).length });
             });
           } else if (item.level === 1) {
             // Panel-level: ops within panel shift
             (item.subs || []).forEach(op => {
-              if (op.team[0]) ops.push({ personId: op.team[0], start: addD(op.start, actualDelta), end: addD(op.end, actualDelta), opId: op.id, opTitle: op.title, panelTitle: item.title });
+              if (op.team[0]) ops.push({ personId: op.team[0], start: addD(op.start, actualDelta), end: addD(op.end, actualDelta), opId: op.id, opTitle: op.title, panelTitle: item.title, hpd: op.hpd, teamLength: (op.team || []).length });
             });
           } else if (item.team && item.team[0]) {
             // Operation-level
-            ops.push({ personId: item.team[0], start: newStart, end: newEnd, opId: item.id, opTitle: item.title, panelTitle: "" });
+            ops.push({ personId: item.team[0], start: newStart, end: newEnd, opId: item.id, opTitle: item.title, panelTitle: "", hpd: item.hpd, teamLength: (item.team || []).length });
           }
           return ops;
         };
@@ -2408,7 +2446,8 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           // Check for scheduling conflicts — hard block if any person is double-booked
           const conflictChecks = opsMoving.map(o => ({
             personId: o.personId, start: o.start, end: o.end,
-            excludeOpId: o.opId, opTitle: o.opTitle || item.title, panelTitle: o.panelTitle || ""
+            excludeOpId: o.opId, opTitle: o.opTitle || item.title, panelTitle: o.panelTitle || "",
+            hpd: o.hpd, teamLength: o.teamLength || 1
           }));
           const schedConflicts = checkOverlapsPure(reverted, conflictChecks);
           if (schedConflicts.length > 0) {
@@ -2433,6 +2472,47 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           }), 0);
           return reverted;
         });
+      };
+      document.addEventListener("mousemove", onM);
+      document.addEventListener("mouseup", onU);
+    };
+    // Day-view bar drag — move, left-resize (start), right-resize (end/hpd)
+    const handleDayBarDrag = (e, item, mode = "move") => {
+      e.preventDefault(); e.stopPropagation();
+      const DHS = 5, DHE = 21, DNH = 16;
+      const origHour = item.startHour ?? 8;
+      const origHpd = item.hpd || 0;
+      const origEnd = origHour + origHpd;
+      const sx = e.clientX;
+      let moved = false;
+      const pid = item.isSub ? item.pid : null;
+      const onM = me => {
+        const dx = me.clientX - sx;
+        if (Math.abs(dx) > 8) moved = true;
+        if (!moved) return; // don't update task until we're truly dragging
+        const deltaH = (dx / avail) * DNH;
+        if (mode === "move") {
+          const snapped = Math.round((origHour + deltaH) * 4) / 4;
+          const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), snapped));
+          setDayDragInfo({ itemId: item.id, mode });
+          updTask(item.id, { startHour: clamped }, pid);
+        } else if (mode === "left") {
+          const newStart = Math.round((origHour + deltaH) * 4) / 4;
+          const clamped = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
+          setDayDragInfo({ itemId: item.id, mode });
+          updTask(item.id, { startHour: clamped, hpd: Math.round((origEnd - clamped) * 100) / 100 }, pid);
+        } else { // right
+          const newEnd = Math.round((origEnd + deltaH) * 4) / 4;
+          const clamped = Math.max(origHour + 0.25, Math.min(DHE, newEnd));
+          setDayDragInfo({ itemId: item.id, mode });
+          updTask(item.id, { hpd: Math.round((clamped - origHour) * 100) / 100 }, pid);
+        }
+      };
+      const onU = () => {
+        document.removeEventListener("mousemove", onM);
+        document.removeEventListener("mouseup", onU);
+        setDayDragInfo(null);
+        if (!moved && mode === "move") openDetail(item);
       };
       document.addEventListener("mousemove", onM);
       document.addEventListener("mouseup", onU);
@@ -2483,7 +2563,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-                {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
+                {[["date","Date"],["project","Task #"],["client","Client"]].map(([val,label]) => (
                   <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                 ))}
               </div>
@@ -2497,7 +2577,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 <option value="All">All People</option>
                 {people.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
               </select>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Job #</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Task #</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
                 <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
                 {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
@@ -2526,47 +2606,51 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             </div>}
           </div>
         </div>
-        {/* Right side: Clipboard + FAST TRAQS + New Job button */}
+        {/* Right side: Clipboard + FAST TRAQS + New Task button */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
-          {can("editJobs") && !jobSelectMode && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
+          {can("editJobs") && !jobSelectMode && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Task</Btn></>}
         </div>
       </div>
 
       {tasks.length === 0
         ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 24px", textAlign: "center", gap: 14 }}>
             <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg></div>
-            <h2 style={{ margin: 0, fontSize: 34, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>No jobs yet</h2>
+            <h2 style={{ margin: 0, fontSize: 34, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>No tasks yet</h2>
             <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 420, lineHeight: 1.75 }}>
               Create your first job, or import an existing schedule instantly with <strong style={{ color: T.accent }}>FAST TRAQS</strong>
             </p>
           </div>
         : gMode === "day" ? (() => {
-        const HS = 7, HE = 19, NH = HE - HS;
+        const HS = 5, HE = 21, NH = HE - HS; // 5am – 9pm, 16 hours
         const hours = Array.from({length: NH}, (_, i) => HS + i);
-        const effHW = Math.max(avail / NH, 56);
-        const hToX = h => (h - HS) * effHW;
+        const effHW = avail / NH; // stretch evenly across available width
+        const fmH = h => h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
         const now = new Date();
         const nowH = now.getHours() + now.getMinutes() / 60;
         const isToday = gStart === TD;
         return (
           <div ref={ganttContainerRef} style={{width:"100%"}}>
-            <div ref={ganttRef} style={{overflowX:"auto", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
-              <div style={{display:"flex", flexDirection:"column", minWidth:lW+NH*effHW, position:"relative"}}>
+            <div ref={ganttRef} style={{overflow:"hidden", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
+              <div style={{display:"flex", flexDirection:"column", width:"100%"}}>
                 {/* Hour header */}
-                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`, height:56}}>
-                  <div style={{minWidth:lW,maxWidth:lW,display:"flex",alignItems:"center",padding:"0 20px",fontSize:13,color:T.textSec,fontWeight:600,borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:15,letterSpacing:"0.04em",textTransform:"uppercase"}}>Task</div>
-                  {hours.map(h => { const label = h===12?"12pm":h<12?`${h}am`:`${h-12}pm`; const isCurH = isToday && Math.floor(nowH)===h; return <div key={h} style={{width:effHW,flexShrink:0,height:"100%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<8||h>=17?T.bg+"55":"transparent",boxSizing:"border-box"}}>{label}</div>; })}
+                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`, height:48}}>
+                  <div style={{minWidth:lW,maxWidth:lW,display:"flex",alignItems:"center",padding:"0 16px",fontSize:12,color:T.textSec,fontWeight:600,borderRight:`1px solid ${T.border}`,letterSpacing:"0.04em",textTransform:"uppercase"}}>Task</div>
+                  <div style={{flex:1,display:"flex"}}>
+                    {hours.map(h => { const isCurH = isToday && Math.floor(nowH) === h; return <div key={h} style={{flex:1,height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:h<7||h>=18?T.textDim+"66":T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<7||h>=18?T.bg+"66":"transparent",gap:2}}><span style={{fontSize:11,fontWeight:isCurH?800:500}}>{fmH(h)}</span>{isCurH&&<div style={{width:4,height:4,borderRadius:2,background:T.accent}}/>}</div>; })}
+                  </div>
                 </div>
                 {rows.length === 0 && <div style={{padding:"40px 0",textAlign:"center",color:T.textDim,fontSize:14}}>No tasks scheduled for this day</div>}
                 {rows.map(r => {
                   const onDay = r.start <= gStart && r.end >= gStart;
                   const hpd = r.hpd || 0;
-                  const barS = 8, barE = hpd > 0 ? Math.min(barS + hpd, HE) : 17;
+                  const rawBarS = r.startHour ?? 8, rawBarE = hpd > 0 ? Math.min(rawBarS + hpd, HE) : Math.min(rawBarS + 9, HE);
+                  const visBarS = Math.max(rawBarS, HS), visBarE = Math.min(rawBarE, HE);
+                  const barVisible = onDay && visBarE > visBarS;
                   const indent = r.level || 0;
                   return (
                     <div key={r.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`}}>
@@ -2575,12 +2659,24 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                         {(r.subs||[]).length>0 && <span style={{fontSize:10,color:T.textDim}}>({r.subs.length})</span>}
                         <HealthIcon t={r} size={13}/>
                       </div>
-                      <div style={{width:NH*effHW,position:"relative",display:"flex",flexShrink:0}}>
-                        {hours.map(h => <div key={h} style={{width:effHW,height:"100%",background:h<8||h>=17?T.bg+"55":"transparent",borderRight:`1px solid ${T.bg}22`,flexShrink:0}}/>)}
-                        {onDay && <div onClick={()=>openDetail(r)} onContextMenu={e=>handleCtx(e,r)} style={{position:"absolute",top:5,left:Math.max((barS-HS)*effHW,0)+2,width:Math.max((Math.min(barE,HE)-Math.max(barS,HS))*effHW-4,24),height:rH-10,borderRadius:T.radiusXs,background:r.isSub?r.color+"aa":r.color,border:r.isSub?`1px solid ${r.color}`:"none",cursor:"pointer",display:"flex",alignItems:"center",padding:"0 10px",overflow:"hidden",boxShadow:`0 2px 8px ${r.color}33`}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(1.1)"} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
-                          <span style={{fontSize:11,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{hpd>0?`${hpd}h · `:""}{r.title}</span>
+                      <div style={{flex:1,position:"relative",display:"flex"}}>
+                        {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:h<7||h>=18?T.bg+"55":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
+                          <div style={{position:"absolute",top:0,bottom:0,left:"50%",width:1,background:T.bg+"44",pointerEvents:"none"}}/>
+                        </div>)}
+                        {barVisible && <div
+                          onMouseDown={e=>{ if(e.button===0) handleDayBarDrag(e,r,"move"); }}
+                          onContextMenu={e=>handleCtx(e,r)}
+                          style={{position:"absolute",top:5,left:`${(visBarS-HS)/NH*100}%`,width:`calc(${(visBarE-visBarS)/NH*100}% - 4px)`,height:rH-10,borderRadius:T.radiusXs,background:r.isSub?r.color+"aa":r.color,border:r.isSub?`1px solid ${r.color}`:"none",cursor:dayDragInfo?.itemId===r.id?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 18px",overflow:"hidden",boxShadow:dayDragInfo?.itemId===r.id?`0 4px 16px ${r.color}66`:`0 2px 8px ${r.color}33`,opacity:dayDragInfo&&dayDragInfo.itemId!==r.id?0.7:1,transition:"box-shadow 0.1s,opacity 0.1s"}}
+                          onMouseEnter={e=>{ if(!dayDragInfo) e.currentTarget.style.filter="brightness(1.1)"; }} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
+                          <div onMouseDown={e=>{e.stopPropagation();handleDayBarDrag(e,r,"left");}} style={{position:"absolute",left:0,top:0,bottom:0,width:14,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                            <div style={{width:3,height:14,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
+                          </div>
+                          <span style={{fontSize:11,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"center"}}>{hpd>0?`${hpd}h · `:""}{r.title}</span>
+                          <div onMouseDown={e=>{e.stopPropagation();handleDayBarDrag(e,r,"right");}} style={{position:"absolute",right:0,top:0,bottom:0,width:14,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                            <div style={{width:3,height:14,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
+                          </div>
                         </div>}
-                        {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:hToX(nowH),width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
+                        {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
                       </div>
                     </div>
                   );
@@ -2841,7 +2937,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 </select>
               </div>
               <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Task #</div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
                   {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
@@ -2850,7 +2946,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Sort By</div>
                 <div style={{ display: "flex", gap: 4 }}>
-                  {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
+                  {[["date","Date"],["project","Task #"],["client","Client"]].map(([val,label]) => (
                     <button key={val} onClick={() => setJobSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${jobSort === val ? T.accent : T.border}`, background: jobSort === val ? T.accent + "22" : "transparent", color: jobSort === val ? T.accent : T.text, fontSize: 11, fontWeight: jobSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                   ))}
                 </div>
@@ -2867,9 +2963,9 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
           {tasks.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 16px", textAlign: "center", gap: 10 }}>
             <div style={{ opacity: 0.35 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg></div>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: T.text }}>No jobs yet</h3>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: T.text }}>No tasks yet</h3>
             <p style={{ margin: "2px auto 0", fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Create a job or use FAST TRAQS to import</p>
-            {can("editJobs") && <Btn size="sm" style={{ marginTop: 6 }} onClick={() => openNew()}>+ New Job</Btn>}
+            {can("editJobs") && <Btn size="sm" style={{ marginTop: 6 }} onClick={() => openNew()}>+ New Task</Btn>}
           </div>}
           {/* Active jobs */}
           {activeTasks.map(t => {
@@ -2927,7 +3023,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexShrink: 0 }}>
           {fresh && <Btn variant="ghost" onClick={() => openEdit(fresh)}>Edit</Btn>}
-          <Btn onClick={() => openNew()}>+ New Job</Btn>
+          <Btn onClick={() => openNew()}>+ New Task</Btn>
         </div>}
         <div style={{ flex: 1, overflow: "auto" }}>
         {!fresh ? (
@@ -2944,7 +3040,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 <div>
                   <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{fresh.title}</h2>
                   {(fresh.jobNumber || fresh.poNumber) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                    {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Job # {fresh.jobNumber}</span>}
+                    {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
                     {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
                   </div>}
                 </div>
@@ -3383,6 +3479,65 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     const subH = 34;
     const tW = lW + days.length * cW;
     const totalH = rowList.reduce((s, r) => s + (r.type === "group" ? grpH : rH), 0) + 56;
+    // Team day-view bar drag
+    const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null) => {
+      if (!barTask) return;
+      e.preventDefault(); e.stopPropagation();
+      const DHS = 5, DHE = 21, DNH = 16;
+      const origHour = barTask.startHour ?? 8;
+      const origHpd = barTask.hpd || 0;
+      const origEnd = origHour + origHpd;
+      const sx = e.clientX, sy = e.clientY;
+      let moved = false;
+      const pid = barTask.isSub ? barTask.pid : null;
+      // Helper: which person row is under a given clientY
+      const getPersonAtY = (clientY) => {
+        const el = teamContainerRef.current; if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        let relY = clientY - rect.top - 48; // 48 = hour header height
+        for (const row of rowList) {
+          const h = row.type === "group" ? grpH : rH;
+          if (relY < h) return row.type === "person" ? row.person : null;
+          relY -= h;
+        }
+        return null;
+      };
+      const onM = me => {
+        const dx = me.clientX - sx;
+        if (Math.abs(dx) > 8 || Math.abs(me.clientY - sy) > 10) moved = true;
+        if (!moved) return; // don't update task until we're truly dragging
+        const deltaH = (dx / tAvail) * DNH;
+        if (mode === "move") {
+          const snapped = Math.round((origHour + deltaH) * 4) / 4;
+          const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), snapped));
+          updTask(barTask.id, { startHour: clamped }, pid);
+          const target = getPersonAtY(me.clientY);
+          setDayDragTarget(target && target.id !== fromPersonId ? target.id : null);
+        } else if (mode === "left") {
+          const newStart = Math.round((origHour + deltaH) * 4) / 4;
+          const clamped = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
+          updTask(barTask.id, { startHour: clamped, hpd: Math.round((origEnd - clamped) * 100) / 100 }, pid);
+        } else {
+          const newEnd = Math.round((origEnd + deltaH) * 4) / 4;
+          const clamped = Math.max(origHour + 0.25, Math.min(DHE, newEnd));
+          updTask(barTask.id, { hpd: Math.round((clamped - origHour) * 100) / 100 }, pid);
+        }
+        setDayDragInfo({ itemId: barTask.id, mode });
+      };
+      const onU = (me) => {
+        document.removeEventListener("mousemove", onM);
+        document.removeEventListener("mouseup", onU);
+        if (mode === "move" && fromPersonId) {
+          const target = getPersonAtY(me.clientY);
+          if (target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+        }
+        setDayDragInfo(null);
+        setDayDragTarget(null);
+        if (!moved && mode === "move") openDetail(barTask);
+      };
+      document.addEventListener("mousemove", onM);
+      document.addEventListener("mouseup", onU);
+    };
 
     return <div>
       {/* Top nav */}
@@ -3399,7 +3554,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-                {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
+                {[["date","Date"],["project","Task #"],["client","Client"]].map(([val,label]) => (
                   <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                 ))}
               </div>
@@ -3412,7 +3567,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 <option value="All">All People</option>
                 {people.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
               </select>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Job #</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Task #</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
                 <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
                 {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
@@ -3472,7 +3627,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
-          {can("editJobs") && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
+          {can("editJobs") && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Task</Btn></>}
         </div>
       </div>
 
@@ -3486,20 +3641,22 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       </div>}
       {/* Hourly day view */}
       {people.length > 0 && tMode === "day" && (() => {
-        const HS = 7, HE = 19, NH = HE - HS;
+        const HS = 5, HE = 21, NH = HE - HS; // 5am – 9pm, 16 hours
         const hours = Array.from({length: NH}, (_, i) => HS + i);
-        const effHW = Math.max(tAvail / NH, 56);
+        const fmH = h => h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
         const now = new Date();
         const nowH = now.getHours() + now.getMinutes() / 60;
         const isToday = tStart === TD;
         return (
           <div ref={teamContainerRef} style={{width:"100%"}}>
-            <div style={{overflowX:"auto", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
-              <div style={{display:"flex", flexDirection:"column", minWidth:lW+NH*effHW, position:"relative"}}>
+            <div style={{overflow:"hidden", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
+              <div style={{display:"flex", flexDirection:"column", width:"100%"}}>
                 {/* Hour header */}
-                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`}}>
-                  <div style={{minWidth:lW,maxWidth:lW,borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:15,height:56,display:"flex",alignItems:"center",padding:"0 20px",fontSize:13,color:T.textSec,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase"}}>Person</div>
-                  {hours.map(h => { const label = h===12?"12pm":h<12?`${h}am`:`${h-12}pm`; const isCurH = isToday && Math.floor(nowH)===h; return <div key={h} style={{width:effHW,flexShrink:0,height:56,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<8||h>=17?T.bg+"55":"transparent",boxSizing:"border-box"}}>{label}</div>; })}
+                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`, height:48}}>
+                  <div style={{minWidth:lW,maxWidth:lW,borderRight:`1px solid ${T.border}`,background:T.surface,height:48,display:"flex",alignItems:"center",padding:"0 16px",fontSize:12,color:T.textSec,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",flexShrink:0}}>Person</div>
+                  <div style={{flex:1,display:"flex"}}>
+                    {hours.map(h => { const isCurH = isToday && Math.floor(nowH) === h; return <div key={h} style={{flex:1,height:48,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:h<7||h>=18?T.textDim+"66":T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<7||h>=18?T.bg+"66":"transparent",gap:2}}><span style={{fontSize:11,fontWeight:isCurH?800:500}}>{fmH(h)}</span>{isCurH&&<div style={{width:4,height:4,borderRadius:2,background:T.accent}}/>}</div>; })}
+                  </div>
                 </div>
                 {/* Rows */}
                 {rowList.map(row => {
@@ -3507,13 +3664,13 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                     const isC = tCollapsed[row.role];
                     const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
                     return <div key={row.role} style={{display:"flex",height:grpH,borderBottom:`1px solid ${T.border}`,background:T.bg+"66"}}>
-                      <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:10,padding:"0 16px",borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.bg+"cc",zIndex:10,cursor:"pointer"}} onClick={()=>setTCollapsed(p=>({...p,[row.role]:!p[row.role]}))}>
+                      <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:10,padding:"0 16px",borderRight:`1px solid ${T.border}`,background:T.bg+"cc",cursor:"pointer",flexShrink:0}} onClick={()=>setTCollapsed(p=>({...p,[row.role]:!p[row.role]}))}>
                         <span style={{fontSize:11,color:T.textSec,width:14}}>{isC?"▶":"▼"}</span>
                         <span style={{fontSize:14,fontWeight:700,color:T.text,flex:1}}>{row.role}</span>
                         <span style={{fontSize:13,fontWeight:700,color:utilC,fontFamily:T.mono}}>{row.util}%</span>
                       </div>
-                      <div style={{width:NH*effHW,display:"flex",flexShrink:0}}>
-                        {hours.map(h => <div key={h} style={{width:effHW,height:"100%",background:h<8||h>=17?T.bg+"cc":T.bg+"44",borderRight:`1px solid ${T.bg}33`,flexShrink:0}}/>)}
+                      <div style={{flex:1,display:"flex"}}>
+                        {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:h<7||h>=18?T.bg+"cc":T.bg+"44",borderRight:`1px solid ${T.bg}33`}}/>)}
                       </div>
                     </div>;
                   }
@@ -3523,17 +3680,20 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   const offType = pOff ? ((p.timeOff||[]).find(to=>tStart>=to.start&&tStart<=to.end)||{}).type||"PTO" : null;
                   const offR = pOff ? getOffReason(p.id, tStart) : null;
                   const offColor = offType === "UTO" ? "#f59e0b" : "#10b981";
-                  let cumH = 8;
+                  // Stack bars sequentially from 7am; use startHour if manually positioned
+                  let cumH = 7;
                   const barPositions = todayBars.map(bar => {
                     const hpd = bar.task?.hpd || 0;
-                    const barS = cumH;
-                    const barE = hpd > 0 ? Math.min(barS + hpd, HE) : Math.min(barS + 2, HE);
-                    cumH = barE;
-                    return { bar, barS, barE };
+                    const hasManual = bar.task?.startHour != null;
+                    const rawS = hasManual ? bar.task.startHour : cumH;
+                    const rawE = hpd > 0 ? Math.min(rawS + hpd, HE) : Math.min(rawS + 2, HE);
+                    if (!hasManual) cumH = rawE;
+                    return { bar, rawS, rawE, hpd };
                   });
                   const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
-                  return <div key={p.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`}}>
-                    <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:10}}>
+                  const isDropTarget = dayDragTarget === p.id;
+                  return <div key={p.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",transition:"background 0.1s"}}>
+                    <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
                       <div style={{width:28,height:28,borderRadius:14,background:p.color+"22",border:`1.5px solid ${p.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:p.color,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
@@ -3541,21 +3701,33 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                       </div>
                       <span style={{fontSize:12,fontWeight:700,color:utilC,fontFamily:T.mono,flexShrink:0}}>{row.util}%</span>
                     </div>
-                    <div style={{width:NH*effHW,position:"relative",display:"flex",flexShrink:0}}>
-                      {hours.map(h => <div key={h} style={{width:effHW,height:"100%",background:pOff?offColor+"12":h<8||h>=17?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative",flexShrink:0}}>
+                    <div style={{flex:1,position:"relative",display:"flex"}}>
+                      {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:pOff?offColor+"12":h<7||h>=18?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
                         {pOff && <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(135deg,${offColor}12,${offColor}12 4px,transparent 4px,transparent 8px)`,pointerEvents:"none"}}/>}
+                        <div style={{position:"absolute",top:0,bottom:0,left:"50%",width:1,background:T.bg+"55",pointerEvents:"none"}}/>
                       </div>)}
-                      {!pOff && barPositions.map(({bar,barS,barE}) => {
-                        const x = Math.max((barS-HS)*effHW,0)+2;
-                        const w = Math.max((barE-Math.max(barS,HS))*effHW-4,24);
-                        return <div key={bar.id} onClick={()=>bar.task&&openDetail(bar.task)} onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")} style={{position:"absolute",top:4,left:x,width:w,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:"pointer",display:"flex",alignItems:"center",padding:"0 8px",overflow:"hidden",boxShadow:`0 2px 8px ${bar.color}33`}} onMouseEnter={e=>e.currentTarget.style.filter="brightness(1.1)"} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
-                          <span style={{fontSize:10,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{bar.task?.title || bar.title}</span>
+                      {!pOff && barPositions.map(({bar, rawS, rawE, hpd}) => {
+                        const visS = Math.max(rawS, HS), visE = Math.min(rawE, HE);
+                        if (visE <= visS) return null;
+                        const isDraggingThis = dayDragInfo?.itemId === bar.task?.id;
+                        return <div key={bar.id}
+                          onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id); }}
+                          onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
+                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis?`0 4px 16px ${bar.color}66`:`0 2px 8px ${bar.color}33`,opacity:dayDragInfo&&!isDraggingThis?0.7:1,transition:"box-shadow 0.1s,opacity 0.1s"}}
+                          onMouseEnter={e=>{ if(!dayDragInfo) e.currentTarget.style.filter="brightness(1.1)"; }} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
+                          <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                            <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
+                          </div>
+                          <span style={{fontSize:10,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"center"}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
+                          <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                            <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
+                          </div>
                         </div>;
                       })}
                       {pOff && <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
                         <span style={{fontSize:12,color:offColor,fontWeight:600,background:T.surface+"cc",padding:"2px 8px",borderRadius:4}}>{offType}{offR?` · ${offR}`:""}</span>
                       </div>}
-                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:(nowH-HS)*effHW,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
+                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
                     </div>
                   </div>;
                 })}
@@ -3749,15 +3921,24 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                       const snapE = addD(oe, dx);
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
+                      const newHpd = (bar.task?.hpd || 7.5) / Math.max(1, (bar.task?.team || []).length);
+                      const personCap = (people.find(x => x.id === targetPid) || {}).cap || 8;
                       let hasOverlap = false;
-                      outerTeam: for (const job of tasks) {
-                        for (const panel of (job.subs || [])) {
-                          for (const op of (panel.subs || [])) {
-                            if (op.id === movingTaskId || op.status === "Finished") continue;
-                            if (!(op.team || []).includes(targetPid)) continue;
-                            if (op.start <= snapE && op.end >= snapS) { hasOverlap = true; break outerTeam; }
+                      let chk = snapS;
+                      while (chk <= snapE) {
+                        let dayH = 0;
+                        for (const job of tasks) {
+                          for (const panel of (job.subs || [])) {
+                            for (const op of (panel.subs || [])) {
+                              if (op.id === movingTaskId || op.status === "Finished") continue;
+                              if (!(op.team || []).includes(targetPid)) continue;
+                              if (chk >= op.start && chk <= op.end)
+                                dayH += (op.hpd || 7.5) / Math.max(1, op.team.length);
+                            }
                           }
                         }
+                        if (dayH + newHpd > personCap) { hasOverlap = true; break; }
+                        chk = addD(chk, 1);
                       }
                       setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy });
                     };
@@ -3770,7 +3951,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                       const newStart = addD(os, finalDx);
                       const newEnd = addD(oe, finalDx);
                       const dropPerson = lastDropPid || origPerson;
-                      const dropConflicts = checkOverlapsPure(tasks, [{ personId: dropPerson, start: newStart, end: newEnd, excludeOpId: bar.task.id }]);
+                      const dropConflicts = checkOverlapsPure(tasks, [{ personId: dropPerson, start: newStart, end: newEnd, excludeOpId: bar.task.id, hpd: bar.task?.hpd, teamLength: (bar.task?.team || []).length, opTitle: bar.task?.title, panelTitle: bar.task?.panelTitle }]);
                       if (showOverlapIfAny(dropConflicts)) return;
                       updTask(bar.task.id, { start: newStart, end: newEnd }, taskPid);
                       // Expand visible range if needed (functional update = always reads current state)
@@ -3875,7 +4056,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   const dragTx = isDraggingThis ? (teamDragInfo.translateX || 0) : 0;
                   const dragTy = isDraggingThis ? (teamDragInfo.translateY || 0) : 0;
                   const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
-                  return <div key={bar.id} title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "") + (barLocked ? " 🔒 Locked" : "") + (hasMoveLog ? " 📋 Has schedule changes" : "") + (bar.hasSubs ? " (click to expand)" : "")}
+                  return <div key={bar.id} title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "") + (barLocked ? " 🔒 Locked" : "") + (hasMoveLog ? " 📋 Has schedule changes" : "")}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none" }}
@@ -3884,9 +4065,8 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
                     {hasMoveLog && <span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} title="Schedule was changed" />}
-                    {bar.hasSubs && <span style={{ fontSize: 9, color: "#fff", marginRight: 4, opacity: 0.7, flexShrink: 0, position: "relative", zIndex: 3 }}>{isExp ? "▼" : "▶"}</span>}
-                    <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : (() => { const raw = bar.task?.title || bar.title; const base = bar.task?.panelTitle && raw.startsWith(bar.task.panelTitle + " ") ? raw.slice(bar.task.panelTitle.length + 1).trim() : raw; return `${base} — ${p.name.split(" ")[0]}`; })()}</span>
-
+                    <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : `${bar.task?.title || bar.title} - ${p.name.split(" ")[0]}`}</span>
+                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.85)", fontFamily: T.mono }}>{bar.task.hpd}h</span>}
                   </div>;
                 })}
               </div>
@@ -4069,7 +4249,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     const mobileView = view === "schedule" ? "home" : view;
 
     const renderMobileHome = () => <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
-      {/* Toggle + New Job row */}
+      {/* Toggle + New Task row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", flexShrink: 0 }}>
         <SlidingPill
           options={[{value:"mytasks",label:"My Tasks"},{value:"viewall",label:"View All"}]}
@@ -4162,7 +4342,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Active jobs */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "4px 0" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Active · {active.length}</div>
-          {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Job</button>}
+          {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Task</button>}
         </div>
         {active.map(t => renderMobileTaskRow(t))}
         {finished.length > 0 && <>
@@ -4585,7 +4765,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         {/* Groups header */}
         <div style={{ padding: "14px 14px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Groups</span>
-          {can("editJobs") && <button onClick={() => setNewGroupModal(true)} title="New group" style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button>}
+          {loggedInUser && <button onClick={() => setNewGroupModal(true)} title="New group" style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button>}
         </div>
         {groups.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No groups yet</div>}
         {groups.slice().sort((a, b) => {
@@ -4748,10 +4928,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
     const cls = <button onClick={closeModal} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
     if (modal.type === "edit") { const [ed, setEd] = [modal.data, d => setModal(p => ({ ...p, data: typeof d === "function" ? d(p.data) : d }))];
       const addPanels = (count) => {
-        const isMatrix = (ed.templateMode || "matrix") === "matrix";
-        const rawOps = isMatrix
-          ? [{ title: "Wire", durationBD: 1 }, { title: "Cut", durationBD: 1 }, { title: "Layout", durationBD: 1 }]
-          : (ed.customOps || []).filter(o => o.title && o.title.trim());
+        const rawOps = (ed.customOps || []).filter(o => o.title && o.title.trim());
         if (!rawOps.length) return;
 
         const panels = [];
@@ -4768,7 +4945,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           rawOps.forEach((op, oi) => {
             const opStart = cursor;
             const opEnd = addBD(opStart, scaledDurs[oi] - 1);
-            opSubs.push({ id: null, title: op.title, start: opStart, end: opEnd, status: "Not Started", pri: "High", team: [], hpd: ed.hpd, notes: "", deps: [] });
+            opSubs.push({ id: null, title: op.title, start: opStart, end: opEnd, status: "Not Started", pri: "High", team: [], hpd: 7.5, notes: "", deps: [] });
             cursor = addBD(opEnd, 1);
           });
           const panelEnd = opSubs[opSubs.length - 1].end;
@@ -4811,14 +4988,12 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         setAiLoading(true);
         setAiSuggestion(null);
         setTimeout(() => {
-          const isMatrix = (ed.templateMode || "matrix") === "matrix";
-          const rawOps = isMatrix
-            ? [{ title: "Wire", durationBD: 1 }, { title: "Cut", durationBD: 1 }, { title: "Layout", durationBD: 1 }]
-            : (ed.customOps || []).filter(o => o.title && o.title.trim());
+          const rawOps = (ed.customOps || []).filter(o => o.title && o.title.trim());
           const opsPerPanel = Math.max(rawOps.length, 1);
-          const crew = isMatrix
-            ? people.filter(p => p.userRole === "user" && p.role?.toLowerCase() === "shop" && !p.noAutoSchedule)
-            : people.filter(p => p.userRole === "user" && !p.noAutoSchedule);
+          const _clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
+          const crewForOp = (opTitle) => people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
+            .filter(p => canAssignPerson(p, opTitle, ed.title, ed.jobNumber || "", _clientName));
+          const crew = people.filter(p => p.userRole === "user" && !p.noAutoSchedule);
           const numPanels = Math.max((ed.subs || []).length, 1);
           const hasDueDate = ed.dueDate && ed.dueDate > TD;
           // Per-batch business days (how long each panel takes to complete)
@@ -4857,8 +5032,10 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
 
               while (panelsRemaining > 0) {
                 const bEnd = addBD(bStart, batchBD - 1);
-                const freeNow = crew.filter(p => isPersonFree(p.id, bStart, bEnd));
-                const panelsThisBatch = Math.max(Math.floor(freeNow.length / opsPerPanel), 0);
+                // Per-op filtering: capacity = min free crew across all ops
+                const panelsThisBatch = Math.max(Math.min(...rawOps.map(o =>
+                  crewForOp(o.title).filter(p => isPersonFree(p.id, bStart, bEnd)).length
+                )), 0);
 
                 if (panelsThisBatch === 0) { failed = true; break; }
 
@@ -4911,20 +5088,8 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         }, 500);
       };
 
-      const isPanel = (ed.jobType || "panel") === "panel";
-      const isMatrix = isPanel && (ed.templateMode || "matrix") === "matrix";
-      const shopCrew = isMatrix
-        ? people.filter(p => p.userRole === "user" && p.role?.toLowerCase() === "shop")
-        : people.filter(p => p.userRole === "user");
+      const shopCrew = people.filter(p => p.userRole === "user");
 
-      // Template save helper
-      const saveAsTemplate = () => {
-        const ops = (ed.customOps || []).filter(o => o.title && o.title.trim());
-        if (!ops.length) return;
-        const name = prompt("Template name:");
-        if (!name || !name.trim()) return;
-        persistTemplates([...templates, { id: uid(), name: name.trim(), ops }]);
-      };
       const loadTemplate = (tpl) => {
         setEd(p => ({ ...p, customOps: tpl.ops.map(o => ({ ...o })) }));
       };
@@ -4933,100 +5098,89 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       };
 
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>{cls}        {/* ── Header ── */}
-        <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit" : isPanel ? "New Job" : "New Task"}</h3>
+        <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit" : "New Task"}</h3>
 
-        {/* ── Job Type toggle — centered, prominent ── */}
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 28 }}>
-          <SlidingPill
-            options={[{value:"panel",label:"Panel Job"},{value:"general",label:"General Task"}]}
-            value={ed.jobType || "panel"}
-            onChange={v => setEd(p => ({ ...p, jobType: v, subs: [] }))}
-            size="lg"
-          />
+        {/* ── Task fields ── */}
+        <InputField label="Task Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title: v }))} />
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+          <InputField label="Task #" value={ed.jobNumber || ""} onChange={v => setEd(p => ({ ...p, jobNumber: v }))} placeholder="e.g. 2024-001" />
+          <InputField label="PO #" value={ed.poNumber || ""} onChange={v => setEd(p => ({ ...p, poNumber: v }))} placeholder="e.g. PO-8821" />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
+          <InputField label="Due Date (Customer)" value={ed.dueDate || ""} onChange={v => setEd(p => ({ ...p, dueDate: v }))} type="date" />
+          <InputField label="Drawing #" value={ed.drawingNumber || ""} onChange={v => setEd(p => ({ ...p, drawingNumber: v }))} placeholder="e.g. DWG-001" />
+        </div>
+        <SearchSelect label="Client" value={ed.clientId} onChange={v => setEd(p => ({ ...p, clientId: v }))} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color, sub: c.contact }))} placeholder="Search clients..." />
+
+        {/* ── Ops Template ── */}
+        <div style={{ marginBottom: 20 }}>
+          {/* Header row: label | template dropdown + Save button */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <label style={{ fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Operations</label>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {templates.length > 0 && (
+                <select defaultValue="" onChange={e => { const tpl = templates.find(t => t.id === e.target.value); if (tpl) loadTemplate(tpl); e.target.value = ""; }}
+                  style={{ padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, cursor: "pointer" }}>
+                  <option value="" disabled>Load template…</option>
+                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+              <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(true); }}
+                disabled={!(ed.customOps || []).some(o => o.title?.trim())}
+                style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}44`,
+                  background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700,
+                  opacity: (ed.customOps || []).some(o => o.title?.trim()) ? 1 : 0.4,
+                  cursor: (ed.customOps || []).some(o => o.title?.trim()) ? "pointer" : "not-allowed", fontFamily: T.font }}>
+                Save Template
+              </button>
+            </div>
+          </div>
+          {/* Op cards */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+            {(ed.customOps || []).map((op, oi) => {
+              const updateOp = (patch) => { const ops = [...(ed.customOps || [])]; ops[oi] = { ...ops[oi], ...patch }; setEd(p => ({ ...p, customOps: ops })); };
+              return <div key={oi} style={{ background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 12 }}>
+                {/* Op title row */}
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: (op.subs || []).length ? 8 : 0 }}>
+                  <input value={op.title} onChange={e => updateOp({ title: e.target.value })} placeholder="Operation name" style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
+                  <button onClick={() => setEd(p => ({ ...p, customOps: (p.customOps || []).filter((_, j) => j !== oi) }))} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+                </div>
+                {/* Nested sub-ops */}
+                {(op.subs || []).map((sub, si) => <div key={si} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, paddingLeft: 16 }}>
+                  <div style={{ width: 2, height: 20, background: T.border, borderRadius: 2, flexShrink: 0 }} />
+                  <input value={sub.title} onChange={e => { const subs = [...(op.subs || [])]; subs[si] = { ...subs[si], title: e.target.value }; updateOp({ subs }); }} placeholder="Sub-op name" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box" }} />
+                  <button onClick={() => updateOp({ subs: (op.subs || []).filter((_, j) => j !== si) })} style={{ padding: "3px 7px", borderRadius: 5, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+                </div>)}
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: (op.subs || []).length ? 4 : 8 }}>
+                  <button onClick={() => updateOp({ subs: [...(op.subs || []), { id: uid(), title: "" }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
+                </div>
+              </div>;
+            })}
+          </div>
+          {/* Add Operation button */}
+          <button onClick={() => setEd(p => ({ ...p, customOps: [...(p.customOps || []), { title: "", durationBD: 1, subs: [] }] }))} style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
+            + Add Operation
+          </button>
         </div>
 
-        {/* ── Panel job fields ── */}
-        {isPanel && <>
-          <InputField label="Job Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title: v }))} />
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-            <InputField label="Job #" value={ed.jobNumber || ""} onChange={v => setEd(p => ({ ...p, jobNumber: v }))} placeholder="e.g. 2024-001" />
-            <InputField label="PO #" value={ed.poNumber || ""} onChange={v => setEd(p => ({ ...p, poNumber: v }))} placeholder="e.g. PO-8821" />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-            <InputField label="Due Date (Customer)" value={ed.dueDate || ""} onChange={v => setEd(p => ({ ...p, dueDate: v }))} type="date" />
-            <InputField label="Hours/day" value={ed.hpd} onChange={v => setEd(p => ({ ...p, hpd: +v }))} type="number" />
-          </div>
-          <SearchSelect label="Client" value={ed.clientId} onChange={v => setEd(p => ({ ...p, clientId: v }))} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color, sub: c.contact }))} placeholder="Search clients..." />
-        </>}
-
-        {/* ── General task fields — simple ── */}
-        {!isPanel && <>
-          <InputField label="Task Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title: v }))} />
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-            <InputField label="Due Date (optional)" value={ed.dueDate || ""} onChange={v => setEd(p => ({ ...p, dueDate: v }))} type="date" />
-            <InputField label="Hours/day" value={ed.hpd} onChange={v => setEd(p => ({ ...p, hpd: +v }))} type="number" />
-          </div>
-          <SearchSelect label="Client (optional)" value={ed.clientId} onChange={v => setEd(p => ({ ...p, clientId: v }))} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color, sub: c.contact }))} placeholder="Search clients..." />
-        </>}
-
-        {/* ── Template toggle (panel only) — seamless pill switch ── */}
-        {isPanel && <div style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: isMatrix ? 0 : 14 }}>
-            <label style={{ display: "block", fontSize: 13, color: T.textSec, fontWeight: 600, marginBottom: 8 }}>Template</label>
-            <SlidingPill
-              options={[{value:"matrix",label:"Matrix"},{value:"custom",label:"Custom"}]}
-              value={ed.templateMode || "matrix"}
-              onChange={v => setEd(p => ({ ...p, templateMode: v, subs: [] }))}
-            />
-          </div>
-
-          {/* Custom ops editor */}
-          {(ed.templateMode || "matrix") === "custom" && <div style={{ marginTop: 12 }}>
-            {/* Subtask cards */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-              {(ed.customOps || []).map((op, oi) => {
-                const updateOp = (patch) => { const ops = [...(ed.customOps || [])]; ops[oi] = { ...ops[oi], ...patch }; setEd(p => ({ ...p, customOps: ops })); };
-                return <div key={oi} style={{ background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 12 }}>
-                  {/* Op title row */}
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: (op.subs || []).length ? 8 : 0 }}>
-                    <input value={op.title} onChange={e => updateOp({ title: e.target.value })} placeholder="Subtask name" style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
-                    <button onClick={() => setEd(p => ({ ...p, customOps: (p.customOps || []).filter((_, j) => j !== oi) }))} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
-                  </div>
-                  {/* Nested sub-subtasks */}
-                  {(op.subs || []).map((sub, si) => <div key={si} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6, paddingLeft: 16 }}>
-                    <div style={{ width: 2, height: 20, background: T.border, borderRadius: 2, flexShrink: 0 }} />
-                    <input value={sub.title} onChange={e => { const subs = [...(op.subs || [])]; subs[si] = { ...subs[si], title: e.target.value }; updateOp({ subs }); }} placeholder="Sub-subtask name" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box" }} />
-                    <button onClick={() => updateOp({ subs: (op.subs || []).filter((_, j) => j !== si) })} style={{ padding: "3px 7px", borderRadius: 5, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
-                  </div>)}
-                  {/* Small add sub-subtask button */}
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: (op.subs || []).length ? 4 : 8 }}>
-                    <button onClick={() => updateOp({ subs: [...(op.subs || []), { id: uid(), title: "" }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Subtask</button>
-                  </div>
-                </div>;
-              })}
-            </div>
-            {/* Big centered + Add Subtask */}
-            <button onClick={() => setEd(p => ({ ...p, customOps: [...(p.customOps || []), { title: "", durationBD: 1, subs: [] }] }))} style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
-              onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
-              + Add Subtask
-            </button>
-          </div>}
-        </div>}
-
-        {/* Panel count (matrix template only) */}
-        {isPanel && isMatrix && !ed.id && <div style={{ marginBottom: 20 }}>
+        {/* Panel count */}
+        {!ed.id && <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Number of Panels</label>
+          {!(ed.customOps || []).some(o => o.title?.trim()) && (
+            <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 8 }}>⚠ Add ops above before setting panel count</div>
+          )}
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <input type="number" min="1" max="50" value={(ed.subs || []).length || ""} onChange={e => { const n = Math.max(1, Math.min(50, parseInt(e.target.value) || 0)); if (n > 0) addPanels(n); }} style={{ width: 96, padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 16, fontWeight: 700, fontFamily: T.mono, textAlign: "center", boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }}
               onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }}
               onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />
-            <span style={{ fontSize: 13, color: T.textDim }}>panels for this job</span>
+            <span style={{ fontSize: 13, color: T.textDim }}>panels for this task</span>
           </div>
         </div>}
 
-        {/* AI Schedule Suggestion (panel + matrix only) */}
-        {isPanel && isMatrix && <div style={{ marginBottom: 20 }}>
+        {/* AI Schedule Suggestion */}
+        <div style={{ marginBottom: 20 }}>
           <button onClick={suggestSchedule} disabled={aiLoading || (ed.subs || []).length === 0} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 18px", borderRadius: T.radiusSm, border: "none", background: (ed.subs || []).length === 0 ? T.textDim + "33" : T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: aiLoading || (ed.subs || []).length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.2s", width: "100%", opacity: (ed.subs || []).length === 0 ? 0.5 : 1, boxShadow: (ed.subs || []).length > 0 ? `0 4px 14px ${T.accent}59` : "none", letterSpacing: "0.3px" }}>
             {aiLoading ? "⏳ Checking availability..." : "Check for Availability!"}
           </button>
@@ -5077,19 +5231,15 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                     const updated = { ...p };
                     const panels = p.subs || [];
                     if (panels.length > 0) {
-                      const _isMatrix = (p.templateMode || "matrix") === "matrix";
-                      const _rawOps = _isMatrix
-                        ? [{ title: "Wire", durationBD: 1 }, { title: "Cut", durationBD: 1 }, { title: "Layout", durationBD: 1 }]
-                        : (p.customOps || []).filter(o => o.title && o.title.trim());
+                      const _rawOps = (p.customOps || []).filter(o => o.title && o.title.trim());
                       const opsPerPanel = Math.max(_rawOps.length, 1);
                       const bd = slot.businessDays || (diffBD(slot.start, slot.end) + 1);
                       const totalDur = _rawOps.reduce((s, o) => s + Math.max(o.durationBD || 1, 1), 0);
                       const scaledDurs = _rawOps.map(o => Math.max(Math.round(Math.max(o.durationBD || 1, 1) * bd / totalDur), 1));
                       scaledDurs[scaledDurs.length - 1] += bd - scaledDurs.reduce((s, d) => s + d, 0);
 
-                      const allCrew = _isMatrix
-                        ? people.filter(pp => pp.userRole === "user" && pp.role?.toLowerCase() === "shop" && !pp.noAutoSchedule)
-                        : people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
+                      const _jobClientName = (clients.find(c => c.id === p.clientId) || {}).name || "";
+                      const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
 
                       const isPersonFreeForRange = (pid, s, e) => {
                         for (const job of tasks) {
@@ -5143,6 +5293,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                           let canSchedule = true;
                           for (const ow of opWindows) {
                             const avail = allCrew.filter(pp =>
+                              canAssignPerson(pp, ow.title, p.title, p.jobNumber || "", _jobClientName) &&
                               isPersonAvail(pp.id, ow.start, ow.end) &&
                               !assignments.some(a => a.pid === pp.id)
                             );
@@ -5212,12 +5363,10 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               </div>}
             </div>)}
           </div>}
-        </div>}
+        </div>
 
-        {/* Panel-only sections */}
-        {isPanel && <>
-          {/* Completion dates (filled by AI or manual) */}
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" /></div>
+        {/* Completion dates (filled by AI or manual) */}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" /></div>
 
           {/* Panels with operations */}
           {(ed.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
@@ -5232,112 +5381,53 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {(panel.subs || []).map((op, oi) => {
                     const assignedPerson = op.team.length > 0 ? people.find(p => p.id === op.team[0]) : null;
-                    const opColor = assignedPerson ? assignedPerson.color : ["#3b82f6", "#f59e0b", "#10b981"][oi % 3];
-                    return <div key={oi} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: assignedPerson ? assignedPerson.color + "08" : T.bg, borderRadius: T.radiusXs, border: `1px solid ${assignedPerson ? assignedPerson.color + "44" : T.border}` }}>
-                      <div style={{ width: 6, height: 6, borderRadius: 3, background: opColor, flexShrink: 0 }} />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text, minWidth: 50 }}>{op.title}</span>
-                      <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)} → {fm(op.end)}</span>
-                      <div style={{ marginLeft: "auto", display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    const opColor = assignedPerson ? assignedPerson.color : (OP_COLORS[op.title] || ["#3b82f6", "#f59e0b", "#10b981", "#ec4899", "#14b8a6"][oi % 5]);
+                    const updateOp = (patch) => { const newSubs = [...ed.subs]; const newOps = [...newSubs[pi].subs]; newOps[oi] = { ...newOps[oi], ...patch }; newSubs[pi] = { ...newSubs[pi], subs: newOps }; setEd(prev => ({ ...prev, subs: newSubs })); };
+                    return <div key={oi} style={{ background: assignedPerson ? assignedPerson.color + "08" : T.bg, borderRadius: T.radiusXs, border: `1px solid ${assignedPerson ? assignedPerson.color + "44" : T.border}`, padding: "8px 12px" }}>
+                      {/* Op title row + hpd + delete */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: 3, background: opColor, flexShrink: 0 }} />
+                        <input value={op.title} onChange={e => updateOp({ title: e.target.value })} style={{ flex: 1, minWidth: 60, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, fontFamily: T.font, boxSizing: "border-box" }} />
+                        <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(op.start)} → {fm(op.end)}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                          <label style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap" }}>hrs/day</label>
+                          <input type="number" min="0.5" max="12" step="0.5" value={op.hpd ?? 7.5} onChange={e => updateOp({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, textAlign: "center", boxSizing: "border-box" }} />
+                        </div>
+                        <button onClick={() => { const newSubs = [...ed.subs]; newSubs[pi] = { ...newSubs[pi], subs: newSubs[pi].subs.filter((_, j) => j !== oi) }; setEd(prev => ({ ...prev, subs: newSubs })); }} style={{ padding: "3px 7px", borderRadius: 5, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+                      </div>
+                      {/* Person assignment */}
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                         {shopCrew.map(p => {
                           const sel = op.team.includes(p.id);
                           const busy = !sel && isPersonBusy(p.id, op.start, op.end, pi, oi);
+                          const clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
+                          const jobLocked = !sel && !canAssignPerson(p, op.title, ed.title, ed.jobNumber || "", clientName);
                           const isLead = p.isTeamLead && p.teamNumber;
-                          return <button key={p.id} onClick={() => {
-                            if (busy) return;
-                            const newSubs = [...ed.subs];
-                            const newOps = [...newSubs[pi].subs];
-                            newOps[oi] = { ...newOps[oi], team: sel ? [] : [p.id] };
-                            newSubs[pi] = { ...newSubs[pi], subs: newOps };
-                            setEd(prev => ({ ...prev, subs: newSubs }));
-                          }} title={busy ? `${p.name} is busy during this period` : isLead ? `${p.name} — Team ${p.teamNumber} Lead` : p.name} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? p.color : busy ? T.danger + "33" : T.border}`, background: sel ? p.color : busy ? T.danger + "08" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? accentText(p.color) : busy ? T.danger + "88" : T.textSec, fontWeight: sel ? 700 : 400, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.5 : 1, transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap", textDecoration: busy ? "line-through" : "none" }}>
-                            <span style={{ width: 18, height: 18, borderRadius: 6, background: sel ? p.color + "cc" : busy ? T.danger + "15" : p.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: sel ? accentText(p.color) : busy ? T.danger + "88" : accentText(p.color), flexShrink: 0 }}>{p.name[0]}</span>
+                          return <button key={p.id} onClick={() => { if (busy || jobLocked) return; updateOp({ team: sel ? [] : [p.id] }); }} title={jobLocked ? "Locked to other work" : busy ? `${p.name} is busy during this period` : isLead ? `${p.name} — Team ${p.teamNumber} Lead` : p.name} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? p.color : jobLocked ? "#8b5cf633" : busy ? T.danger + "33" : T.border}`, background: sel ? p.color : jobLocked ? "#8b5cf608" : busy ? T.danger + "08" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? accentText(p.color) : jobLocked ? "#8b5cf688" : busy ? T.danger + "88" : T.textSec, fontWeight: sel ? 700 : 400, cursor: (busy || jobLocked) ? "not-allowed" : "pointer", opacity: (busy || jobLocked) ? 0.4 : 1, transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap", textDecoration: busy ? "line-through" : "none" }}>
+                            <span style={{ width: 18, height: 18, borderRadius: 6, background: sel ? p.color + "cc" : jobLocked ? "#8b5cf615" : busy ? T.danger + "15" : p.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: sel ? accentText(p.color) : jobLocked ? "#8b5cf688" : busy ? T.danger + "88" : accentText(p.color), flexShrink: 0 }}>{p.name[0]}</span>
                             {p.name}
                             {isLead && <span style={{ lineHeight: 0, opacity: sel ? 0.85 : 0.6 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>}
+                            {jobLocked && <span style={{ fontSize: 10 }}>🔒</span>}
                           </button>;
                         })}
                       </div>
                     </div>;
                   })}
+                  {/* Add Op button */}
+                  <button onClick={() => { const newSubs = [...ed.subs]; newSubs[pi] = { ...newSubs[pi], subs: [...(newSubs[pi].subs || []), { id: null, title: "New Op", start: panel.start, end: panel.end, status: "Not Started", pri: "High", team: [], hpd: 7.5, notes: "", deps: [] }] }; setEd(prev => ({ ...prev, subs: newSubs })); }} style={{ marginTop: 4, padding: "5px 14px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, width: "100%", transition: "all 0.15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
+                    + Add Op
+                  </button>
                 </div>
               </div>)}
             </div>
           </div>}
-        </>}
-
-        {/* Non-panel sections */}
-        {!isPanel && <>
-          {/* Start / End date row */}
-          <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-            <InputField label="Start Date" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" />
-            <InputField label="End Date" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" />
-          </div>
-
-          {/* Assigned To */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 10, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Assign To</label>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {people.filter(p => p.userRole === "user").map(p => {
-                const sel = (ed.team || []).includes(p.id);
-                const busy = !sel && ed.start && ed.end && isPersonBusy(p.id, ed.start, ed.end, -1, -1);
-                const isLead = p.isTeamLead && p.teamNumber;
-                return <button key={p.id} onClick={() => {
-                  if (busy) return;
-                  setEd(prev => ({ ...prev, team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id] }));
-                }} title={busy ? `${p.name} is busy during this period` : isLead ? `${p.name} — Team ${p.teamNumber} Lead` : p.name}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: 10, border: `2px solid ${sel ? p.color : busy ? T.danger + "44" : T.border}`, background: sel ? p.color : busy ? T.danger + "08" : T.surface, color: sel ? "#fff" : busy ? T.danger + "88" : T.textSec, fontWeight: sel ? 700 : 400, fontSize: 13, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.55 : 1, transition: "all 0.15s", fontFamily: T.font, textDecoration: busy ? "line-through" : "none" }}>
-                  <span style={{ width: 22, height: 22, borderRadius: 7, background: sel ? "rgba(255,255,255,0.25)" : busy ? T.danger + "15" : p.color + "22", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: sel ? "#fff" : busy ? T.danger + "88" : p.color, flexShrink: 0 }}>{p.name[0]}</span>
-                  {pName(p.id)}
-                  {isLead && <span style={{ lineHeight: 0, opacity: sel ? 0.85 : 0.6 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></span>}
-                  {busy && <span style={{ fontSize: 10 }}>✗</span>}
-                </button>;
-              })}
-            </div>
-            {(ed.team || []).length > 0 && <div style={{ marginTop: 8, fontSize: 12, color: T.textSec }}>
-              {(ed.team || []).length} person{(ed.team || []).length > 1 ? "s" : ""} assigned
-            </div>}
-          </div>
-
-          {/* Flat subtask builder */}
-          <div style={{ marginBottom: 20 }}>
-            {(ed.subs || []).length === 0
-              ? <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "", start: p.start || TD, end: p.end || addD(TD, 3), status: "Not Started", pri: "Medium", team: [], hpd: p.hpd || 8, notes: "", deps: [] }] }))} style={{ display: "block", width: "100%", padding: "22px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 20, fontWeight: 800, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.3px", transition: "all 0.15s" }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
-                onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
-                + Add Subtask
-              </button>
-              : <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <label style={{ fontSize: 13, color: T.textSec, fontWeight: 600 }}>Subtasks</label>
-                  <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "", start: p.start || TD, end: p.end || addD(TD, 3), status: "Not Started", pri: "Medium", team: [], hpd: p.hpd || 8, notes: "", deps: [] }] }))} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}55`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Add Subtask</button>
-                </div>
-            }
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {(ed.subs || []).map((sub, si) => <div key={sub.id || si} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 12 }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                  <input value={sub.title} onChange={e => { const subs = [...ed.subs]; subs[si] = { ...subs[si], title: e.target.value }; setEd(p => ({ ...p, subs })); }} placeholder="Task name" style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
-                  <input type="date" value={sub.start} onChange={e => { const subs = [...ed.subs]; subs[si] = { ...subs[si], start: e.target.value }; setEd(p => ({ ...p, subs })); }} style={{ colorScheme: T.colorScheme, padding: "7px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box" }} />
-                  <span style={{ color: T.textDim, fontSize: 12 }}>→</span>
-                  <input type="date" value={sub.end} onChange={e => { const subs = [...ed.subs]; subs[si] = { ...subs[si], end: e.target.value }; setEd(p => ({ ...p, subs })); }} style={{ colorScheme: T.colorScheme, padding: "7px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box" }} />
-                  <button onClick={() => setEd(p => ({ ...p, subs: p.subs.filter((_, j) => j !== si) }))} style={{ padding: "5px 9px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1 }}>×</button>
-                </div>
-                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 11, color: T.textDim, marginRight: 4, alignSelf: "center" }}>Assign:</span>
-                  {people.filter(p => p.userRole === "user").map(p => {
-                    const sel = (sub.team || []).includes(p.id);
-                    return <button key={p.id} onClick={() => { const subs = [...ed.subs]; subs[si] = { ...subs[si], team: sel ? (sub.team || []).filter(id => id !== p.id) : [...(sub.team || []), p.id] }; setEd(prev => ({ ...prev, subs })); }} style={{ padding: "3px 10px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? "#fff" : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font }}>
-                      <span style={{ width: 16, height: 16, borderRadius: 5, background: sel ? "rgba(255,255,255,0.25)" : p.color + "22", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? "#fff" : p.color, flexShrink: 0 }}>{p.name[0]}</span>
-                      {p.name.split(" ")[0]}
-                    </button>;
-                  })}
-                </div>
-              </div>)}
-            </div>
-          </div>
-        </>}
 
         <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>
         <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
-          {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })} style={{ marginRight: "auto" }}>Delete Job</Btn> : <span />}
-          <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => saveTask(ed, modal.parentId)}>Save Job</Btn></div>
+          {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })} style={{ marginRight: "auto" }}>Delete Task</Btn> : <span />}
+          <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => saveTask(ed, modal.parentId)}>Save Task</Btn></div>
         </div>
       </div></div>; }
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
@@ -5377,7 +5467,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           {parentJob && <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 14, color: T.textDim, marginBottom: 6 }}>{parentJob.title}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {parentJob.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Job # {parentJob.jobNumber}</span>}
+              {parentJob.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {parentJob.jobNumber}</span>}
               {parentJob.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {parentJob.poNumber}</span>}
             </div>
           </div>}
@@ -5465,7 +5555,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       const parent = tasks.find(x => x.id === fresh.id);
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>{cls}
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}><HealthIcon t={fresh} size={22} style={{ flexShrink: 0 }} /><h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{fresh.title}</h3></div>
-        {(fresh.jobNumber || fresh.poNumber) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>{fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Job # {fresh.jobNumber}</span>}{fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}</div>}
+        {(fresh.jobNumber || fresh.poNumber) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>{fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}{fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}</div>}
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>{fresh.clientId && <Badge t={"🏢 " + clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}<span style={{ fontSize: 15, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span><span style={{ color: T.textDim }}>·</span>{fresh.hpd}h/day</span></div>
         {fresh.dueDate && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "10px 16px", background: fresh.dueDate < TD ? "#ef444415" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b15" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${fresh.dueDate < TD ? "#ef444433" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b33" : T.border}` }}><span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Customer Due Date:</span><span style={{ fontSize: 14, fontWeight: 700, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text, fontFamily: T.mono }}>{fm(fresh.dueDate)}</span>{fresh.dueDate < TD && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>OVERDUE</span>}</div>}
         <div style={{ marginBottom: 16 }}>
@@ -5809,6 +5899,38 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       </div>
     </div>}
     {renderModal()}
+    {saveTemplateModal && (
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
+        zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+        onClick={() => setSaveTemplateModal(false)}>
+        <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 28,
+          maxWidth: 400, width: "100%", border: `1px solid ${T.borderLight}`,
+          boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }}>
+          <h3 style={{ margin: "0 0 16px", color: T.text, fontSize: 18, fontWeight: 700 }}>Save Template</h3>
+          <InputField label="Template Name" value={templateNameInput} onChange={v => setTemplateNameInput(v)}
+            placeholder='e.g. Standard 3-Op, Riverside Job' />
+          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+            <button onClick={() => setSaveTemplateModal(false)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusSm,
+              border: `1px solid ${T.border}`, background: "transparent", color: T.textSec,
+              fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button disabled={!templateNameInput.trim()}
+              onClick={() => {
+                const name = templateNameInput.trim();
+                if (!name) return;
+                const ops = (modal?.data?.customOps || []).filter(o => o.title?.trim());
+                persistTemplates([...templates, { id: uid(), name, ops }]);
+                setSaveTemplateModal(false);
+              }}
+              style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusSm, border: "none",
+                background: templateNameInput.trim() ? T.accent : T.border, color: T.accentText,
+                fontSize: 13, fontWeight: 700,
+                cursor: templateNameInput.trim() ? "pointer" : "not-allowed", fontFamily: T.font }}>
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     {/* Users Modal */}
     {usersOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
       <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 0, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden", position: "relative" }}>
@@ -5839,6 +5961,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                       {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
                       {person.isEngineer && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Eng</span>}
                       {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
+                      {(person.jobTags || []).length > 0 && (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#8b5cf620", color: "#8b5cf6", border: "1px solid #8b5cf633" }}>
+                          🔒 {person.jobTags.length} tag{person.jobTags.length > 1 ? "s" : ""}
+                        </span>
+                      )}
                     </div>
                     <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
                   </div>
@@ -5888,6 +6015,52 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                       </div>
                       <div style={{ width: 36, height: 20, borderRadius: 10, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                         <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                      </div>
+                    </div>
+                    {/* Job Restrictions */}
+                    <div style={{ padding: "10px 10px 12px", borderRadius: T.radiusXs, border: `1px solid ${(person.jobTags || []).length ? "#8b5cf644" : T.border}`, background: (person.jobTags || []).length ? "#8b5cf608" : T.surface }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                        <span style={{ lineHeight: 0, color: (person.jobTags || []).length ? "#8b5cf6" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Task Claims</div>
+                          <div style={{ fontSize: 11, color: T.textDim }}>Tags this person exclusively owns (e.g. "Wire", "Riverside")</div>
+                        </div>
+                      </div>
+                      {(person.jobTags || []).length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                          {(person.jobTags || []).map((tag, ti) => (
+                            <span key={ti} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, background: "#8b5cf615", border: "1px solid #8b5cf633", fontSize: 12, color: "#8b5cf6", fontWeight: 600 }}>
+                              {tag}
+                              <button onClick={() => updPerson(person.id, { jobTags: (person.jobTags || []).filter((_, j) => j !== ti) })} style={{ background: "none", border: "none", color: "#8b5cf6", cursor: "pointer", padding: 0, lineHeight: 1, fontSize: 15 }}>×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input
+                          value={tagInputs[person.id] || ""}
+                          onChange={e => setTagInputs(p => ({ ...p, [person.id]: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") {
+                              const tag = (tagInputs[person.id] || "").trim();
+                              if (tag && !(person.jobTags || []).includes(tag)) {
+                                updPerson(person.id, { jobTags: [...(person.jobTags || []), tag] });
+                                setTagInputs(p => ({ ...p, [person.id]: "" }));
+                              }
+                            }
+                          }}
+                          placeholder='e.g. Wire, Riverside'
+                          style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box" }}
+                        />
+                        <button onClick={() => {
+                          const tag = (tagInputs[person.id] || "").trim();
+                          if (tag && !(person.jobTags || []).includes(tag)) {
+                            updPerson(person.id, { jobTags: [...(person.jobTags || []), tag] });
+                            setTagInputs(p => ({ ...p, [person.id]: "" }));
+                          }
+                        }} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: "1px solid #8b5cf644", background: "#8b5cf610", color: "#8b5cf6", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+                          + Add
+                        </button>
                       </div>
                     </div>
                   </div>}
@@ -6721,7 +6894,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Btn variant="ghost" onClick={() => { setNewGroupModal(false); setNewGroupName(""); setNewGroupPeople([]); }}>Cancel</Btn>
-          <Btn onClick={saveNewGroup} disabled={!newGroupName.trim()}>Create Group</Btn>
+          <Btn onClick={saveNewGroup} disabled={!newGroupName.trim() || newGroupSaving}>{newGroupSaving ? "Creating…" : "Create Group"}</Btn>
         </div>
       </div>
     </div>}
