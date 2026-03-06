@@ -29,7 +29,7 @@ export async function handler(event) {
     return err(400, "Invalid JSON body");
   }
 
-  const { system, messages, max_tokens } = payload;
+  const { system, messages, max_tokens, tools, tool_choice } = payload;
   if (!messages || !Array.isArray(messages)) {
     return err(400, "messages array is required");
   }
@@ -40,6 +40,8 @@ export async function handler(event) {
     max_tokens: Math.min(Number(max_tokens) || 4000, 8192),
     system: typeof system === "string" ? system : undefined,
     messages,
+    ...(Array.isArray(tools) && tools.length > 0 ? { tools } : {}),
+    ...(tool_choice ? { tool_choice } : {}),
   };
 
   try {

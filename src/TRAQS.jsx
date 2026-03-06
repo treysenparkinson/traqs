@@ -982,10 +982,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   };
 
   const [fStat, setFStat] = useState("All");
-  const [fPer, setFPer] = useState("All");
+  const [fPers, setFPers] = useState([]);      // multi-select person IDs (strings); empty = All
   const [fJobNum, setFJobNum] = useState("");
   const [fRole, setFRole] = useState("All");  // filter by assigned person's role
   const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
+  const [fOverloaded, setFOverloaded] = useState(false); // show only tasks with overbooked team
   const [jobSort, setJobSort] = useState("date"); // "date" | "project" | "client"
   const [filterOpen, setFilterOpen] = useState(false);
   const filterRef = useRef(null);
@@ -995,6 +996,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [askHistory, setAskHistory] = useState([]);
   const [askExpanded, setAskExpanded] = useState(false);
   const [askBarQ, setAskBarQ] = useState("");
+  const [pendingActions, setPendingActions] = useState(null); // { toolUses: [...], text: string }
+  const lastSysPromptRef = useRef("");
   const askInputRef = useRef(null);
   const askBarInputRef = useRef(null);
   const askBarRef = useRef(null);
@@ -1257,7 +1260,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const taskOwner = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.name.split(" ")[0] : null; }, [people]);
   const filtered = useMemo(() => tasks.filter(t => {
     if (fStat !== "All" && t.status !== fStat) return false;
-    if (fPer !== "All") { const p = +fPer; const onOp = (t.subs || []).some(panel => (panel.subs || []).some(op => op.team.includes(p))); if (!t.team.includes(p) && !onOp) return false; }
+    if (fPers.length > 0) {
+      const pSet = new Set(fPers);
+      const matchTeam = (idList) => (idList || []).some(id => pSet.has(String(id)));
+      const onOp = (t.subs || []).some(panel => (panel.subs || []).some(op => matchTeam(op.team)));
+      if (!matchTeam(t.team) && !onOp) return false;
+    }
     if (fClient !== "All" && t.clientId !== fClient) return false;
     if (fRole !== "All") {
       const hasRole = (t.subs || []).some(panel => (panel.subs || []).some(op => { const person = people.find(x => (op.team || []).includes(x.id)); return person && person.role?.toLowerCase() === fRole.toLowerCase(); }));
@@ -1269,8 +1277,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       if (!hasHpd) return false;
     }
     if (fJobNum && !String(t.jobNumber || "").toLowerCase().includes(fJobNum.toLowerCase())) return false;
+    if (fOverloaded) {
+      const overloaded = (t.subs || []).some(panel => (panel.subs || []).some(op => (op.team || []).some(pid => { const p = people.find(x => x.id === pid); return p && bookedHrs(pid, TD) > (p.cap || 8); })));
+      if (!overloaded) return false;
+    }
     return true;
-  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPer, fClient, fRole, fHpd, fJobNum, people]);
+  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, people, bookedHrs, TD]);
   const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if (op.team.includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, op.team.length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if (t.team.includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, t.team.length); (t.subs || []).forEach(s => { if (s.team.includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, s.team.length); }); } }); return h; }, [tasks, isOff]);
@@ -1294,7 +1306,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     tasks.forEach(t => { if (t.hpd) vals.add(t.hpd); (t.subs || []).forEach(p => { if (p.hpd) vals.add(p.hpd); (p.subs || []).forEach(op => { if (op.hpd) vals.add(op.hpd); }); }); });
     return [...vals].sort((a, b) => a - b);
   }, [tasks]);
-  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + (fPer !== "All" ? 1 : 0) + (fJobNum ? 1 : 0);
+  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0);
 
   // Check overlaps for a set of operations against a given task list
   // opsToCheck: [{ personId, start, end, opTitle, panelTitle, excludeOpId }]
@@ -1545,7 +1557,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const delTimeOff = (pid, idx) => setPeople(pp => pp.map(p => p.id === pid ? { ...p, timeOff: (p.timeOff || []).filter((_, i) => i !== idx) } : p));
   const [ptoCtx, setPtoCtx] = useState(null); // { x, y, bar, personId, toIdx }
   const [timeOffEdit, setTimeOffEdit] = useState(null); // { personId, idx, start, end, reason }
-  const addPerson = (data) => { setPeople(p => [...p, { ...data, id: Math.max(0, ...p.map(x => x.id)) + 1 }]); setPersonModal(null); };
+  const addPerson = (data) => { setPeople(p => [...p, { ...data, id: uid(), color: data.color || COLORS[p.length % COLORS.length] }]); setPersonModal(null); };
   const delPerson = (id) => { setPeople(p => p.filter(x => x.id !== id)); setTasks(p => p.map(t => ({ ...t, team: t.team.filter(x => x !== id), subs: (t.subs || []).map(s => ({ ...s, team: s.team.filter(x => x !== id) })) }))); };
   const savePerson = (ed) => {
     if (!ed.name.trim()) return;
@@ -1672,6 +1684,86 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const openEdit = (t, pid = null) => setModal({ type: "edit", data: { ...t }, parentId: pid });
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
+  const AI_TOOLS = [
+    { name: "update_task_status", description: "Update the status of an existing task", input_schema: { type: "object", properties: { task_id: { type: "string", description: "The task ID from the context" }, status: { type: "string", enum: ["Not Started", "In Progress", "Finished", "On Hold"] } }, required: ["task_id", "status"] } },
+    { name: "reschedule_task", description: "Change the start and/or end date of a task", input_schema: { type: "object", properties: { task_id: { type: "string" }, start: { type: "string", description: "New start date YYYY-MM-DD" }, end: { type: "string", description: "New end date YYYY-MM-DD" } }, required: ["task_id"] } },
+    { name: "assign_person", description: "Add a team member to a task", input_schema: { type: "object", properties: { task_id: { type: "string" }, person_id: { type: "string", description: "The person ID from the context" } }, required: ["task_id", "person_id"] } },
+    { name: "remove_person", description: "Remove a team member from a task", input_schema: { type: "object", properties: { task_id: { type: "string" }, person_id: { type: "string" } }, required: ["task_id", "person_id"] } },
+    { name: "create_task", description: "Create a new task", input_schema: { type: "object", properties: { title: { type: "string" }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, team_ids: { type: "array", items: { type: "string" } }, priority: { type: "string", enum: ["Low", "Medium", "High"] } }, required: ["title", "start", "end"] } },
+  ];
+
+  const buildAskSysPrompt = () => {
+    const todayStr = TD;
+    const peopleCtx = people.map(p => {
+      const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished" && t.end >= todayStr);
+      const todayH = bookedHrs(p.id, todayStr);
+      return `${p.name} [id:${p.id}] (${p.role}, ${p.cap}h/day cap): today=${todayH.toFixed(1)}h booked, active jobs: ${activeJobs.map(t => `"${t.title}" (${t.start}–${t.end})`).join("; ") || "none"}`;
+    }).join("\n");
+    const jobsCtx = tasks.filter(t => t.status !== "Finished").map(t => {
+      const team = (t.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
+      const client = t.clientId ? clients.find(c => c.id === t.clientId)?.name || "" : "";
+      const ops = (t.subs || []).flatMap(panel => (panel.subs || []).map(op => {
+        const opTeam = (op.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
+        return `  ${panel.title}/${op.title}: ${op.start}–${op.end}${opTeam ? `, assigned: ${opTeam}` : ""}`;
+      }));
+      return `Task "${t.title}" [id:${t.id}]${t.jobNumber ? ` (#${t.jobNumber})` : ""}${client ? ` [${client}]` : ""}: status=${t.status}, dates=${t.start}–${t.end}${team ? `, team: ${team}` : ""}${ops.length > 0 ? `\n${ops.join("\n")}` : ""}`;
+    }).join("\n\n");
+    return `You are TRAQS AI, a scheduling assistant for a steel/metal fabrication and electrical panel shop. Today is ${todayStr}.
+
+TEAM MEMBERS (use these IDs in tool calls):
+${peopleCtx || "No team members."}
+
+ACTIVE TASKS (use these IDs in tool calls):
+${jobsCtx || "No active tasks."}
+
+Answer scheduling questions conversationally. Be specific: name actual people, jobs, and dates. When asked to take an action (mark as finished, reschedule, assign someone, create a task), use the appropriate tool. Always confirm tool use with a brief sentence saying what you're about to do. Keep responses focused and actionable.`;
+  };
+
+  const describeAction = (name, input) => {
+    const task = allItems.find(x => x.id === input.task_id) || tasks.find(x => x.id === input.task_id);
+    const taskLabel = task ? `"${task.title}"` : input.task_id;
+    const person = people.find(x => x.id === input.person_id);
+    const personLabel = person ? person.name : input.person_id;
+    switch (name) {
+      case "update_task_status": return `Set ${taskLabel} → ${input.status}`;
+      case "reschedule_task": return `Reschedule ${taskLabel} to ${input.start || "?"}${input.end ? ` – ${input.end}` : ""}`;
+      case "assign_person": return `Add ${personLabel} to ${taskLabel}`;
+      case "remove_person": return `Remove ${personLabel} from ${taskLabel}`;
+      case "create_task": return `Create task "${input.title}" (${input.start} – ${input.end})`;
+      default: return name;
+    }
+  };
+
+  const executeConfirmedActions = async () => {
+    if (!pendingActions) return;
+    const { toolUses } = pendingActions;
+    for (const tu of toolUses) {
+      const { name, input } = tu;
+      switch (name) {
+        case "update_task_status": updTask(input.task_id, { status: input.status }); break;
+        case "reschedule_task": updTask(input.task_id, { ...(input.start && { start: input.start }), ...(input.end && { end: input.end }) }); break;
+        case "assign_person": setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: [...new Set([...(t.team || []), input.person_id])] } : t)); break;
+        case "remove_person": setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: (t.team || []).filter(id => id !== input.person_id) } : t)); break;
+        case "create_task": setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", team: input.team_ids || [], pri: input.priority || "Medium", subs: [], deps: [], hpd: 7.5, notes: "", color: T.accent, customOps: [] }]); break;
+      }
+    }
+    const toolResults = toolUses.map(tu => ({ type: "tool_result", tool_use_id: tu.id, content: "Action completed successfully." }));
+    const toolResultMsg = { role: "user", content: toolResults };
+    setAskHistory(h => [...h, toolResultMsg]);
+    setPendingActions(null);
+    setAskLoading(true);
+    try {
+      const fullHistory = [...askHistory, toolResultMsg];
+      const data = await callAI({ system: lastSysPromptRef.current, messages: fullHistory.map(m => ({ role: m.role, content: m.content })), max_tokens: 512, tools: AI_TOOLS, tool_choice: { type: "auto" } }, getToken);
+      setAskHistory(h => [...h, { role: "assistant", content: data.content }]);
+    } catch (e) {
+      setAskHistory(h => [...h, { role: "assistant", content: "Done! Actions applied successfully." }]);
+    } finally {
+      setAskLoading(false);
+      setTimeout(() => askInputRef.current?.focus(), 50);
+    }
+  };
+
   const handleAskTraqs = async (questionOverride = null) => {
     const q = (questionOverride ?? askQ).trim();
     if (!q || askLoading) return;
@@ -1680,41 +1772,17 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     if (!questionOverride) setAskHistory(h => [...h, { role: "user", content: q }]);
     setAskLoading(true);
     try {
-      // Build rich scheduling context
-      const todayStr = TD;
-      const peopleCtx = people.map(p => {
-        const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished" && t.end >= todayStr);
-        const todayH = bookedHrs(p.id, todayStr);
-        const weekJobs = tasks.filter(t => {
-          const hasOp = (t.subs || []).some(panel => (panel.subs || []).some(op => (op.team || []).includes(p.id) && op.start <= addD(todayStr, 7) && op.end >= todayStr));
-          return hasOp || ((t.team || []).includes(p.id) && t.start <= addD(todayStr, 7) && t.end >= todayStr);
-        });
-        return `${p.name} (${p.role}, ${p.cap}h/day cap): today=${todayH.toFixed(1)}h booked, active jobs: ${activeJobs.map(t => `"${t.title}" (${t.start}–${t.end}, ${t.hpd || "?"}h/day)`).join("; ") || "none"}`;
-      }).join("\n");
-      const jobsCtx = tasks.filter(t => t.status !== "Finished").map(t => {
-        const team = (t.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
-        const client = t.clientId ? clients.find(c => c.id === t.clientId)?.name || "" : "";
-        const ops = (t.subs || []).flatMap(panel => (panel.subs || []).map(op => {
-          const opTeam = (op.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
-          return `  ${panel.title}/${op.title}: ${op.start}–${op.end}, ${op.hpd || "?"}h/day${opTeam ? `, assigned: ${opTeam}` : ""}`;
-        }));
-        return `Task "${t.title}"${t.jobNumber ? ` (#${t.jobNumber})` : ""}${client ? ` [${client}]` : ""}: status=${t.status}, dates=${t.start}–${t.end}, hpd=${t.hpd || "?"}${team ? `, team: ${team}` : ""}${ops.length > 0 ? `\n${ops.join("\n")}` : ""}`;
-      }).join("\n\n");
-      const sysPrompt = `You are TRAQS AI, a scheduling assistant for a steel/metal fabrication and electrical panel shop. Today is ${todayStr}.
-
-TEAM MEMBERS & WORKLOAD:
-${peopleCtx || "No team members."}
-
-ACTIVE TASKS:
-${jobsCtx || "No active tasks."}
-
-Answer the user's scheduling questions conversationally. Be specific: name actual people, jobs, and dates. When asked about overbooking, check if total hpd exceeds daily capacity. When suggesting redistribution, name specific people with available capacity. Keep responses focused and actionable (2-4 sentences unless detail is needed).`;
-
+      const sysPrompt = buildAskSysPrompt();
+      lastSysPromptRef.current = sysPrompt;
       const history = [...askHistory, { role: "user", content: q }];
       const messages = history.map(m => ({ role: m.role, content: m.content }));
-      const data = await callAI({ system: sysPrompt, messages, max_tokens: 1024 }, getToken);
-      const answer = data.content?.map(b => b.text || "").join("") || "Sorry, I couldn't get a response. Please try again.";
-      setAskHistory(h => [...h, { role: "assistant", content: answer }]);
+      const data = await callAI({ system: sysPrompt, messages, max_tokens: 1024, tools: AI_TOOLS, tool_choice: { type: "auto" } }, getToken);
+      const toolUseBlocks = (data.content || []).filter(b => b.type === "tool_use");
+      setAskHistory(h => [...h, { role: "assistant", content: data.content }]);
+      if (toolUseBlocks.length > 0) {
+        const textContent = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+        setPendingActions({ toolUses: toolUseBlocks, text: textContent });
+      }
     } catch (e) {
       setAskHistory(h => [...h, { role: "assistant", content: `Error: ${e.message}` }]);
     } finally {
@@ -2560,49 +2628,47 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
             </button>
-            {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Sort By</div>
+            {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
                 {[["date","Date"],["project","Task #"],["client","Client"]].map(([val,label]) => (
                   <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                 ))}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Client</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fStat === s || (s === "All" && fStat === "All") ? T.accent : T.border}`, background: fStat === s || (s === "All" && fStat === "All") ? T.accent + "22" : "transparent", color: fStat === s || (s === "All" && fStat === "All") ? T.accent : T.text, fontSize: 11, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>)}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Client</div>
               <select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer", marginBottom: 14 }}>
                 <option value="All">All Clients</option>
                 {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Person</div>
-              <select value={fPer} onChange={e => setFPer(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fPer !== "All" ? T.accent : T.border}`, background: T.surface, color: fPer !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer", marginBottom: 14 }}>
-                <option value="All">All People</option>
-                {people.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-              </select>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Task #</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Task #</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
                 <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
                 {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Expand / Collapse</div>
-              <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-                <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
-                <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role / Area</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 11, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
-                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Overloaded Only</span>
+                <button onClick={() => setFOverloaded(p => !p)} style={{ width: 36, height: 20, borderRadius: 10, background: fOverloaded ? T.accent : T.border, border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s", flexShrink: 0 }}>
+                  <div style={{ position: "absolute", top: 2, left: fOverloaded ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                </button>
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <input type="number" min="1" max="24" placeholder="e.g. 4" value={fHpd === "All" ? "" : fHpd}
-                  onChange={e => { const v = e.target.value; setFHpd(v === "" ? "All" : v); }}
-                  onClick={e => e.stopPropagation()}
-                  style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fHpd !== "All" ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                {fHpd !== "All" && <button onClick={() => setFHpd("All")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
+              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
+                <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
               </div>
-              {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
-                {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
-              </div>}
-              {(activeFilterCount > 0 || fClient !== "All") && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPer("All"); setFJobNum(""); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
         </div>
@@ -2911,16 +2977,16 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
           <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
             <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
             {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
-            <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${(fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent : T.border}`, background: (fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) ? T.accent : T.textSec }}>
+            <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+              {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
             </button>
-            {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 230, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+            {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
-                <select value={fStat} onChange={e => setFStat(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fStat !== "All" ? T.accent : T.border}`, background: T.surface, color: fStat !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                  <option value="All">All Statuses</option>
-                  {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}
+                </div>
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
@@ -2930,11 +2996,11 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                 </select>
               </div>
               <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Person</div>
-                <select value={fPer} onChange={e => setFPer(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fPer !== "All" ? T.accent : T.border}`, background: T.surface, color: fPer !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                  <option value="All">All People</option>
-                  {people.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-                </select>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                  {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
+                </div>
               </div>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Task #</div>
@@ -2951,7 +3017,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
                   ))}
                 </div>
               </div>
-              {(fStat !== "All" || fClient !== "All" || fPer !== "All" || fJobNum) && <button onClick={() => { setFStat("All"); setFClient("All"); setFPer("All"); setFJobNum(""); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
         </div>
@@ -3471,7 +3537,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
       if (fRole !== "All" && role?.toLowerCase() !== fRole.toLowerCase()) return;
       rowList.push({ type: "group", role, util: grpUtil(role) });
       if (!tCollapsed[role]) roleMap[role].forEach(p => {
-        if (fPer !== "All" && p.id !== +fPer) return;
+        if (fPers.length > 0 && !fPers.includes(String(p.id))) return;
         const bars = getPersonBars(p.id);
         rowList.push({ type: "person", person: p, util: getUtil(p.id), bars });
       });
@@ -3551,39 +3617,32 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
             {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
           </button>
-          {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 268, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 14, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Sort By</div>
+          {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
                 {[["date","Date"],["project","Task #"],["client","Client"]].map(([val,label]) => (
                   <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                 ))}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Role / Area</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
-                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 10px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 12, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 11, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>)}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Person</div>
-              <select value={fPer} onChange={e => setFPer(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fPer !== "All" ? T.accent : T.border}`, background: T.surface, color: fPer !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer", marginBottom: 14 }}>
-                <option value="All">All People</option>
-                {people.map(p => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
-              </select>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Task #</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Task #</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
                 <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
                 {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
               </div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Hours / Day</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                <input type="number" min="1" max="24" placeholder="e.g. 4" value={fHpd === "All" ? "" : fHpd}
-                  onChange={e => { const v = e.target.value; setFHpd(v === "" ? "All" : v); }}
-                  onClick={e => e.stopPropagation()}
-                  style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fHpd !== "All" ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                {fHpd !== "All" && <button onClick={() => setFHpd("All")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role / Area</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 11, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
               </div>
-              {uniqueHpd.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: activeFilterCount > 0 ? 12 : 0 }}>
-                {uniqueHpd.map(h => <button key={h} onClick={() => setFHpd(String(h))} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${fHpd === String(h) ? T.accent : T.border}`, background: fHpd === String(h) ? T.accent + "22" : "transparent", color: fHpd === String(h) ? T.accent : T.textSec, fontSize: 11, fontWeight: fHpd === String(h) ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{h}h</button>)}
-              </div>}
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFPer("All"); setFJobNum(""); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
         </div>}
@@ -5854,7 +5913,7 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
             <div style={{ fontSize: 11, color: T.textDim }}>AI scheduling assistant</div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-            {askHistory.length > 0 && <button onClick={() => setAskHistory([])} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.textDim, fontSize: 11, padding: "3px 8px", cursor: "pointer", fontFamily: T.font }}>Clear</button>}
+            {(askHistory.length > 0 || pendingActions) && <button onClick={() => { setAskHistory([]); setPendingActions(null); }} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.textDim, fontSize: 11, padding: "3px 8px", cursor: "pointer", fontFamily: T.font }}>Clear</button>}
             <button onClick={() => setAskOpen(false)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
           </div>
         </div>
@@ -5869,23 +5928,53 @@ Answer the user's scheduling questions conversationally. Be specific: name actua
               <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Ask about workloads, scheduling conflicts, job assignments, or anything about your team's capacity.</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", maxWidth: 320 }}>
-              {["Who is overbooked this week?", "Which jobs are at risk of running late?", "Who has capacity to take on more work?"].map(s => <button key={s} onClick={() => { setAskQ(s); askInputRef.current?.focus(); }} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "9px 14px", cursor: "pointer", fontSize: 12, color: T.textSec, textAlign: "left", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.text; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>{s}</button>)}
+              {["Who is overbooked this week?", "Which jobs are at risk of running late?", "Who has capacity to take on more work?", "Mark [job name] as finished", "Assign [person] to [job]"].map(s => <button key={s} onClick={() => { setAskQ(s); askInputRef.current?.focus(); }} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "9px 14px", cursor: "pointer", fontSize: 12, color: T.textSec, textAlign: "left", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.text; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>{s}</button>)}
             </div>
           </div>}
-          {askHistory.map((msg, i) => (
-            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 4 }}>
-              <div style={{ fontSize: 10, color: T.textDim, marginBottom: 2, padding: "0 4px" }}>{msg.role === "user" ? "You" : "TRAQS AI"}</div>
-              <div style={{ maxWidth: "88%", padding: "11px 14px", borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "4px 16px 16px 16px", background: msg.role === "user" ? T.accent : T.surface, color: msg.role === "user" ? T.accentText : T.text, fontSize: 13, lineHeight: 1.65, border: msg.role === "user" ? "none" : `1px solid ${T.border}`, whiteSpace: "pre-wrap" }}>
-                {msg.content}
+          {askHistory.map((msg, i) => {
+            // Don't render tool_result user messages (internal plumbing)
+            if (msg.role === "user" && Array.isArray(msg.content)) return null;
+            // For assistant messages, extract only text blocks
+            const displayText = Array.isArray(msg.content)
+              ? msg.content.filter(b => b.type === "text").map(b => b.text).join("").trim()
+              : msg.content;
+            if (!displayText) return null;
+            return (
+              <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 4 }}>
+                <div style={{ fontSize: 10, color: T.textDim, marginBottom: 2, padding: "0 4px" }}>{msg.role === "user" ? "You" : "TRAQS AI"}</div>
+                <div style={{ maxWidth: "88%", padding: "11px 14px", borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "4px 16px 16px 16px", background: msg.role === "user" ? T.accent : T.surface, color: msg.role === "user" ? T.accentText : T.text, fontSize: 13, lineHeight: 1.65, border: msg.role === "user" ? "none" : `1px solid ${T.border}`, whiteSpace: "pre-wrap" }}>
+                  {displayText}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {askLoading && <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <div style={{ padding: "11px 14px", borderRadius: "4px 16px 16px 16px", background: T.surface, border: `1px solid ${T.border}`, display: "flex", gap: 5, alignItems: "center" }}>
               {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: `bounce 1.2s ease-in-out ${i*0.18}s infinite` }}/>)}
             </div>
           </div>}
         </div>
+        {/* Pending Actions confirmation card */}
+        {pendingActions && (
+          <div style={{ margin: "0 16px 12px", background: T.surface, border: `1px solid ${T.accent}55`, borderRadius: 12, overflow: "hidden", flexShrink: 0 }}>
+            <div style={{ padding: "10px 14px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: T.accent }} />
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: "0.05em", textTransform: "uppercase" }}>TRAQS wants to</div>
+            </div>
+            <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 7 }}>
+              {pendingActions.toolUses.map((tu, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: T.text }}>
+                  <div style={{ width: 5, height: 5, borderRadius: "50%", background: T.textSec, flexShrink: 0, marginTop: 5 }} />
+                  <span>{describeAction(tu.name, tu.input)}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "8px 14px 14px", display: "flex", gap: 8 }}>
+              <button onClick={() => setPendingActions(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={executeConfirmedActions} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Confirm & Apply</button>
+            </div>
+          </div>
+        )}
         {/* Input */}
         <div style={{ padding: "14px 20px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 12px", transition: "border 0.15s", boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)" }}>
