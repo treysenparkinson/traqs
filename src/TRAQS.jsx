@@ -1013,6 +1013,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [templateNameInput, setTemplateNameInput] = useState("");
   const [dayDragInfo, setDayDragInfo] = useState(null);
   const [dayDragTarget, setDayDragTarget] = useState(null); // personId being hovered during team-day drag
+  const [teamDayGhost, setTeamDayGhost] = useState(null); // { left, top, width, height, color, label }
   const [uploadModal, setUploadModal] = useState(false);
   const [fastTraqsPhase, setFastTraqsPhase] = useState("intro"); // "intro" | "input"
   const [fastTraqsExiting, setFastTraqsExiting] = useState(false);
@@ -3556,6 +3557,17 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       const sx = e.clientX, sy = e.clientY;
       let moved = false;
       const pid = barTask.isSub ? barTask.pid : null;
+      // Measure the timeline area (right side of the row) at drag start
+      const timelineEl = e.currentTarget.parentElement; // position:relative flex div
+      const rowRect = timelineEl.getBoundingClientRect();
+      const timelineLeft = rowRect.left;
+      const timelineWidth = Math.max(rowRect.width, 1);
+      // Compute where within the bar we grabbed (in hours)
+      const cursorHourAtStart = DHS + (sx - timelineLeft) / timelineWidth * DNH;
+      const grabOffsetHours = mode === "move" ? Math.max(0, Math.min(origHpd, cursorHourAtStart - origHour)) : 0;
+      const grabOffsetPx = grabOffsetHours / DNH * timelineWidth;
+      const barH = rH - 8;
+      const barW = Math.max(8, origHpd / DNH * timelineWidth - 4);
       // Helper: which person row is under a given clientY
       const getPersonAtY = (clientY) => {
         const el = teamContainerRef.current; if (!el) return null;
@@ -3571,32 +3583,38 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       const onM = me => {
         const dx = me.clientX - sx;
         if (Math.abs(dx) > 8 || Math.abs(me.clientY - sy) > 10) moved = true;
-        if (!moved) return; // don't update task until we're truly dragging
-        const deltaH = (dx / tAvail) * DNH;
+        if (!moved) return;
+        setDayDragInfo({ itemId: barTask.id, mode });
         if (mode === "move") {
-          const snapped = Math.round((origHour + deltaH) * 4) / 4;
-          const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), snapped));
-          updTask(barTask.id, { startHour: clamped }, pid);
+          // Show ghost at cursor position (don't touch the actual task yet)
+          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: barTask.color, label: `${origHpd > 0 ? origHpd + "h · " : ""}${barTask.title || ""}` });
           const target = getPersonAtY(me.clientY);
           setDayDragTarget(target && target.id !== fromPersonId ? target.id : null);
         } else if (mode === "left") {
-          const newStart = Math.round((origHour + deltaH) * 4) / 4;
+          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
+          const newStart = Math.round(cursorHour * 4) / 4;
           const clamped = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
           updTask(barTask.id, { startHour: clamped, hpd: Math.round((origEnd - clamped) * 100) / 100 }, pid);
         } else {
-          const newEnd = Math.round((origEnd + deltaH) * 4) / 4;
+          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
+          const newEnd = Math.round(cursorHour * 4) / 4;
           const clamped = Math.max(origHour + 0.25, Math.min(DHE, newEnd));
           updTask(barTask.id, { hpd: Math.round((clamped - origHour) * 100) / 100 }, pid);
         }
-        setDayDragInfo({ itemId: barTask.id, mode });
       };
       const onU = (me) => {
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
-        if (mode === "move" && fromPersonId) {
+        if (moved && mode === "move") {
+          // Apply ghost's final position to the real task
+          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
+          const newStart = Math.round((cursorHour - grabOffsetHours) * 4) / 4;
+          const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), newStart));
+          updTask(barTask.id, { startHour: clamped }, pid);
           const target = getPersonAtY(me.clientY);
-          if (target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+          if (fromPersonId && target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
         }
+        setTeamDayGhost(null);
         setDayDragInfo(null);
         setDayDragTarget(null);
         if (!moved && mode === "move") openDetail(barTask);
@@ -3772,7 +3790,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                         return <div key={bar.id}
                           onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id); }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
-                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis?`0 4px 16px ${bar.color}66`:`0 2px 8px ${bar.color}33`,opacity:dayDragInfo&&!isDraggingThis?0.7:1,transition:"box-shadow 0.1s,opacity 0.1s"}}
+                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:1,transition:"box-shadow 0.1s,opacity 0.1s"}}
                           onMouseEnter={e=>{ if(!dayDragInfo) e.currentTarget.style.filter="brightness(1.1)"; }} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
@@ -5900,6 +5918,10 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto" }}>
       {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
+    {/* Team day-view drag ghost */}
+    {teamDayGhost && <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top, width: teamDayGhost.width, height: teamDayGhost.height, background: teamDayGhost.color, borderRadius: T.radiusXs, display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", boxShadow: `0 8px 24px ${teamDayGhost.color}66, 0 0 0 2px rgba(255,255,255,0.25)`, opacity: 0.92, pointerEvents: "none", zIndex: 9999, border: "1.5px solid rgba(255,255,255,0.3)" }}>
+      <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{teamDayGhost.label}</span>
+    </div>}
     {/* Ask TRAQS Panel */}
     {askOpen && <div style={{ position: "fixed", inset: 0, zIndex: 3000, display: "flex", justifyContent: "flex-end" }} onClick={() => setAskOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "95vw", height: "100%", background: T.card, borderLeft: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", animation: "slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
