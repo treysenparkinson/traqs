@@ -1279,11 +1279,18 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     }
     if (fJobNum && !String(t.jobNumber || "").toLowerCase().includes(fJobNum.toLowerCase())) return false;
     if (fOverloaded) {
-      const overloaded = (t.subs || []).some(panel => (panel.subs || []).some(op => (op.team || []).some(pid => { const p = people.find(x => x.id === pid); return p && bookedHrs(pid, TD) > (p.cap || 8); })));
+      // Inline booked-hours check (avoids referencing bookedHrs before it's defined)
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const overloaded = (t.subs || []).some(panel => (panel.subs || []).some(op => (op.team || []).some(pid => {
+        const person = people.find(x => x.id === pid); if (!person) return false;
+        const pOff = (person.timeOff || []).some(to => todayStr >= to.start && todayStr <= to.end); if (pOff) return false;
+        let h = 0; tasks.forEach(task => { (task.subs || []).forEach(pnl => { (pnl.subs || []).forEach(o => { if ((o.team || []).includes(pid) && todayStr >= o.start && todayStr <= o.end) h += (o.hpd || 0) / Math.max(1, (o.team || []).length); }); }); });
+        return h > (person.cap || 8);
+      })));
       if (!overloaded) return false;
     }
     return true;
-  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, people, bookedHrs, TD]);
+  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, people]);
   const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if (op.team.includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, op.team.length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if (t.team.includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, t.team.length); (t.subs || []).forEach(s => { if (s.team.includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, s.team.length); }); } }); return h; }, [tasks, isOff]);
