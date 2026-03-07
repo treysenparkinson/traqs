@@ -66,6 +66,35 @@ export async function handler(event) {
       messages.push(newMsg);
       // Keep last 2000 messages to prevent unbounded growth
       await writeJson(s3Key, messages.slice(-2000));
+
+      // Push notification to participants (excluding sender)
+      const appId  = process.env.ONESIGNAL_APP_ID;
+      const apiKey = process.env.ONESIGNAL_API_KEY;
+      if (appId && apiKey) {
+        const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
+        const people = await readJson(`orgs/${orgCode}/people.json`) ?? [];
+        const targetIds = (participantIds || [])
+          .filter(id => String(id) !== String(authorId))
+          .map(id => String(id));
+        const registered = people
+          .filter(p => p.pushToken && targetIds.includes(String(p.id)))
+          .map(p => String(p.id));
+        if (registered.length > 0) {
+          await fetch("https://onesignal.com/api/v1/notifications", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Basic ${apiKey}` },
+            body: JSON.stringify({
+              app_id: appId,
+              include_external_user_ids: registered,
+              channel_for_external_user_ids: "push",
+              headings: { en: `💬 ${authorName}` },
+              contents: { en: text?.trim() || "Sent an attachment" },
+              data: { threadKey, scope },
+            }),
+          }).catch(() => {});
+        }
+      }
+
       return json(200, newMsg);
     } catch (e) {
       console.error("messages POST error:", e);
