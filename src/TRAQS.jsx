@@ -601,6 +601,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
           notes:      { high: ["special instructions","additional notes","job notes","comments"], med: ["note","comment","remark","memo","instruction"] },
           poNumber:   { high: ["purchase order","po #","po#","po number","po"], med: ["purchase"] },
           level:      { high: ["sh","level","lvl","lv","indent","hierarchy","tier","type"], med: [] },
+          hpd:        { high: ["hours per day","hpd","hrs/day","hours/day","daily hours","h/day","hrs per day"], med: ["hours","hrs","hour"] },
         };
         const claimed = new Set();
         const map = {};
@@ -748,6 +749,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             const clientId = resolveClient(getV(row, C.client));
             const notes    = getV(row, C.notes);
             const poNum    = getV(row, C.poNumber);
+            const hpdRaw   = C.hpd !== undefined ? (parseFloat(getV(row, C.hpd)) || 0) : 0;
 
             // ── Detect row type ────────────────────────────────────────────
             let rowType = null;
@@ -812,7 +814,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
               } else if (!jobByNum[jNum]) {
                 curJob = { id: uid(), title: jTitle, jobNumber: jNum, start: startRaw, end: endRaw,
                   dueDate: dueRaw, pri: "Medium", status: "Not Started",
-                  team: personId ? [personId] : [], color: "#3b82f6", hpd: 7.5,
+                  team: personId ? [personId] : [], color: "#3b82f6", hpd: hpdRaw,
                   notes, clientId: clientId || null, poNumber: poNum, deps: [], subs: [] };
                 importedJobs.push(curJob);
                 jobByNum[jNum] = curJob;
@@ -835,7 +837,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
                   curJob = { id: uid(), title: pJobNum, jobNumber: pJobNum,
                     start: startRaw, end: endRaw, dueDate: dueRaw,
                     pri: "Medium", status: "Not Started", team: [], color: "#3b82f6",
-                    hpd: 7.5, notes: "", clientId: null, poNumber: "", deps: [], subs: [] };
+                    hpd: hpdRaw, notes: "", clientId: null, poNumber: "", deps: [], subs: [] };
                   importedJobs.push(curJob);
                   jobByNum[pJobNum] = curJob;
                   totalJobs++;
@@ -844,7 +846,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
 
               curPanel = { id: uid(), title: rawPanelId, start: startRaw, end: endRaw,
                 pri: "Medium", status: "Not Started",
-                team: personId ? [personId] : [], hpd: 7.5, notes, deps: [], subs: [] };
+                team: personId ? [personId] : [], hpd: hpdRaw, notes, deps: [], subs: [] };
               if (!curJob._existing) curJob.subs.push(curPanel);
 
             } else if (rowType === "op") {
@@ -862,7 +864,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
                     curPanel = already;
                   } else {
                     curPanel = { id: uid(), title: rawPanelId, start: startRaw, end: endRaw,
-                      pri: "Medium", status: "Not Started", team: [], hpd: 7.5,
+                      pri: "Medium", status: "Not Started", team: [], hpd: hpdRaw,
                       notes: "", deps: [], subs: [] };
                     if (!curJob._existing) curJob.subs.push(curPanel);
                   }
@@ -871,7 +873,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
               if (curPanel) {
                 curPanel.subs.push({ id: uid(), title: opTitle,
                   start: startRaw, end: endRaw, pri: "Medium", status: "Not Started",
-                  team: personId ? [personId] : [], hpd: 7.5, notes,
+                  team: personId ? [personId] : [], hpd: hpdRaw, notes,
                   deps: [], locked: false, subs: [] });
               }
             }
@@ -3125,7 +3127,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
               {fresh.clientId && <Badge t={"🏢 " + clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}
               <span style={{ fontSize: 14, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span><span style={{ color: T.textDim }}>·</span>{fresh.hpd}h/day
+                <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span>{fresh.hpd > 0 && <><span style={{ color: T.textDim }}> · </span>{fresh.hpd}h/day</>}
               </span>
               <ColorSlidingPill
                 options={STATUSES.map(s => ({ value: s, label: s, color: STA_C[s] }))}
@@ -3554,12 +3556,13 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
     const tW = lW + days.length * cW;
     const totalH = rowList.reduce((s, r) => s + (r.type === "group" ? grpH : rH), 0) + 56;
     // Team day-view bar drag
-    const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null) => {
+    // rawBarS/rawBarE: actual visual start/end hours from barPositions (may differ from barTask.startHour/hpd when auto-stacked)
+    const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null, rawBarS = null, rawBarE = null) => {
       if (!barTask) return;
       e.preventDefault(); e.stopPropagation();
       const DHS = 5, DHE = 21, DNH = 16;
-      const origHour = barTask.startHour ?? 8;
-      const origHpd = barTask.hpd || 0;
+      const origHour = rawBarS ?? (barTask.startHour ?? 8);
+      const origHpd = rawBarE != null ? (rawBarE - origHour) : (barTask.hpd || 0);
       const origEnd = origHour + origHpd;
       const sx = e.clientX, sy = e.clientY;
       let moved = false;
@@ -3574,7 +3577,9 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       const grabOffsetHours = mode === "move" ? Math.max(0, Math.min(origHpd, cursorHourAtStart - origHour)) : 0;
       const grabOffsetPx = grabOffsetHours / DNH * timelineWidth;
       const barH = rH - 8;
-      const barW = Math.max(8, origHpd / DNH * timelineWidth - 4);
+      // Use actual visual duration (origHpd from rawBarE-rawBarS, or 2h fallback for no-hours bars)
+      const visualDuration = origHpd > 0 ? origHpd : 2;
+      const barW = Math.max(32, visualDuration / DNH * timelineWidth - 4);
       // Helper: which person row is under a given clientY
       const getPersonAtY = (clientY) => {
         const el = teamContainerRef.current; if (!el) return null;
@@ -3593,8 +3598,11 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
         if (!moved) return;
         setDayDragInfo({ itemId: barTask.id, mode });
         if (mode === "move") {
-          // Show ghost at cursor position (don't touch the actual task yet)
-          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: barTask.color, label: `${origHpd > 0 ? origHpd + "h · " : ""}${barTask.title || ""}` });
+          // Compute drop hour for tooltip
+          const dropHour = Math.max(DHS, Math.min(DHE - origHpd, (DHS + (me.clientX - grabOffsetPx - timelineLeft) / timelineWidth * DNH)));
+          const dropH = Math.floor(dropHour), dropM = Math.round((dropHour % 1) * 60);
+          const dropLabel = `${dropH > 12 ? dropH - 12 : dropH === 0 ? 12 : dropH}:${String(dropM).padStart(2,"0")} ${dropH >= 12 ? "PM" : "AM"}`;
+          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: barTask.color, label: `${barTask.title || ""}`, time: dropLabel });
           const target = getPersonAtY(me.clientY);
           setDayDragTarget(target && target.id !== fromPersonId ? target.id : null);
         } else if (mode === "left") {
@@ -3795,7 +3803,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                         if (visE <= visS) return null;
                         const isDraggingThis = dayDragInfo?.itemId === bar.task?.id;
                         return <div key={bar.id}
-                          onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id); }}
+                          onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
                           style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:1,transition:"box-shadow 0.1s,opacity 0.1s"}}
                           onMouseEnter={e=>{ if(!dayDragInfo) e.currentTarget.style.filter="brightness(1.1)"; }} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
@@ -5473,10 +5481,14 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                         <div style={{ width: 6, height: 6, borderRadius: 3, background: opColor, flexShrink: 0 }} />
                         <input value={op.title} onChange={e => updateOp({ title: e.target.value })} style={{ flex: 1, minWidth: 60, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, fontFamily: T.font, boxSizing: "border-box" }} />
                         <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(op.start)} → {fm(op.end)}</span>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                          <label style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap" }}>hrs/day</label>
-                          <input type="number" min="0.5" max="12" step="0.5" value={op.hpd ?? 7.5} onChange={e => updateOp({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, textAlign: "center", boxSizing: "border-box" }} />
-                        </div>
+                        {op.hpd > 0 ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                            <label style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap" }}>hrs/day</label>
+                            <input type="number" min="0" max="12" step="0.5" value={op.hpd} onChange={e => updateOp({ hpd: parseFloat(e.target.value) || 0 })} style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, textAlign: "center", boxSizing: "border-box" }} />
+                          </div>
+                        ) : (
+                          <button onClick={() => updateOp({ hpd: 7.5 })} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 11, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap", flexShrink: 0 }}>+ hrs</button>
+                        )}
                         <button onClick={() => { const newSubs = [...ed.subs]; newSubs[pi] = { ...newSubs[pi], subs: newSubs[pi].subs.filter((_, j) => j !== oi) }; setEd(prev => ({ ...prev, subs: newSubs })); }} style={{ padding: "3px 7px", borderRadius: 5, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
                       </div>
                       {/* Person assignment */}
@@ -5498,7 +5510,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                     </div>;
                   })}
                   {/* Add Op button */}
-                  <button onClick={() => { const newSubs = [...ed.subs]; newSubs[pi] = { ...newSubs[pi], subs: [...(newSubs[pi].subs || []), { id: null, title: "New Op", start: panel.start, end: panel.end, status: "Not Started", pri: "High", team: [], hpd: 7.5, notes: "", deps: [] }] }; setEd(prev => ({ ...prev, subs: newSubs })); }} style={{ marginTop: 4, padding: "5px 14px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, width: "100%", transition: "all 0.15s" }}
+                  <button onClick={() => { const newSubs = [...ed.subs]; newSubs[pi] = { ...newSubs[pi], subs: [...(newSubs[pi].subs || []), { id: null, title: "New Op", start: panel.start, end: panel.end, status: "Not Started", pri: "High", team: [], hpd: 0, notes: "", deps: [] }] }; setEd(prev => ({ ...prev, subs: newSubs })); }} style={{ marginTop: 4, padding: "5px 14px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, width: "100%", transition: "all 0.15s" }}
                     onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
                     onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
                     + Add Op
@@ -5926,9 +5938,12 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     {/* Team day-view drag ghost */}
-    {teamDayGhost && <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top, width: teamDayGhost.width, height: teamDayGhost.height, background: teamDayGhost.color, borderRadius: T.radiusXs, display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", boxShadow: `0 8px 24px ${teamDayGhost.color}66, 0 0 0 2px rgba(255,255,255,0.25)`, opacity: 0.92, pointerEvents: "none", zIndex: 9999, border: "1.5px solid rgba(255,255,255,0.3)" }}>
-      <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{teamDayGhost.label}</span>
-    </div>}
+    {teamDayGhost && <>
+      <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top, width: teamDayGhost.width, height: teamDayGhost.height, background: teamDayGhost.color, borderRadius: T.radiusXs, display: "flex", alignItems: "center", padding: "0 10px", overflow: "hidden", boxShadow: `0 8px 24px ${teamDayGhost.color}66, 0 0 0 2px rgba(255,255,255,0.3)`, opacity: 0.88, pointerEvents: "none", zIndex: 9999, border: "1.5px solid rgba(255,255,255,0.35)" }}>
+        <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{teamDayGhost.label}</span>
+      </div>
+      {teamDayGhost.time && <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top - 24, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${teamDayGhost.color}88`, backdropFilter: "blur(4px)", fontFamily: T.mono }}>{teamDayGhost.time}</div>}
+    </>}
     {/* Ask TRAQS Panel */}
     {askOpen && <div style={{ position: "fixed", inset: 0, zIndex: 3000, display: "flex", justifyContent: "flex-end" }} onClick={() => setAskOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "95vw", height: "100%", background: T.card, borderLeft: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", animation: "slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
