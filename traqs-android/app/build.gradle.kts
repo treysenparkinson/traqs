@@ -1,7 +1,6 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -15,7 +14,6 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Auth0 redirect scheme — register traqs://matrixpci.us.auth0.com/android/com.matrixsystems.traqs/callback in Auth0 dashboard
         manifestPlaceholders["auth0Scheme"] = "traqs"
         manifestPlaceholders["auth0Domain"] = "matrixpci.us.auth0.com"
     }
@@ -38,6 +36,11 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    // For Kotlin 1.9.x, Compose compiler version is set here (not via plugin)
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
 }
 
