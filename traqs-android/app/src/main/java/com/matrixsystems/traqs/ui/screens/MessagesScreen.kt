@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavHostController
 import com.matrixsystems.traqs.models.Message
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.theme.parseColor
@@ -27,7 +28,11 @@ import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MessagesScreen(appState: AppState) {
+fun MessagesScreen(
+    appState: AppState,
+    navController: NavHostController? = null,
+    onAskTRAQS: () -> Unit = {}
+) {
     val c = traQSColors
     val messages by appState.messages.collectAsState()
     val jobs by appState.jobs.collectAsState()
@@ -58,10 +63,7 @@ fun MessagesScreen(appState: AppState) {
         Scaffold(
             containerColor = c.bg,
             topBar = {
-                TopAppBar(
-                    title = { Text("Messages", fontWeight = FontWeight.Bold, color = c.text) },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
-                )
+                TRAQSHeader(onAskTRAQS = onAskTRAQS)
             }
         ) { padding ->
             if (threads.isEmpty()) {

@@ -34,7 +34,8 @@ fun MoreScreen(
     authManager: AuthManager,
     themeSettings: ThemeSettings,
     navController: NavHostController,
-    activity: Activity
+    activity: Activity,
+    onAskTRAQS: () -> Unit = { navController.navigate(Screen.AskTRAQS.route) }
 ) {
     val c = traQSColors
     val person = appState.currentPerson
@@ -44,9 +45,10 @@ fun MoreScreen(
     Scaffold(
         containerColor = c.bg,
         topBar = {
-            TopAppBar(
-                title = { Text("More", fontWeight = FontWeight.Bold, color = c.text) },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+            TRAQSHeader(
+
+                onAskTRAQS = onAskTRAQS,
+
             )
         }
     ) { padding ->

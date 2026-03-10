@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.navigation.NavHostController
 import com.matrixsystems.traqs.models.Client
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.theme.parseColor
@@ -26,7 +27,11 @@ import java.util.UUID
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ClientsScreen(appState: AppState) {
+fun ClientsScreen(
+    appState: AppState,
+    navController: NavHostController? = null,
+    onAskTRAQS: () -> Unit = {}
+) {
     val c = traQSColors
     val clients by appState.clients.collectAsState()
     var searchText by remember { mutableStateOf("") }
@@ -41,14 +46,15 @@ fun ClientsScreen(appState: AppState) {
     Scaffold(
         containerColor = c.bg,
         topBar = {
-            TopAppBar(
-                title = { Text("Clients", fontWeight = FontWeight.Bold, color = c.text) },
+            TRAQSHeader(
+
+                onAskTRAQS = onAskTRAQS,
                 actions = {
                     IconButton(onClick = { showNewClient = true }) {
                         Icon(Icons.Default.Add, "Add Client", tint = c.accent)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+
             )
         }
     ) { padding ->

@@ -8,14 +8,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.services.AuthManager
-import com.matrixsystems.traqs.ui.theme.parseColor
 import com.matrixsystems.traqs.ui.theme.traQSColors
 
 @Composable
@@ -46,18 +45,12 @@ fun LoginScreen(
         ) {
             Spacer(Modifier.weight(1f))
 
-            // Logo / Brand
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "TRAQS",
-                    fontSize = 52.sp,
-                    fontWeight = FontWeight.Black,
-                    style = LocalTextStyle.current.copy(
-                        brush = Brush.horizontalGradient(
-                            listOf(c.accent, parseColor("#2563eb"))
-                        )
-                    )
-                )
+            // Logo centered at the top half
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                TRAQSLogo(height = 80.dp)
                 Text(
                     text = "Scheduling & Production Management",
                     fontSize = 14.sp,
@@ -70,7 +63,9 @@ fun LoginScreen(
 
             // Sign in button
             Column(
-                modifier = Modifier.padding(bottom = 48.dp),
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(bottom = 32.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -86,7 +81,7 @@ fun LoginScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = c.accent)
                     ) {
                         Text(
-                            text = "Sign In with Auth0",
+                            text = "Sign In",
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 16.sp,
                             color = Color.White

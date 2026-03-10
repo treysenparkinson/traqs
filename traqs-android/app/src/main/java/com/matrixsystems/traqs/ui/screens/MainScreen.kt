@@ -22,7 +22,7 @@ import com.matrixsystems.traqs.ui.navigation.Screen
 import com.matrixsystems.traqs.ui.theme.traQSColors
 
 sealed class BottomTab(val route: String, val label: String, val icon: ImageVector) {
-    object Schedule : BottomTab("tab_schedule", "Schedule", Icons.Default.CalendarToday)
+    object Home : BottomTab("tab_home", "Schedule", Icons.Default.Home)
     object Jobs : BottomTab("tab_jobs", "Jobs", Icons.Default.Checklist)
     object Clients : BottomTab("tab_clients", "Clients", Icons.Default.Business)
     object Messages : BottomTab("tab_messages", "Messages", Icons.Default.Forum)
@@ -30,7 +30,7 @@ sealed class BottomTab(val route: String, val label: String, val icon: ImageVect
 }
 
 val BOTTOM_TABS = listOf(
-    BottomTab.Schedule, BottomTab.Jobs, BottomTab.Clients, BottomTab.Messages, BottomTab.More
+    BottomTab.Home, BottomTab.Jobs, BottomTab.Clients, BottomTab.Messages, BottomTab.More
 )
 
 @Composable
@@ -44,7 +44,6 @@ fun MainScreen(
     val c = traQSColors
     val tabNavController = rememberNavController()
     val saveStatus by appState.saveStatus.collectAsState()
-    val isLoading by appState.isLoading.collectAsState()
     val currentBackStack by tabNavController.currentBackStackEntryAsState()
     val currentRoute = currentBackStack?.destination?.route
 
@@ -87,20 +86,36 @@ fun MainScreen(
         ) {
             NavHost(
                 navController = tabNavController,
-                startDestination = BottomTab.Schedule.route,
+                startDestination = BottomTab.Home.route,
                 modifier = Modifier.fillMaxSize()
             ) {
-                composable(BottomTab.Schedule.route) {
-                    GanttScreen(appState = appState, navController = navController)
+                composable(BottomTab.Home.route) {
+                    HomeScreen(
+                        appState = appState,
+                        navController = navController,
+                        onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
+                    )
                 }
                 composable(BottomTab.Jobs.route) {
-                    JobsScreen(appState = appState, navController = navController)
+                    JobsScreen(
+                        appState = appState,
+                        navController = navController,
+                        onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
+                    )
                 }
                 composable(BottomTab.Clients.route) {
-                    ClientsScreen(appState = appState)
+                    ClientsScreen(
+                        appState = appState,
+                        navController = navController,
+                        onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
+                    )
                 }
                 composable(BottomTab.Messages.route) {
-                    MessagesScreen(appState = appState)
+                    MessagesScreen(
+                        appState = appState,
+                        navController = navController,
+                        onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
+                    )
                 }
                 composable(BottomTab.More.route) {
                     MoreScreen(
@@ -108,7 +123,8 @@ fun MainScreen(
                         authManager = authManager,
                         themeSettings = themeSettings,
                         navController = navController,
-                        activity = activity
+                        activity = activity,
+                        onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
                     )
                 }
             }

@@ -5,11 +5,13 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.material3.pulltorefresh.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,7 +31,8 @@ import com.matrixsystems.traqs.ui.theme.traQSColors
 @Composable
 fun JobsScreen(
     appState: AppState,
-    navController: NavHostController
+    navController: NavHostController,
+    onAskTRAQS: () -> Unit = { navController.navigate(Screen.AskTRAQS.route) }
 ) {
     val c = traQSColors
     val jobs by appState.jobs.collectAsState()
@@ -37,7 +40,6 @@ fun JobsScreen(
     var searchText by remember { mutableStateOf("") }
     var filterStatus by remember { mutableStateOf<JobStatus?>(null) }
     var showJobEdit by remember { mutableStateOf(false) }
-    var showFastTRAQS by remember { mutableStateOf(false) }
     val engQueue = appState.engineeringQueue
 
     val filteredJobs = remember(jobs, searchText, filterStatus) {
@@ -50,40 +52,31 @@ fun JobsScreen(
         }.sortedBy { it.start }
     }
 
-    val pullState = rememberPullToRefreshState()
-    if (pullState.isRefreshing) {
-        LaunchedEffect(true) {
-            appState.loadAll()
-            pullState.endRefresh()
-        }
-    }
-
     Scaffold(
         containerColor = c.bg,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text("Jobs", fontWeight = FontWeight.Bold, color = c.text)
-                },
-                navigationIcon = {
-                    TextButton(onClick = { showFastTRAQS = true }) {
-                        Text("⚡ Fast", color = c.accent, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                    }
-                },
+            TRAQSHeader(
+
+                onAskTRAQS = onAskTRAQS,
                 actions = {
                     IconButton(onClick = { appState.undo() }, enabled = appState.canUndo) {
                         Icon(Icons.Default.Undo, "Undo", tint = if (appState.canUndo) c.accent else c.muted)
                     }
-                    IconButton(onClick = { showJobEdit = true }) {
-                        Icon(Icons.Default.Add, "Add Job", tint = c.accent)
+                    TextButton(
+                        onClick = { showJobEdit = true },
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                    ) {
+                        Icon(Icons.Default.Add, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(2.dp))
+                        Text("New Task", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+
             )
         }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            PullToRefreshBox(state = pullState, isRefreshing = isLoading, onRefresh = { appState.loadAll() }) {
+            PullToRefreshBox(isRefreshing = isLoading, onRefresh = { appState.loadAll() }) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().background(c.bg),
                     contentPadding = PaddingValues(bottom = 16.dp)
@@ -166,14 +159,10 @@ fun JobsScreen(
         navController.navigate(Screen.JobEdit.createRoute(null))
         showJobEdit = false
     }
-    if (showFastTRAQS) {
-        navController.navigate(Screen.FastTRAQS.route)
-        showFastTRAQS = false
-    }
 }
 
 @Composable
-fun JobRow(job: Job, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun JobRow(job: TRAQSJob, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = traQSColors
     val jobColor = try { parseColor(job.color) } catch (_: Exception) { c.accent }
 
@@ -185,15 +174,6 @@ fun JobRow(job: Job, onClick: () -> Unit, modifier: Modifier = Modifier) {
         border = BorderStroke(1.dp, c.border)
     ) {
         Row(modifier = Modifier.fillMaxWidth()) {
-            // Colored left accent bar
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp))
-                    .background(jobColor)
-                    .align(Alignment.CenterVertically)
-            )
             Box(modifier = Modifier.width(4.dp).height(64.dp).background(jobColor))
 
             Column(
@@ -245,7 +225,7 @@ fun JobRow(job: Job, onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun EngineeringQueueSection(appState: AppState, queue: List<Pair<Job, Panel>>) {
+fun EngineeringQueueSection(appState: AppState, queue: List<Pair<TRAQSJob, Panel>>) {
     val c = traQSColors
     var isExpanded by remember { mutableStateOf(true) }
 
@@ -307,7 +287,7 @@ fun EngineeringQueueSection(appState: AppState, queue: List<Pair<Job, Panel>>) {
 }
 
 @Composable
-fun EngineeringCard(job: Job, panel: Panel, appState: AppState) {
+fun EngineeringCard(job: TRAQSJob, panel: Panel, appState: AppState) {
     val c = traQSColors
     val steps = EngStep.entries
     val eng = panel.engineering
@@ -334,7 +314,6 @@ fun EngineeringCard(job: Job, panel: Panel, appState: AppState) {
                 Text(panel.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = c.text, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             }
 
-            // Steps progress
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(0.dp)
@@ -368,7 +347,6 @@ fun EngineeringCard(job: Job, panel: Panel, appState: AppState) {
                 }
             }
 
-            // Sign-off button
             if (activeIdx < 3 && person != null) {
                 val step = EngStep.fromIndex(activeIdx)
                 if (step != null) {
@@ -388,6 +366,3 @@ fun EngineeringCard(job: Job, panel: Panel, appState: AppState) {
         }
     }
 }
-
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.BasicTextField

@@ -22,7 +22,6 @@ sealed class Screen(val route: String) {
     object JobEdit : Screen("job_edit/{jobId}") {
         fun createRoute(jobId: String?) = "job_edit/${jobId ?: "new"}"
     }
-    object FastTRAQS : Screen("fast_traqs")
     object AskTRAQS : Screen("ask_traqs")
     object Analytics : Screen("analytics")
     object Customize : Screen("customize")
@@ -42,12 +41,10 @@ fun TRAQSNavGraph(
 
     val isAuthenticated by authManager.isAuthenticated.collectAsState()
     val orgCode by appState.orgCode.collectAsState()
-    val jobs by appState.jobs.collectAsState()
-    val people by appState.people.collectAsState()
 
     val startDestination = when {
         !isAuthenticated -> Screen.Login.route
-        orgCode.isEmpty() || (jobs.isEmpty() && people.isEmpty()) -> Screen.OrgCode.route
+        orgCode.isEmpty() -> Screen.OrgCode.route
         else -> Screen.Main.route
     }
 
@@ -117,13 +114,6 @@ fun TRAQSNavGraph(
             )
         }
 
-        composable(Screen.FastTRAQS.route) {
-            FastTRAQSScreen(
-                appState = appState,
-                onDismiss = { navController.popBackStack() }
-            )
-        }
-
         composable(Screen.AskTRAQS.route) {
             AskTRAQSScreen(
                 appState = appState,
@@ -155,7 +145,8 @@ fun TRAQSNavGraph(
         composable(Screen.Gantt.route) {
             GanttScreen(
                 appState = appState,
-                navController = navController
+                navController = navController,
+                onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
             )
         }
     }
