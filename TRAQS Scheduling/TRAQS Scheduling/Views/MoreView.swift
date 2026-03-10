@@ -3,6 +3,7 @@ import SwiftUI
 struct MoreView: View {
     @Environment(AuthManager.self) private var auth
     @Environment(AppState.self) private var appState
+    @Environment(ThemeSettings.self) private var themeSettings
     @State private var showFastTRAQS = false
 
     var body: some View {
@@ -62,10 +63,15 @@ struct MoreView: View {
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
             }
-            .navigationTitle("More")
+            .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarColorScheme(themeSettings.isLightTheme ? .light : .dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    TRAQSNavHeader(tabName: "More")
+                }
+            }
             .sheet(isPresented: $showFastTRAQS) { FastTRAQSView() }
             .safeAreaInset(edge: .bottom) {
                 if let person = appState.currentPerson {

@@ -231,7 +231,7 @@ struct DayCell: View {
                 Text(String(date.dayOfWeek.prefix(1)))
                     .font(.system(size: 11))
                     .foregroundColor(
-                        isSelected ? .white :
+                        isSelected ? Color(hex: T.accent) :
                         isWeekend ? Color(hex: T.danger) :
                         Color(hex: T.muted)
                     )
