@@ -21,38 +21,38 @@ struct MainTabView: View {
                 .tabItem { Label("More", systemImage: "ellipsis.circle") }
         }
         .tint(Color(hex: T.accent))
-        .overlay(alignment: .top) {
-            saveStatusBanner
+        .overlay(alignment: .topTrailing) {
+            SaveStatusDot()
+                .padding(.top, 22)
+                .padding(.trailing, 16)
         }
     }
+}
 
-    @ViewBuilder
-    private var saveStatusBanner: some View {
+// MARK: - Save Status Dot
+
+private struct SaveStatusDot: View {
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
         switch appState.saveStatus {
         case .saving:
-            HStack(spacing: 6) {
-                ProgressView().scaleEffect(0.7).tint(.white)
-                Text("Saving…").font(.caption).foregroundColor(.white)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color(hex: T.surface).opacity(0.9))
-            .cornerRadius(20)
-            .padding(.top, 8)
-            .transition(.move(edge: .top).combined(with: .opacity))
+            ProgressView()
+                .scaleEffect(0.75)
+                .tint(Color(hex: T.accent))
+                .frame(width: 28, height: 28)
+                .background(Color(hex: T.surface).opacity(0.92))
+                .clipShape(Circle())
+                .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
+                .transition(.opacity)
         case .saved:
-            HStack(spacing: 6) {
-                Image(systemName: "checkmark").font(.caption).foregroundColor(Color(hex: T.statusFinished))
-                Text("Saved").font(.caption).foregroundColor(Color(hex: T.text))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Color(hex: T.surface).opacity(0.9))
-            .cornerRadius(20)
-            .padding(.top, 8)
-            .transition(.move(edge: .top).combined(with: .opacity))
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 26))
+                .foregroundColor(Color(hex: T.statusFinished))
+                .shadow(color: .black.opacity(0.12), radius: 4, x: 0, y: 2)
+                .transition(.opacity)
         default:
-            EmptyView()
+            Color.clear.frame(width: 28, height: 28)
         }
     }
 }
