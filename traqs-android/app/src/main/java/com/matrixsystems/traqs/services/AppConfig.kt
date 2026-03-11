@@ -14,6 +14,6 @@ object AppConfig {
     }
 
     object OneSignal {
-        const val APP_ID = "41fd1ecb-1bcb-432f-8e0b-2192801d96f4"
+        const val APP_ID = "e254cf4f-9233-4df6-93c2-568bfa57d61e"
     }
 }
