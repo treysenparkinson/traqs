@@ -13,6 +13,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,12 +46,15 @@ fun HomeScreen(
     val currentPerson = appState.currentPerson
     val fmt = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
 
-    // Current week Monday–Sunday
-    val weekDays = remember {
+    // Week offset — 0 = current week, -1 = last week, +1 = next week, etc.
+    var weekOffset by remember { mutableStateOf(0) }
+
+    // Monday–Sunday for the offset week
+    val weekDays = remember(weekOffset) {
         val cal = Calendar.getInstance()
         val dow = cal.get(Calendar.DAY_OF_WEEK)
         val daysToMon = if (dow == Calendar.SUNDAY) -6 else 2 - dow
-        cal.add(Calendar.DAY_OF_YEAR, daysToMon)
+        cal.add(Calendar.DAY_OF_YEAR, daysToMon + weekOffset * 7)
         (0..6).map { offset ->
             Calendar.getInstance().apply {
                 timeInMillis = cal.timeInMillis
@@ -59,7 +64,7 @@ fun HomeScreen(
     }
 
     // Jobs active this week
-    val weekJobs = remember(jobs) {
+    val weekJobs = remember(jobs, weekOffset) {
         val ws = weekDays.first().timeInMillis
         val we = Calendar.getInstance().apply {
             timeInMillis = weekDays.last().timeInMillis
@@ -85,12 +90,21 @@ fun HomeScreen(
         }
     }
 
-    // Selected day — defaults to today
+    // Selected day — defaults to today on current week, else first day of week
     var selectedDay by remember {
         mutableStateOf(weekDays.firstOrNull { d ->
             d.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR) &&
                 d.get(Calendar.YEAR) == today.get(Calendar.YEAR)
         } ?: weekDays.first())
+    }
+
+    // When week changes, update selected day
+    LaunchedEffect(weekOffset) {
+        selectedDay = weekDays.firstOrNull { d ->
+            weekOffset == 0 &&
+                d.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR) &&
+                d.get(Calendar.YEAR) == today.get(Calendar.YEAR)
+        } ?: weekDays.first()
     }
 
     // Jobs active on the selected day
@@ -116,19 +130,7 @@ fun HomeScreen(
     Scaffold(
         containerColor = c.bg,
         topBar = {
-            TRAQSHeader(
-                onAskTRAQS = onAskTRAQS,
-                actions = {
-                    TextButton(
-                        onClick = { navController.navigate(Screen.JobEdit.createRoute(null)) },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                    ) {
-                        Icon(Icons.Default.Add, null, tint = c.accent, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(2.dp))
-                        Text("New Task", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            )
+            TRAQSHeader()
         }
     ) { padding ->
         var selectedTab by remember { mutableStateOf(0) } // 0 = My Tasks, 1 = Active This Week
@@ -139,13 +141,31 @@ fun HomeScreen(
                 .padding(padding)
                 .background(c.bg)
         ) {
+            PageActionBar(title = "Schedule", onAskTRAQS = onAskTRAQS) {
+                Button(
+                    onClick = { navController.navigate(Screen.JobEdit.createRoute(null)) },
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    modifier = Modifier.height(34.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = c.accent)
+                ) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("New Task", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+
             // Week calendar strip (stays fixed while content slides)
             WeekCalendarStrip(
                 weekDays = weekDays,
                 today = today,
                 selectedDay = selectedDay,
                 onDaySelected = { selectedDay = it },
-                jobsForDay = ::jobsForDay
+                jobsForDay = ::jobsForDay,
+                onPrevWeek = { weekOffset-- },
+                onNextWeek = { weekOffset++ },
+                weekOffset = weekOffset,
+                onToday = { weekOffset = 0 }
             )
 
             // Animated toggle pill
@@ -240,7 +260,11 @@ fun WeekCalendarStrip(
     today: Calendar,
     selectedDay: Calendar,
     onDaySelected: (Calendar) -> Unit,
-    jobsForDay: (Calendar) -> List<TRAQSJob>
+    jobsForDay: (Calendar) -> List<TRAQSJob>,
+    onPrevWeek: () -> Unit = {},
+    onNextWeek: () -> Unit = {},
+    weekOffset: Int = 0,
+    onToday: () -> Unit = {}
 ) {
     val c = traQSColors
     val dayNames = listOf("M", "T", "W", "T", "F", "S", "S")
@@ -255,15 +279,48 @@ fun WeekCalendarStrip(
         border = BorderStroke(1.dp, c.border)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(
-                monthFmt.format(weekDays[0].time),
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 14.sp,
-                color = c.muted
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                IconButton(onClick = onPrevWeek, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.KeyboardArrowLeft,
+                        contentDescription = "Previous week",
+                        tint = c.muted,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text(
+                        monthFmt.format(weekDays[0].time),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        color = c.muted
+                    )
+                }
+                if (weekOffset != 0) {
+                    TextButton(
+                        onClick = onToday,
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Today", fontSize = 12.sp, color = c.accent, fontWeight = FontWeight.Bold)
+                    }
+                }
+                IconButton(onClick = onNextWeek, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.KeyboardArrowRight,
+                        contentDescription = "Next week",
+                        tint = c.muted,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
 
             Row(
                 modifier = Modifier.fillMaxWidth(),

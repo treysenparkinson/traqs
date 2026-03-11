@@ -30,8 +30,10 @@ fun AnalyticsScreen(appState: AppState, onBack: () -> Unit) {
     val totalJobs = jobs.size
     val activeJobs = jobs.count { it.status == JobStatus.IN_PROGRESS }
     val finishedJobs = jobs.count { it.status == JobStatus.FINISHED }
+    val completionPct = if (totalJobs > 0) (finishedJobs * 100 / totalJobs) else 0
     val totalPanels = jobs.sumOf { it.subs.size }
     val totalOps = jobs.sumOf { job -> job.subs.sumOf { it.subs.size } }
+    val engQueueCount = appState.engineeringQueue.size
 
     // Workload per person
     val personWorkload = remember(jobs, people) {
@@ -76,6 +78,13 @@ fun AnalyticsScreen(appState: AppState, onBack: () -> Unit) {
                     StatCard("Panels", "$totalPanels", Icons.Default.Layers, Modifier.weight(1f))
                     StatCard("Operations", "$totalOps", Icons.Default.List, Modifier.weight(1f))
                     StatCard("Team", "${people.size}", Icons.Default.People, Modifier.weight(1f))
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StatCard("Complete", "$completionPct%", Icons.Default.CheckCircle, Modifier.weight(1f), c.statusFinished)
+                    StatCard("Eng Queue", "$engQueueCount", Icons.Default.Build, Modifier.weight(1f), c.statusPending)
+                    Spacer(Modifier.weight(1f))
                 }
             }
 

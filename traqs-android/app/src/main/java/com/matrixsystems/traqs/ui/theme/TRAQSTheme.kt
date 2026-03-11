@@ -16,6 +16,7 @@ data class TRAQSColors(
     val text: Color,
     val muted: Color,
     val accent: Color,
+    val isLight: Boolean = false,
     val danger: Color = Color(0xFFF43F5E),
     val eng: Color = Color(0xFF7C3AED),
     val statusNotStarted: Color = Color(0xFF94A3B8),
@@ -59,7 +60,8 @@ fun BgPreset.toTRAQSColors(accent: String) = TRAQSColors(
     border = parseColor(border),
     text = parseColor(text),
     muted = parseColor(muted),
-    accent = parseColor(accent)
+    accent = parseColor(accent),
+    isLight = isLight
 )
 
 @Composable

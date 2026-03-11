@@ -32,7 +32,7 @@ fun FastTRAQSScreen(appState: AppState, onDismiss: () -> Unit) {
     val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
 
     // Operations assigned to this person that are active or coming up
-    data class OpEntry(val job: Job, val panel: Panel, val op: Operation)
+    data class OpEntry(val job: TRAQSJob, val panel: Panel, val op: Operation)
     val myOps = remember(jobs, person) {
         if (person == null) return@remember emptyList()
         jobs.flatMap { job ->
@@ -120,7 +120,7 @@ fun FastTRAQSScreen(appState: AppState, onDismiss: () -> Unit) {
 
 @Composable
 fun FastTRAQSOpCard(
-    job: Job,
+    job: TRAQSJob,
     panel: Panel,
     op: Operation,
     onToggle: (JobStatus) -> Unit

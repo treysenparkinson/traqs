@@ -3,11 +3,23 @@ package com.matrixsystems.traqs.services
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.matrixsystems.traqs.models.*
-import kotlinx.coroutines.*
+import com.matrixsystems.traqs.models.Client
+import com.matrixsystems.traqs.models.ChatGroup
+import com.matrixsystems.traqs.models.EngStep
+import com.matrixsystems.traqs.models.Engineering
+import com.matrixsystems.traqs.models.EngineeringSignOff
+import com.matrixsystems.traqs.models.Message
+import com.matrixsystems.traqs.models.Panel
+import com.matrixsystems.traqs.models.Person
+import com.matrixsystems.traqs.models.TRAQSJob
+import kotlinx.coroutines.Job as CoroutineJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -21,8 +33,8 @@ sealed class SaveStatus {
 class AppState(private val context: Context) : ViewModel() {
 
     // MARK: - Core Data
-    private val _jobs = MutableStateFlow<List<Job>>(emptyList())
-    val jobs: StateFlow<List<Job>> = _jobs.asStateFlow()
+    private val _jobs = MutableStateFlow<List<TRAQSJob>>(emptyList())
+    val jobs: StateFlow<List<TRAQSJob>> = _jobs.asStateFlow()
 
     private val _people = MutableStateFlow<List<Person>>(emptyList())
     val people: StateFlow<List<Person>> = _people.asStateFlow()
@@ -55,13 +67,12 @@ class AppState(private val context: Context) : ViewModel() {
     val orgCode: StateFlow<String> = _orgCode.asStateFlow()
 
     // MARK: - Undo / Redo
-    private val undoStack = ArrayDeque<List<Job>>()
-    private val redoStack = ArrayDeque<List<Job>>()
+    private val undoStack = ArrayDeque<List<TRAQSJob>>()
+    private val redoStack = ArrayDeque<List<TRAQSJob>>()
     private val maxUndoSize = 50
 
-    // MARK: - Auto-save / Auto-refresh
-    private var saveJob: Job? = null
-    private var refreshJob: kotlinx.coroutines.Job? = null
+    private var saveJob: CoroutineJob? = null
+    private var refreshJob: CoroutineJob? = null
     private var api: ApiService? = null
 
     val canUndo: Boolean get() = undoStack.isNotEmpty()
@@ -81,9 +92,7 @@ class AppState(private val context: Context) : ViewModel() {
         refreshJob = viewModelScope.launch {
             while (isActive) {
                 delay(15_000)
-                if (!_isLoading.value) {
-                    loadAll()
-                }
+                if (!_isLoading.value) loadAll()
             }
         }
     }
@@ -101,17 +110,16 @@ class AppState(private val context: Context) : ViewModel() {
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                val jobsDeferred = async { currentApi.fetchJobs() }
-                val peopleDeferred = async { currentApi.fetchPeople() }
-                val clientsDeferred = async { currentApi.fetchClients() }
-                val messagesDeferred = async { currentApi.fetchMessages() }
-                val groupsDeferred = async { currentApi.fetchGroups() }
-
-                _jobs.value = jobsDeferred.await()
-                _people.value = peopleDeferred.await()
-                _clients.value = clientsDeferred.await()
-                _messages.value = messagesDeferred.await()
-                _groups.value = groupsDeferred.await()
+                val j = async { currentApi.fetchJobs() }
+                val p = async { currentApi.fetchPeople() }
+                val c = async { currentApi.fetchClients() }
+                val m = async { currentApi.fetchMessages() }
+                val g = async { currentApi.fetchGroups() }
+                _jobs.value = j.await()
+                _people.value = p.await()
+                _clients.value = c.await()
+                _messages.value = m.await()
+                _groups.value = g.await()
                 autoMatchPerson()
             } catch (e: Exception) {
                 _errorMessage.value = e.message
@@ -122,7 +130,7 @@ class AppState(private val context: Context) : ViewModel() {
 
     // MARK: - Jobs
 
-    fun updateJobs(newJobs: List<Job>, pushUndo: Boolean = true) {
+    fun updateJobs(newJobs: List<TRAQSJob>, pushUndo: Boolean = true) {
         if (pushUndo) {
             undoStack.addLast(_jobs.value)
             if (undoStack.size > maxUndoSize) undoStack.removeFirst()
@@ -132,7 +140,7 @@ class AppState(private val context: Context) : ViewModel() {
         scheduleSave()
     }
 
-    fun updateJob(job: Job) {
+    fun updateJob(job: TRAQSJob) {
         val updated = _jobs.value.toMutableList()
         val idx = updated.indexOfFirst { it.id == job.id }
         if (idx >= 0) updated[idx] = job else updated.add(job)
@@ -156,9 +164,9 @@ class AppState(private val context: Context) : ViewModel() {
         val panel = panels[panelIdx]
         val eng = panel.engineering ?: Engineering()
         val signOff = EngineeringSignOff(
-            by = personId,
-            byName = personName,
-            at = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
+            by = personId, byName = personName,
+            at = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+                .apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
         )
         val updatedEng = when (step) {
             EngStep.DESIGNED -> eng.copy(designed = signOff)
@@ -170,21 +178,37 @@ class AppState(private val context: Context) : ViewModel() {
         updateJob(jobList[jobIdx])
     }
 
-    // MARK: - People
+    fun revertSignOff(jobId: String, panelId: String, step: EngStep) {
+        val jobList = _jobs.value.toMutableList()
+        val jobIdx = jobList.indexOfFirst { it.id == jobId }
+        if (jobIdx < 0) return
+        val job = jobList[jobIdx]
+        val panels = job.subs.toMutableList()
+        val panelIdx = panels.indexOfFirst { it.id == panelId }
+        if (panelIdx < 0) return
+        val panel = panels[panelIdx]
+        val eng = panel.engineering ?: return
+        val updatedEng = when (step) {
+            EngStep.DESIGNED -> eng.copy(designed = null)
+            EngStep.VERIFIED -> eng.copy(verified = null)
+            EngStep.SENT_TO_PERFOREX -> eng.copy(sentToPerforex = null)
+        }
+        panels[panelIdx] = panel.copy(engineering = updatedEng)
+        jobList[jobIdx] = job.copy(subs = panels)
+        updateJob(jobList[jobIdx])
+    }
+
+    // MARK: - People / Clients / Messages
 
     fun updatePeople(newPeople: List<Person>) {
         _people.value = newPeople
         viewModelScope.launch { runCatching { api?.savePeople(newPeople) } }
     }
 
-    // MARK: - Clients
-
     fun updateClients(newClients: List<Client>) {
         _clients.value = newClients
         viewModelScope.launch { runCatching { api?.saveClients(newClients) } }
     }
-
-    // MARK: - Messages
 
     fun sendMessage(message: Message) {
         _messages.value = _messages.value + message
@@ -193,8 +217,9 @@ class AppState(private val context: Context) : ViewModel() {
 
     fun refreshMessages() {
         viewModelScope.launch {
-            runCatching { api?.fetchMessages() }
-                .onSuccess { msgs -> if (msgs != null) _messages.value = msgs }
+            runCatching { api?.fetchMessages() }.onSuccess { msgs ->
+                if (msgs != null) _messages.value = msgs
+            }
         }
     }
 
@@ -237,27 +262,27 @@ class AppState(private val context: Context) : ViewModel() {
         }
     }
 
-    // MARK: - Auto-match person by email
+    // MARK: - Auto-match person
 
     fun autoMatchPerson() {
         val email = matchEmail ?: return
-        val match = _people.value.firstOrNull { it.email.lowercase() == email.lowercase() }
-        currentPersonId = match?.id
+        currentPersonId = _people.value.firstOrNull { it.email.lowercase() == email.lowercase() }?.id
     }
 
     // MARK: - Computed
 
     val currentPerson: Person? get() = currentPersonId?.let { id -> _people.value.firstOrNull { it.id == id } }
 
-    val engineeringQueue: List<Pair<Job, Panel>> get() = _jobs.value.flatMap { job ->
-        job.subs.mapNotNull { panel ->
-            val e = panel.engineering
-            val allDone = e?.designed != null && e.verified != null && e.sentToPerforex != null
-            if (allDone) null else Pair(job, panel)
+    val engineeringQueue: List<Pair<TRAQSJob, Panel>> get() =
+        _jobs.value.flatMap { job ->
+            job.subs.mapNotNull { panel ->
+                val e = panel.engineering
+                val allDone = e?.designed != null && e.verified != null && e.sentToPerforex != null
+                if (allDone) null else Pair(job, panel)
+            }
         }
-    }
 
-    fun clientForJob(job: Job): Client? = job.clientId?.let { id -> _clients.value.firstOrNull { it.id == id } }
+    fun clientForJob(job: TRAQSJob): Client? = job.clientId?.let { id -> _clients.value.firstOrNull { it.id == id } }
 
     fun person(id: Int): Person? = _people.value.firstOrNull { it.id == id }
 

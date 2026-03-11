@@ -54,26 +54,7 @@ fun JobsScreen(
 
     Scaffold(
         containerColor = c.bg,
-        topBar = {
-            TRAQSHeader(
-
-                onAskTRAQS = onAskTRAQS,
-                actions = {
-                    IconButton(onClick = { appState.undo() }, enabled = appState.canUndo) {
-                        Icon(Icons.Default.Undo, "Undo", tint = if (appState.canUndo) c.accent else c.muted)
-                    }
-                    TextButton(
-                        onClick = { showJobEdit = true },
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                    ) {
-                        Icon(Icons.Default.Add, null, tint = c.accent, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(2.dp))
-                        Text("New Task", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    }
-                },
-
-            )
-        }
+        topBar = { TRAQSHeader() }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             PullToRefreshBox(isRefreshing = isLoading, onRefresh = { appState.loadAll() }) {
@@ -81,6 +62,29 @@ fun JobsScreen(
                     modifier = Modifier.fillMaxSize().background(c.bg),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
+                    item {
+                        PageActionBar(title = "Jobs", onAskTRAQS = onAskTRAQS) {
+                            IconButton(
+                                onClick = { appState.undo() },
+                                enabled = appState.canUndo,
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(Icons.Default.Undo, "Undo", tint = if (appState.canUndo) c.accent else c.muted, modifier = Modifier.size(18.dp))
+                            }
+                            Button(
+                                onClick = { showJobEdit = true },
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                modifier = Modifier.height(34.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = c.accent)
+                            ) {
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("New Task", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
                     // Engineering Queue
                     if (engQueue.isNotEmpty()) {
                         item { EngineeringQueueSection(appState = appState, queue = engQueue) }

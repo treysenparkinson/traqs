@@ -1,6 +1,11 @@
 package com.matrixsystems.traqs.ui.navigation
 
 import android.app.Activity
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
@@ -13,6 +18,7 @@ import com.matrixsystems.traqs.services.ThemeSettings
 import com.matrixsystems.traqs.ui.screens.*
 
 sealed class Screen(val route: String) {
+    object Splash : Screen("splash")
     object Login : Screen("login")
     object OrgCode : Screen("org_code")
     object Main : Screen("main")
@@ -42,7 +48,7 @@ fun TRAQSNavGraph(
     val isAuthenticated by authManager.isAuthenticated.collectAsState()
     val orgCode by appState.orgCode.collectAsState()
 
-    val startDestination = when {
+    val realDestination = when {
         !isAuthenticated -> Screen.Login.route
         orgCode.isEmpty() -> Screen.OrgCode.route
         else -> Screen.Main.route
@@ -50,8 +56,24 @@ fun TRAQSNavGraph(
 
     NavHost(
         navController = navController,
-        startDestination = startDestination
+        startDestination = Screen.Splash.route,
+        enterTransition = { fadeIn(tween(500)) },
+        exitTransition  = { fadeOut(tween(0)) }
     ) {
+        composable(
+            Screen.Splash.route,
+            enterTransition = { EnterTransition.None },
+            exitTransition  = { ExitTransition.None }
+        ) {
+            SplashScreen(
+                onFinished = {
+                    navController.navigate(realDestination) {
+                        popUpTo(Screen.Splash.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         composable(Screen.Login.route) {
             LoginScreen(
                 authManager = authManager,

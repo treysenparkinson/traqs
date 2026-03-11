@@ -33,7 +33,18 @@ fun TRAQSRoot() {
     val themeSettings = remember { ThemeSettings(context) }
 
     val isAuthenticated by authManager.isAuthenticated.collectAsState()
+    val accessToken by authManager.accessToken.collectAsState()
+    val orgCode by appState.orgCode.collectAsState()
     val currentPersonId = appState.currentPersonId
+
+    // Auto-configure on resume when we already have stored credentials
+    LaunchedEffect(isAuthenticated, accessToken, orgCode) {
+        val token = accessToken
+        if (isAuthenticated && token != null && orgCode.isNotEmpty()) {
+            appState.matchEmail = authManager.userEmail.value
+            appState.configure(token, orgCode)
+        }
+    }
 
     // OneSignal login when person matched
     LaunchedEffect(currentPersonId) {

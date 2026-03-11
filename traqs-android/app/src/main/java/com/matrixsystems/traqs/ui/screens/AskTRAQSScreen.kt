@@ -33,12 +33,24 @@ fun AskTRAQSScreen(appState: AppState, onDismiss: () -> Unit) {
     var isLoading by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    val systemPrompt = remember(jobs, people) {
-        """You are TRAQS AI, a scheduling and production management assistant.
-Current date: ${java.text.SimpleDateFormat("yyyy-MM-dd").format(java.util.Date())}
+    val currentPerson = appState.currentPerson
+    val isAdmin = currentPerson?.isAdmin ?: false
+
+    val systemPrompt = remember(jobs, people, isAdmin) {
+        val date = java.text.SimpleDateFormat("yyyy-MM-dd").format(java.util.Date())
+        if (isAdmin) {
+            """You are TRAQS AI, a scheduling and production management assistant with full edit capabilities.
+Current date: $date
 Jobs: ${Gson().toJson(jobs.take(20))}
 People: ${Gson().toJson(people)}
-Help with scheduling questions, workload analysis, and job planning."""
+You can help the user describe changes to jobs, schedules, and team assignments. Provide actionable recommendations."""
+        } else {
+            """You are TRAQS AI, a read-only scheduling assistant.
+Current date: $date
+Jobs: ${Gson().toJson(jobs.take(20))}
+People: ${Gson().toJson(people)}
+Help with scheduling questions and workload analysis. You cannot make changes — for edits, ask an admin."""
+        }
     }
 
     LaunchedEffect(messages.size) {
@@ -133,9 +145,17 @@ Help with scheduling questions, workload analysis, and job planning."""
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Icon(Icons.Default.AutoAwesome, null, tint = c.accent, modifier = Modifier.size(48.dp))
+                    Box(contentAlignment = Alignment.TopEnd) {
+                        Icon(Icons.Default.AutoAwesome, null, tint = c.accent, modifier = Modifier.size(48.dp))
+                        if (!isAdmin) {
+                            Icon(Icons.Default.Lock, null, tint = c.muted, modifier = Modifier.size(16.dp))
+                        }
+                    }
                     Text("Ask TRAQS", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = c.text)
-                    Text("Get AI-powered scheduling insights", color = c.muted, fontSize = 13.sp)
+                    Text(
+                        if (isAdmin) "Get AI-powered scheduling insights" else "Read-only view — ask an admin to make changes",
+                        color = c.muted, fontSize = 13.sp
+                    )
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(
                             "Who has the most capacity this week?",

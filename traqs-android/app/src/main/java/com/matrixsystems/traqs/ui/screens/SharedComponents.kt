@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -136,14 +137,17 @@ fun Priority.toColor(c: TRAQSColors): Color = when (this) {
     Priority.HIGH -> c.priHigh
 }
 
-// Image logo — auto-switches between black (light mode) and white (dark mode) via drawable-night qualifier
+// Image logo — picks white or blue version based on app theme (not just system dark mode)
+// Pass a full modifier (e.g. fillMaxWidth + aspectRatio) to control size, or rely on default height
 @Composable
-fun TRAQSLogo(height: Dp = 28.dp, modifier: Modifier = Modifier) {
+fun TRAQSLogo(height: Dp = 28.dp, modifier: Modifier = Modifier, useDefaultSize: Boolean = true) {
+    val c = traQSColors
+    val logoRes = if (c.isLight) R.drawable.traqs_logo else R.drawable.traqs_logo_white
     Image(
-        painter = painterResource(R.drawable.traqs_logo),
+        painter = painterResource(logoRes),
         contentDescription = "TRAQS",
         contentScale = ContentScale.Fit,
-        modifier = modifier.height(height)
+        modifier = if (useDefaultSize) modifier.height(height) else modifier
     )
 }
 
@@ -161,56 +165,72 @@ fun TRAQSLogoText(fontSize: Int = 24) {
     )
 }
 
-// Custom header — single row, logo fixed width so it's a normal header size
+// Logo-only header — no buttons, no actions
 @Composable
-fun TRAQSHeader(
-    onAskTRAQS: () -> Unit,
-    actions: @Composable RowScope.() -> Unit = {}
-) {
+fun TRAQSHeader() {
     val c = traQSColors
     Surface(
-        color = c.surface,
-        shadowElevation = 2.dp,
+        color = c.bg,
+        shadowElevation = 0.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Box(
+        val logoRes = if (c.isLight) R.drawable.traqs_logo else R.drawable.traqs_logo_white
+        Image(
+            painter = painterResource(logoRes),
+            contentDescription = "TRAQS",
+            contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
-        ) {
-            Row(
-                modifier = Modifier.align(Alignment.CenterStart),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                AskTRAQSNavButton(onClick = onAskTRAQS)
-            }
-            Image(
-                painter = painterResource(R.drawable.traqs_logo),
-                contentDescription = "TRAQS",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .fillMaxWidth(0.36f)
-                    .aspectRatio(225f / 40f)
-                    .align(Alignment.Center)
-            )
-            Row(
-                modifier = Modifier.align(Alignment.CenterEnd),
-                verticalAlignment = Alignment.CenterVertically,
-                content = actions
-            )
-        }
+                .height(96.dp)
+                .padding(top = 44.dp, bottom = 16.dp, start = 110.dp, end = 110.dp)
+        )
     }
 }
 
+// Consistent action bar shown below the header on every main screen
 @Composable
-fun AskTRAQSNavButton(onClick: () -> Unit) {
+fun PageActionBar(
+    title: String,
+    onAskTRAQS: () -> Unit,
+    primaryAction: @Composable RowScope.() -> Unit = {}
+) {
     val c = traQSColors
-    TextButton(
-        onClick = onClick,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(Icons.Default.AutoAwesome, null, tint = c.accent, modifier = Modifier.size(15.dp))
-        Spacer(Modifier.width(4.dp))
-        Text("Ask TRAQS", color = c.accent, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        // Left — Ask TRAQS
+        OutlinedButton(
+            onClick = onAskTRAQS,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            modifier = Modifier.height(34.dp).align(Alignment.CenterStart),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, c.accent.copy(alpha = 0.5f)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = c.accent)
+        ) {
+            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Ask TRAQS", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+
+        // Center — page title
+        Text(
+            title,
+            fontWeight = FontWeight.Bold,
+            fontSize = 20.sp,
+            color = c.text,
+            modifier = Modifier.align(Alignment.Center)
+        )
+
+        // Right — primary action
+        Row(
+            modifier = Modifier.align(Alignment.CenterEnd),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            primaryAction()
+        }
     }
 }

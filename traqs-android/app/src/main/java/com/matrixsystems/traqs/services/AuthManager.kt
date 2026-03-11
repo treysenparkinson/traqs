@@ -11,9 +11,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 
 class AuthManager(private val context: Context) : ViewModel() {
 
@@ -86,17 +89,20 @@ class AuthManager(private val context: Context) : ViewModel() {
         SecureStorage.clear(context)
     }
 
-    private suspend fun fetchUserEmail(token: String) {
+    private suspend fun fetchUserEmail(token: String) = withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient()
+            val client = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build()
             val request = Request.Builder()
                 .url("https://${AppConfig.Auth0.DOMAIN}/userinfo")
                 .addHeader("Authorization", "Bearer $token")
                 .build()
             val response = client.newCall(request).execute()
-            val body = response.body?.string() ?: return
+            val body = response.body?.string() ?: return@withContext
             val json = JSONObject(body)
-            val email = json.optString("email").takeIf { it.isNotEmpty() } ?: return
+            val email = json.optString("email").takeIf { it.isNotEmpty() } ?: return@withContext
             _userEmail.value = email
             SecureStorage.save(context, SecureStorage.KEY_USER_EMAIL, email)
         } catch (_: Exception) {}

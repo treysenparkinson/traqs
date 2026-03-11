@@ -1,6 +1,7 @@
 package com.matrixsystems.traqs.services
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
@@ -11,13 +12,27 @@ object SecureStorage {
     const val KEY_USER_EMAIL = "user_email"
     const val KEY_ORG_CODE = "org_code"
 
-    private fun getPrefs(context: Context) = EncryptedSharedPreferences.create(
-        context,
-        PREFS_FILE,
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
+    @Volatile private var prefs: SharedPreferences? = null
+
+    private fun getPrefs(context: Context): SharedPreferences {
+        return prefs ?: synchronized(this) {
+            prefs ?: try {
+                val masterKey = MasterKey.Builder(context.applicationContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
+                EncryptedSharedPreferences.create(
+                    context.applicationContext,
+                    PREFS_FILE,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (e: Exception) {
+                // Fallback to plain prefs if crypto fails (e.g. re-install key mismatch)
+                context.applicationContext.getSharedPreferences(PREFS_FILE + "_fallback", Context.MODE_PRIVATE)
+            }.also { prefs = it }
+        }
+    }
 
     fun save(context: Context, key: String, value: String) {
         getPrefs(context).edit().putString(key, value).apply()

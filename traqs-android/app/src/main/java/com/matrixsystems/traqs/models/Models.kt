@@ -97,9 +97,9 @@ data class Panel(
     val subs: List<Operation> = emptyList()
 )
 
-// MARK: - Job (Level 0)
+// MARK: - Job (Level 0) — named TRAQSJob to avoid conflict with kotlinx.coroutines.Job
 
-data class Job(
+data class TRAQSJob(
     val id: String = "",
     val title: String = "",
     val jobNumber: String? = null,

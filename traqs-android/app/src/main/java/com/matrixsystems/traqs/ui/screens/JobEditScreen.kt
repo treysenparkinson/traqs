@@ -2,43 +2,59 @@ package com.matrixsystems.traqs.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.models.*
 import com.matrixsystems.traqs.services.AppState
+import com.matrixsystems.traqs.ui.theme.parseColor
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
+
+private val JOB_COLOR_PALETTE = listOf(
+    "#3d7fff", "#ef4444", "#22c55e", "#f59e0b",
+    "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JobEditScreen(
-    job: Job?,
+    job: TRAQSJob?,
     appState: AppState,
     onDismiss: () -> Unit
 ) {
     val c = traQSColors
     val isNew = job == null
     val clients by appState.clients.collectAsState()
+    val people by appState.people.collectAsState()
 
     var title by remember { mutableStateOf(job?.title ?: "") }
     var jobNumber by remember { mutableStateOf(job?.jobNumber ?: "") }
     var poNumber by remember { mutableStateOf(job?.poNumber ?: "") }
     var startDate by remember { mutableStateOf(job?.start ?: "") }
     var endDate by remember { mutableStateOf(job?.end ?: "") }
+    var hasDueDate by remember { mutableStateOf(job?.dueDate != null) }
+    var dueDate by remember { mutableStateOf(job?.dueDate ?: "") }
     var status by remember { mutableStateOf(job?.status ?: JobStatus.NOT_STARTED) }
     var priority by remember { mutableStateOf(job?.pri ?: Priority.MEDIUM) }
     var notes by remember { mutableStateOf(job?.notes ?: "") }
     var selectedClientId by remember { mutableStateOf(job?.clientId) }
+    var selectedColor by remember { mutableStateOf(job?.color ?: "#3d7fff") }
+    var selectedTeam by remember { mutableStateOf(job?.team ?: emptyList<Int>()) }
+
     var statusExpanded by remember { mutableStateOf(false) }
     var priorityExpanded by remember { mutableStateOf(false) }
     var clientExpanded by remember { mutableStateOf(false) }
@@ -56,19 +72,20 @@ fun JobEditScreen(
                 actions = {
                     TextButton(
                         onClick = {
-                            val newJob = Job(
+                            val newJob = TRAQSJob(
                                 id = job?.id ?: UUID.randomUUID().toString(),
                                 title = title,
                                 jobNumber = jobNumber.takeIf { it.isNotEmpty() },
                                 poNumber = poNumber.takeIf { it.isNotEmpty() },
                                 start = startDate,
                                 end = endDate,
+                                dueDate = if (hasDueDate && dueDate.isNotBlank()) dueDate else null,
                                 status = status,
                                 pri = priority,
                                 notes = notes,
                                 clientId = selectedClientId,
-                                color = job?.color ?: "#3d7fff",
-                                team = job?.team ?: emptyList(),
+                                color = selectedColor,
+                                team = selectedTeam,
                                 subs = job?.subs ?: emptyList(),
                                 hpd = job?.hpd ?: 7.5
                             )
@@ -98,7 +115,28 @@ fun JobEditScreen(
             item { EditField("Start Date (yyyy-MM-dd) *", startDate) { startDate = it } }
             item { EditField("End Date (yyyy-MM-dd) *", endDate) { endDate = it } }
 
-            // Status dropdown
+            // Due date toggle + field
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Has Due Date", fontSize = 14.sp, color = c.text)
+                        Switch(
+                            checked = hasDueDate,
+                            onCheckedChange = { hasDueDate = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = c.accent)
+                        )
+                    }
+                    if (hasDueDate) {
+                        EditField("Due Date (yyyy-MM-dd)", dueDate) { dueDate = it }
+                    }
+                }
+            }
+
+            // Status dropdown (includes ON_HOLD via JobStatus.entries)
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Status", fontSize = 12.sp, color = c.muted)
@@ -171,6 +209,73 @@ fun JobEditScreen(
                                     text = { Text(it.name) },
                                     onClick = { selectedClientId = it.id; clientExpanded = false }
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Color picker
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Job Color", fontSize = 12.sp, color = c.muted)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        JOB_COLOR_PALETTE.forEach { hex ->
+                            val color = try { parseColor(hex) } catch (_: Exception) { c.accent }
+                            val isSelected = selectedColor == hex
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(color)
+                                    .then(if (isSelected) Modifier.border(3.dp, Color.White, CircleShape) else Modifier)
+                                    .clickable { selectedColor = hex },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isSelected) {
+                                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Team assignment
+            if (people.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Team Members", fontSize = 12.sp, color = c.muted)
+                        people.forEach { person ->
+                            val isAssigned = person.id in selectedTeam
+                            val personColor = try { parseColor(person.color) } catch (_: Exception) { c.accent }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isAssigned) c.accent.copy(alpha = 0.08f) else c.surface)
+                                    .border(1.dp, if (isAssigned) c.accent.copy(alpha = 0.4f) else c.border, RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        selectedTeam = if (isAssigned) selectedTeam - person.id
+                                        else selectedTeam + person.id
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier.size(28.dp).clip(CircleShape).background(personColor),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(person.name.take(1).uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(person.name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.text)
+                                    if (person.role.isNotEmpty()) Text(person.role, fontSize = 11.sp, color = c.muted)
+                                }
+                                if (isAssigned) {
+                                    Icon(Icons.Default.CheckCircle, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
                     }

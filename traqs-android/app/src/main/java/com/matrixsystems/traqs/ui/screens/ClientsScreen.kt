@@ -24,6 +24,8 @@ import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.theme.parseColor
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,6 +39,7 @@ fun ClientsScreen(
     var searchText by remember { mutableStateOf("") }
     var editingClient by remember { mutableStateOf<Client?>(null) }
     var showNewClient by remember { mutableStateOf(false) }
+    var detailClient by remember { mutableStateOf<Client?>(null) }
 
     val filtered = remember(clients, searchText) {
         if (searchText.isEmpty()) clients
@@ -45,24 +48,28 @@ fun ClientsScreen(
 
     Scaffold(
         containerColor = c.bg,
-        topBar = {
-            TRAQSHeader(
-
-                onAskTRAQS = onAskTRAQS,
-                actions = {
-                    IconButton(onClick = { showNewClient = true }) {
-                        Icon(Icons.Default.Add, "Add Client", tint = c.accent)
-                    }
-                },
-
-            )
-        }
+        topBar = { TRAQSHeader() }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            item {
+                PageActionBar(title = "Clients", onAskTRAQS = onAskTRAQS) {
+                    Button(
+                        onClick = { showNewClient = true },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.height(34.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = c.accent)
+                    ) {
+                        Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("New Client", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
             item {
                 OutlinedTextField(
                     value = searchText,
@@ -70,7 +77,7 @@ fun ClientsScreen(
                     placeholder = { Text("Search clients…", color = c.muted) },
                     leadingIcon = { Icon(Icons.Default.Search, null, tint = c.muted) },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = c.text,
                         unfocusedTextColor = c.text,
@@ -86,10 +93,21 @@ fun ClientsScreen(
             items(filtered, key = { it.id }) { client ->
                 ClientRow(
                     client = client,
-                    onClick = { editingClient = client }
+                    onClick = { detailClient = client },
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
             }
         }
+    }
+
+    // Detail view — tap client row → show detail, then can edit from detail
+    detailClient?.let { client ->
+        ClientDetailSheet(
+            client = client,
+            appState = appState,
+            onEdit = { editingClient = client; detailClient = null },
+            onDismiss = { detailClient = null }
+        )
     }
 
     if (showNewClient || editingClient != null) {
@@ -102,13 +120,13 @@ fun ClientsScreen(
 }
 
 @Composable
-fun ClientRow(client: Client, onClick: () -> Unit) {
+fun ClientRow(client: Client, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = traQSColors
     val clientColor = try { parseColor(client.color) } catch (_: Exception) { c.accent }
 
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = c.card),
         border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
@@ -195,6 +213,106 @@ fun ClientEditSheet(client: Client?, appState: AppState, onDismiss: () -> Unit) 
             EditField("Email", email) { email = it }
             EditField("Phone", phone) { phone = it }
             EditField("Notes", notes) { notes = it }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClientDetailSheet(client: Client, appState: AppState, onEdit: () -> Unit, onDismiss: () -> Unit) {
+    val c = traQSColors
+    val clientColor = try { parseColor(client.color) } catch (_: Exception) { c.accent }
+    val jobs by appState.jobs.collectAsState()
+    val clientJobs = remember(jobs) { jobs.filter { it.clientId == client.id } }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = c.surface) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(
+                        modifier = Modifier.size(52.dp).clip(CircleShape).background(clientColor),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(client.name.take(1).uppercase(), fontWeight = FontWeight.Bold, color = Color.White, fontSize = 22.sp)
+                    }
+                    Text(client.name, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = c.text)
+                }
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, "Edit", tint = c.accent)
+                }
+            }
+
+            // Contact info
+            if (client.contact.isNotEmpty() || client.email.isNotEmpty() || client.phone.isNotEmpty()) {
+                Card(
+                    shape = RoundedCornerShape(10.dp),
+                    colors = CardDefaults.cardColors(containerColor = c.card),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (client.contact.isNotEmpty()) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Person, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                                Text(client.contact, fontSize = 13.sp, color = c.text)
+                            }
+                        }
+                        if (client.email.isNotEmpty()) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Email, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                                Text(client.email, fontSize = 13.sp, color = c.text)
+                            }
+                        }
+                        if (client.phone.isNotEmpty()) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Phone, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                                Text(client.phone, fontSize = 13.sp, color = c.text)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Notes
+            if (client.notes.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Notes", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = c.muted)
+                    Text(client.notes, fontSize = 13.sp, color = c.text)
+                }
+            }
+
+            // Jobs for this client
+            if (clientJobs.isNotEmpty()) {
+                Text("Jobs (${clientJobs.size})", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = c.text)
+                clientJobs.forEach { job ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(c.card, RoundedCornerShape(8.dp))
+                            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(job.title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = c.text)
+                            Text("${job.start.shortDate()} → ${job.end.shortDate()}", fontSize = 11.sp, color = c.muted)
+                        }
+                        StatusBadge(job.status)
+                    }
+                }
+            }
         }
     }
 }

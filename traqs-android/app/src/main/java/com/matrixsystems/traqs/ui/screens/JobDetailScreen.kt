@@ -2,6 +2,7 @@ package com.matrixsystems.traqs.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -26,7 +28,7 @@ import com.matrixsystems.traqs.ui.theme.traQSColors
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JobDetailScreen(
-    job: Job,
+    job: TRAQSJob,
     appState: AppState,
     navController: NavHostController
 ) {
@@ -172,8 +174,12 @@ fun PersonChip(person: com.matrixsystems.traqs.models.Person) {
 }
 
 @Composable
-fun PanelCard(panel: Panel, job: Job, appState: AppState) {
+fun PanelCard(panel: Panel, job: TRAQSJob, appState: AppState) {
     val c = traQSColors
+    var expanded by remember { mutableStateOf(false) }
+    val currentPerson = appState.currentPerson
+    val eng = panel.engineering
+
     Card(
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = c.card),
@@ -181,21 +187,97 @@ fun PanelCard(panel: Panel, job: Job, appState: AppState) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Panel header — tappable to expand
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { if (panel.subs.isNotEmpty() || eng != null) expanded = !expanded },
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(panel.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = c.text, modifier = Modifier.weight(1f))
-                StatusBadge(panel.status)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    StatusBadge(panel.status)
+                    if (panel.subs.isNotEmpty() || eng != null) {
+                        Icon(
+                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            null, tint = c.muted, modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
             Text(
                 "${panel.start.shortDate()} → ${panel.end.shortDate()}",
                 fontSize = 11.sp,
                 color = c.muted
             )
-            if (panel.subs.isNotEmpty()) {
-                Text("${panel.subs.size} operations", fontSize = 11.sp, color = c.muted)
+
+            if (expanded) {
+                // Engineering sign-off section
+                if (eng != null || currentPerson?.isEngineer == true || currentPerson?.isAdmin == true) {
+                    HorizontalDivider(color = c.border.copy(alpha = 0.5f))
+                    Text("Engineering", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = c.muted)
+                    listOf(
+                        Triple(EngStep.DESIGNED, eng?.designed, "Design"),
+                        Triple(EngStep.VERIFIED, eng?.verified, "Verify"),
+                        Triple(EngStep.SENT_TO_PERFOREX, eng?.sentToPerforex, "Send to Perforex")
+                    ).forEach { (step, signOff, label) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(label, fontSize = 12.sp, color = c.text)
+                                if (signOff != null) {
+                                    Text("✓ ${signOff.byName} · ${signOff.at.take(10)}", fontSize = 10.sp, color = c.statusFinished)
+                                }
+                            }
+                            if (signOff == null && currentPerson != null && (currentPerson.isAdmin || currentPerson.isEngineer == true)) {
+                                TextButton(
+                                    onClick = {
+                                        appState.signOff(job.id, panel.id, step, currentPerson.id, currentPerson.name)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text("Sign Off", fontSize = 11.sp, color = c.accent)
+                                }
+                            } else if (signOff != null && currentPerson?.isAdmin == true) {
+                                TextButton(
+                                    onClick = {
+                                        appState.revertSignOff(job.id, panel.id, step)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text("Revert", fontSize = 11.sp, color = c.danger)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Operations list
+                if (panel.subs.isNotEmpty()) {
+                    HorizontalDivider(color = c.border.copy(alpha = 0.5f))
+                    Text("Operations (${panel.subs.size})", fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = c.muted)
+                    panel.subs.forEach { op ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(c.bg, RoundedCornerShape(6.dp))
+                                .border(1.dp, c.border, RoundedCornerShape(6.dp))
+                                .padding(8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(op.title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = c.text)
+                                Text("${op.start.shortDate()} → ${op.end.shortDate()}", fontSize = 10.sp, color = c.muted)
+                            }
+                            StatusBadge(op.status)
+                        }
+                    }
+                }
             }
         }
     }

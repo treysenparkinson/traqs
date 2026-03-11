@@ -62,20 +62,22 @@ fun MessagesScreen(
     } else {
         Scaffold(
             containerColor = c.bg,
-            topBar = {
-                TRAQSHeader(onAskTRAQS = onAskTRAQS)
-            }
+            topBar = { TRAQSHeader() }
         ) { padding ->
             if (threads.isEmpty()) {
-                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    Text("No messages yet", color = c.muted)
+                Column(Modifier.fillMaxSize().padding(padding)) {
+                    PageActionBar(title = "Messages", onAskTRAQS = onAskTRAQS)
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No messages yet", color = c.muted)
+                    }
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    item { PageActionBar(title = "Messages", onAskTRAQS = onAskTRAQS) }
                     items(threads, key = { it.key }) { (threadKey, msgs) ->
                         val lastMsg = msgs.maxByOrNull { it.timestamp }
                         val jobTitle = jobs.firstOrNull { it.id == lastMsg?.jobId }?.title

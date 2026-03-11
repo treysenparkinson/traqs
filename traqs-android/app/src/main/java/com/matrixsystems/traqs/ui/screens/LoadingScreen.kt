@@ -23,7 +23,12 @@ fun LoadingScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            TRAQSLogo(height = 110.dp)
+            TRAQSLogo(
+                useDefaultSize = false,
+                modifier = Modifier
+                    .fillMaxWidth(0.75f)
+                    .aspectRatio(225f / 40f)
+            )
             Text(
                 "Scheduling & Production Management",
                 fontSize = 13.sp,

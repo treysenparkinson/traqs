@@ -72,7 +72,7 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
     // Auth0
-    implementation("com.auth0.android:auth0:3.1.0")
+    implementation("com.auth0.android:auth0:2.10.0")
 
     // Secure Storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")

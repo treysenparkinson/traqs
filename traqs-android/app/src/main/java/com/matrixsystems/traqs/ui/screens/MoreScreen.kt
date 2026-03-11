@@ -2,6 +2,7 @@ package com.matrixsystems.traqs.ui.screens
 
 import android.app.Activity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -40,26 +41,26 @@ fun MoreScreen(
     val c = traQSColors
     val person = appState.currentPerson
     val email by authManager.userEmail.collectAsState()
+    val orgCode by appState.orgCode.collectAsState()
     var showLogoutConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = c.bg,
-        topBar = {
-            TRAQSHeader(
-
-                onAskTRAQS = onAskTRAQS,
-
-            )
-        }
+        topBar = { TRAQSHeader() }
     ) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            item {
+                PageActionBar(title = "More", onAskTRAQS = onAskTRAQS)
+            }
+
             // Profile card
             item {
                 Card(
+                    modifier = Modifier.padding(horizontal = 16.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = c.card),
                     border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
@@ -80,10 +81,37 @@ fun MoreScreen(
                             )
                         }
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(person?.name ?: "Unknown", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.text)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(person?.name ?: "Unknown", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.text)
+                                if (person?.isAdmin == true) {
+                                    Text(
+                                        "Admin",
+                                        fontSize = 10.sp,
+                                        color = c.accent,
+                                        modifier = Modifier
+                                            .background(c.accent.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                             Text(email ?: "", fontSize = 12.sp, color = c.muted)
                             person?.role?.takeIf { it.isNotEmpty() }?.let {
                                 Text(it, fontSize = 12.sp, color = c.muted)
+                            }
+                            if (orgCode.isNotEmpty()) {
+                                Text(
+                                    "Org: $orgCode",
+                                    fontSize = 10.sp,
+                                    color = c.muted,
+                                    modifier = Modifier
+                                        .padding(top = 2.dp)
+                                        .background(c.surface, RoundedCornerShape(4.dp))
+                                        .border(1.dp, c.border, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
                             }
                         }
                     }
@@ -92,31 +120,34 @@ fun MoreScreen(
 
             item { Spacer(Modifier.height(4.dp)) }
 
-            // Menu items
             item {
-                MenuSection("Scheduling") {
-                    MenuItem(Icons.Default.AutoAwesome, "Ask TRAQS", c.accent) {
-                        navController.navigate(Screen.AskTRAQS.route)
-                    }
-                    MenuItem(Icons.Default.BarChart, "Analytics", c.accent) {
-                        navController.navigate(Screen.Analytics.route)
-                    }
-                    MenuItem(Icons.Default.People, "Team", c.accent) {
-                        navController.navigate(Screen.Team.route)
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    MenuSection("Scheduling") {
+                        MenuItem(Icons.Default.AutoAwesome, "Ask TRAQS", c.accent) {
+                            navController.navigate(Screen.AskTRAQS.route)
+                        }
+                        MenuItem(Icons.Default.BarChart, "Analytics", c.accent) {
+                            navController.navigate(Screen.Analytics.route)
+                        }
+                        MenuItem(Icons.Default.People, "Team", c.accent) {
+                            navController.navigate(Screen.Team.route)
+                        }
                     }
                 }
             }
 
             item {
-                MenuSection("Settings") {
-                    MenuItem(Icons.Default.Palette, "Customize", c.accent) {
-                        navController.navigate(Screen.Customize.route)
-                    }
-                    MenuItem(Icons.Default.Refresh, "Refresh Data", c.accent) {
-                        appState.loadAll()
-                    }
-                    MenuItem(Icons.Default.Logout, "Sign Out", c.danger) {
-                        showLogoutConfirm = true
+                Box(Modifier.padding(horizontal = 16.dp)) {
+                    MenuSection("Settings") {
+                        MenuItem(Icons.Default.Palette, "Customize", c.accent) {
+                            navController.navigate(Screen.Customize.route)
+                        }
+                        MenuItem(Icons.Default.Refresh, "Refresh Data", c.accent) {
+                            appState.loadAll()
+                        }
+                        MenuItem(Icons.Default.Logout, "Sign Out", c.danger) {
+                            showLogoutConfirm = true
+                        }
                     }
                 }
             }

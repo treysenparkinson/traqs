@@ -73,13 +73,7 @@ fun GanttScreen(
 
     Scaffold(
         containerColor = c.bg,
-        topBar = {
-            TRAQSHeader(
-
-                onAskTRAQS = onAskTRAQS,
-
-            )
-        }
+        topBar = { TRAQSHeader() }
     ) { padding ->
         if (isLoading && sortedJobs.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -87,6 +81,7 @@ fun GanttScreen(
             }
         } else {
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                PageActionBar(title = "Gantt", onAskTRAQS = onAskTRAQS)
                 // Date header
                 Row(modifier = Modifier.fillMaxWidth()) {
                     Spacer(Modifier.width(140.dp))
