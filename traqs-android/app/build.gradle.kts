@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -76,6 +77,10 @@ dependencies {
 
     // Secure Storage
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Firebase (required by OneSignal for Android push)
+    implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
+    implementation("com.google.firebase:firebase-messaging")
 
     // OneSignal push notifications
     implementation("com.onesignal:OneSignal:5.1.15")

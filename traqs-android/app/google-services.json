@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "118879436909",
+    "project_id": "traqs-6f558",
+    "storage_bucket": "traqs-6f558.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:118879436909:android:e4fdd9f134c5e1d6093f64",
+        "android_client_info": {
+          "package_name": "com.matrixsystems.traqs"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC1pPtSP29HSLm6xIjizudoE4cV_5IfyS4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
