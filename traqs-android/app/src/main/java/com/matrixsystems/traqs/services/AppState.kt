@@ -49,6 +49,11 @@ class AppState(private val context: Context) : ViewModel() {
     private val _groups = MutableStateFlow<List<ChatGroup>>(emptyList())
     val groups: StateFlow<List<ChatGroup>> = _groups.asStateFlow()
 
+    // MARK: - Unread messages
+    private val msgPrefs = context.getSharedPreferences("traqs_msg_prefs", Context.MODE_PRIVATE)
+    private val _unreadCount = MutableStateFlow(0)
+    val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
+
     // MARK: - UI State
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -120,6 +125,7 @@ class AppState(private val context: Context) : ViewModel() {
                 _people.value = p.await()
                 _clients.value = c.await()
                 _messages.value = m.await()
+                _unreadCount.value = maxOf(0, _messages.value.size - msgPrefs.getInt("last_seen_msg_count", 0))
                 _groups.value = g.await()
                 autoMatchPerson()
             } catch (e: Exception) {
@@ -253,9 +259,23 @@ class AppState(private val context: Context) : ViewModel() {
     fun refreshMessages() {
         viewModelScope.launch {
             runCatching { api?.fetchMessages() }.onSuccess { msgs ->
-                if (msgs != null) _messages.value = msgs
+                if (msgs != null) {
+                    _messages.value = msgs
+                    _unreadCount.value = maxOf(0, msgs.size - msgPrefs.getInt("last_seen_msg_count", 0))
+                }
             }
         }
+    }
+
+    fun markMessagesRead() {
+        val count = _messages.value.size
+        msgPrefs.edit().putInt("last_seen_msg_count", count).apply()
+        _unreadCount.value = 0
+    }
+
+    fun deleteThread(threadKey: String) {
+        _messages.value = _messages.value.filter { it.threadKey != threadKey }
+        viewModelScope.launch { runCatching { api?.deleteThread(threadKey) } }
     }
 
     // MARK: - Undo / Redo

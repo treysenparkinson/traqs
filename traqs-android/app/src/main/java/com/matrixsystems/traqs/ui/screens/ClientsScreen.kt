@@ -2,6 +2,7 @@ package com.matrixsystems.traqs.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,6 +27,11 @@ import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+
+private val CLIENT_COLOR_PALETTE = listOf(
+    "#3d7fff", "#ef4444", "#22c55e", "#f59e0b",
+    "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -165,6 +171,7 @@ fun ClientEditSheet(client: Client?, appState: AppState, onDismiss: () -> Unit) 
     var email by remember { mutableStateOf(client?.email ?: "") }
     var phone by remember { mutableStateOf(client?.phone ?: "") }
     var notes by remember { mutableStateOf(client?.notes ?: "") }
+    var selectedColor by remember { mutableStateOf(client?.color ?: "#3d7fff") }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -196,7 +203,7 @@ fun ClientEditSheet(client: Client?, appState: AppState, onDismiss: () -> Unit) 
                             id = client?.id ?: UUID.randomUUID().toString(),
                             name = name, contact = contact, email = email,
                             phone = phone, notes = notes,
-                            color = client?.color ?: "#3d7fff"
+                            color = selectedColor
                         )
                         val updated = appState.clients.value.toMutableList()
                         val idx = updated.indexOfFirst { it.id == newClient.id }
@@ -213,6 +220,29 @@ fun ClientEditSheet(client: Client?, appState: AppState, onDismiss: () -> Unit) 
             EditField("Email", email) { email = it }
             EditField("Phone", phone) { phone = it }
             EditField("Notes", notes) { notes = it }
+            // Color picker
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Color", fontSize = 12.sp, color = c.muted)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CLIENT_COLOR_PALETTE.forEach { hex ->
+                        val color = try { parseColor(hex) } catch (_: Exception) { c.accent }
+                        val isSelected = selectedColor == hex
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(color)
+                                .then(if (isSelected) Modifier.border(3.dp, Color.White, CircleShape) else Modifier)
+                                .clickable { selectedColor = hex },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isSelected) {
+                                Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

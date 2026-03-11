@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.models.Person
+import com.matrixsystems.traqs.models.TimeOffEntry
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.theme.parseColor
 import com.matrixsystems.traqs.ui.theme.traQSColors
@@ -285,6 +286,13 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
     var isEngineer by remember { mutableStateOf(person?.isEngineer ?: false) }
     var isTeamLead by remember { mutableStateOf(person?.isTeamLead ?: false) }
     var isAdmin by remember { mutableStateOf(person?.userRole == "admin") }
+    var timeOffEntries by remember { mutableStateOf(person?.timeOff ?: emptyList()) }
+    var showAddTimeOff by remember { mutableStateOf(false) }
+    var newToType by remember { mutableStateOf("PTO") }
+    var newToStart by remember { mutableStateOf("") }
+    var newToEnd by remember { mutableStateOf("") }
+    var newToReason by remember { mutableStateOf("") }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -302,33 +310,42 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(if (isNew) "New Person" else "Edit Person", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = c.text)
-                    TextButton(
-                        onClick = {
-                            val updated = if (isNew) {
-                                appState.people.value + Person(
-                                    id = maxId + 1, name = name, role = role, email = email,
-                                    cap = cap, color = selectedColor,
-                                    userRole = if (isAdmin) "admin" else "user",
-                                    isEngineer = isEngineer,
-                                    isTeamLead = isTeamLead
-                                )
-                            } else {
-                                appState.people.value.map {
-                                    if (it.id == person!!.id) it.copy(
-                                        name = name, role = role, email = email,
+                    Row {
+                        if (!isNew) {
+                            TextButton(onClick = { showDeleteConfirm = true }) {
+                                Text("Delete", color = c.danger)
+                            }
+                        }
+                        TextButton(
+                            onClick = {
+                                val updated = if (isNew) {
+                                    appState.people.value + Person(
+                                        id = maxId + 1, name = name, role = role, email = email,
                                         cap = cap, color = selectedColor,
                                         userRole = if (isAdmin) "admin" else "user",
                                         isEngineer = isEngineer,
-                                        isTeamLead = isTeamLead
-                                    ) else it
+                                        isTeamLead = isTeamLead,
+                                        timeOff = timeOffEntries
+                                    )
+                                } else {
+                                    appState.people.value.map {
+                                        if (it.id == person!!.id) it.copy(
+                                            name = name, role = role, email = email,
+                                            cap = cap, color = selectedColor,
+                                            userRole = if (isAdmin) "admin" else "user",
+                                            isEngineer = isEngineer,
+                                            isTeamLead = isTeamLead,
+                                            timeOff = timeOffEntries
+                                        ) else it
+                                    }
                                 }
-                            }
-                            appState.updatePeople(updated)
-                            onDismiss()
-                        },
-                        enabled = name.isNotBlank()
-                    ) {
-                        Text("Save", color = c.accent, fontWeight = FontWeight.Bold)
+                                appState.updatePeople(updated)
+                                onDismiss()
+                            },
+                            enabled = name.isNotBlank()
+                        ) {
+                            Text("Save", color = c.accent, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -388,6 +405,89 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                 }
             }
 
+            // Time Off management
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Time Off", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                        IconButton(onClick = { showAddTimeOff = !showAddTimeOff }) {
+                            Icon(
+                                if (showAddTimeOff) Icons.Default.Close else Icons.Default.Add,
+                                null, tint = c.accent, modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    timeOffEntries.forEach { entry ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(c.bg, RoundedCornerShape(8.dp))
+                                .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                                .padding(start = 10.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("${entry.start} → ${entry.end}", fontSize = 12.sp, color = c.text)
+                                Text(
+                                    "${entry.type}${entry.reason?.let { " — $it" } ?: ""}",
+                                    fontSize = 11.sp, color = c.muted
+                                )
+                            }
+                            IconButton(
+                                onClick = { timeOffEntries = timeOffEntries - entry },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Close, null, tint = c.danger, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                    if (showAddTimeOff) {
+                        Column(
+                            modifier = Modifier
+                                .background(c.bg, RoundedCornerShape(8.dp))
+                                .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf("PTO", "UTO").forEach { t ->
+                                    FilterChip(
+                                        selected = newToType == t,
+                                        onClick = { newToType = t },
+                                        label = { Text(t, fontSize = 12.sp) }
+                                    )
+                                }
+                            }
+                            EditField("Start (YYYY-MM-DD)", newToStart) { newToStart = it }
+                            EditField("End (YYYY-MM-DD)", newToEnd) { newToEnd = it }
+                            EditField("Reason (optional)", newToReason) { newToReason = it }
+                            Button(
+                                onClick = {
+                                    timeOffEntries = timeOffEntries + TimeOffEntry(
+                                        start = newToStart, end = newToEnd,
+                                        type = newToType,
+                                        reason = newToReason.takeIf { it.isNotBlank() }
+                                    )
+                                    newToStart = ""; newToEnd = ""; newToReason = ""
+                                    showAddTimeOff = false
+                                },
+                                enabled = newToStart.isNotBlank() && newToEnd.isNotBlank(),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = c.accent)
+                            ) {
+                                Text("Add Entry", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
             // Toggles
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -430,5 +530,24 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                 }
             }
         }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete Person", color = c.text) },
+            text = { Text("Are you sure you want to remove ${person?.name}?", color = c.muted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteConfirm = false
+                    appState.updatePeople(appState.people.value.filter { it.id != person!!.id })
+                    onDismiss()
+                }) { Text("Delete", color = c.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel", color = c.muted) }
+            },
+            containerColor = c.card
+        )
     }
 }

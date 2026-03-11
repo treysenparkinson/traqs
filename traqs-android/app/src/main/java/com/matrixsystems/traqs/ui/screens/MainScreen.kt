@@ -46,6 +46,7 @@ fun MainScreen(
     val saveStatus by appState.saveStatus.collectAsState()
     val currentBackStack by tabNavController.currentBackStackEntryAsState()
     val currentRoute = currentBackStack?.destination?.route
+    val unreadCount by appState.unreadCount.collectAsState()
 
     LaunchedEffect(Unit) {
         appState.loadAll()
@@ -65,7 +66,15 @@ fun MainScreen(
                                 restoreState = true
                             }
                         },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
+                        icon = {
+                            if (tab == BottomTab.Messages && unreadCount > 0) {
+                                BadgedBox(badge = { Badge { Text("$unreadCount") } }) {
+                                    Icon(tab.icon, contentDescription = tab.label)
+                                }
+                            } else {
+                                Icon(tab.icon, contentDescription = tab.label)
+                            }
+                        },
                         label = { Text(tab.label) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = c.accent,

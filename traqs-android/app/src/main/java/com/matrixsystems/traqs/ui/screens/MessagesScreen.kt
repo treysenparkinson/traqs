@@ -1,7 +1,8 @@
 package com.matrixsystems.traqs.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,12 +38,37 @@ fun MessagesScreen(
     val messages by appState.messages.collectAsState()
     val jobs by appState.jobs.collectAsState()
     var selectedThreadKey by remember { mutableStateOf<String?>(null) }
+    var showDeleteFor by remember { mutableStateOf<String?>(null) }
+
+    // Mark read when thread list is shown
+    LaunchedEffect(selectedThreadKey) {
+        if (selectedThreadKey == null) appState.markMessagesRead()
+    }
 
     // Group messages by threadKey
     val threads = remember(messages) {
         messages.groupBy { it.threadKey }
             .entries
             .sortedByDescending { it.value.maxOf { m -> m.timestamp } }
+    }
+
+    showDeleteFor?.let { threadKey ->
+        val c = traQSColors
+        AlertDialog(
+            onDismissRequest = { showDeleteFor = null },
+            title = { Text("Delete Thread", color = c.text) },
+            text = { Text("Delete this message thread? This cannot be undone.", color = c.muted) },
+            confirmButton = {
+                TextButton(onClick = {
+                    appState.deleteThread(threadKey)
+                    showDeleteFor = null
+                }) { Text("Delete", color = c.danger) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteFor = null }) { Text("Cancel", color = c.muted) }
+            },
+            containerColor = c.card
+        )
     }
 
     if (selectedThreadKey != null) {
@@ -86,7 +112,8 @@ fun MessagesScreen(
                             lastMessage = lastMsg,
                             jobTitle = jobTitle,
                             unreadCount = msgs.size,
-                            onClick = { selectedThreadKey = threadKey }
+                            onClick = { selectedThreadKey = threadKey },
+                            onLongClick = { showDeleteFor = threadKey }
                         )
                     }
                 }
@@ -95,20 +122,21 @@ fun MessagesScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThreadRow(
     threadKey: String,
     lastMessage: Message?,
     jobTitle: String?,
     unreadCount: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     val c = traQSColors
     val authorColor = lastMessage?.authorColor?.let { try { parseColor(it) } catch (_: Exception) { c.accent } } ?: c.accent
 
     Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = c.card),
         border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
