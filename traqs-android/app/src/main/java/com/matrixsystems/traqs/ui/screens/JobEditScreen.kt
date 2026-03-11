@@ -89,7 +89,8 @@ fun JobEditScreen(
                                 subs = job?.subs ?: emptyList(),
                                 hpd = job?.hpd ?: 7.5
                             )
-                            appState.updateJob(newJob)
+                            val clientName = clients.firstOrNull { it.id == selectedClientId }?.name
+                            appState.updateJob(newJob, sendNotification = true, clientName = clientName)
                             onDismiss()
                         },
                         enabled = title.isNotBlank() && startDate.isNotBlank() && endDate.isNotBlank()

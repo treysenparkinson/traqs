@@ -128,7 +128,8 @@ struct JobEditView: View {
             moveLog: job?.moveLog,
             jobType: job?.jobType
         )
-        appState.updateJob(updated)
+        let clientName = appState.clients.first(where: { $0.id == selectedClientId })?.name
+        appState.updateJob(updated, sendNotification: true, clientName: clientName)
         isSaving = false
         dismiss()
     }

@@ -97,7 +97,8 @@ class AppState {
         scheduleSave()
     }
 
-    func updateJob(_ job: Job) {
+    func updateJob(_ job: Job, sendNotification: Bool = false, clientName: String? = nil) {
+        let existing = jobs.first(where: { $0.id == job.id })
         var updated = jobs
         if let i = updated.firstIndex(where: { $0.id == job.id }) {
             updated[i] = job
@@ -105,6 +106,38 @@ class AppState {
             updated.append(job)
         }
         updateJobs(updated)
+
+        guard sendNotification else { return }
+        Task {
+            do {
+                if existing == nil {
+                    try await api.sendNotification(NotifyPayload(
+                        type: "new_job",
+                        jobTitle: job.title,
+                        jobNumber: job.jobNumber,
+                        panelTitle: "",
+                        stepLabel: "",
+                        jobTeamIds: job.team,
+                        newTeamIds: nil,
+                        clientName: clientName
+                    ))
+                } else {
+                    let newMembers = job.team.filter { !(existing!.team.contains($0)) }
+                    if !newMembers.isEmpty {
+                        try await api.sendNotification(NotifyPayload(
+                            type: "assigned",
+                            jobTitle: job.title,
+                            jobNumber: job.jobNumber,
+                            panelTitle: "",
+                            stepLabel: "",
+                            jobTeamIds: job.team,
+                            newTeamIds: newMembers,
+                            clientName: nil
+                        ))
+                    }
+                }
+            } catch { /* best-effort */ }
+        }
     }
 
     func deleteJob(id: String) {

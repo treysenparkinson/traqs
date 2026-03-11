@@ -219,7 +219,9 @@ data class NotifyPayload(
     val jobNumber: String? = null,
     val panelTitle: String = "",
     val stepLabel: String = "",
-    val jobTeamIds: List<Int> = emptyList()
+    val jobTeamIds: List<Int> = emptyList(),
+    val newTeamIds: List<Int> = emptyList(),
+    val clientName: String? = null
 )
 
 // MARK: - Org Info

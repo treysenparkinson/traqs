@@ -11,6 +11,7 @@ import com.matrixsystems.traqs.models.EngineeringSignOff
 import com.matrixsystems.traqs.models.Message
 import com.matrixsystems.traqs.models.Panel
 import com.matrixsystems.traqs.models.Person
+import com.matrixsystems.traqs.models.NotifyPayload
 import com.matrixsystems.traqs.models.TRAQSJob
 import kotlinx.coroutines.Job as CoroutineJob
 import kotlinx.coroutines.async
@@ -140,11 +141,45 @@ class AppState(private val context: Context) : ViewModel() {
         scheduleSave()
     }
 
-    fun updateJob(job: TRAQSJob) {
+    fun updateJob(job: TRAQSJob, sendNotification: Boolean = false, clientName: String? = null) {
+        val existing = _jobs.value.firstOrNull { it.id == job.id }
         val updated = _jobs.value.toMutableList()
         val idx = updated.indexOfFirst { it.id == job.id }
         if (idx >= 0) updated[idx] = job else updated.add(job)
         updateJobs(updated)
+
+        if (!sendNotification) return
+        val api = api ?: return
+        viewModelScope.launch {
+            try {
+                if (existing == null) {
+                    // Brand new job — notify admins + full team
+                    api.sendNotification(
+                        NotifyPayload(
+                            type = "new_job",
+                            jobTitle = job.title,
+                            jobNumber = job.jobNumber,
+                            jobTeamIds = job.team,
+                            clientName = clientName
+                        )
+                    )
+                } else {
+                    // Existing job — notify anyone newly added to the team
+                    val newMembers = job.team.filter { it !in existing.team }
+                    if (newMembers.isNotEmpty()) {
+                        api.sendNotification(
+                            NotifyPayload(
+                                type = "assigned",
+                                jobTitle = job.title,
+                                jobNumber = job.jobNumber,
+                                jobTeamIds = job.team,
+                                newTeamIds = newMembers
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) { /* best-effort */ }
+        }
     }
 
     fun deleteJob(id: String) {

@@ -344,10 +344,12 @@ struct Template: Codable, Identifiable {
 // MARK: - Notification Payload
 
 struct NotifyPayload: Codable {
-    var type: String   // "step" | "ready"
+    var type: String   // "step" | "ready" | "new_job" | "assigned"
     var jobTitle: String
     var jobNumber: String?
     var panelTitle: String
     var stepLabel: String
     var jobTeamIds: [Int]
+    var newTeamIds: [Int]?
+    var clientName: String?
 }

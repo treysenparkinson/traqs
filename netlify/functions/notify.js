@@ -28,19 +28,31 @@ export async function handler(event) {
   let body;
   try { body = JSON.parse(event.body || "{}"); } catch { return err(400, "Invalid JSON"); }
 
-  const { type, jobTitle, panelTitle, stepLabel, jobTeamIds = [], jobNumber } = body;
+  const { type, jobTitle, panelTitle, stepLabel, jobTeamIds = [], newTeamIds = [], jobNumber, clientName } = body;
   if (!type) return err(400, "Missing type");
 
   // Load people to get push tokens
   let people = [];
   try { people = await readJson(s3Key) || []; } catch { people = []; }
 
-  // Collect external_user_ids for job team + all admins
   const adminIds = people.filter(p => p.userRole === "admin").map(p => String(p.id));
   const teamIds  = (jobTeamIds || []).map(id => String(id));
-  const targetIds = [...new Set([...adminIds, ...teamIds])];
 
-  // Only notify people who have registered a push token (externalUserId set)
+  // Determine who to target based on notification type
+  let targetIds;
+  if (type === "new_job") {
+    // Notify all admins + everyone on the job team
+    targetIds = [...new Set([...adminIds, ...teamIds])];
+  } else if (type === "assigned") {
+    // Notify only the newly added team members (+ admins)
+    const newIds = (newTeamIds || []).map(id => String(id));
+    targetIds = [...new Set([...adminIds, ...newIds])];
+  } else {
+    // step / ready — admins + full team
+    targetIds = [...new Set([...adminIds, ...teamIds])];
+  }
+
+  // Only notify people who have registered a push token
   const registeredIds = people
     .filter(p => p.pushToken && targetIds.includes(String(p.id)))
     .map(p => String(p.id));
@@ -51,7 +63,15 @@ export async function handler(event) {
   const jobLabel = jobNumber ? `Job #${jobNumber}` : jobTitle;
   let heading, content;
 
-  if (type === "step") {
+  if (type === "new_job") {
+    heading = `📋 New Job: ${jobLabel}`;
+    content = clientName
+      ? `A new job for ${clientName} has been created.`
+      : `A new job has been added to TRAQS.`;
+  } else if (type === "assigned") {
+    heading = `👷 You've Been Assigned`;
+    content = `You've been added to ${jobLabel}.`;
+  } else if (type === "step") {
     heading = `🔧 Engineering: ${stepLabel} Complete`;
     content = `${panelTitle} on ${jobLabel} has been signed off — ${stepLabel} done.`;
   } else if (type === "ready") {
