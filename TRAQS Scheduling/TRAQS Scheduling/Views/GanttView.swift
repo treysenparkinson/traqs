@@ -66,48 +66,87 @@ struct GanttView: View {
 
                 VStack(spacing: 0) {
 
-                    // ── Toggle: All / My Tasks ──
-                    Picker("", selection: $showMyTasks) {
-                        Text("All Tasks").tag(false)
-                        Text("My Tasks").tag(true)
+                    // ── Logo header ──
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 2) {
+                            TRAQSNavLogo()
+                            Text("Schedule")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(Color(hex: T.muted))
+                                .kerning(0.8)
+                                .textCase(.uppercase)
+                        }
+                        Spacer()
                     }
-                    .pickerStyle(.segmented)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    .padding(.top, 20)
+                    .padding(.bottom, 14)
                     .background(Color(hex: T.surface))
 
                     Rectangle().fill(Color(hex: T.border)).frame(height: 1)
 
-                    // ── Week navigation row ──
-                    HStack(spacing: 0) {
-                        Button { weekOffset -= 1 } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(Color(hex: T.accent))
-                                .frame(width: 36, height: 36)
+                    // ── Sub-header: Ask TRAQS | All/My Tasks (centered) | Add ──
+                    ZStack {
+                        Picker("", selection: $showMyTasks) {
+                            Text("All Tasks").tag(false)
+                            Text("My Tasks").tag(true)
                         }
+                        .pickerStyle(.segmented)
+                        .frame(width: 180)
 
-                        Spacer()
+                        HStack {
+                            Button { showFastTRAQS = true } label: {
+                                FastTRAQSPillButton()
+                            }
+                            .buttonStyle(.plain)
 
+                            Spacer()
+
+                            Button { showAddJob = true } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(Color(hex: T.accent))
+                                    .frame(width: 32, height: 32)
+                                    .background(Color(hex: T.accent).opacity(0.12))
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(hex: T.surface))
+
+                    // ── Week navigation row ──
+                    ZStack {
                         Text(weekLabel)
                             .font(.caption.bold())
                             .foregroundColor(Color(hex: T.muted))
 
-                        Spacer()
+                        HStack(spacing: 0) {
+                            Button { weekOffset -= 1 } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(Color(hex: T.accent))
+                                    .frame(width: 36, height: 36)
+                            }
 
-                        Button("Today") {
-                            weekOffset = 0
-                            selectedDate = cal.startOfDay(for: Date())
-                        }
-                        .font(.caption.bold())
-                        .foregroundColor(Color(hex: T.accent))
-                        .padding(.trailing, 4)
+                            Spacer()
 
-                        Button { weekOffset += 1 } label: {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(Color(hex: T.accent))
-                                .frame(width: 36, height: 36)
+                            Button("Today") {
+                                weekOffset = 0
+                                selectedDate = cal.startOfDay(for: Date())
+                            }
+                            .font(.caption.bold())
+                            .foregroundColor(Color(hex: T.accent))
+                            .padding(.trailing, 4)
+
+                            Button { weekOffset += 1 } label: {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(Color(hex: T.accent))
+                                    .frame(width: 36, height: 36)
+                            }
                         }
                     }
                     .padding(.horizontal, 8)
@@ -175,27 +214,7 @@ struct GanttView: View {
                     }
                 }
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-            .toolbarColorScheme(themeSettings.isLightTheme ? .light : .dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { showFastTRAQS = true } label: {
-                        FastTRAQSPillButton()
-                    }
-                    .buttonStyle(.plain)
-                }
-                ToolbarItem(placement: .principal) {
-                    TRAQSNavHeader(tabName: "Schedule")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showAddJob = true } label: {
-                        Image(systemName: "plus")
-                            .foregroundColor(Color(hex: T.accent))
-                    }
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showFastTRAQS) { FastTRAQSView() }
             .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
         }

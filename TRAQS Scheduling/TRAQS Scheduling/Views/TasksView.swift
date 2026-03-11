@@ -26,6 +26,61 @@ struct TasksView: View {
                 Color(hex: T.bg).ignoresSafeArea()
 
                 VStack(spacing: 0) {
+                    // ── Logo header ──
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 2) {
+                            TRAQSNavLogo()
+                            Text("Jobs")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(Color(hex: T.muted))
+                                .kerning(0.8)
+                                .textCase(.uppercase)
+                        }
+                        Spacer()
+                    }
+                    .padding(.top, 20)
+                    .padding(.bottom, 14)
+                    .background(Color(hex: T.surface))
+
+                    Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+
+                    // ── Sub-header: Ask TRAQS | Undo | Add ──
+                    HStack(spacing: 10) {
+                        Button { showFastTRAQS = true } label: {
+                            FastTRAQSPillButton()
+                        }
+                        .buttonStyle(.plain)
+
+                        Spacer()
+
+                        Button {
+                            if appState.canUndo { appState.undo() }
+                        } label: {
+                            Image(systemName: "arrow.uturn.backward")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(appState.canUndo ? Color(hex: T.accent) : Color(hex: T.muted))
+                                .frame(width: 32, height: 32)
+                                .background(Color(hex: T.surface))
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color(hex: T.border), lineWidth: 1))
+                        }
+                        .disabled(!appState.canUndo)
+
+                        Button { showAddJob = true } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(Color(hex: T.accent))
+                                .frame(width: 32, height: 32)
+                                .background(Color(hex: T.accent).opacity(0.12))
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(hex: T.surface))
+
                     // Engineering Queue
                     if !appState.engineeringQueue.isEmpty {
                         EngineeringQueueSection()
@@ -83,36 +138,7 @@ struct TasksView: View {
                     .refreshable { await appState.loadAll() }
                 }
             }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-            .toolbarColorScheme(themeSettings.isLightTheme ? .light : .dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button { showFastTRAQS = true } label: {
-                        FastTRAQSPillButton()
-                    }
-                    .buttonStyle(.plain)
-                }
-                ToolbarItem(placement: .principal) {
-                    TRAQSNavHeader(tabName: "Jobs")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showAddJob = true } label: {
-                        Image(systemName: "plus")
-                            .foregroundColor(Color(hex: T.accent))
-                    }
-                }
-                ToolbarItem {
-                    Button {
-                        if appState.canUndo { appState.undo() }
-                    } label: {
-                        Image(systemName: "arrow.uturn.backward")
-                            .foregroundColor(appState.canUndo ? Color(hex: T.accent) : Color(hex: T.muted))
-                    }
-                    .disabled(!appState.canUndo)
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showFastTRAQS) { FastTRAQSView() }
         } detail: {
             if let job = selectedJob {

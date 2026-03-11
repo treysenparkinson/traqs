@@ -22,32 +22,56 @@ struct MessagesView: View {
             ZStack {
                 Color(hex: T.bg).ignoresSafeArea()
 
-                List(threads, selection: $selectedThreadKey) { thread in
-                    ThreadRow(thread: thread)
-                        .tag(thread.key)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .refreshable { await appState.loadAll() }
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-            .toolbarColorScheme(themeSettings.isLightTheme ? .light : .dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    TRAQSNavHeader(tabName: "Messages")
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showNewGroup = true } label: {
-                        Image(systemName: "plus")
-                            .foregroundColor(Color(hex: T.accent))
+                VStack(spacing: 0) {
+                    // ── Logo header ──
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 2) {
+                            TRAQSNavLogo()
+                            Text("Messages")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(Color(hex: T.muted))
+                                .kerning(0.8)
+                                .textCase(.uppercase)
+                        }
+                        Spacer()
                     }
+                    .padding(.top, 20)
+                    .padding(.bottom, 14)
+                    .background(Color(hex: T.surface))
+
+                    Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+
+                    // ── Sub-header: New thread ──
+                    HStack {
+                        Spacer()
+                        Button { showNewGroup = true } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundColor(Color(hex: T.accent))
+                                .frame(width: 32, height: 32)
+                                .background(Color(hex: T.accent).opacity(0.12))
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(hex: T.surface))
+
+                    List(threads, selection: $selectedThreadKey) { thread in
+                        ThreadRow(thread: thread)
+                            .tag(thread.key)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .refreshable { await appState.loadAll() }
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showNewGroup) {
                 NewGroupSheet { name in
                     selectedThreadKey = "group:\(name)"

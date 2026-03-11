@@ -27,7 +27,7 @@ struct TRAQSNavHeader: View {
                 .kerning(0.8)
                 .textCase(.uppercase)
         }
-        .padding(.top, 6)
+        .padding(.top, 12)
     }
 }
 
@@ -35,15 +35,12 @@ struct TRAQSNavHeader: View {
 
 struct FastTRAQSPillButton: View {
     var body: some View {
-        HStack(spacing: 4) {
-            Image(systemName: "bolt.fill")
-                .font(.system(size: 12, weight: .bold))
-            Text("Ask TRAQS")
-                .font(.system(size: 13, weight: .semibold))
-                .lineLimit(1)
-                .fixedSize()
-        }
-        .foregroundColor(Color(hex: T.accent))
-        .fixedSize()
+        Image(systemName: "bolt.fill")
+            .font(.system(size: 15, weight: .bold))
+            .foregroundColor(Color(hex: T.accent))
+            .frame(width: 32, height: 32)
+            .background(Color(hex: T.accent).opacity(0.12))
+            .clipShape(Circle())
+            .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
     }
 }

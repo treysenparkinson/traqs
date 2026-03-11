@@ -11,7 +11,25 @@ struct MoreView: View {
             ZStack {
                 Color(hex: T.bg).ignoresSafeArea()
 
-                List {
+                VStack(spacing: 0) {
+                    // ── Logo header ──
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 2) {
+                            TRAQSNavLogo()
+                            Text("More")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundColor(Color(hex: T.muted))
+                                .kerning(0.8)
+                                .textCase(.uppercase)
+                        }
+                        Spacer()
+                    }
+                    .padding(.top, 20)
+                    .padding(.bottom, 14)
+                    .background(Color(hex: T.surface))
+
+                    List {
                     Section("AI Tools") {
                         Button {
                             showFastTRAQS = true
@@ -60,18 +78,11 @@ struct MoreView: View {
                         .listRowBackground(Color(hex: T.card))
                     }
                 }
-                .listStyle(.insetGrouped)
-                .scrollContentBackground(.hidden)
-            }
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-            .toolbarColorScheme(themeSettings.isLightTheme ? .light : .dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    TRAQSNavHeader(tabName: "More")
+                    .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
                 }
             }
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showFastTRAQS) { FastTRAQSView() }
             .safeAreaInset(edge: .bottom) {
                 if let person = appState.currentPerson {
