@@ -4403,7 +4403,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       const mobileEngOpen = mobileExp["eng_queue"];
       return <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
         {/* Engineering Queue */}
-        {engQueueItems.length > 0 && <div style={{ marginBottom: 12 }}>
+        {canSignOffEngineering && engQueueItems.length > 0 && <div style={{ marginBottom: 12 }}>
           <div onClick={() => setMobileExp(p => ({ ...p, eng_queue: !p.eng_queue }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: `${T.accent}15`, borderRadius: T.radiusSm, border: `1px solid ${T.accent}30`, cursor: "pointer", marginBottom: mobileEngOpen ? 6 : 0 }}>
             <span style={{ fontSize: 14 }}>🔧</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: T.accent, flex: 1 }}>Engineering Queue</span>

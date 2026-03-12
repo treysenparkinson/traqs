@@ -1,46 +1,47 @@
 import SwiftUI
 
+// MARK: - TeamView
+
 struct TeamView: View {
     @Environment(AppState.self) private var appState
-    @State private var selectedPersonId: Int? = nil
     @State private var showAddPerson = false
     @State private var personToEdit: Person? = nil
     @State private var personToDelete: Person? = nil
     @State private var showDeleteConfirm = false
 
     var body: some View {
-        NavigationSplitView {
-            ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
+        ZStack {
+            Color(hex: T.bg).ignoresSafeArea()
 
-                List(appState.people, selection: $selectedPersonId) { person in
+            List {
+                ForEach(appState.people) { person in
                     PersonRow(person: person)
-                        .tag(person.id)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                personToDelete = person
-                                showDeleteConfirm = true
-                            } label: {
-                                Label("Delete", systemImage: "trash")
+                            if appState.isAdmin {
+                                Button(role: .destructive) {
+                                    personToDelete = person
+                                    showDeleteConfirm = true
+                                } label: { Label("Delete", systemImage: "trash") }
+
+                                Button { personToEdit = person } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(Color(hex: T.accent))
                             }
-                            Button {
-                                personToEdit = person
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .tint(Color(hex: T.accent))
                         }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
             }
-            .navigationTitle("Team")
-            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+        }
+        .navigationTitle("Team")
+        .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar {
+            if appState.isAdmin {
                 ToolbarItem(placement: .primaryAction) {
                     Button { showAddPerson = true } label: {
                         Image(systemName: "plus")
@@ -48,23 +49,9 @@ struct TeamView: View {
                     }
                 }
             }
-        } detail: {
-            if let id = selectedPersonId,
-               let person = appState.people.first(where: { $0.id == id }) {
-                PersonDetailView(person: person)
-            } else {
-                ZStack {
-                    Color(hex: T.bg).ignoresSafeArea()
-                    ContentUnavailableView("Select a Team Member", systemImage: "person", description: Text("Choose a team member to view their schedule."))
-                }
-            }
         }
-        .sheet(isPresented: $showAddPerson) {
-            PersonEditView(person: nil)
-        }
-        .sheet(item: $personToEdit) { person in
-            PersonEditView(person: person)
-        }
+        .sheet(isPresented: $showAddPerson) { PersonEditView(person: nil) }
+        .sheet(item: $personToEdit) { person in PersonEditView(person: person) }
         .confirmationDialog(
             "Delete \(personToDelete?.name ?? "this person")?",
             isPresented: $showDeleteConfirm,
@@ -75,7 +62,6 @@ struct TeamView: View {
                     var list = appState.people
                     list.removeAll { $0.id == p.id }
                     appState.updatePeople(list)
-                    if selectedPersonId == p.id { selectedPersonId = nil }
                 }
                 personToDelete = nil
             }
@@ -84,57 +70,167 @@ struct TeamView: View {
     }
 }
 
+// MARK: - PersonRow
+
 struct PersonRow: View {
     @Environment(AppState.self) private var appState
     let person: Person
+    @State private var isExpanded = false
+
+    // Live read so toggles reflect current state without snap-back
+    private var livePerson: Person? {
+        appState.people.first(where: { $0.id == person.id })
+    }
 
     var assignedOps: Int {
-        appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }
-            .filter { $0.team.contains(person.id) && $0.status != .finished }
-            .count
+        let all = appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }
+        return all.filter { $0.team.contains(person.id) && $0.status != .finished }.count
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            Circle()
-                .fill(Color(hex: person.color))
-                .frame(width: 40, height: 40)
-                .overlay(
-                    Text(String(person.name.prefix(1)).uppercased())
-                        .font(.headline.bold()).foregroundColor(.white)
-                )
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(person.name).font(.subheadline.bold()).foregroundColor(Color(hex: T.text))
-                    if person.isAdmin {
-                        Text("Admin").font(.caption2.bold())
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color(hex: T.eng).opacity(0.2))
-                            .foregroundColor(Color(hex: T.eng))
-                            .cornerRadius(4)
+        VStack(spacing: 0) {
+
+            // ── Tappable header — whole card, always works ──
+            Button {
+                isExpanded.toggle()
+            } label: {
+                // Use live data so tags update immediately when toggled
+                let live = appState.people.first(where: { $0.id == person.id }) ?? person
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(Color(hex: live.color))
+                        .frame(width: 40, height: 40)
+                        .overlay(
+                            Text(String(live.name.prefix(1)).uppercased())
+                                .font(.headline.bold()).foregroundColor(.white)
+                        )
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(live.name)
+                                .font(.subheadline.bold())
+                                .foregroundColor(Color(hex: T.text))
+                            if live.isAdmin {
+                                Text("Admin").font(.caption2.bold())
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Color(hex: T.eng).opacity(0.2))
+                                    .foregroundColor(Color(hex: T.eng))
+                                    .cornerRadius(4)
+                            }
+                            if live.isEngineer == true {
+                                Text("Eng").font(.caption2.bold())
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Color(hex: T.statusInProgress).opacity(0.2))
+                                    .foregroundColor(Color(hex: T.statusInProgress))
+                                    .cornerRadius(4)
+                            }
+                        }
+                        Text(live.role)
+                            .font(.caption)
+                            .foregroundColor(Color(hex: T.muted))
                     }
-                    if person.isEngineer == true {
-                        Text("Eng").font(.caption2.bold())
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color(hex: T.statusInProgress).opacity(0.2))
-                            .foregroundColor(Color(hex: T.statusInProgress))
-                            .cornerRadius(4)
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(assignedOps) tasks")
+                            .font(.caption)
+                            .foregroundColor(Color(hex: T.muted))
+                        Text("\(Int(live.cap))h/day")
+                            .font(.caption2)
+                            .foregroundColor(Color(hex: T.muted))
                     }
+
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundColor(Color(hex: T.muted))
+                        .frame(width: 20)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
-                Text(person.role).font(.caption).foregroundColor(Color(hex: T.muted))
+                .padding(12)
+                .contentShape(Rectangle())
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(assignedOps) tasks").font(.caption).foregroundColor(Color(hex: T.muted))
-                Text("\(Int(person.cap))h/day").font(.caption2).foregroundColor(Color(hex: T.muted))
+            .buttonStyle(.plain)
+
+            // ── Expanded permissions ──
+            if isExpanded {
+                Divider().padding(.horizontal, 12)
+
+                VStack(spacing: 0) {
+
+                    // Admin
+                    HStack {
+                        Label("Admin", systemImage: "shield.fill")
+                            .font(.subheadline).foregroundColor(Color(hex: T.text))
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { appState.people.first(where: { $0.id == person.id })?.isAdmin ?? false },
+                            set: { val in
+                                var list = appState.people
+                                if let i = list.firstIndex(where: { $0.id == person.id }) {
+                                    list[i].userRole = val ? "admin" : "user"
+                                    appState.updatePeople(list)
+                                }
+                            }
+                        )).tint(Color(hex: T.eng)).labelsHidden()
+                    }
+                    .padding(.vertical, 8)
+
+                    Divider().padding(.leading, 44)
+
+                    // Engineer
+                    HStack {
+                        Label("Engineer", systemImage: "wrench.and.screwdriver.fill")
+                            .font(.subheadline).foregroundColor(Color(hex: T.text))
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { appState.people.first(where: { $0.id == person.id })?.isEngineer ?? false },
+                            set: { val in
+                                var list = appState.people
+                                if let i = list.firstIndex(where: { $0.id == person.id }) {
+                                    list[i].isEngineer = val
+                                    appState.updatePeople(list)
+                                }
+                            }
+                        )).tint(Color(hex: T.statusInProgress)).labelsHidden()
+                    }
+                    .padding(.vertical, 8)
+
+                    Divider().padding(.leading, 44)
+
+                    // Auto-Scheduling
+                    HStack {
+                        Label("Auto-Scheduling", systemImage: "brain")
+                            .font(.subheadline).foregroundColor(Color(hex: T.text))
+                        Spacer()
+                        Toggle("", isOn: Binding(
+                            get: { appState.people.first(where: { $0.id == person.id })?.autoSchedule ?? true },
+                            set: { val in
+                                var list = appState.people
+                                if let i = list.firstIndex(where: { $0.id == person.id }) {
+                                    list[i].autoSchedule = val
+                                    appState.updatePeople(list)
+                                }
+                            }
+                        )).tint(Color(hex: T.accent)).labelsHidden()
+                    }
+                    .padding(.vertical, 8)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 4)
+                .clipped()
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .padding(12)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isExpanded)
         .background(Color(hex: T.card))
         .cornerRadius(10)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
     }
+
 }
+
+// MARK: - PersonDetailView
 
 struct PersonDetailView: View {
     @Environment(AppState.self) private var appState
@@ -158,7 +254,6 @@ struct PersonDetailView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Header card
                     HStack(spacing: 16) {
                         Circle()
                             .fill(Color(hex: person.color))
@@ -179,14 +274,12 @@ struct PersonDetailView: View {
                     .cornerRadius(12)
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
 
-                    // Stats
                     HStack(spacing: 12) {
                         StatCard(label: "Active Tasks", value: "\(assignedOps.filter { $0.op.status == .inProgress }.count)", color: Color(hex: T.statusInProgress))
                         StatCard(label: "Pending", value: "\(assignedOps.filter { $0.op.status == .pending }.count)", color: Color(hex: T.statusPending))
                         StatCard(label: "Capacity", value: "\(Int(person.cap))h/day", color: Color(hex: T.statusFinished))
                     }
 
-                    // Time off
                     if !person.timeOff.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Time Off").font(.headline).foregroundColor(Color(hex: T.text))
@@ -210,7 +303,6 @@ struct PersonDetailView: View {
                         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
                     }
 
-                    // Assigned operations
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Assigned Work (\(assignedOps.count))").font(.headline).foregroundColor(Color(hex: T.text))
                         ForEach(assignedOps, id: \.op.id) { item in
@@ -243,9 +335,11 @@ struct PersonDetailView: View {
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") { showEdit = true }
-                    .foregroundColor(Color(hex: T.accent))
+            if appState.isAdmin {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { showEdit = true }
+                        .foregroundColor(Color(hex: T.accent))
+                }
             }
         }
         .sheet(isPresented: $showEdit) {
@@ -253,6 +347,8 @@ struct PersonDetailView: View {
         }
     }
 }
+
+// MARK: - StatCard
 
 struct StatCard: View {
     let label: String
@@ -271,6 +367,8 @@ struct StatCard: View {
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(color.opacity(0.25), lineWidth: 1))
     }
 }
+
+// MARK: - PersonEditView
 
 struct PersonEditView: View {
     @Environment(AppState.self) private var appState
@@ -364,15 +462,15 @@ struct PersonEditView: View {
     }
 
     private func save() {
-        let maxId = appState.people.map { $0.id }.max() ?? 0
         let updated = Person(
-            id: person?.id ?? maxId + 1,
+            id: person?.id ?? "p" + UUID().uuidString.prefix(8).lowercased(),
             name: name.trimmingCharacters(in: .whitespaces),
             role: role, email: email, cap: cap,
             color: color, userRole: userRole,
             adminPerms: person?.adminPerms,
             isEngineer: isEngineer,
             isTeamLead: isTeamLead,
+            autoSchedule: person?.autoSchedule,
             teamNumber: person?.teamNumber,
             timeOff: person?.timeOff ?? [],
             pushToken: person?.pushToken
