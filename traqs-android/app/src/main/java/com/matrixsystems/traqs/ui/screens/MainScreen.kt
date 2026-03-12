@@ -1,22 +1,18 @@
 package com.matrixsystems.traqs.ui.screens
 
 import android.app.Activity
-import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.*
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.services.AuthManager
-import com.matrixsystems.traqs.services.SaveStatus
 import com.matrixsystems.traqs.services.ThemeSettings
 import com.matrixsystems.traqs.ui.navigation.Screen
 import com.matrixsystems.traqs.ui.theme.traQSColors
@@ -43,7 +39,6 @@ fun MainScreen(
 ) {
     val c = traQSColors
     val tabNavController = rememberNavController()
-    val saveStatus by appState.saveStatus.collectAsState()
     val currentBackStack by tabNavController.currentBackStackEntryAsState()
     val currentRoute = currentBackStack?.destination?.route
     val unreadCount by appState.unreadCount.collectAsState()
@@ -138,17 +133,6 @@ fun MainScreen(
                 }
             }
 
-            // Save status banner
-            AnimatedVisibility(
-                visible = saveStatus is SaveStatus.Saving || saveStatus is SaveStatus.Saved,
-                enter = slideInVertically() + fadeIn(),
-                exit = slideOutVertically() + fadeOut(),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp)
-            ) {
-                SaveStatusBanner(saveStatus)
-            }
         }
     }
 }

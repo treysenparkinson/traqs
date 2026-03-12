@@ -181,8 +181,8 @@ fun TRAQSHeader() {
             contentScale = ContentScale.Fit,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(96.dp)
-                .padding(top = 44.dp, bottom = 16.dp, start = 110.dp, end = 110.dp)
+                .height(62.dp)
+                .padding(top = 28.dp, bottom = 12.dp, start = 120.dp, end = 120.dp)
         )
     }
 }

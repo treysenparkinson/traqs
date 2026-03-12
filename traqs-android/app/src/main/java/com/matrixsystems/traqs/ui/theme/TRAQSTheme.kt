@@ -4,8 +4,47 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.googlefonts.Font
+import androidx.compose.ui.text.googlefonts.GoogleFont
+import com.matrixsystems.traqs.R
 import com.matrixsystems.traqs.services.BgPreset
 import com.matrixsystems.traqs.services.ThemeSettings
+
+private val fontProvider = GoogleFont.Provider(
+    providerAuthority = "com.google.android.gms.fonts",
+    providerPackage = "com.google.android.gms",
+    certificates = R.array.com_google_android_gms_fonts_certs
+)
+
+private val dmSans = GoogleFont("DM Sans")
+
+private val dmSansFamily = androidx.compose.ui.text.font.FontFamily(
+    Font(googleFont = dmSans, fontProvider = fontProvider, weight = FontWeight.Normal),
+    Font(googleFont = dmSans, fontProvider = fontProvider, weight = FontWeight.Medium),
+    Font(googleFont = dmSans, fontProvider = fontProvider, weight = FontWeight.SemiBold),
+    Font(googleFont = dmSans, fontProvider = fontProvider, weight = FontWeight.Bold),
+    Font(googleFont = dmSans, fontProvider = fontProvider, weight = FontWeight.Black),
+)
+
+private val dmSansTypography = Typography(
+    displayLarge = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Bold),
+    displayMedium = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Bold),
+    displaySmall = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Bold),
+    headlineLarge = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Bold),
+    headlineMedium = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.SemiBold),
+    headlineSmall = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.SemiBold),
+    titleLarge = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Bold),
+    titleMedium = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.SemiBold),
+    titleSmall = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Medium),
+    bodyLarge = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Normal),
+    bodyMedium = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Normal),
+    bodySmall = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Normal),
+    labelLarge = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Medium),
+    labelMedium = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Medium),
+    labelSmall = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Normal),
+)
 
 // Colors derived at runtime from ThemeSettings — similar to T.* in iOS
 data class TRAQSColors(
@@ -97,7 +136,7 @@ fun TRAQSTheme(
     CompositionLocalProvider(LocalTRAQSColors provides traQSColors) {
         MaterialTheme(
             colorScheme = colorScheme,
-            typography = Typography(),
+            typography = dmSansTypography,
             content = content
         )
     }

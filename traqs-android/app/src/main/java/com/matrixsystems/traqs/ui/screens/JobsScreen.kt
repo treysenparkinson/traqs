@@ -37,6 +37,8 @@ fun JobsScreen(
     val c = traQSColors
     val jobs by appState.jobs.collectAsState()
     val isLoading by appState.isLoading.collectAsState()
+    var isManualRefreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading) { if (!isLoading) isManualRefreshing = false }
     var searchText by remember { mutableStateOf("") }
     var filterStatus by remember { mutableStateOf<JobStatus?>(null) }
     var showJobEdit by remember { mutableStateOf(false) }
@@ -57,7 +59,7 @@ fun JobsScreen(
         topBar = { TRAQSHeader() }
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            PullToRefreshBox(isRefreshing = isLoading, onRefresh = { appState.loadAll() }) {
+            PullToRefreshBox(isRefreshing = isManualRefreshing, onRefresh = { isManualRefreshing = true; appState.loadAll() }) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().background(c.bg),
                     contentPadding = PaddingValues(bottom = 16.dp)

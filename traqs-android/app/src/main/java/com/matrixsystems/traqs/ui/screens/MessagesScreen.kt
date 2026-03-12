@@ -3,6 +3,7 @@ package com.matrixsystems.traqs.ui.screens
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -37,6 +38,9 @@ fun MessagesScreen(
     val c = traQSColors
     val messages by appState.messages.collectAsState()
     val jobs by appState.jobs.collectAsState()
+    val isLoading by appState.isLoading.collectAsState()
+    var isManualRefreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading) { if (!isLoading) isManualRefreshing = false }
     var selectedThreadKey by remember { mutableStateOf<String?>(null) }
     var showDeleteFor by remember { mutableStateOf<String?>(null) }
 
@@ -90,8 +94,13 @@ fun MessagesScreen(
             containerColor = c.bg,
             topBar = { TRAQSHeader() }
         ) { padding ->
+            PullToRefreshBox(
+                isRefreshing = isManualRefreshing,
+                onRefresh = { isManualRefreshing = true; appState.loadAll() },
+                modifier = Modifier.fillMaxSize().padding(padding)
+            ) {
             if (threads.isEmpty()) {
-                Column(Modifier.fillMaxSize().padding(padding)) {
+                Column(Modifier.fillMaxSize()) {
                     PageActionBar(title = "Messages", onAskTRAQS = onAskTRAQS)
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("No messages yet", color = c.muted)
@@ -99,7 +108,7 @@ fun MessagesScreen(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
+                    modifier = Modifier.fillMaxSize().background(c.bg),
                     contentPadding = PaddingValues(bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -118,6 +127,7 @@ fun MessagesScreen(
                     }
                 }
             }
+            } // PullToRefreshBox
         }
     }
 }

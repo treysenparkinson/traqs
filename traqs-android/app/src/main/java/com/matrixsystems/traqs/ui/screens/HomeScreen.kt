@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,6 +43,9 @@ fun HomeScreen(
 ) {
     val c = traQSColors
     val jobs by appState.jobs.collectAsState()
+    val isLoading by appState.isLoading.collectAsState()
+    var isManualRefreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading) { if (!isLoading) isManualRefreshing = false }
     val today = remember { Calendar.getInstance() }
     val currentPerson = appState.currentPerson
     val fmt = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
@@ -135,10 +139,14 @@ fun HomeScreen(
     ) { padding ->
         var selectedTab by remember { mutableStateOf(0) } // 0 = My Tasks, 1 = Active This Week
 
+        PullToRefreshBox(
+            isRefreshing = isManualRefreshing,
+            onRefresh = { isManualRefreshing = true; appState.loadAll() },
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .background(c.bg)
         ) {
             PageActionBar(title = "Schedule", onAskTRAQS = onAskTRAQS) {
@@ -251,6 +259,7 @@ fun HomeScreen(
                 }
             }
         }
+        } // PullToRefreshBox
     }
 }
 

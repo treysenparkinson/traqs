@@ -19,10 +19,20 @@ android {
         manifestPlaceholders["auth0Domain"] = "matrixpci.us.auth0.com"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("C:/Users/treysen/traqs-release.jks")
+            storePassword = "Traqs@feb2026!"
+            keyAlias = "traqs-key"
+            keyPassword = "Traqs@feb2026!"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -87,6 +97,9 @@ dependencies {
 
     // DataStore (for theme prefs)
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+
+    // Google Fonts for Compose
+    implementation("androidx.compose.ui:ui-text-google-fonts")
 
     // Core
     implementation("androidx.core:core-ktx:1.13.1")

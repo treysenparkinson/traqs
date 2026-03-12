@@ -27,6 +27,7 @@ import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 
 private val CLIENT_COLOR_PALETTE = listOf(
     "#3d7fff", "#ef4444", "#22c55e", "#f59e0b",
@@ -42,6 +43,9 @@ fun ClientsScreen(
 ) {
     val c = traQSColors
     val clients by appState.clients.collectAsState()
+    val isLoading by appState.isLoading.collectAsState()
+    var isManualRefreshing by remember { mutableStateOf(false) }
+    LaunchedEffect(isLoading) { if (!isLoading) isManualRefreshing = false }
     var searchText by remember { mutableStateOf("") }
     var editingClient by remember { mutableStateOf<Client?>(null) }
     var showNewClient by remember { mutableStateOf(false) }
@@ -56,8 +60,13 @@ fun ClientsScreen(
         containerColor = c.bg,
         topBar = { TRAQSHeader() }
     ) { padding ->
+        PullToRefreshBox(
+            isRefreshing = isManualRefreshing,
+            onRefresh = { isManualRefreshing = true; appState.loadAll() },
+            modifier = Modifier.fillMaxSize().padding(padding)
+        ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
+            modifier = Modifier.fillMaxSize().background(c.bg),
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -104,6 +113,7 @@ fun ClientsScreen(
                 )
             }
         }
+        } // PullToRefreshBox
     }
 
     // Detail view — tap client row → show detail, then can edit from detail
