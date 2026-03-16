@@ -6,7 +6,7 @@ struct GanttView: View {
 
     @State private var selectedDate = Calendar.current.startOfDay(for: Date())
     @State private var weekOffset = 0
-    @State private var showMyTasks = false
+    @State private var showMyTasks = true
     @State private var showFastTRAQS = false
     @State private var showAddJob = false
 
@@ -49,6 +49,21 @@ struct GanttView: View {
             return all.filter { $0.op.team.contains(myId) }
         }
         return all
+    }
+
+    // Group activeTasks by job for condensed display
+    var activeJobGroups: [DayJobGroup] {
+        var byJob: [String: [(panel: Panel, op: Operation)]] = [:]
+        var order: [String] = []
+        for item in activeTasks {
+            if byJob[item.job.id] == nil { order.append(item.job.id) }
+            byJob[item.job.id, default: []].append((item.panel, item.op))
+        }
+        return order.compactMap { id -> DayJobGroup? in
+            guard let ops = byJob[id],
+                  let job = appState.jobs.first(where: { $0.id == id }) else { return nil }
+            return DayJobGroup(job: job, ops: ops)
+        }
     }
 
     var selectedDateLabel: String {
@@ -95,21 +110,25 @@ struct GanttView: View {
                         .frame(width: 180)
 
                         HStack {
-                            Button { showFastTRAQS = true } label: {
-                                FastTRAQSPillButton()
+                            if appState.isAdmin {
+                                Button { showFastTRAQS = true } label: {
+                                    FastTRAQSPillButton()
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
 
                             Spacer()
 
-                            Button { showAddJob = true } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(Color(hex: T.accent))
-                                    .frame(width: 32, height: 32)
-                                    .background(Color(hex: T.accent).opacity(0.12))
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                            if appState.isAdmin {
+                                Button { showAddJob = true } label: {
+                                    Image(systemName: "plus")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundColor(Color(hex: T.accent))
+                                        .frame(width: 32, height: 32)
+                                        .background(Color(hex: T.accent).opacity(0.12))
+                                        .clipShape(Circle())
+                                        .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                                }
                             }
                         }
                     }
@@ -178,9 +197,15 @@ struct GanttView: View {
                             .font(.subheadline.bold())
                             .foregroundColor(Color(hex: T.text))
                         Spacer()
-                        Text("\(activeTasks.count) task\(activeTasks.count == 1 ? "" : "s")")
-                            .font(.caption)
-                            .foregroundColor(Color(hex: T.muted))
+                        if appState.isLoading {
+                            ProgressView()
+                                .scaleEffect(0.75)
+                                .tint(Color(hex: T.accent))
+                        } else {
+                            Text("\(activeJobGroups.count) job\(activeJobGroups.count == 1 ? "" : "s")")
+                                .font(.caption)
+                                .foregroundColor(Color(hex: T.muted))
+                        }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
@@ -188,24 +213,35 @@ struct GanttView: View {
                     Rectangle().fill(Color(hex: T.border)).frame(height: 1)
 
                     // ── Task list ──
-                    if activeTasks.isEmpty {
+                    if activeJobGroups.isEmpty {
                         Spacer()
                         VStack(spacing: 12) {
-                            Image(systemName: "checkmark.circle")
-                                .font(.system(size: 44))
-                                .foregroundColor(Color(hex: T.border))
-                            Text(showMyTasks ? "No tasks assigned to you today" : "No tasks scheduled for this day")
-                                .foregroundColor(Color(hex: T.muted))
-                                .font(.subheadline)
-                                .multilineTextAlignment(.center)
-                                .padding(.horizontal, 40)
+                            if let err = appState.errorMessage {
+                                Image(systemName: "exclamationmark.triangle")
+                                    .font(.system(size: 44))
+                                    .foregroundColor(Color(hex: T.danger))
+                                Text(err)
+                                    .foregroundColor(Color(hex: T.danger))
+                                    .font(.caption)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 40)
+                            } else {
+                                Image(systemName: "checkmark.circle")
+                                    .font(.system(size: 44))
+                                    .foregroundColor(Color(hex: T.border))
+                                Text(showMyTasks ? "No tasks assigned to you today" : "No tasks scheduled for this day")
+                                    .foregroundColor(Color(hex: T.muted))
+                                    .font(.subheadline)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 40)
+                            }
                         }
                         Spacer()
                     } else {
                         ScrollView {
                             LazyVStack(spacing: 8) {
-                                ForEach(activeTasks, id: \.op.id) { item in
-                                    ScheduleTaskRow(job: item.job, panel: item.panel, op: item.op)
+                                ForEach(activeJobGroups) { group in
+                                    JobDayRow(group: group)
                                 }
                             }
                             .padding(16)
@@ -288,60 +324,163 @@ struct DayCell: View {
     }
 }
 
-// MARK: - Schedule Task Row
+// MARK: - Day Job Group
 
-struct ScheduleTaskRow: View {
-    @Environment(AppState.self) private var appState
+struct DayJobGroup: Identifiable {
+    var id: String { job.id }
     let job: Job
-    let panel: Panel
-    let op: Operation
+    let ops: [(panel: Panel, op: Operation)]
+
+    var worstStatus: JobStatus {
+        let s = ops.map(\.op.status)
+        if s.contains(.inProgress) { return .inProgress }
+        if s.contains(.onHold)     { return .onHold }
+        if s.contains(.pending)    { return .pending }
+        if s.contains(.notStarted) { return .notStarted }
+        return .finished
+    }
+    var allTeamIds: [String] {
+        Array(Set(ops.flatMap(\.op.team)))
+    }
+}
+
+// MARK: - Job Day Row
+
+struct JobDayRow: View {
+    @Environment(AppState.self) private var appState
+    let group: DayJobGroup
+    @State private var isExpanded = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(Color(hex: job.color))
-                .frame(width: 4)
+        VStack(spacing: 0) {
 
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text(op.title)
-                        .font(.subheadline.bold())
-                        .foregroundColor(Color(hex: T.text))
-                        .lineLimit(1)
-                    Spacer()
-                    StatusBadge(status: op.status)
-                }
+            // ── Header ──
+            Button {
+                withAnimation(.easeInOut(duration: 0.22)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color(hex: group.job.color))
+                        .frame(width: 4)
 
-                Text("\(job.title)  ›  \(panel.title)")
-                    .font(.caption)
-                    .foregroundColor(Color(hex: T.muted))
-                    .lineLimit(1)
-
-                HStack(spacing: 6) {
-                    HStack(spacing: -6) {
-                        ForEach(op.team.prefix(4), id: \.self) { id in
-                            if let person = appState.person(id: id) {
-                                Circle()
-                                    .fill(Color(hex: person.color))
-                                    .frame(width: 20, height: 20)
-                                    .overlay(
-                                        Text(String(person.name.prefix(1)))
-                                            .font(.system(size: 9, weight: .bold))
-                                            .foregroundColor(.white)
-                                    )
-                                    .overlay(Circle().stroke(Color(hex: T.card), lineWidth: 1))
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Text(group.job.title)
+                                .font(.subheadline.bold())
+                                .foregroundColor(Color(hex: T.text))
+                                .lineLimit(1)
+                            if let num = group.job.jobNumber {
+                                Text("#\(num)")
+                                    .font(.caption2)
+                                    .foregroundColor(Color(hex: T.muted))
                             }
+                            Spacer()
+                            if group.ops.count > 1 {
+                                Text("\(group.ops.count) ops")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 5).padding(.vertical, 2)
+                                    .background(Color(hex: group.job.color).opacity(0.15))
+                                    .foregroundColor(Color(hex: group.job.color))
+                                    .cornerRadius(5)
+                            }
+                            StatusBadge(status: group.worstStatus)
+                        }
+
+                        HStack(spacing: 6) {
+                            // Team avatars
+                            HStack(spacing: -6) {
+                                ForEach(group.allTeamIds.prefix(4), id: \.self) { id in
+                                    if let person = appState.person(id: id) {
+                                        Circle()
+                                            .fill(Color(hex: person.color))
+                                            .frame(width: 20, height: 20)
+                                            .overlay(Text(String(person.name.prefix(1)))
+                                                .font(.system(size: 9, weight: .bold))
+                                                .foregroundColor(.white))
+                                            .overlay(Circle().stroke(Color(hex: T.card), lineWidth: 1))
+                                    }
+                                }
+                            }
+                            if group.allTeamIds.count > 4 {
+                                Text("+\(group.allTeamIds.count - 4)")
+                                    .font(.caption2).foregroundColor(Color(hex: T.muted))
+                            }
+                            Spacer()
+                            PriorityDot(priority: group.job.pri)
+                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption2)
+                                .foregroundColor(Color(hex: T.muted))
                         }
                     }
-                    if op.team.count > 4 {
-                        Text("+\(op.team.count - 4)").font(.caption2).foregroundColor(Color(hex: T.muted))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            // ── Expanded: operation list ──
+            if isExpanded {
+                VStack(spacing: 0) {
+                    ForEach(group.ops, id: \.op.id) { item in
+                        Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Text(item.op.title)
+                                    .font(.subheadline)
+                                    .foregroundColor(Color(hex: T.text))
+                                Text("›")
+                                    .foregroundColor(Color(hex: T.muted))
+                                    .font(.caption)
+                                Text(item.panel.title)
+                                    .font(.caption)
+                                    .foregroundColor(Color(hex: T.muted))
+                                Spacer()
+                                StatusBadge(status: item.op.status)
+                            }
+                            HStack(spacing: 10) {
+                                Label(String(format: "%.4gh/day", item.op.hpd), systemImage: "clock")
+                                    .font(.caption2)
+                                    .foregroundColor(Color(hex: T.muted))
+                                Label(item.op.start.shortDate + " – " + item.op.end.shortDate, systemImage: "calendar")
+                                    .font(.caption2)
+                                    .foregroundColor(Color(hex: T.muted))
+                            }
+                            if !item.op.team.isEmpty {
+                                HStack(spacing: 6) {
+                                    HStack(spacing: -5) {
+                                        ForEach(item.op.team.prefix(5), id: \.self) { id in
+                                            if let person = appState.person(id: id) {
+                                                Circle()
+                                                    .fill(Color(hex: person.color))
+                                                    .frame(width: 22, height: 22)
+                                                    .overlay(Text(String(person.name.prefix(1)))
+                                                        .font(.system(size: 9, weight: .bold))
+                                                        .foregroundColor(.white))
+                                                    .overlay(Circle().stroke(Color(hex: T.card), lineWidth: 1))
+                                            }
+                                        }
+                                    }
+                                    ForEach(item.op.team.prefix(3), id: \.self) { id in
+                                        if let person = appState.person(id: id) {
+                                            Text(person.name.components(separatedBy: " ").first ?? person.name)
+                                                .font(.caption2)
+                                                .foregroundColor(Color(hex: T.muted))
+                                        }
+                                    }
+                                    if item.op.team.count > 3 {
+                                        Text("+\(item.op.team.count - 3) more")
+                                            .font(.caption2)
+                                            .foregroundColor(Color(hex: T.muted))
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
                     }
-                    Spacer()
-                    PriorityDot(priority: op.pri)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
         }
         .background(Color(hex: T.card))
         .cornerRadius(10)
