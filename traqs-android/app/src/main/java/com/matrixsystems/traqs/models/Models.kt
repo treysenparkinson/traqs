@@ -158,6 +158,7 @@ data class Person(
     val isEngineer: Boolean? = null,
     val isTeamLead: Boolean? = null,
     val teamNumber: Int? = null,
+    val autoSchedule: Boolean? = null,
     val timeOff: List<TimeOffEntry> = emptyList(),
     val pushToken: String? = null
 ) {

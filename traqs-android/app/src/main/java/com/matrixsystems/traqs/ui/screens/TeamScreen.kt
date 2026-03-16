@@ -72,7 +72,7 @@ fun TeamScreen(appState: AppState, onBack: () -> Unit) {
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(people, key = { it.id }) { person ->
+            items(people, key = { "${it.id}_${it.name}" }) { person ->
                 PersonRow(
                     person = person,
                     opCount = workloadMap[person.id] ?: 0,
@@ -286,6 +286,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
     var isEngineer by remember { mutableStateOf(person?.isEngineer ?: false) }
     var isTeamLead by remember { mutableStateOf(person?.isTeamLead ?: false) }
     var isAdmin by remember { mutableStateOf(person?.userRole == "admin") }
+    var autoSchedule by remember { mutableStateOf(person?.autoSchedule ?: true) }
     var timeOffEntries by remember { mutableStateOf(person?.timeOff ?: emptyList()) }
     var showAddTimeOff by remember { mutableStateOf(false) }
     var newToType by remember { mutableStateOf("PTO") }
@@ -325,6 +326,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                         userRole = if (isAdmin) "admin" else "user",
                                         isEngineer = isEngineer,
                                         isTeamLead = isTeamLead,
+                                        autoSchedule = autoSchedule,
                                         timeOff = timeOffEntries
                                     )
                                 } else {
@@ -335,6 +337,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                             userRole = if (isAdmin) "admin" else "user",
                                             isEngineer = isEngineer,
                                             isTeamLead = isTeamLead,
+                                            autoSchedule = autoSchedule,
                                             timeOff = timeOffEntries
                                         ) else it
                                     }
@@ -524,6 +527,18 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                         Switch(
                             checked = isAdmin,
                             onCheckedChange = { isAdmin = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = c.accent)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Auto-Scheduling", fontSize = 14.sp, color = c.text)
+                        Switch(
+                            checked = autoSchedule,
+                            onCheckedChange = { autoSchedule = it },
                             colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = c.accent)
                         )
                     }

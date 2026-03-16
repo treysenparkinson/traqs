@@ -50,10 +50,10 @@ fun LoginScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                TRAQSLogo(height = 80.dp)
+                TRAQSLogo(height = 160.dp)
                 Text(
                     text = "Scheduling & Production Management",
-                    fontSize = 14.sp,
+                    fontSize = 16.sp,
                     color = c.muted,
                     textAlign = TextAlign.Center
                 )

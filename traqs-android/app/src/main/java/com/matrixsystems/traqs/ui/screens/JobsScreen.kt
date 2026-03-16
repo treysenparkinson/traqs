@@ -43,6 +43,8 @@ fun JobsScreen(
     var filterStatus by remember { mutableStateOf<JobStatus?>(null) }
     var showJobEdit by remember { mutableStateOf(false) }
     val engQueue = appState.engineeringQueue
+    val currentPerson = appState.currentPerson
+    val canSeeEngQueue = currentPerson?.isAdmin == true || currentPerson?.isEngineer == true
 
     val filteredJobs = remember(jobs, searchText, filterStatus) {
         jobs.filter { job ->
@@ -87,8 +89,8 @@ fun JobsScreen(
                         }
                     }
 
-                    // Engineering Queue
-                    if (engQueue.isNotEmpty()) {
+                    // Engineering Queue — only visible to admins and engineers
+                    if (canSeeEngQueue && engQueue.isNotEmpty()) {
                         item { EngineeringQueueSection(appState = appState, queue = engQueue) }
                     }
 
