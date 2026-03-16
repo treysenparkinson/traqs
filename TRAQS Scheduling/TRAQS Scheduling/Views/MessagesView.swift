@@ -127,24 +127,21 @@ struct MessagesView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
+            // ThreadDetailView receives just the key and reads messages live from appState
             .navigationDestination(for: String.self) { key in
-                if let thread = allThreads.first(where: { $0.key == key }) {
-                    ThreadDetailView(thread: thread)
-                }
+                ThreadDetailView(threadKey: key)
             }
             .sheet(isPresented: $showNewGroup) {
                 NewGroupSheet { name in
-                    let key = "group:\(name)"
-                    navigationPath.append(key)
+                    navigationPath.append("group:\(name)")
                 }
             }
             .sheet(isPresented: $showNewDM) {
                 NewDMSheet { personId in
                     guard let myId = appState.currentPersonId else { return }
                     let ids = [myId, personId].sorted()
-                    let key = "dm:\(ids.joined(separator: "_"))"
                     tab = .direct
-                    navigationPath.append(key)
+                    navigationPath.append("dm:\(ids.joined(separator: "_"))")
                 }
             }
         }
@@ -228,9 +225,31 @@ struct ThreadRow: View {
 
 struct ThreadDetailView: View {
     @Environment(AppState.self) private var appState
-    let thread: MessageThread
+    let threadKey: String
     @State private var newText = ""
     @State private var isSending = false
+    @State private var sendError: String? = nil
+
+    // Always live — recomputes whenever appState.messages changes
+    var liveMessages: [Message] {
+        appState.messages
+            .filter { $0.threadKey == threadKey }
+            .sorted { $0.timestamp < $1.timestamp }
+    }
+
+    var displayTitle: String {
+        let myId = appState.currentPersonId
+        if threadKey.hasPrefix("dm:") {
+            let ids = String(threadKey.dropFirst(3)).components(separatedBy: "_")
+            let otherId = ids.first(where: { $0 != myId }) ?? ids.first
+            return appState.people.first(where: { $0.id == otherId })?.name ?? "Direct Message"
+        }
+        if threadKey.hasPrefix("group:") { return String(threadKey.dropFirst(6)) }
+        if threadKey.hasPrefix("job:")   { return "Job: \(threadKey.dropFirst(4))" }
+        if threadKey.hasPrefix("panel:") { return "Panel: \(threadKey.dropFirst(6))" }
+        if threadKey.hasPrefix("op:")    { return "Op: \(threadKey.dropFirst(3))" }
+        return threadKey
+    }
 
     var body: some View {
         ZStack {
@@ -240,16 +259,27 @@ struct ThreadDetailView: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 12) {
-                            ForEach(thread.messages) { msg in
+                            if liveMessages.isEmpty {
+                                Text("No messages yet. Say hello!")
+                                    .font(.subheadline)
+                                    .foregroundColor(Color(hex: T.muted))
+                                    .padding(.top, 40)
+                            }
+                            ForEach(liveMessages) { msg in
                                 MessageBubble(message: msg, isMe: msg.authorId == appState.currentPersonId)
                                     .id(msg.id)
                             }
                         }
                         .padding()
                     }
-                    .onChange(of: thread.messages.count) {
-                        if let last = thread.messages.last {
+                    .onChange(of: liveMessages.count) {
+                        if let last = liveMessages.last {
                             withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
+                        }
+                    }
+                    .onAppear {
+                        if let last = liveMessages.last {
+                            proxy.scrollTo(last.id, anchor: .bottom)
                         }
                     }
                 }
@@ -281,9 +311,17 @@ struct ThreadDetailView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(Color(hex: T.surface))
+
+                if let err = sendError {
+                    Text(err)
+                        .font(.caption)
+                        .foregroundColor(.red)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
+                }
             }
         }
-        .navigationTitle(thread.displayTitle)
+        .navigationTitle(displayTitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -292,25 +330,36 @@ struct ThreadDetailView: View {
     }
 
     private func sendMessage() async {
-        guard let person = appState.currentPerson else { return }
         let text = newText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
         isSending = true
+        sendError = nil
+
+        // Use matched person if available, fall back to email/id so send is never blocked
+        let authorId    = appState.currentPerson?.id    ?? appState.currentPersonId ?? appState.matchEmail ?? UUID().uuidString
+        let authorName  = appState.currentPerson?.name  ?? appState.matchEmail ?? "Me"
+        let authorColor = appState.currentPerson?.color ?? "#7c3aed"
+
         let msg = Message(
             id: UUID().uuidString,
-            threadKey: thread.key,
-            scope: thread.key.components(separatedBy: ":").first ?? "job",
+            threadKey: threadKey,
+            scope: threadKey.components(separatedBy: ":").first ?? "group",
             jobId: nil, panelId: nil, opId: nil,
             text: text,
-            authorId: person.id,
-            authorName: person.name,
-            authorColor: person.color,
-            participantIds: [person.id],
+            authorId: authorId,
+            authorName: authorName,
+            authorColor: authorColor,
+            participantIds: [authorId],
             attachments: [],
             timestamp: ISO8601DateFormatter().string(from: Date())
         )
         newText = ""
-        await appState.sendMessage(msg)
+        do {
+            try await appState.sendMessageThrowing(msg)
+        } catch {
+            sendError = "Failed to send: \(error.localizedDescription)"
+            newText = text  // restore text so user can retry
+        }
         isSending = false
     }
 }
@@ -359,72 +408,119 @@ struct MessageBubble: View {
 // MARK: - New Group Sheet
 
 struct NewGroupSheet: View {
+    @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     let onCreate: (String) -> Void
 
     @State private var groupName = ""
+    @State private var selectedIds: Set<String> = []
 
     var body: some View {
         NavigationStack {
             ZStack {
                 Color(hex: T.bg).ignoresSafeArea()
 
-                VStack(spacing: 24) {
-                    VStack(spacing: 8) {
-                        ZStack {
-                            Circle()
-                                .fill(Color(hex: T.accent).opacity(0.12))
-                                .frame(width: 64, height: 64)
-                            Image(systemName: "person.3.fill")
-                                .font(.system(size: 26))
-                                .foregroundColor(Color(hex: T.accent))
+                ScrollView {
+                    VStack(spacing: 24) {
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color(hex: T.accent).opacity(0.12))
+                                    .frame(width: 64, height: 64)
+                                Image(systemName: "person.3.fill")
+                                    .font(.system(size: 26))
+                                    .foregroundColor(Color(hex: T.accent))
+                            }
+                            Text("New Group")
+                                .font(.title3.bold())
+                                .foregroundColor(Color(hex: T.text))
                         }
-                        Text("New Group")
-                            .font(.title3.bold())
-                            .foregroundColor(Color(hex: T.text))
-                        Text("Create a new message group for your team.")
-                            .font(.subheadline)
-                            .foregroundColor(Color(hex: T.muted))
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
+                        .padding(.top, 16)
+
+                        // Group name
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Group Name")
+                                .font(.caption.bold())
+                                .foregroundColor(Color(hex: T.muted))
+                                .padding(.horizontal, 16)
+                            TextField("e.g. Electrical Team, Project Alpha…", text: $groupName)
+                                .textFieldStyle(.plain)
+                                .foregroundColor(Color(hex: T.text))
+                                .padding(12)
+                                .background(Color(hex: T.surface))
+                                .cornerRadius(10)
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+                                .padding(.horizontal, 16)
+                        }
+
+                        // Member selection
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Add Members")
+                                .font(.caption.bold())
+                                .foregroundColor(Color(hex: T.muted))
+                                .padding(.horizontal, 16)
+
+                            ForEach(appState.people.filter { $0.id != appState.currentPersonId }) { person in
+                                Button {
+                                    if selectedIds.contains(person.id) {
+                                        selectedIds.remove(person.id)
+                                    } else {
+                                        selectedIds.insert(person.id)
+                                    }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Circle()
+                                            .fill(Color(hex: person.color))
+                                            .frame(width: 36, height: 36)
+                                            .overlay(
+                                                Text(String(person.name.prefix(1)).uppercased())
+                                                    .font(.subheadline.bold())
+                                                    .foregroundColor(.white)
+                                            )
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(person.name)
+                                                .font(.subheadline.bold())
+                                                .foregroundColor(Color(hex: T.text))
+                                            Text(person.role)
+                                                .font(.caption)
+                                                .foregroundColor(Color(hex: T.muted))
+                                        }
+                                        Spacer()
+                                        Image(systemName: selectedIds.contains(person.id) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(selectedIds.contains(person.id) ? Color(hex: T.accent) : Color(hex: T.muted))
+                                    }
+                                    .padding(12)
+                                    .background(Color(hex: T.card))
+                                    .cornerRadius(10)
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(
+                                        selectedIds.contains(person.id) ? Color(hex: T.accent).opacity(0.4) : Color(hex: T.border),
+                                        lineWidth: 1
+                                    ))
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 16)
+                            }
+                        }
+
+                        Button {
+                            let name = groupName.trimmingCharacters(in: .whitespaces)
+                            guard !name.isEmpty else { return }
+                            dismiss()
+                            onCreate(name)
+                        } label: {
+                            Text("Create Group")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(groupName.trimmingCharacters(in: .whitespaces).isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(groupName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
                     }
-                    .padding(.top, 16)
-
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Group Name")
-                            .font(.caption.bold())
-                            .foregroundColor(Color(hex: T.muted))
-                            .padding(.horizontal, 16)
-
-                        TextField("e.g. Electrical Team, Project Alpha…", text: $groupName)
-                            .textFieldStyle(.plain)
-                            .foregroundColor(Color(hex: T.text))
-                            .padding(12)
-                            .background(Color(hex: T.surface))
-                            .cornerRadius(10)
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
-                            .padding(.horizontal, 16)
-                    }
-
-                    Button {
-                        let name = groupName.trimmingCharacters(in: .whitespaces)
-                        guard !name.isEmpty else { return }
-                        dismiss()
-                        onCreate(name)
-                    } label: {
-                        Text("Create Group")
-                            .fontWeight(.semibold)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(groupName.trimmingCharacters(in: .whitespaces).isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
-                            .foregroundColor(.white)
-                            .cornerRadius(12)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(groupName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    .padding(.horizontal, 16)
-
-                    Spacer()
                 }
             }
             .navigationTitle("New Group")

@@ -18,7 +18,7 @@ class AppState {
     var errorMessage: String?
 
     // MARK: - Auth / Org
-    var currentPersonId: Int?
+    var currentPersonId: String?
     var orgCode: String = KeychainHelper.load(forKey: KeychainHelper.orgCodeKey) ?? ""
 
     // MARK: - Undo/Redo
@@ -42,6 +42,7 @@ class AppState {
         self.api = APIService(token: token, orgCode: orgCode)
         KeychainHelper.save(orgCode, forKey: KeychainHelper.orgCodeKey)
         startAutoRefresh()
+        Task { await loadAll() }
     }
 
     func startAutoRefresh() {
@@ -63,26 +64,17 @@ class AppState {
     // MARK: - Load
 
     func loadAll() async {
-        guard let api else { return }
+        guard let api, !isLoading else { return }
         isLoading = true
         errorMessage = nil
-        async let j = api.fetchJobs()
-        async let p = api.fetchPeople()
-        async let c = api.fetchClients()
-        async let m = api.fetchMessages()
-        async let g = api.fetchGroups()
-        do {
-            let (jobs, people, clients, msgs, grps) = try await (j, p, c, m, g)
-            self.jobs = jobs
-            self.people = people
-            self.clients = clients
-            self.messages = msgs
-            self.groups = grps
-            autoMatchPerson()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
+        defer { isLoading = false }
+
+        if let r = try? await api.fetchJobs()     { jobs     = r }
+        if let r = try? await api.fetchPeople()   { people   = r }
+        if let r = try? await api.fetchClients()  { clients  = r }
+        if let r = try? await api.fetchMessages() { messages = r }
+        if let r = try? await api.fetchGroups()   { groups   = r }
+        autoMatchPerson()
     }
 
     // MARK: - Jobs
@@ -109,6 +101,7 @@ class AppState {
 
         guard sendNotification else { return }
         Task {
+            guard let api else { return }
             do {
                 if existing == nil {
                     try await api.sendNotification(NotifyPayload(
@@ -146,7 +139,7 @@ class AppState {
 
     // MARK: - Engineering Sign-Off
 
-    func signOff(jobId: String, panelId: String, step: EngStep, personId: Int, personName: String) {
+    func signOff(jobId: String, panelId: String, step: EngStep, personId: String, personName: String) {
         guard var job = jobs.first(where: { $0.id == jobId }),
               let pi = job.subs.firstIndex(where: { $0.id == panelId }) else { return }
         let signOff = EngineeringSignOff(by: personId, byName: personName, at: ISO8601DateFormatter().string(from: Date()))
@@ -202,6 +195,11 @@ class AppState {
     func sendMessage(_ message: Message) async {
         messages.append(message)
         try? await api?.sendMessage(message)
+    }
+
+    func sendMessageThrowing(_ message: Message) async throws {
+        messages.append(message)
+        try await api?.sendMessage(message)
     }
 
     func refreshMessages() async {
@@ -270,6 +268,9 @@ class AppState {
         return people.first { $0.id == id }
     }
 
+    var isAdmin: Bool     { currentPerson?.isAdmin ?? false }
+    var isEngineer: Bool  { isAdmin || (currentPerson?.isEngineer ?? false) }
+
     var engineeringQueue: [(job: Job, panel: Panel)] {
         jobs.flatMap { job in
             job.subs.compactMap { panel -> (Job, Panel)? in
@@ -296,7 +297,7 @@ class AppState {
         return clients.first { $0.id == cid }
     }
 
-    func person(id: Int) -> Person? {
+    func person(id: String) -> Person? {
         people.first { $0.id == id }
     }
 }
