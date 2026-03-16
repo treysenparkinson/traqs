@@ -1,24 +1,51 @@
 import SwiftUI
 
+// MARK: - Message Tab
+
+private enum MsgTab: String, CaseIterable {
+    case direct = "Direct"
+    case groups = "Groups"
+}
+
+// MARK: - MessagesView
+
 struct MessagesView: View {
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
-    @State private var selectedThreadKey: String? = nil
     @State private var showNewGroup = false
+    @State private var showNewDM = false
+    @State private var tab: MsgTab = .groups
+    @State private var navigationPath = NavigationPath()
 
-    var threads: [MessageThread] {
-        Dictionary(grouping: appState.messages, by: \.threadKey)
+    var allThreads: [MessageThread] {
+        let myId = appState.currentPersonId
+        return Dictionary(grouping: appState.messages, by: \.threadKey)
             .map { key, msgs in
                 MessageThread(
                     key: key,
-                    messages: msgs.sorted { $0.timestamp < $1.timestamp }
+                    messages: msgs.sorted { $0.timestamp < $1.timestamp },
+                    resolvedTitle: resolveTitle(key: key, myId: myId)
                 )
             }
             .sorted { ($0.messages.last?.timestamp ?? "") > ($1.messages.last?.timestamp ?? "") }
     }
 
+    var filteredThreads: [MessageThread] {
+        switch tab {
+        case .direct: return allThreads.filter { $0.key.hasPrefix("dm:") }
+        case .groups:  return allThreads.filter { !$0.key.hasPrefix("dm:") }
+        }
+    }
+
+    private func resolveTitle(key: String, myId: String?) -> String? {
+        guard key.hasPrefix("dm:") else { return nil }
+        let ids = String(key.dropFirst(3)).components(separatedBy: "_")
+        let otherId = ids.first(where: { $0 != myId }) ?? ids.first
+        return appState.people.first(where: { $0.id == otherId })?.name
+    }
+
     var body: some View {
-        NavigationSplitView {
+        NavigationStack(path: $navigationPath) {
             ZStack {
                 Color(hex: T.bg).ignoresSafeArea()
 
@@ -42,49 +69,82 @@ struct MessagesView: View {
 
                     Rectangle().fill(Color(hex: T.border)).frame(height: 1)
 
-                    // ── Sub-header: New thread ──
-                    HStack {
-                        Spacer()
-                        Button { showNewGroup = true } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(Color(hex: T.accent))
-                                .frame(width: 32, height: 32)
-                                .background(Color(hex: T.accent).opacity(0.12))
-                                .clipShape(Circle())
-                                .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                    // ── Sub-header: segmented picker + new thread button ──
+                    ZStack {
+                        Picker("", selection: $tab) {
+                            Text("Direct").tag(MsgTab.direct)
+                            Text("Groups").tag(MsgTab.groups)
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 180)
+
+                        HStack {
+                            Spacer()
+                            Button {
+                                if tab == .direct { showNewDM = true }
+                                else { showNewGroup = true }
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(Color(hex: T.accent))
+                                    .frame(width: 32, height: 32)
+                                    .background(Color(hex: T.accent).opacity(0.12))
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 10)
                     .background(Color(hex: T.surface))
 
-                    List(threads, selection: $selectedThreadKey) { thread in
-                        ThreadRow(thread: thread)
-                            .tag(thread.key)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    if filteredThreads.isEmpty {
+                        Spacer()
+                        VStack(spacing: 10) {
+                            Image(systemName: tab == .direct ? "person.fill" : "person.3.fill")
+                                .font(.system(size: 36))
+                                .foregroundColor(Color(hex: T.muted).opacity(0.5))
+                            Text(tab == .direct ? "No direct messages" : "No group conversations")
+                                .font(.subheadline)
+                                .foregroundColor(Color(hex: T.muted))
+                        }
+                        Spacer()
+                    } else {
+                        List {
+                            ForEach(filteredThreads) { thread in
+                                NavigationLink(value: thread.key) {
+                                    ThreadRow(thread: thread)
+                                }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                            }
+                        }
+                        .listStyle(.plain)
+                        .scrollContentBackground(.hidden)
+                        .refreshable { await appState.loadAll() }
                     }
-                    .listStyle(.plain)
-                    .scrollContentBackground(.hidden)
-                    .refreshable { await appState.loadAll() }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showNewGroup) {
-                NewGroupSheet { name in
-                    selectedThreadKey = "group:\(name)"
+            .navigationDestination(for: String.self) { key in
+                if let thread = allThreads.first(where: { $0.key == key }) {
+                    ThreadDetailView(thread: thread)
                 }
             }
-        } detail: {
-            if let key = selectedThreadKey,
-               let thread = threads.first(where: { $0.key == key }) {
-                ThreadDetailView(thread: thread)
-            } else {
-                ZStack {
-                    Color(hex: T.bg).ignoresSafeArea()
-                    ContentUnavailableView("Select a Thread", systemImage: "bubble.left.and.bubble.right", description: Text("Choose a conversation to view messages."))
+            .sheet(isPresented: $showNewGroup) {
+                NewGroupSheet { name in
+                    let key = "group:\(name)"
+                    navigationPath.append(key)
+                }
+            }
+            .sheet(isPresented: $showNewDM) {
+                NewDMSheet { personId in
+                    guard let myId = appState.currentPersonId else { return }
+                    let ids = [myId, personId].sorted()
+                    let key = "dm:\(ids.joined(separator: "_"))"
+                    tab = .direct
+                    navigationPath.append(key)
                 }
             }
         }
@@ -92,25 +152,39 @@ struct MessagesView: View {
     }
 }
 
+// MARK: - MessageThread
+
 struct MessageThread: Identifiable {
     let key: String
     let messages: [Message]
+    var resolvedTitle: String? = nil
     var id: String { key }
 
     var displayTitle: String {
-        if key.hasPrefix("job:") { return "Job: \(key.dropFirst(4))" }
+        if let t = resolvedTitle { return t }
+        if key.hasPrefix("job:")   { return "Job: \(key.dropFirst(4))" }
         if key.hasPrefix("panel:") { return "Panel: \(key.dropFirst(6))" }
-        if key.hasPrefix("op:") { return "Op: \(key.dropFirst(3))" }
-        if key.hasPrefix("group:") { return "Group: \(key.dropFirst(6))" }
+        if key.hasPrefix("op:")    { return "Op: \(key.dropFirst(3))" }
+        if key.hasPrefix("group:") { return String(key.dropFirst(6)) }
+        if key.hasPrefix("dm:")    { return "Direct Message" }
         return key
     }
 
+    var isDM: Bool { key.hasPrefix("dm:") }
     var lastMessage: Message? { messages.last }
     var unreadCount: Int { 0 }
 }
 
+// MARK: - ThreadRow
+
 struct ThreadRow: View {
     let thread: MessageThread
+
+    var threadIcon: String {
+        if thread.isDM { return "person.fill" }
+        if thread.key.hasPrefix("group:") { return "person.3.fill" }
+        return "tag"
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -118,7 +192,7 @@ struct ThreadRow: View {
                 Circle()
                     .fill(Color(hex: thread.lastMessage?.authorColor ?? T.accent).opacity(0.15))
                     .frame(width: 40, height: 40)
-                Image(systemName: thread.key.hasPrefix("group") ? "person.3" : "bubble.left")
+                Image(systemName: threadIcon)
                     .foregroundColor(Color(hex: thread.lastMessage?.authorColor ?? T.accent))
             }
 
@@ -150,6 +224,8 @@ struct ThreadRow: View {
     }
 }
 
+// MARK: - ThreadDetailView
+
 struct ThreadDetailView: View {
     @Environment(AppState.self) private var appState
     let thread: MessageThread
@@ -161,7 +237,6 @@ struct ThreadDetailView: View {
             Color(hex: T.bg).ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Messages
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 12) {
@@ -179,12 +254,10 @@ struct ThreadDetailView: View {
                     }
                 }
 
-                // Divider
                 Rectangle()
                     .fill(Color(hex: T.border))
                     .frame(height: 1)
 
-                // Input
                 HStack(spacing: 10) {
                     TextField("Message…", text: $newText, axis: .vertical)
                         .textFieldStyle(.plain)
@@ -241,6 +314,8 @@ struct ThreadDetailView: View {
         isSending = false
     }
 }
+
+// MARK: - MessageBubble
 
 struct MessageBubble: View {
     let message: Message
@@ -365,6 +440,68 @@ struct NewGroupSheet: View {
         }
     }
 }
+
+// MARK: - New DM Sheet
+
+struct NewDMSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(hex: T.bg).ignoresSafeArea()
+                List {
+                    ForEach(appState.people.filter { $0.id != appState.currentPersonId }) { person in
+                        Button {
+                            dismiss()
+                            onSelect(person.id)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Circle()
+                                    .fill(Color(hex: person.color))
+                                    .frame(width: 36, height: 36)
+                                    .overlay(
+                                        Text(String(person.name.prefix(1)).uppercased())
+                                            .font(.subheadline.bold())
+                                            .foregroundColor(.white)
+                                    )
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(person.name)
+                                        .font(.subheadline.bold())
+                                        .foregroundColor(Color(hex: T.text))
+                                    Text(person.role)
+                                        .font(.caption)
+                                        .foregroundColor(Color(hex: T.muted))
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption2)
+                                    .foregroundColor(Color(hex: T.muted))
+                            }
+                        }
+                        .listRowBackground(Color(hex: T.card))
+                    }
+                }
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+            }
+            .navigationTitle("New Message")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundColor(Color(hex: T.accent))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Helpers
 
 extension String {
     var shortTimestamp: String {
