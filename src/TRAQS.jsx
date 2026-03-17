@@ -186,6 +186,12 @@ animStyle.textContent = `
   0%   { opacity: 0; transform: scaleX(0.4); transform-origin: left; }
   100% { opacity: 1; transform: scaleX(1);   transform-origin: left; }
 }
+@keyframes scheduleGlow {
+  0%   { box-shadow: 0 0 0 0px rgba(255,255,255,0); filter: brightness(1); }
+  20%  { box-shadow: 0 0 0 4px rgba(255,255,255,0.9), 0 0 28px 10px var(--glow-color, rgba(255,255,255,0.5)); filter: brightness(1.35); }
+  55%  { box-shadow: 0 0 0 3px rgba(255,255,255,0.6), 0 0 20px 7px var(--glow-color, rgba(255,255,255,0.35)); filter: brightness(1.2); }
+  100% { box-shadow: 0 0 0 0px rgba(255,255,255,0); filter: brightness(1); }
+}
 @keyframes glassShimmer {
   0%   { background-position: -200% center; }
   100% { background-position:  200% center; }
@@ -919,7 +925,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return () => window.removeEventListener("resize", h);
   }, []);
   const [view, setView] = useState("schedule");
-  const [taskSubView, setTaskSubView] = useState("cards"); // "cards" | "gantt"
+  const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
   const [tasks, _setTasks] = useState([]);
   const [people, setPeople] = useState([]);
   const [saveStatus, setSaveStatus] = useState("saved");
@@ -1063,6 +1069,45 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [reminderModal, setReminderModal] = useState(null);
   const [confirmDeleteClient, setConfirmDeleteClient] = useState(null); // client id
   const [selTask, setSelTask] = useState(null);
+  const [gridCell, setGridCell] = useState(null); // { id, col }
+  const [expandedJobs, setExpandedJobs] = useState(new Set());
+  const [colWidths, setColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 70, 130, 140, 36]);
+  const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
+  const [engQueueExpanded, setEngQueueExpanded] = useState(true);
+  const [expandedEngRows, setExpandedEngRows] = useState(new Set());
+  const [toolbarExpanded, setToolbarExpanded] = useState(true);
+  const [cellAlign, setCellAlign] = useState("left");
+  const [jobsCollapsed, setJobsCollapsed] = useState(false);
+  const [customCols, setCustomCols] = useState([]);
+  const [addColForm, setAddColForm] = useState(null); // null=closed, { label, type }="open"
+  const [editingColHeader, setEditingColHeader] = useState(null); // colId being renamed
+  const removeCustomCol = (colId) => {
+    const idx = customCols.findIndex(c => c.id === colId);
+    if (idx < 0) return;
+    setCustomCols(prev => prev.filter(c => c.id !== colId));
+    setColWidths(prev => { const n = [...prev]; n.splice(12 + idx, 1); return n; });
+    setEngColWidths(prev => { const n = [...prev]; n.splice(9 + idx, 1); return n; });
+  };
+  const startColResize = (e, colIdx) => {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX;
+    const startW = colWidths[colIdx];
+    const onMove = ev => setColWidths(prev => { const n = [...prev]; n[colIdx] = Math.max(40, startW + ev.clientX - startX); return n; });
+    const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+  const startEngColResize = (e, colIdx) => {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX;
+    const startW = engColWidths[colIdx];
+    const el = e.currentTarget;
+    if (el && el.setPointerCapture) el.setPointerCapture(e.pointerId);
+    const onMove = ev => setEngColWidths(prev => { const n = [...prev]; n[colIdx] = Math.max(40, startW + ev.clientX - startX); return n; });
+    const onUp = () => { document.removeEventListener("pointermove", onMove); document.removeEventListener("pointerup", onUp); };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  };
   const [selJobs, setSelJobs] = useState(new Set());
   const [selClients, setSelClients] = useState(new Set());
   const [selPeople, setSelPeople] = useState(new Set());
@@ -1219,6 +1264,9 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [jobSearch, setJobSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmLogout, setConfirmLogout] = useState(false);
+  const [rescheduleModal, setRescheduleModal] = useState(null); // { op, panelId, newStart, newEnd }
+  const [editNotesModal, setEditNotesModal] = useState(null); // { op, panelId, notes }
+  const [optimizePreview, setOptimizePreview] = useState(null); // { newTasks, changes, groupedByPerson }
   const [overlapError, setOverlapError] = useState(null); // { message, details[] }
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -1433,6 +1481,113 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return recalcBounds(result, movedBy);
   };
 
+  // Swap-first optimizer — shared by edit form + right-click "Edit Schedule" modal
+  // Places each op in the next available gap in this person's schedule, yielding to all
+  // other jobs' ops (letting them go first). Never pushes other jobs.
+  // Returns { newSubs, jStart, jEnd } or null if no assignees.
+  const computeJobOptimize = (job) => {
+    if (!(job.subs || []).some(p => (p.subs || []).some(o => (o.team || []).length > 0))) return null;
+    const newSubs = JSON.parse(JSON.stringify(job.subs || []));
+
+    // Build a read-only view of all OTHER jobs' ops per person
+    // { personId: [{ start, end }] } sorted by start
+    const busyByPerson = {};
+    tasks.forEach(j => {
+      if (j.id === job.id) return;
+      (j.subs || []).forEach(panel => {
+        (panel.subs || []).forEach(o => {
+          if (o.status === "Finished" || !(o.team || []).length) return;
+          const pid = o.team[0];
+          if (!busyByPerson[pid]) busyByPerson[pid] = [];
+          busyByPerson[pid].push({ start: o.start, end: o.end });
+        });
+      });
+    });
+    // Also account for this job's own already-placed ops within the same pass
+    // (tracked as we go, per person)
+    const selfBusy = {}; // pid -> [{ start, end }]
+
+    const byPerson = {};
+    newSubs.forEach((panel, pi) => {
+      (panel.subs || []).forEach((op, oi) => {
+        if (!(op.team || []).length) return;
+        const pid = op.team[0];
+        if (!byPerson[pid]) byPerson[pid] = [];
+        byPerson[pid].push({ op, pi, oi });
+      });
+    });
+
+    Object.entries(byPerson).forEach(([pidStr, ops]) => {
+      const pid = parseInt(pidStr, 10) || pidStr;
+      const person = people.find(x => x.id === pid);
+      const otherBusy = (busyByPerson[pid] || []).slice().sort((a, b) => a.start.localeCompare(b.start));
+      ops.sort((a, b) => a.pi - b.pi || a.oi - b.oi);
+      let cursor = nextBD(job.start || TD);
+
+      ops.forEach(({ op, pi, oi }) => {
+        const duration = Math.max(0, diffBD(op.start, op.end));
+        let slotStart = cursor;
+
+        // Advance slotStart until we find a gap with no time-off and no other-job conflict
+        // Each iteration we advance past whichever blocker ends latest
+        for (let guard = 0; guard < 200; guard++) {
+          const slotEnd = addBD(slotStart, duration);
+          let blocked = false;
+
+          // Time off
+          if (person) {
+            for (const to of (person.timeOff || [])) {
+              if (to.start <= slotEnd && to.end >= slotStart) {
+                slotStart = addBD(to.end, 1);
+                blocked = true;
+                break;
+              }
+            }
+          }
+          if (blocked) continue;
+
+          // Other jobs' ops for this person
+          for (const busy of otherBusy) {
+            if (busy.start > slotEnd) break; // sorted, no more overlaps possible
+            if (busy.end < slotStart) continue;
+            // Overlap — advance past it
+            slotStart = addBD(busy.end, 1);
+            blocked = true;
+            break;
+          }
+          if (blocked) continue;
+
+          // This job's own already-placed ops for this person
+          for (const busy of (selfBusy[pid] || [])) {
+            if (busy.start > slotEnd) continue;
+            if (busy.end < slotStart) continue;
+            slotStart = addBD(busy.end, 1);
+            blocked = true;
+            break;
+          }
+          if (blocked) continue;
+
+          // Clear — place here
+          const finalEnd = addBD(slotStart, duration);
+          newSubs[pi].subs[oi] = { ...newSubs[pi].subs[oi], start: slotStart, end: finalEnd };
+          if (!selfBusy[pid]) selfBusy[pid] = [];
+          selfBusy[pid].push({ start: slotStart, end: finalEnd });
+          cursor = addBD(finalEnd, 1);
+          break;
+        }
+      });
+    });
+
+    newSubs.forEach((panel, pi) => {
+      const ops = panel.subs || [];
+      if (!ops.length) return;
+      newSubs[pi] = { ...panel, start: ops.reduce((a, b) => a.start < b.start ? a : b).start, end: ops.reduce((a, b) => a.end > b.end ? a : b).end };
+    });
+    const jStart = newSubs.reduce((a, b) => a.start < b.start ? a : b, newSubs[0]).start;
+    const jEnd   = newSubs.reduce((a, b) => a.end > b.end ? a : b, newSubs[0]).end;
+    return { newSubs, jStart, jEnd };
+  };
+
   // Preview pull-back: when moving backward, pull subsequent same-person ops back to fill gaps
   const previewPullBack = (taskList, movedPersonIds, oldStart, newStart, excludeOpIds = null) => {
     // Only pull back when moving backward
@@ -1508,6 +1663,91 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       return { ...panel, subs: (panel.subs || []).map(op => op.id === opId ? { ...op, locked: !op.locked } : op) };
     }) })));
   };
+  // Find next available slot for an op across all team members' schedules
+  const findNextSlot = (op) => {
+    const duration = Math.max(0, diffBD(op.start, op.end));
+    const teamIds = op.team || [];
+    for (let attempt = 0; attempt < 365; attempt++) {
+      const tryStart = addBD(nextBD(TD), attempt);
+      const tryEnd = addBD(tryStart, duration);
+      const isFree = teamIds.every(pid => {
+        const noConflict = tasks.every(job => (job.subs || []).every(panel => (panel.subs || []).every(o =>
+          o.id === op.id || o.status === "Finished" || !o.team.includes(pid) || o.end < tryStart || o.start > tryEnd
+        )));
+        if (!noConflict) return false;
+        const person = people.find(x => x.id === pid);
+        return !person || (person.timeOff || []).every(to => to.end < tryStart || to.start > tryEnd);
+      });
+      if (isFree) return { newStart: tryStart, newEnd: tryEnd };
+    }
+    return null;
+  };
+
+  // Full schedule optimizer: packs each person's ops tightly by priority → due date → start
+  const runOptimize = () => {
+    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+    const priOrder = { "High": 0, "Medium": 1, "Low": 2 };
+    let newTasks = JSON.parse(JSON.stringify(tasks));
+    const changes = [];
+
+    for (const person of people) {
+      const pid = person.id;
+      // Collect non-finished, non-locked ops for this person
+      const personOps = [];
+      newTasks.forEach(job => {
+        (job.subs || []).forEach(panel => {
+          (panel.subs || []).forEach(op => {
+            if (!op.team.includes(pid) || op.status === "Finished" || op.locked) return;
+            personOps.push({ op, jobPri: priOrder[job.pri] ?? 1, jobDue: job.dueDate || job.end, jobTitle: job.title, panelTitle: panel.title });
+          });
+        });
+      });
+      if (personOps.length === 0) continue;
+
+      // Sort: highest priority first, then soonest due date, then earliest current start
+      personOps.sort((a, b) => {
+        if (a.jobPri !== b.jobPri) return a.jobPri - b.jobPri;
+        if (a.jobDue !== b.jobDue) return a.jobDue.localeCompare(b.jobDue);
+        return a.op.start.localeCompare(b.op.start);
+      });
+
+      let cursor = nextBD(TD);
+      for (const { op, jobTitle, panelTitle } of personOps) {
+        const duration = Math.max(0, diffBD(op.start, op.end));
+        // Find first slot from cursor that clears this person's time off
+        let slotStart = cursor;
+        for (let a = 0; a < 365; a++) {
+          const slotEnd = addBD(slotStart, duration);
+          if (!(person.timeOff || []).some(to => to.start <= slotEnd && to.end >= slotStart)) break;
+          slotStart = addBD(slotStart, 1);
+        }
+        const slotEnd = addBD(slotStart, duration);
+
+        if (slotStart !== op.start || slotEnd !== op.end) {
+          const d1 = new Date(op.start + "T12:00:00"), d2 = new Date(slotStart + "T12:00:00");
+          const calDays = Math.round((d2 - d1) / 86400000);
+          changes.push({ opId: op.id, opTitle: op.title, jobTitle, panelTitle, oldStart: op.start, oldEnd: op.end, newStart: slotStart, newEnd: slotEnd, personId: pid, personName: person.name, personColor: person.color, calDays });
+          newTasks = newTasks.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(o => {
+            if (o.id !== op.id) return o;
+            const log = { fromStart: op.start, fromEnd: op.end, toStart: slotStart, toEnd: slotEnd, date: TD, movedBy: movedByName, reason: "Auto-optimized" };
+            return { ...o, start: slotStart, end: slotEnd, moveLog: [...(o.moveLog || []), log] };
+          }) })) }));
+          op.start = slotStart; op.end = slotEnd; // update local ref for cursor
+        }
+        cursor = addBD(slotEnd, 1);
+      }
+    }
+
+    newTasks = recalcBounds(newTasks, movedByName);
+    // Group changes by person for the preview modal
+    const groupedByPerson = people.map(p => ({
+      person: p,
+      changes: changes.filter(c => c.personId === p.id)
+    })).filter(g => g.changes.length > 0);
+
+    return { newTasks, changes, groupedByPerson };
+  };
+
   const updPerson = (id, upd) => setPeople(p => p.map(x => x.id === id ? { ...x, ...upd } : x));
 
   const startRowDrag = (e, personId) => {
@@ -1739,7 +1979,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       case "reschedule_task": return `Reschedule ${taskLabel} to ${input.start || "?"}${input.end ? ` – ${input.end}` : ""}`;
       case "assign_person": return `Add ${personLabel} to ${taskLabel}`;
       case "remove_person": return `Remove ${personLabel} from ${taskLabel}`;
-      case "create_task": return `Create task "${input.title}" (${input.start} – ${input.end})`;
+      case "create_task": return `Create job "${input.title}" (${input.start} – ${input.end})`;
       default: return name;
     }
   };
@@ -2641,7 +2881,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
             {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-                {[["date","Date"],["project","Task #"],["client","Client"]].map(([val,label]) => (
+                {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
                   <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                 ))}
               </div>
@@ -2689,7 +2929,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
-          {can("editJobs") && !jobSelectMode && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Task</Btn></>}
+          {can("editJobs") && !jobSelectMode && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
         </div>
       </div>
 
@@ -2875,33 +3115,77 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
     const fresh = sel ? (allItems.find(x => x.id === sel.id) || sel) : null;
     const parent = fresh ? tasks.find(x => x.id === fresh.id) : null;
 
-    // Gantt sub-view: render full Gantt inside Tasks tab
-    if (taskSubView === "gantt") {
-      return <div style={{ display: "flex", flexDirection: "column", gap: 0, paddingTop: 6 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16 }}>
-          <SlidingPill
-            size="sm"
-            options={[{value:"cards",label:"Cards"},{value:"gantt",label:"Gantt"}]}
-            value={taskSubView}
-            onChange={setTaskSubView}
-          />
-        </div>
-        {renderGantt()}
-      </div>;
-    }
 
-    return <div style={{ display: "flex", flexDirection: "column", gap: 20, paddingTop: 6 }}>
-      {/* ── Card / Gantt toggle ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <SlidingPill
-          size="sm"
-          options={[{value:"cards",label:"Cards"},{value:"gantt",label:"Gantt"}]}
-          value={taskSubView}
-          onChange={setTaskSubView}
-        />
+    return <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 6 }}>
+      {/* ── Combined header bar ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 6, minHeight: 34 }}>
+        {/* Left: collapsible toolbar (list view only) */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {taskSubView === "list" && <>
+            <button onClick={() => setToolbarExpanded(p => !p)} title={toolbarExpanded ? "Collapse toolbar" : "Expand toolbar"} style={{ width: 28, height: 28, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: toolbarExpanded ? "rotate(180deg)" : "none", transition: "transform 0.28s cubic-bezier(0.34,1.56,0.64,1)" }}><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden", maxWidth: toolbarExpanded ? "900px" : "0px", opacity: toolbarExpanded ? 1 : 0, transition: "max-width 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.18s", whiteSpace: "nowrap" }}>
+              <div style={{ position: "relative", width: 190, flexShrink: 0 }}>
+                <svg style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "6px 24px 6px 27px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
+              </div>
+              <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+              {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <button onClick={() => setTaskFilterOpen(p => !p)} style={{ height: 30, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 12, fontFamily: T.font }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                  Filter {activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
+                </button>
+                {taskFilterOpen && <div style={{ position: "absolute", top: 36, left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+                  <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
+                  <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}><option value="All">All Clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                  <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? p.color+"28" : "transparent", color: active ? p.color : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color||T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
+                  <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
+                  {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+                </div>}
+              </div>
+              <div style={{ display: "flex", gap: 3, flexShrink: 0 }}>
+                {[["date","Date"],["project","#"],["client","Client"]].map(([val, label]) => (
+                  <button key={val} onClick={() => setJobSort(val)} style={{ padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${jobSort === val ? T.accent : T.border}`, background: jobSort === val ? T.accent+"22" : "transparent", color: jobSort === val ? T.accent : T.textSec, fontSize: 11, fontWeight: jobSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>Sort: {label}</button>
+                ))}
+              </div>
+              <button onClick={() => setCellAlign(a => a === "left" ? "center" : a === "center" ? "right" : "left")} title={`Text alignment: ${cellAlign}`} style={{ width: 28, height: 28, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+                {cellAlign === "left"   && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>}
+                {cellAlign === "center" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>}
+                {cellAlign === "right"  && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>}
+              </button>
+            </div>
+          </>}
+        </div>
+        {/* Center: view toggle — always truly centered via CSS Grid 1fr auto 1fr */}
+        <SlidingPill size="sm" options={[{value:"cards",label:"Cards"},{value:"list",label:"List"}]} value={taskSubView} onChange={setTaskSubView} />
+        {/* Right: list-view actions */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+          {taskSubView === "list" && <>
+            <div style={{ position: "relative" }}>
+              <button onClick={() => setAddColForm(f => f ? null : { label: "", type: "text" })} style={{ height: 29, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: T.text, fontSize: 12, fontFamily: T.font, fontWeight: 600 }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Column
+              </button>
+              {addColForm && <div className="anim-drop" style={{ position: "absolute", top: 36, right: 0, width: 220, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", zIndex: 200, padding: 14, display: "flex", flexDirection: "column", gap: 10 }} onClick={e => e.stopPropagation()}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em" }}>New Column</div>
+                <input autoFocus value={addColForm.label} onChange={e => setAddColForm(f => ({ ...f, label: e.target.value }))} onKeyDown={e => { if (e.key === "Enter" && addColForm.label.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: addColForm.label.trim(), type: addColForm.type }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setAddColForm(null); } if (e.key === "Escape") setAddColForm(null); }} placeholder="Column name…" style={{ padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", width: "100%", boxSizing: "border-box" }} />
+                <select value={addColForm.type} onChange={e => setAddColForm(f => ({ ...f, type: e.target.value }))} style={{ padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+                  <option value="text">Text</option>
+                  <option value="number">Number</option>
+                  <option value="date">Date</option>
+                </select>
+                <button onClick={() => { if (!addColForm.label.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: addColForm.label.trim(), type: addColForm.type }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setAddColForm(null); }} style={{ padding: "8px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Add Column</button>
+              </div>}
+            </div>
+            {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
+          </>}
+        </div>
       </div>
-      {/* ── Engineering Queue ── */}
-      {canSignOffEngineering && engQueueItems.length > 0 && <div>
+      {/* ── Engineering Queue (cards view only) ── */}
+      {taskSubView === "cards" && canSignOffEngineering && engQueueItems.length > 0 && <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
           <span style={{ lineHeight: 0, color: T.accent }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.accent }}>Engineering Queue</h3>
@@ -2944,8 +3228,8 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
         </div>
       </div>}
 
-      {/* ── Finished Engineering ── */}
-      {canSignOffEngineering && engFinishedItems.length > 0 && <div>
+      {/* ── Finished Engineering (cards view only) ── */}
+      {taskSubView === "cards" && canSignOffEngineering && engFinishedItems.length > 0 && <div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
           <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#10b981" }}>Engineering Complete</h4>
@@ -2978,248 +3262,582 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
         </div>
       </div>}
 
-      {/* ── Jobs List + Detail ── */}
-      <div style={{ display: "flex", gap: 24, flex: 1, minHeight: 0 }}>
-      {/* Job list sidebar */}
-      <div style={{ minWidth: 300, maxWidth: 300, display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, position: "relative" }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
-            <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-            {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
-            <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-              {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
-            </button>
-            {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}
+      {/* ── Cards View ── */}
+      {taskSubView === "cards" && <div style={{ display: "flex", gap: 24, flex: 1, minHeight: 0 }}>
+        {/* Job list sidebar */}
+        <div style={{ minWidth: 300, maxWidth: 300, display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, position: "relative" }}>
+            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
+              <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+              {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
+              <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
+              </button>
+              {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
-                <select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                  <option value="All">All Clients</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
-                  {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
+                  <select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+                    <option value="All">All Clients</option>
+                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
                 </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Task #</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                  {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                    {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Sort By</div>
-                <div style={{ display: "flex", gap: 4 }}>
-                  {[["date","Date"],["project","Task #"],["client","Client"]].map(([val,label]) => (
-                    <button key={val} onClick={() => setJobSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${jobSort === val ? T.accent : T.border}`, background: jobSort === val ? T.accent + "22" : "transparent", color: jobSort === val ? T.accent : T.text, fontSize: 11, fontWeight: jobSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
-                  ))}
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                    {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
+                  </div>
                 </div>
-              </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-            </div>}
-          </div>
-        </div>
-        <div style={{ position: "relative", marginBottom: 8 }}>
-          <svg style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "7px 28px 7px 28px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
-          {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
-        </div>
-        <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
-          {tasks.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 16px", textAlign: "center", gap: 10 }}>
-            <div style={{ opacity: 0.35 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg></div>
-            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: T.text }}>No tasks yet</h3>
-            <p style={{ margin: "2px auto 0", fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Create a job or use FAST TRAQS to import</p>
-            {can("editJobs") && <Btn size="sm" style={{ marginTop: 6 }} onClick={() => openNew()}>+ New Task</Btn>}
-          </div>}
-          {/* Active jobs */}
-          {activeTasks.map(t => {
-            const isSel = selTask === t.id;
-            const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
-            const health = getHealth(t);
-            const healthColor = HEALTH_DOT[health];
-            return <div key={t.id} onClick={() => { if (jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); } else { setSelTask(isSel ? null : t.id); } }}
-              style={{ background: isSel ? t.color + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? t.color + "66" : T.border}`, borderLeft: `4px solid ${t.color}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${t.color}15` : "none" }}
-              onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "44"; } }}
-              onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : T.border; } }}>
-              <div style={{ display: "flex", gap: 3, marginBottom: 7, flexWrap: "wrap" }}>
-                {["Pending", "In Progress", "On Hold", "Finished"].map(s => (
-                  <button key={s} onClick={e => { e.stopPropagation(); updTask(t.id, { status: s }); }} style={{ padding: "2px 8px", borderRadius: 20, border: `1px solid ${t.status === s ? STA_C[s] : T.border}`, background: t.status === s ? STA_C[s] + "22" : "transparent", color: t.status === s ? STA_C[s] : T.textDim, fontSize: 11, fontWeight: t.status === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>
-                ))}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
-                {jobSelectMode && <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${selJobs.has(t.id) ? T.accent : T.border}`, background: selJobs.has(t.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{selJobs.has(t.id) && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
-                {!jobSelectMode && <div style={{ width: 7, height: 7, borderRadius: "50%", background: healthColor, flexShrink: 0, boxShadow: `0 0 5px ${healthColor}66` }} />}
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                <Badge t={t.status} c={STA_C[t.status]} />
-              </div>
-              <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
-                {client && <span style={{ fontSize: 11, color: client.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: client.color, display: "inline-block" }} />{client.name}</span>}
-                <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>
-              </div>
-            </div>;
-          })}
-          {/* Finished jobs */}
-          {finishedTasks.length > 0 && <>
-            <div style={{ margin: "10px 0 6px", borderTop: `1px solid ${T.border}`, position: "relative" }}>
-              <span style={{ position: "absolute", top: -9, left: 0, background: T.bg, paddingRight: 8, fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Finished</span>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Sort By</div>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
+                      <button key={val} onClick={() => setJobSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${jobSort === val ? T.accent : T.border}`, background: jobSort === val ? T.accent + "22" : "transparent", color: jobSort === val ? T.accent : T.text, fontSize: 11, fontWeight: jobSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              </div>}
             </div>
-            {finishedTasks.map(t => {
+          </div>
+          <div style={{ position: "relative", marginBottom: 8 }}>
+            <svg style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "7px 28px 7px 28px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+            {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
+          </div>
+          <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+            {tasks.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 16px", textAlign: "center", gap: 10 }}>
+              <div style={{ opacity: 0.35 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg></div>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: T.text }}>No jobs yet</h3>
+              <p style={{ margin: "2px auto 0", fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Create a job or use FAST TRAQS to import</p>
+              {can("editJobs") && <Btn size="sm" style={{ marginTop: 6 }} onClick={() => openNew()}>+ New Job</Btn>}
+            </div>}
+            {activeTasks.map(t => {
               const isSel = selTask === t.id;
               const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
-              return <div key={t.id} onClick={() => setSelTask(isSel ? null : t.id)}
-                style={{ background: isSel ? "#10b98118" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${isSel ? "#10b98166" : T.border}`, borderLeft: "4px solid #10b981", padding: "9px 12px", cursor: "pointer", opacity: isSel ? 1 : 0.65, transition: "all 0.15s ease" }}
-                onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; if (!isSel) e.currentTarget.style.borderColor = "#10b98144"; }}
-                onMouseLeave={e => { if (!isSel) { e.currentTarget.style.opacity = "0.65"; e.currentTarget.style.borderColor = T.border; } }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                  <span style={{ fontSize: 11 }}>✅</span>
-                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                  {client && <span style={{ fontSize: 10, color: client.color, fontWeight: 600 }}>{client.name}</span>}
-                  <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>
+              const health = getHealth(t);
+              const healthColor = HEALTH_DOT[health];
+              return <div key={t.id} onClick={() => { if (jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); } else { setSelTask(isSel ? null : t.id); } }}
+                style={{ background: isSel ? t.color + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? t.color + "66" : T.border}`, borderLeft: `4px solid ${t.color}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${t.color}15` : "none" }}
+                onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "44"; } }}
+                onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : T.border; } }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+                  {jobSelectMode && <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${selJobs.has(t.id) ? T.accent : T.border}`, background: selJobs.has(t.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{selJobs.has(t.id) && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
+                  {!jobSelectMode && <div style={{ width: 7, height: 7, borderRadius: "50%", background: healthColor, flexShrink: 0, boxShadow: `0 0 5px ${healthColor}66` }} />}
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                  {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
+                  {client && <span style={{ fontSize: 11, color: client.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: client.color, display: "inline-block" }} />{client.name}</span>}
+                  <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>
                 </div>
               </div>;
             })}
-          </>}
-        </div>
-      </div>
-
-      {/* Job detail panel */}
-      <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexShrink: 0 }}>
-          {fresh && <Btn variant="ghost" onClick={() => openEdit(fresh)}>Edit</Btn>}
-          <Btn onClick={() => openNew()}>+ New Task</Btn>
-        </div>}
-        <div style={{ flex: 1, overflow: "auto" }}>
-        {!fresh ? (
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
-            <div style={{ opacity: 0.3 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/></svg></div>
-            <div style={{ fontSize: 16, color: T.textDim }}>Select a job to view details</div>
-          </div>
-        ) : (
-          <div>
-            {/* Job header */}
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18, gap: 16, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <HealthIcon t={fresh} size={22} style={{ flexShrink: 0 }} />
-                <div>
-                  <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{fresh.title}</h2>
-                  {(fresh.jobNumber || fresh.poNumber) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                    {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
-                    {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
-                  </div>}
-                </div>
+            {finishedTasks.length > 0 && <>
+              <div style={{ margin: "10px 0 6px", borderTop: `1px solid ${T.border}`, position: "relative" }}>
+                <span style={{ position: "absolute", top: -9, left: 0, background: T.bg, paddingRight: 8, fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Finished</span>
               </div>
-            </div>
-
-            {/* Meta row */}
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-              {fresh.clientId && <Badge t={"🏢 " + clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}
-              <span style={{ fontSize: 14, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span>{fresh.hpd > 0 && <><span style={{ color: T.textDim }}> · </span>{fresh.hpd}h/day</>}
-              </span>
-              <ColorSlidingPill
-                options={STATUSES.map(s => ({ value: s, label: s, color: STA_C[s] }))}
-                value={fresh.status || "Not Started"}
-                onChange={v => updTask(fresh.id, { status: v })}
-              />
-              <ColorSlidingPill
-                options={["Low","Medium","High"].map(p => ({ value: p, label: p, color: PRI_C[p] }))}
-                value={fresh.pri || "Medium"}
-                onChange={v => updTask(fresh.id, { pri: v })}
-              />
-            </div>
-
-            {/* Due date */}
-            {fresh.dueDate && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "10px 16px", background: fresh.dueDate < TD ? "#ef444415" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b15" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${fresh.dueDate < TD ? "#ef444433" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b33" : T.border}` }}>
-              <span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Customer Due:</span>
-              <span style={{ fontSize: 14, fontWeight: 700, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text, fontFamily: T.mono }}>{fm(fresh.dueDate)}</span>
-              {fresh.dueDate < TD && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>OVERDUE</span>}
-            </div>}
-
-            {/* Notes */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Notes</div>
-              <textarea key={fresh.id} defaultValue={fresh.notes || ""} onBlur={e => updTask(fresh.id, { notes: e.target.value })} rows={3} placeholder="Add notes…" style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} />
-            </div>
-
-            {/* Panels and Operations */}
-            {parent && (parent.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
-              <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({parent.subs.length})</h4>
-              {parent.subs.map(panel => {
-                const hasEng = panel.engineering !== undefined;
-                const pEng = panel.engineering || {};
-                const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
-                const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
-                return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 14, marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                    <HealthIcon t={panel} size={14} />
-                    <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
-                    <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
+              {finishedTasks.map(t => {
+                const isSel = selTask === t.id;
+                const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+                return <div key={t.id} onClick={() => setSelTask(isSel ? null : t.id)}
+                  style={{ background: isSel ? "#10b98118" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${isSel ? "#10b98166" : T.border}`, borderLeft: "4px solid #10b981", padding: "9px 12px", cursor: "pointer", opacity: isSel ? 1 : 0.65, transition: "all 0.15s ease" }}
+                  onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; if (!isSel) e.currentTarget.style.borderColor = "#10b98144"; }}
+                  onMouseLeave={e => { if (!isSel) { e.currentTarget.style.opacity = "0.65"; e.currentTarget.style.borderColor = T.border; } }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <span style={{ fontSize: 11 }}>✅</span>
+                    <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
+                    {client && <span style={{ fontSize: 10, color: client.color, fontWeight: 600 }}>{client.name}</span>}
+                    <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>
                   </div>
-                  {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, marginRight: 4 }}>ENG:</span>
-                    {engSteps.map(step => {
-                      const done = !!pEng[step.key];
-                      const isActive = step.key === pActiveStep;
-                      if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                      if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
-                      if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
-                      return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
-                    })}
-                    {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
-                  </div>}
-                  {(panel.subs || []).length > 0 && <div>
-                    {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
-                      return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}` }}>
-                        <HealthIcon t={op} size={12} />
-                        <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
-                        <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
-                        {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
-                        {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
-                      </div>; })}
-                  </div>}
                 </div>;
               })}
-            </div>}
-
-            {/* Subtasks (non-panel) */}
-            {(!parent || (parent.subs || []).length === 0) && (fresh.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
-              <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Subtasks ({fresh.subs.length})</h4>
-              {fresh.subs.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: T.radiusSm, marginBottom: 6, background: T.surface, border: `1px solid ${T.border}` }}>
-                <HealthIcon t={s} size={13} />
-                <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text }}>{s.title}</span>
-                <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(s.start)} → {fm(s.end)}</span>
-              </div>)}
-            </div>}
-
-            {/* Team */}
-            {(fresh.team || []).length > 0 && <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Team</div>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {fresh.team.map(id => { const p = people.find(x => x.id === id); if (!p) return null; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: p.color + "15", border: `1px solid ${p.color}44` }}>
-                  <div style={{ width: 24, height: 24, borderRadius: 8, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
-                  <span style={{ fontSize: 11, color: T.textDim }}>{p.role}</span>
-                </div>; })}
-              </div>
-            </div>}
+            </>}
           </div>
-        )}
         </div>
-      </div>
-      </div>
+        {/* Job detail panel */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+          {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexShrink: 0 }}>
+            {fresh && <Btn variant="ghost" onClick={() => openEdit(fresh)}>Edit</Btn>}
+            <Btn onClick={() => openNew()}>+ New Job</Btn>
+          </div>}
+          <div style={{ flex: 1, overflow: "auto" }}>
+          {!fresh ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", gap: 16 }}>
+              <div style={{ opacity: 0.3 }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/></svg></div>
+              <div style={{ fontSize: 16, color: T.textDim }}>Select a job to view details</div>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18, gap: 16, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <HealthIcon t={fresh} size={22} style={{ flexShrink: 0 }} />
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{fresh.title}</h2>
+                    {(fresh.jobNumber || fresh.poNumber) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                      {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
+                      {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
+                    </div>}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+                {fresh.clientId && <Badge t={"🏢 " + clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}
+                <span style={{ fontSize: 14, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span>{fresh.hpd > 0 && <><span style={{ color: T.textDim }}> · </span>{fresh.hpd}h/day</>}
+                </span>
+                <ColorSlidingPill options={STATUSES.map(s => ({ value: s, label: s, color: STA_C[s] }))} value={fresh.status || "Not Started"} onChange={v => updTask(fresh.id, { status: v })} />
+                <ColorSlidingPill options={["Low","Medium","High"].map(p => ({ value: p, label: p, color: PRI_C[p] }))} value={fresh.pri || "Medium"} onChange={v => updTask(fresh.id, { pri: v })} />
+              </div>
+              {fresh.dueDate && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "10px 16px", background: fresh.dueDate < TD ? "#ef444415" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b15" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${fresh.dueDate < TD ? "#ef444433" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b33" : T.border}` }}>
+                <span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Customer Due:</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text, fontFamily: T.mono }}>{fm(fresh.dueDate)}</span>
+                {fresh.dueDate < TD && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>OVERDUE</span>}
+              </div>}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Notes</div>
+                <textarea key={fresh.id} defaultValue={fresh.notes || ""} onBlur={e => updTask(fresh.id, { notes: e.target.value })} rows={3} placeholder="Add notes…" style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} />
+              </div>
+              {parent && (parent.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
+                <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({parent.subs.length})</h4>
+                {parent.subs.map(panel => {
+                  const hasEng = panel.engineering !== undefined;
+                  const pEng = panel.engineering || {};
+                  const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
+                  const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
+                  return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 14, marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                      <HealthIcon t={panel} size={14} />
+                      <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
+                      <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
+                    </div>
+                    {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, marginRight: 4 }}>ENG:</span>
+                      {engSteps.map(step => {
+                        const done = !!pEng[step.key];
+                        const isActive = step.key === pActiveStep;
+                        if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
+                        if (isActive && canSignOffEngineering) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                        if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
+                        return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
+                      })}
+                      {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
+                    </div>}
+                    {(panel.subs || []).length > 0 && <div>
+                      {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
+                        return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}`, cursor: "context-menu" }} onContextMenu={e => handleCtx(e, { ...op, isSub: true, pid: panel.id, grandPid: parent.id, level: 2, panelTitle: panel.title }, "job-detail")}>
+                          <HealthIcon t={op} size={12} />
+                          <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
+                          <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
+                          {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
+                          {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
+                        </div>; })}
+                    </div>}
+                  </div>;
+                })}
+              </div>}
+              {(!parent || (parent.subs || []).length === 0) && (fresh.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
+                <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Subtasks ({fresh.subs.length})</h4>
+                {fresh.subs.map(s => <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: T.radiusSm, marginBottom: 6, background: T.surface, border: `1px solid ${T.border}`, cursor: "context-menu" }} onContextMenu={e => handleCtx(e, { ...s, isSub: true, pid: fresh.id, level: 1 }, "job-detail")}>
+                  <HealthIcon t={s} size={13} />
+                  <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text }}>{s.title}</span>
+                  <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(s.start)} → {fm(s.end)}</span>
+                </div>)}
+              </div>}
+              {(fresh.team || []).length > 0 && <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Team</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {fresh.team.map(id => { const p = people.find(x => x.id === id); if (!p) return null; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: p.color + "15", border: `1px solid ${p.color}44` }}>
+                    <div style={{ width: 24, height: 24, borderRadius: 8, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
+                    <span style={{ fontSize: 11, color: T.textDim }}>{p.role}</span>
+                  </div>; })}
+                </div>
+              </div>}
+            </div>
+          )}
+          </div>
+        </div>
+      </div>}
+
+      {/* ── List View (Grid) ── */}
+      {taskSubView === "list" && (() => {
+        const COL = colWidths.map(w => w + "px").join(" ");
+        const cellAlignJc = cellAlign === "right" ? "flex-end" : cellAlign === "center" ? "center" : "flex-start";
+        const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
+        const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "8px 10px", background: T.surface };
+        const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); updTask(job.id, { status: STATUSES[(i + 1) % STATUSES.length] }); };
+        const cyclePri = (job) => { const opts = ["Low","Medium","High"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
+        const cycleStatusSub = (item, pid) => { const i = STATUSES.indexOf(item.status || "Not Started"); updTask(item.id, { status: STATUSES[(i + 1) % STATUSES.length] }, pid); };
+        const isEdit = (id, col) => gridCell?.id === id && gridCell?.col === col;
+        const startEdit = (e, id, col) => { e.stopPropagation(); setGridCell({ id, col }); };
+        const commitEdit = (id, col, val, pid) => { updTask(id, { [col]: val }, pid || null); setGridCell(null); };
+
+        const opHrs = (op) => Math.round((op.hpd || 7.5) * (diffBD(op.start, op.end) + 1) * 10) / 10;
+        const panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + opHrs(op), 0) * 10) / 10;
+        const jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + panelHrs(p), 0) * 10) / 10;
+        const opPct = (op) => op.status === "Finished" ? 100 : op.status === "In Progress" ? 50 : op.status === "Pending" ? 15 : op.status === "On Hold" ? 25 : 0;
+        const panelPct = (panel) => { const ops = panel.subs || []; return ops.length ? Math.round(ops.reduce((s, op) => s + opPct(op), 0) / ops.length) : opPct(panel); };
+        const jobPct = (job) => { const ops = (job.subs || []).flatMap(p => p.subs || []); return ops.length ? Math.round(ops.reduce((s, op) => s + opPct(op), 0) / ops.length) : opPct(job); };
+        const pctColor = (pct) => pct >= 80 ? "#10b981" : pct >= 40 ? "#f59e0b" : "#94a3b8";
+
+        const GridRow = ({ item, level = 0, jobId, panelId, jobColor, isFinished }) => {
+          const isExpanded = expandedJobs.has(item.id);
+          const hasSubs = (item.subs || []).length > 0;
+          const client = level === 0 && item.clientId ? clients.find(c => c.id === item.clientId) : null;
+          const assignee = level > 0 ? (item.team || [])[0] : null;
+          const assigneePerson = assignee ? people.find(p => p.id === assignee) : null;
+          const teamMembers = level === 0 ? (item.team || []).map(id => people.find(p => p.id === id)).filter(Boolean) : [];
+          const health = getHealth(item);
+          const healthColor = HEALTH_DOT[health];
+          const staColor = STA_C[item.status] || T.textDim;
+          const priColor = PRI_C[item.pri] || T.textDim;
+          const rowBg = level === 0 ? (selTask === item.id ? item.color + "12" : "transparent") : level === 1 ? T.surface + "cc" : T.bg + "cc";
+          const indent = level * 20;
+          const pid = level === 2 ? panelId : level === 1 ? jobId : null;
+          const hrs = level === 2 ? opHrs(item) : level === 1 ? panelHrs(item) : jobHrs(item);
+          const pct = level === 2 ? opPct(item) : level === 1 ? panelPct(item) : jobPct(item);
+          const pc = pctColor(pct);
+
+          return <>
+            <div
+              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, borderLeft: level === 0 ? `3px solid ${jobColor || item.color}` : "3px solid transparent", background: rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.1s" }}
+              onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { setExpandedJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } }}
+              onContextMenu={level > 0 ? e => handleCtx(e, { ...item, isSub: true, pid: pid, grandPid: level === 2 ? jobId : null, level, panelTitle: level === 2 ? (tasks.flatMap(j => j.subs || []).find(p => p.id === panelId)?.title || "") : "" }, "job-detail") : undefined}
+            >
+              {/* Expand toggle */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", paddingLeft: indent, cursor: hasSubs ? "pointer" : "default" }}
+                onClick={e => { if (!hasSubs) return; e.stopPropagation(); setExpandedJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); }}>
+                {hasSubs && <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, flexShrink: 0 }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+              </div>
+
+              {/* Name */}
+              <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: level === 0 ? 10 : 8 + indent }}
+                onDoubleClick={e => { if (!jobSelectMode) startEdit(e, item.id, "title"); }}>
+                {level === 0 && jobSelectMode && <div style={{ width: 15, height: 15, borderRadius: "50%", border: `2px solid ${selJobs.has(item.id) ? T.accent : T.border}`, background: selJobs.has(item.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{selJobs.has(item.id) && <svg width="7" height="7" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
+                {level === 0 && !jobSelectMode && <div style={{ width: 7, height: 7, borderRadius: "50%", background: healthColor, flexShrink: 0, boxShadow: `0 0 4px ${healthColor}88` }} />}
+                {level === 1 && <div style={{ width: 5, height: 5, borderRadius: "50%", background: STA_C[item.status] || T.textDim, flexShrink: 0, opacity: 0.8 }} />}
+                {level === 2 && <div style={{ width: 4, height: 4, borderRadius: "50%", background: T.textDim, flexShrink: 0, opacity: 0.5 }} />}
+                {isEdit(item.id, "title")
+                  ? <input autoFocus defaultValue={item.title} onBlur={e => commitEdit(item.id, "title", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : 500, fontFamily: T.font, padding: "1px 4px", minWidth: 0 }} />
+                  : <span style={{ flex: 1, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : level === 1 ? 600 : 500, color: level === 2 ? T.textSec : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</span>}
+              </div>
+
+              {/* Task # */}
+              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 11 }}
+                onClick={e => level === 0 && startEdit(e, item.id, "jobNumber")}>
+                {isEdit(item.id, "jobNumber")
+                  ? <input autoFocus defaultValue={item.jobNumber || ""} onBlur={e => commitEdit(item.id, "jobNumber", e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.accent, fontSize: 11, fontFamily: T.mono, padding: "1px 4px" }} />
+                  : <span style={{ color: item.jobNumber ? T.accent : T.textDim, fontWeight: item.jobNumber ? 700 : 400, cursor: level === 0 ? "text" : "default" }}>{item.jobNumber ? `#${item.jobNumber}` : level === 0 ? "—" : ""}</span>}
+              </div>
+
+              {/* Client */}
+              <div style={{ ...cellBase }}>
+                {level === 0 && client && <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: client.color, fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: client.color, flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span>}
+                {level === 0 && !client && <span style={{ fontSize: 12, color: T.textDim }}>—</span>}
+                {level === 1 && <span style={{ fontSize: 11, color: T.textDim }}>{(item.subs || []).length} op{(item.subs || []).length !== 1 ? "s" : ""}</span>}
+              </div>
+
+              {/* Status */}
+              <div style={{ ...cellBase, cursor: "pointer" }}
+                onClick={e => { e.stopPropagation(); if (level === 0) cycleStatus(item); else cycleStatusSub(item, pid); }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 11, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none" }}>
+                  {STA_ICON[item.status] || "○"} {item.status || "Not Started"}
+                </span>
+              </div>
+
+              {/* Priority */}
+              <div style={{ ...cellBase, cursor: "pointer", justifyContent: "center" }}
+                onClick={e => { e.stopPropagation(); if (level === 0) cyclePri(item); }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 8, background: priColor + "1a", border: `1px solid ${priColor}44`, fontSize: 11, fontWeight: 700, color: priColor, userSelect: "none" }}>
+                  {item.pri || "Med"}
+                </span>
+              </div>
+
+              {/* Start */}
+              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: "text" }}
+                onClick={e => startEdit(e, item.id, "start")}>
+                {isEdit(item.id, "start")
+                  ? <input type="date" autoFocus defaultValue={item.start} onBlur={e => commitEdit(item.id, "start", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
+                  : <span style={{ color: T.textSec }}>{fm(item.start)}</span>}
+              </div>
+
+              {/* End */}
+              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: "text" }}
+                onClick={e => startEdit(e, item.id, "end")}>
+                {isEdit(item.id, "end")
+                  ? <input type="date" autoFocus defaultValue={item.end} onBlur={e => commitEdit(item.id, "end", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
+                  : <span style={{ color: T.textSec }}>{fm(item.end)}</span>}
+              </div>
+
+              {/* Due Date */}
+              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: level === 0 ? "text" : "default" }}
+                onClick={e => level === 0 && startEdit(e, item.id, "dueDate")}>
+                {level === 0 && isEdit(item.id, "dueDate")
+                  ? <input type="date" autoFocus defaultValue={item.dueDate || ""} onBlur={e => commitEdit(item.id, "dueDate", e.target.value || null)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
+                  : level === 0 && item.dueDate
+                    ? <span style={{ color: item.dueDate < TD ? "#ef4444" : item.dueDate <= addD(TD, 3) ? "#f59e0b" : T.textSec, fontWeight: item.dueDate < TD ? 700 : 400 }}>{fm(item.dueDate)}{item.dueDate < TD && " !"}</span>
+                    : <span style={{ color: T.textDim }}>—</span>}
+              </div>
+
+              {/* Hours */}
+              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12 }}>
+                {hrs > 0
+                  ? <span style={{ color: level === 0 ? T.textSec : level === 1 ? T.text : T.textSec, fontWeight: level === 1 ? 700 : 400 }}>
+                      {hrs}h
+                      {level === 1 && (item.subs || []).length > 0 && <span style={{ color: T.textDim, fontSize: 10, marginLeft: 3, fontWeight: 400 }}>/ {(item.subs || []).length} op{(item.subs || []).length !== 1 ? "s" : ""}</span>}
+                    </span>
+                  : <span style={{ color: T.textDim }}>—</span>}
+              </div>
+
+              {/* Progress */}
+              <div style={{ ...cellBase, flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: 3, padding: "6px 10px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: pc }}>{pct}%</span>
+                  {level === 0 && <span style={{ fontSize: 9, color: T.textDim }}>{(item.subs || []).flatMap(p => p.subs || []).filter(o => o.status === "Finished").length}/{(item.subs || []).flatMap(p => p.subs || []).length} ops</span>}
+                  {level === 1 && <span style={{ fontSize: 9, color: T.textDim }}>{(item.subs || []).filter(o => o.status === "Finished").length}/{(item.subs || []).length}</span>}
+                </div>
+                <div style={{ height: 4, borderRadius: 2, background: T.border, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, borderRadius: 2, background: pc, transition: "width 0.3s" }} />
+                </div>
+              </div>
+
+              {/* Team */}
+              <div style={{ ...cellBase, gap: 4, flexWrap: "nowrap", overflow: "hidden" }}>
+                {level === 0 && teamMembers.slice(0, 4).map(p => (
+                  <div key={p.id} title={p.name} style={{ width: 22, height: 22, borderRadius: 7, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700, flexShrink: 0, border: `1.5px solid ${T.card}` }}>{p.name[0]}</div>
+                ))}
+                {level === 0 && teamMembers.length > 4 && <span style={{ fontSize: 10, color: T.textDim }}>+{teamMembers.length - 4}</span>}
+                {level > 0 && assigneePerson && <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: assigneePerson.color, fontWeight: 600 }}><div style={{ width: 18, height: 18, borderRadius: 6, background: assigneePerson.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{assigneePerson.name[0]}</div>{assigneePerson.name.split(" ")[0]}</span>}
+                {level > 0 && !assigneePerson && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>—</span>}
+              </div>
+
+              {/* Custom columns */}
+              {customCols.map(col => {
+                const key = "_cc_" + col.id;
+                const val = item[key] || "";
+                return (
+                  <div key={col.id} style={{ ...cellBase, cursor: "text" }} onClick={e => { e.stopPropagation(); startEdit(e, item.id, key); }}>
+                    {isEdit(item.id, key)
+                      ? <input autoFocus type={col.type === "number" ? "number" : col.type === "date" ? "date" : "text"} defaultValue={val} onBlur={e => commitEdit(item.id, key, e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: col.type === "number" ? T.mono : T.font, padding: "1px 4px" }} />
+                      : <span style={{ fontSize: 12, color: val ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{val || "—"}</span>}
+                  </div>
+                );
+              })}
+
+              {/* Actions */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {level === 0 && can("editJobs") && <button onClick={e => { e.stopPropagation(); openEdit(item); }} title="Edit" style={{ width: 26, height: 26, borderRadius: 7, border: `1px solid ${T.border}`, background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>}
+              </div>
+            </div>
+
+            {/* Sub-rows */}
+            {isExpanded && (item.subs || []).map(sub => (
+              <GridRow key={sub.id} item={sub} level={level + 1} jobId={level === 0 ? item.id : jobId} panelId={level === 1 ? item.id : panelId} jobColor={level === 0 ? item.color : jobColor} isFinished={isFinished} />
+            ))}
+          </>;
+        };
+
+        return <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          {/* ── Engineering Queue (list view) ── */}
+          {canSignOffEngineering && (engQueueItems.length > 0 || engFinishedItems.length > 0) && (() => {
+            const engCol = engColWidths.map(w => w + "px").join(" ");
+            const engHdr = { padding: "8px 10px", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" };
+            const engCell = { padding: "7px 10px", fontSize: 12, color: T.text, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden" };
+            const renderEngRow = ({ job, panel }, finished = false) => {
+              const e = panel.engineering || {};
+              const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
+              const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
+              const rowColor = finished ? "#10b981" : T.accent;
+              const isExpanded = expandedEngRows.has(panel.id);
+              const toggleExpand = e2 => { e2.stopPropagation(); setExpandedEngRows(prev => { const n = new Set(prev); n.has(panel.id) ? n.delete(panel.id) : n.add(panel.id); return n; }); };
+              return <div key={panel.id} style={{ borderBottom: `1px solid ${T.border}` }}>
+                {/* Main row */}
+                <div style={{ display: "grid", gridTemplateColumns: engCol, cursor: "pointer" }}
+                  onClick={toggleExpand}
+                  onMouseEnter={e2 => e2.currentTarget.style.background = rowColor + "08"} onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}>
+                  {/* color bar + chevron */}
+                  <div style={{ ...engCell, padding: 0, position: "relative", justifyContent: "center" }}>
+                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: rowColor }} />
+                    <svg style={{ color: T.textDim, transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </div>
+                  {/* Name */}
+                  <div style={{ ...engCell, justifyContent: "flex-start", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
+                    <span style={{ fontWeight: 600, fontSize: 12, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{panel.title}</span>
+                    <span style={{ fontSize: 10, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{job.title}</span>
+                  </div>
+                  {/* # */}
+                  <div style={{ ...engCell }}>{job.jobNumber ? <span style={{ fontSize: 11, fontFamily: "monospace", color: T.accent, fontWeight: 700 }}>#{job.jobNumber}</span> : null}</div>
+                  {/* Client */}
+                  <div style={{ ...engCell }}>{jobClient ? <span style={{ fontSize: 11, color: jobClient.color, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{jobClient.name}</span> : null}</div>
+                  {/* Step */}
+                  <div style={{ ...engCell }}>
+                    {finished
+                      ? <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98115", borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap" }}>✓ Complete</span>
+                      : <span style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: T.accent + "18", borderRadius: 6, padding: "2px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{engSteps.find(s => s.key === activeStep)?.label}</span>}
+                  </div>
+                  {/* Priority */}
+                  <div style={{ ...engCell }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 8, background: (PRI_C[job.pri] || T.textDim) + "1a", border: `1px solid ${(PRI_C[job.pri] || T.textDim)}44`, fontSize: 11, fontWeight: 700, color: PRI_C[job.pri] || T.textDim, userSelect: "none" }}>{job.pri || "Med"}</span>
+                  </div>
+                  {/* Start */}
+                  <div style={{ ...engCell }}><span style={{ fontSize: 11, color: T.textDim }}>{panel.start ? new Date(panel.start + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
+                  {/* End */}
+                  <div style={{ ...engCell }}><span style={{ fontSize: 11, color: T.textDim }}>{panel.end ? new Date(panel.end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
+                  {/* Due */}
+                  <div style={{ ...engCell }}><span style={{ fontSize: 11, color: T.textDim }}>{job.dueDate ? new Date(job.dueDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
+                  {/* Custom cols — empty */}
+                  {customCols.map(c => <div key={c.id} style={{ ...engCell }} />)}
+                  {/* Progress — 3 step buttons */}
+                  <div style={{ ...engCell, padding: "4px 10px", gap: 5, flexWrap: "nowrap", overflow: "hidden" }}>
+                    {engSteps.map(step => {
+                      const done = !!e[step.key];
+                      const isActive = !finished && step.key === activeStep;
+                      const base = { flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "center" };
+                      if (done) return <button key={step.key} onClick={e2 => { e2.stopPropagation(); revertEngineering(job.id, panel.id, step.key); }} title={`Undo: ${step.label}`} style={{ ...base, background: "#10b98118", border: "1px solid #10b98144", color: "#10b981" }}>✓ {step.label}</button>;
+                      if (isActive) return <button key={step.key} onClick={e2 => { e2.stopPropagation(); signOffEngineering(job.id, panel.id, step.key); }} title={`Sign Off: ${step.label}`} style={{ ...base, background: T.accent, color: T.accentText, border: "none" }}>→ {step.label}</button>;
+                      return <span key={step.key} title={step.label} style={{ ...base, border: `1px solid ${T.border}`, color: T.textDim, opacity: 0.45 }}>○ {step.label}</span>;
+                    })}
+                  </div>
+                </div>
+                {/* Expanded dropdown detail panel */}
+                {isExpanded && <div style={{ background: T.bg, borderTop: `1px solid ${T.border}`, padding: "14px 20px", display: "flex", gap: 12 }}>
+                  {engSteps.map((step, idx) => {
+                    const rec = e[step.key];
+                    const done = !!rec;
+                    const isActive = !finished && step.key === activeStep;
+                    const stepColor = done ? "#10b981" : isActive ? T.accent : T.textDim;
+                    return <div key={step.key} style={{ flex: 1, padding: "14px 16px", borderRadius: T.radiusSm, background: done ? "#10b98110" : isActive ? T.accent + "12" : T.surface, border: `1px solid ${done ? "#10b98133" : isActive ? T.accent + "44" : T.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: stepColor }}>{done ? "✓" : isActive ? "→" : "○"} Step {idx + 1}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: stepColor }}>{step.label}</span>
+                      </div>
+                      {done && rec && <div style={{ fontSize: 11, color: T.textDim, display: "flex", flexDirection: "column", gap: 2 }}>
+                        <span>By <span style={{ color: T.text, fontWeight: 600 }}>{rec.byName}</span></span>
+                        <span>{new Date(rec.at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {new Date(rec.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
+                      </div>}
+                      {done && <button onClick={e2 => { e2.stopPropagation(); revertEngineering(job.id, panel.id, step.key); }} style={{ padding: "5px 10px", borderRadius: 7, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, fontWeight: 600, alignSelf: "flex-start" }}>↩ Undo</button>}
+                      {isActive && <button onClick={e2 => { e2.stopPropagation(); signOffEngineering(job.id, panel.id, step.key); }} style={{ padding: "8px 14px", borderRadius: 8, background: T.accent, color: T.accentText, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ Sign Off: {step.label}</button>}
+                      {!done && !isActive && <span style={{ fontSize: 11, color: T.textDim, opacity: 0.6 }}>Awaiting previous step</span>}
+                    </div>;
+                  })}
+                </div>}
+              </div>;
+            };
+            return <div style={{ marginBottom: 16 }}>
+              <div onClick={() => setEngQueueExpanded(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", cursor: "pointer", marginBottom: engQueueExpanded ? 8 : 0 }}>
+                <svg style={{ color: T.textDim, transition: "transform 0.2s", transform: engQueueExpanded ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>Engineering Queue</span>
+                {engQueueItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>}
+                {engFinishedItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓ {engFinishedItems.length}</span>}
+              </div>
+              {engQueueExpanded && <div style={{ borderRadius: T.radius, border: `1px solid ${T.accent}33`, overflow: "auto", background: T.card }}>
+                <div style={{ minWidth: engColWidths.reduce((a, b) => a + b, 0) }}>
+                  {/* Column headers with resize handles */}
+                  <div style={{ display: "grid", gridTemplateColumns: engCol, position: "sticky", top: 0, zIndex: 5, borderBottom: `1.5px solid ${T.border}` }}>
+                    <div style={engHdr} />
+                    {["Name","#","Client","Step","Priority","Start","End","Due",...customCols.map(c => c.label),"Progress"].map((h, i) => {
+                      const colIdx = i + 1;
+                      const resizable = colIdx < engColWidths.length;
+                      return <div key={i} style={{ ...engHdr, justifyContent: "center", position: "relative", userSelect: "none" }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h}</span>
+                        {resizable && <div onPointerDown={e => startEngColResize(e, colIdx)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5, touchAction: "none" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "33"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />}
+                      </div>;
+                    })}
+                  </div>
+                  {engQueueItems.map(item => renderEngRow(item, false))}
+                  {engFinishedItems.length > 0 && <>
+                    <div style={{ display: "grid", gridTemplateColumns: engCol, background: T.surface, borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}` }}>
+                      <div />
+                      <div style={{ ...engHdr, justifyContent: "flex-start", color: "#10b981", gap: 6, paddingLeft: 10 }}><span>✓</span> Finished <span style={{ fontWeight: 400, color: T.textDim }}>({engFinishedItems.length})</span></div>
+                      {[...Array(8 + customCols.length)].map((_, i) => <div key={i} />)}
+                    </div>
+                    {engFinishedItems.map(item => renderEngRow(item, true))}
+                  </>}
+                </div>
+              </div>}
+            </div>;
+          })()}
+          {/* Grid table */}
+          <div style={{ flex: 1, overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={() => { if (gridCell) setGridCell(null); }}>
+            <div style={{ minWidth: colWidths.reduce((a, b) => a + b, 0) }}>
+            {/* Header */}
+            <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.surface, borderBottom: `1.5px solid ${T.border}` }}>
+              <div style={{ ...hdrCell, borderRight: `1px solid ${T.border}`, padding: 0 }}>
+                <button onClick={e => { e.stopPropagation(); setJobsCollapsed(p => !p); }} title={jobsCollapsed ? "Show jobs" : "Collapse jobs"} style={{ width: "100%", height: "100%", minHeight: 28, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: jobsCollapsed ? T.accent : T.textDim, transition: "color 0.15s" }}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: jobsCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.22s cubic-bezier(0.34,1.56,0.64,1)" }}><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+              </div>
+              {[["Name","left"],["#","left"],["Client","left"],["Status","left"],["Priority","center"],["Start","left"],["End","left"],["Due","left"],["Hrs","right"],["Progress","left"],["Team","left"],...customCols.map(c => [c.label,"left","custom",c.id]),["","center"]].map(([h, align, flag, colId], i) => {
+                const colIdx = i + 1;
+                const resizable = colIdx < colWidths.length - 1;
+                const isCustom = flag === "custom";
+                return (
+                  <div key={colId || i} style={{ ...hdrCell, justifyContent: align === "right" ? "flex-end" : align === "center" ? "center" : "flex-start", position: "relative", userSelect: "none", gap: 4 }} onDoubleClick={isCustom ? e => { e.stopPropagation(); setEditingColHeader(colId); } : undefined}>
+                    {isCustom && editingColHeader === colId
+                      ? <input autoFocus defaultValue={h} onBlur={e => { setCustomCols(prev => prev.map(c => c.id === colId ? { ...c, label: e.target.value || c.label } : c)); setEditingColHeader(null); }} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setEditingColHeader(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 3, color: T.textDim, fontSize: 10, fontWeight: 700, fontFamily: T.font, padding: "1px 3px", textTransform: "uppercase", letterSpacing: "0.07em", minWidth: 0 }} />
+                      : <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{h}</span>}
+                    {isCustom && editingColHeader !== colId && <button onClick={e => { e.stopPropagation(); removeCustomCol(colId); }} title="Remove column" style={{ flexShrink: 0, width: 14, height: 14, borderRadius: 3, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>}
+                    {resizable && <div onMouseDown={e => startColResize(e, colIdx)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "33"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Empty state */}
+            {tasks.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 16px", gap: 12 }}>
+              <div style={{ opacity: 0.3 }}><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/></svg></div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>No jobs yet</div>
+              <div style={{ fontSize: 13, color: T.textDim }}>Create a job or use FAST TRAQS to import</div>
+              {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
+            </div>}
+
+            {/* Active job rows */}
+            {!jobsCollapsed && activeTasks.map(job => <GridRow key={job.id} item={job} level={0} jobColor={job.color} isFinished={false} />)}
+
+            {/* Add row */}
+            {!jobsCollapsed && can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
+              onMouseEnter={e => e.currentTarget.style.background = T.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div />
+              <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, color: T.textDim, fontSize: 12 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add new job…
+              </div>
+              {[...Array(11)].map((_, i) => <div key={i} style={{ borderRight: `1px solid ${T.border}` }} />)}
+            </div>}
+
+            {/* Finished section */}
+            {!jobsCollapsed && finishedTasks.length > 0 && <>
+              <div style={{ display: "grid", gridTemplateColumns: COL, background: T.surface, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
+                <div />
+                <div style={{ ...hdrCell, color: "#10b981", paddingLeft: 10, gap: 6 }}>
+                  <span>✓</span> Finished <span style={{ fontWeight: 400, color: T.textDim }}>({finishedTasks.length})</span>
+                </div>
+                {[...Array(11)].map((_, i) => <div key={i} />)}
+              </div>
+              {finishedTasks.map(job => <GridRow key={job.id} item={job} level={0} jobColor="#10b981" isFinished={true} />)}
+            </>}
+          </div></div>
+        </div>;
+      })()}
     </div>;
   };
 
@@ -3415,6 +4033,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
   const [tStart, setTStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [tEnd, setTEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [tMode, setTMode] = useState("month");
+  const [scheduleHighlightId, setScheduleHighlightId] = useState(null);
   const [tCollapsed, setTCollapsed] = useState({});
   const [tExpanded, setTExpanded] = useState({});
   const teamRef = useRef(null);
@@ -3653,7 +4272,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
           {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-                {[["date","Date"],["project","Task #"],["client","Client"]].map(([val,label]) => (
+                {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
                   <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
                 ))}
               </div>
@@ -3719,7 +4338,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
-          {can("editJobs") && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Task</Btn></>}
+          {can("editJobs") && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
         </div>
       </div>
 
@@ -3883,7 +4502,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                       const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
                       document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                     }}
-                    style={{ position: "absolute", top: 3, left: `calc(${sx} + 2px)`, width: `calc(${sw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: 4 }}>
+                    style={{ position: "absolute", top: 3, left: `calc(${sx} + 2px)`, width: `calc(${sw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: sub.id === scheduleHighlightId ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
                     <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
                       e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
                       const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
@@ -4144,6 +4763,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                   const barLocked = !isPto && bar.task && bar.task.locked;
                   const hasMoveLog = !isPto && bar.task && (bar.task.moveLog || []).length > 0;
                   const bc = bar.color;
+                  const isHighlighted = !isPto && bar.task?.id === scheduleHighlightId;
                   const isDraggingThis = teamDragInfo?.barId === bar.id;
                   const dragTx = isDraggingThis ? (teamDragInfo.translateX || 0) : 0;
                   const dragTy = isDraggingThis ? (teamDragInfo.translateY || 0) : 0;
@@ -4151,7 +4771,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                   return <div key={bar.id} title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "") + (barLocked ? " 🔒 Locked" : "") + (hasMoveLog ? " 📋 Has schedule changes" : "")}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none" }}
+                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99" }}
                     onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -4174,7 +4794,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
   };
   const renderAnalytics = () => { const tot = tasks.length; const bySt = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length })); const byPr = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length })); const cr = tot ? Math.round(tasks.filter(t => t.status === "Finished").length / tot * 100) : 0; const tl = people.map(p => ({ n: p.name.split(" ")[0], h: bookedHrs(p.id, TD), cap: p.cap })).sort((a, b) => b.h - a.h).slice(0, 12); const mx = Math.max(...tl.map(t => Math.max(t.h, t.cap)), 1);
     return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
-      <Card delay={0}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 64, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 15, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} tasks</div></Card>
+      <Card delay={0}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 64, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 15, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} jobs</div></Card>
       <Card delay={50}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Status</h4>{bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}><div style={{ width: 12, height: 12, borderRadius: 6, background: STA_C[s.n] }} /><span style={{ flex: 1, fontSize: 15, color: T.textSec }}>{s.n}</span><span style={{ fontSize: 18, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{s.c}</span></div>)}</Card>
       <Card delay={100}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Priority</h4>{byPr.map(p => <div key={p.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}><div style={{ width: 12, height: 12, borderRadius: 6, background: PRI_C[p.n] }} /><span style={{ flex: 1, fontSize: 15, color: T.textSec }}>{p.n}</span><span style={{ fontSize: 18, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{p.c}</span></div>)}</Card>
       <Card delay={150} style={{ gridColumn: "1 / -1" }}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Workload Today</h4><div style={{ display: "flex", alignItems: "end", gap: 8, height: 180, padding: "0 8px" }}>{tl.map(t => <div key={t.n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}><span style={{ fontSize: 12, fontFamily: T.mono, color: t.h > t.cap ? T.danger : T.textSec, fontWeight: 600 }}>{t.h.toFixed(1)}</span><div style={{ width: "100%", background: T.bg, borderRadius: 4, position: "relative", height: Math.max((Math.max(t.h, t.cap) / mx) * 130, 6) }}><div style={{ position: "absolute", bottom: 0, width: "100%", borderRadius: 4, background: t.h > t.cap ? T.danger : t.h / t.cap > 0.7 ? "#f59e0b" : T.accent, height: Math.max((t.h / mx) * 130, 3) }} /></div><span style={{ fontSize: 11, color: T.textDim, textAlign: "center", fontWeight: 500 }}>{t.n}</span></div>)}</div></Card>
@@ -4344,7 +4964,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       {/* Toggle + New Task row */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", flexShrink: 0 }}>
         <SlidingPill
-          options={[{value:"mytasks",label:"My Tasks"},{value:"viewall",label:"View All"}]}
+          options={[{value:"mytasks",label:"My Jobs"},{value:"viewall",label:"View All"}]}
           value={mobileTab}
           onChange={setMobileTab}
         />
@@ -4434,7 +5054,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
         {/* Active jobs */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "4px 0" }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Active · {active.length}</div>
-          {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Task</button>}
+          {can("editJobs") && <button onClick={() => openNew()} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Job</button>}
         </div>
         {active.map(t => renderMobileTaskRow(t))}
         {finished.length > 0 && <>
@@ -5076,6 +5696,13 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
         }
         return false;
       };
+      const optimizeJobOps = () => {
+        const result = computeJobOptimize({ ...ed, id: ed.id });
+        if (!result) return;
+        const { newSubs, jStart, jEnd } = result;
+        setEd(p => ({ ...p, start: jStart, end: jEnd, subs: newSubs }));
+      };
+
       const suggestSchedule = () => {
         setAiLoading(true);
         setAiSuggestion(null);
@@ -5190,12 +5817,12 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       };
 
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>{cls}        {/* ── Header ── */}
-        <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit" : "New Task"}</h3>
+        <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit" : "New Job"}</h3>
 
         {/* ── Task fields ── */}
-        <InputField label="Task Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title: v }))} />
+        <InputField label="Job Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title: v }))} />
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-          <InputField label="Task #" value={ed.jobNumber || ""} onChange={v => setEd(p => ({ ...p, jobNumber: v }))} placeholder="e.g. 2024-001" />
+          <InputField label="Job #" value={ed.jobNumber || ""} onChange={v => setEd(p => ({ ...p, jobNumber: v }))} placeholder="e.g. 2024-001" />
           <InputField label="PO #" value={ed.poNumber || ""} onChange={v => setEd(p => ({ ...p, poNumber: v }))} placeholder="e.g. PO-8821" />
         </div>
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
@@ -5459,6 +6086,15 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
 
         {/* Completion dates (filled by AI or manual) */}
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" /></div>
+
+        {/* Optimize button — re-packs all ops from the start date */}
+        {(ed.subs || []).some(p => (p.subs || []).some(o => o.team.length > 0)) && <button onClick={optimizeJobOps}
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "11px 16px", borderRadius: T.radiusSm, border: `1.5px solid ${T.accent}55`, background: T.accent + "0d", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginBottom: 4, transition: "all 0.15s" }}
+          onMouseEnter={e => { e.currentTarget.style.background = T.accent + "1a"; e.currentTarget.style.borderColor = T.accent; }}
+          onMouseLeave={e => { e.currentTarget.style.background = T.accent + "0d"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          Optimize Operations to These Dates
+        </button>}
 
           {/* Panels with operations */}
           {(ed.subs || []).length > 0 && <div style={{ marginBottom: 20 }}>
@@ -6578,6 +7214,20 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
         </div>;
       })()}
 
+      {/* Edit Schedule — ops and panels only */}
+      {can("moveJobs") && (ctxMenu.item.level === 2 || ctxMenu.item.level === 1 || (ctxMenu.item.isSub && ctxMenu.item.pid)) && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="14"/></svg>} label="Edit Schedule" sub="Set dates or find next available slot" onClick={() => {
+        const it = ctxMenu.item;
+        const slot = findNextSlot(it);
+        setRescheduleModal({ op: it, panelId: it.pid || null, newStart: slot ? slot.newStart : it.start, newEnd: slot ? slot.newEnd : it.end, autoStart: slot ? slot.newStart : null, autoEnd: slot ? slot.newEnd : null });
+        setCtxMenu(null);
+      }} />}
+      {/* Edit Notes */}
+      {can("editJobs") && (ctxMenu.item.level === 2 || ctxMenu.item.level === 1 || (ctxMenu.item.isSub && ctxMenu.item.pid)) && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/><line x1="8" y1="14" x2="8.01" y2="14"/></svg>} label="Edit Notes" sub={ctxMenu.item.notes ? "Update existing notes" : "Add notes to this task"} onClick={() => {
+        const it = ctxMenu.item;
+        setEditNotesModal({ op: it, panelId: it.pid || null, notes: it.notes || "" });
+        setCtxMenu(null);
+      }} />}
+
       {ctxMenu.source === "team" && (() => {
         const it = ctxMenu.item;
         let parentJob = null;
@@ -6600,6 +7250,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       })()}
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>} label="Open Chat" sub={ctxMenu.item.level === 2 ? "Chat with op assignee + admins" : ctxMenu.item.level === 1 ? "Chat with panel team + admins" : "Chat with full job team"} onClick={() => openChat(ctxMenu.item)} />
       {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>} label="Send Reminder" sub="Notify all team members on this job" onClick={() => { setReminderModal({ item: ctxMenu.item }); setCtxMenu(null); }} />}
+      {ctxMenu.item.start && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} label="Jump to Schedule" sub={`Show week of ${fm(ctxMenu.item.start)}`} onClick={() => { const d = new Date(ctxMenu.item.start + "T12:00:00"); const dow = d.getDay(); const daysToMon = dow === 0 ? -6 : 1 - dow; const ws = toDS(new Date(d.getFullYear(), d.getMonth(), d.getDate() + daysToMon)); setTStart(ws); setTEnd(addD(ws, 13)); setView("schedule"); const hid = ctxMenu.item.id; setScheduleHighlightId(hid); setTimeout(() => setScheduleHighlightId(null), 2500); setCtxMenu(null); }} />}
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => { openDetail(ctxMenu.item); setCtxMenu(null); }} />
       {(() => {
         const it = ctxMenu.item;
@@ -6974,6 +7625,220 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       </div>
     </div>}
 
+    {/* ── Optimize Schedule Preview Modal ─────────────────────────────────── */}
+    {optimizePreview && (() => {
+      const { newTasks, changes, groupedByPerson } = optimizePreview;
+      const movedEarlier = changes.filter(c => c.calDays < 0).length;
+      const movedLater   = changes.filter(c => c.calDays > 0).length;
+      const maxSaved     = changes.reduce((acc, c) => c.calDays < 0 ? acc + Math.abs(c.calDays) : acc, 0);
+      return <div className="anim-modal-overlay" onClick={() => setOptimizePreview(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 18, padding: 0, maxWidth: 620, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: `0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px ${T.accent}22`, overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+          {/* Header */}
+          <div style={{ padding: "24px 28px 20px", borderBottom: `1px solid ${T.border}`, background: `linear-gradient(135deg, ${T.accent}12, transparent)` }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 12, background: T.accent + "20", border: `1.5px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, flexShrink: 0 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+              </div>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text }}>Schedule Optimizer</h3>
+                <p style={{ margin: 0, fontSize: 13, color: T.textDim, marginTop: 2 }}>TRAQS found {changes.length} improvement{changes.length !== 1 ? "s" : ""} across {groupedByPerson.length} team member{groupedByPerson.length !== 1 ? "s" : ""}</p>
+              </div>
+            </div>
+            {/* Stats row */}
+            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+              {movedEarlier > 0 && <div style={{ flex: 1, padding: "8px 12px", borderRadius: 10, background: "#10b98112", border: "1px solid #10b98133" }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{movedEarlier}</div>
+                <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>Pulled Earlier</div>
+                <div style={{ fontSize: 10, color: T.textDim }}>~{maxSaved} calendar days saved</div>
+              </div>}
+              {movedLater > 0 && <div style={{ flex: 1, padding: "8px 12px", borderRadius: 10, background: "#f59e0b12", border: "1px solid #f59e0b33" }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#f59e0b", fontFamily: T.mono }}>{movedLater}</div>
+                <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>Pushed Later</div>
+                <div style={{ fontSize: 10, color: T.textDim }}>Conflicts resolved</div>
+              </div>}
+              <div style={{ flex: 1, padding: "8px 12px", borderRadius: 10, background: T.accent + "10", border: `1px solid ${T.accent}33` }}>
+                <div style={{ fontSize: 18, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{groupedByPerson.length}</div>
+                <div style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>People Affected</div>
+                <div style={{ fontSize: 10, color: T.textDim }}>By priority + due date</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Changes list */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px 0" }}>
+            {groupedByPerson.map(({ person, changes: pChanges }) => (
+              <div key={person.id} style={{ marginBottom: 4 }}>
+                {/* Person header */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 28px 6px", position: "sticky", top: 0, background: T.card, zIndex: 2 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: 8, background: person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{person.name}</span>
+                  <span style={{ fontSize: 11, color: T.textDim, marginLeft: 2 }}>{person.role}</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "2px 8px" }}>{pChanges.length} ops</span>
+                </div>
+                {/* That person's changes */}
+                {pChanges.map((c, i) => {
+                  const earlier = c.calDays < 0;
+                  const arrow = earlier ? "↑" : "↓";
+                  const col = earlier ? "#10b981" : "#f59e0b";
+                  return <div key={c.opId} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 28px", borderBottom: i < pChanges.length - 1 ? `1px solid ${T.border}33` : "none", background: "transparent" }}>
+                    <div style={{ marginTop: 2, fontSize: 13, color: col, fontWeight: 700, width: 16, textAlign: "center", flexShrink: 0 }}>{arrow}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.opTitle}</div>
+                      <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.jobTitle}{c.panelTitle && c.panelTitle !== c.opTitle ? ` · ${c.panelTitle}` : ""}</div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textDecoration: "line-through" }}>{fm(c.oldStart)}–{fm(c.oldEnd)}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: col, fontFamily: T.mono }}>{fm(c.newStart)}–{fm(c.newEnd)}</div>
+                    </div>
+                    <div style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: col, background: col + "15", border: `1px solid ${col}33`, borderRadius: 6, padding: "2px 7px", minWidth: 42, textAlign: "center", marginTop: 2 }}>
+                      {earlier ? `${Math.abs(c.calDays)}d ↑` : `+${c.calDays}d`}
+                    </div>
+                  </div>;
+                })}
+              </div>
+            ))}
+          </div>
+
+          {/* Footer */}
+          <div style={{ padding: "16px 28px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, background: T.card }}>
+            <Btn variant="ghost" onClick={() => setOptimizePreview(null)} style={{ flex: 1 }}>Cancel</Btn>
+            <Btn onClick={() => {
+              setTasks(newTasks);
+              setOptimizePreview(null);
+              setScheduleHighlightId(null);
+            }} style={{ flex: 2, background: T.accent, border: "none", fontWeight: 700, fontSize: 15 }}>
+              Apply {changes.length} Changes
+            </Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
+    {/* Edit Notes modal */}
+    {editNotesModal && <div className="anim-modal-overlay" onClick={() => setEditNotesModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 28, maxWidth: 480, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+        <h3 style={{ margin: "0 0 4px", color: T.text, fontSize: 18, fontWeight: 700 }}>Edit Notes</h3>
+        <p style={{ margin: "0 0 16px", fontSize: 13, color: T.textDim }}>{editNotesModal.op.title}</p>
+        <textarea
+          autoFocus
+          value={editNotesModal.notes}
+          onChange={e => setEditNotesModal(p => ({ ...p, notes: e.target.value }))}
+          placeholder="Add notes for this job…"
+          rows={5}
+          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6 }}
+        />
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+          <Btn variant="ghost" onClick={() => setEditNotesModal(null)}>Cancel</Btn>
+          <Btn onClick={() => {
+            updTask(editNotesModal.op.id, { notes: editNotesModal.notes }, editNotesModal.panelId);
+            setEditNotesModal(null);
+          }}>Save Notes</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* Reschedule modal */}
+    {rescheduleModal && (() => {
+      const { op, panelId, newStart, newEnd, autoStart, autoEnd } = rescheduleModal;
+      const hasAutoSlot = !!(autoStart && autoEnd);
+      const isSameAsAuto = newStart === autoStart && newEnd === autoEnd;
+      const teamPeople = (op.team || []).map(id => people.find(x => x.id === id)).filter(Boolean);
+      // Find parent job so we can run the full-job optimizer from here
+      let parentJob = null;
+      for (const job of tasks) {
+        for (const panel of (job.subs || [])) {
+          if ((panel.subs || []).some(o => o.id === op.id)) { parentJob = job; break; }
+        }
+        if (parentJob) break;
+      }
+      const runOptimizeFromReschedule = () => {
+        if (!parentJob) return;
+        const result = computeJobOptimize(parentJob);
+        if (!result) return;
+        const { newSubs, jStart, jEnd } = result;
+        setTasks(prev => recalcBounds(prev.map(j => j.id === parentJob.id ? { ...j, start: jStart, end: jEnd, subs: newSubs } : j), loggedInUser?.name || "Optimizer"));
+        setRescheduleModal(null);
+      };
+      return <div className="anim-modal-overlay" onClick={() => setRescheduleModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 28, maxWidth: 500, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+          <h3 style={{ margin: "0 0 4px", color: T.text, fontSize: 18, fontWeight: 700 }}>Edit Schedule</h3>
+          <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>{op.title}{op.panelTitle ? ` · ${op.panelTitle}` : ""}</p>
+
+          {/* Current dates */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, padding: "10px 14px", borderRadius: 10, background: T.bg, border: `1px solid ${T.border}` }}>
+            <span style={{ fontSize: 12, color: T.textDim, flex: 1 }}>Current: <span style={{ color: T.text, fontFamily: T.mono }}>{fm(op.start)} → {fm(op.end)}</span></span>
+            {(op.team || []).length > 0 && <div style={{ display: "flex", gap: 4 }}>{teamPeople.map(p => <span key={p.id} style={{ width: 20, height: 20, borderRadius: 6, background: p.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{p.name[0]}</span>)}</div>}
+          </div>
+
+          {/* Auto slot suggestion */}
+          {hasAutoSlot && <div onClick={() => setRescheduleModal(p => ({ ...p, newStart: autoStart, newEnd: autoEnd }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, background: isSameAsAuto ? T.accent + "18" : T.surface, border: `1.5px solid ${isSameAsAuto ? T.accent : T.border}`, marginBottom: 16, cursor: "pointer", transition: "all 0.15s" }}>
+            <span style={{ fontSize: 18 }}>✨</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: isSameAsAuto ? T.accent : T.text }}>Next Available Slot</div>
+              <div style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(autoStart)} → {fm(autoEnd)}</div>
+            </div>
+            {isSameAsAuto && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+          </div>}
+          {!hasAutoSlot && <div style={{ padding: "10px 14px", borderRadius: 10, background: "#ef444415", border: "1px solid #ef444433", marginBottom: 16, fontSize: 13, color: "#ef4444" }}>No open slot found in the next 365 days — set dates manually.</div>}
+
+          {/* Manual date pickers */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Start Date</div>
+              <input type="date" value={newStart} onChange={e => setRescheduleModal(p => ({ ...p, newStart: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>End Date</div>
+              <input type="date" value={newEnd} onChange={e => setRescheduleModal(p => ({ ...p, newEnd: e.target.value }))}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+            </div>
+          </div>
+
+          {/* Optimize full job button */}
+          {parentJob && <button onClick={runOptimizeFromReschedule} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${T.accent}55`, background: T.accent + "0d", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginBottom: 16, transition: "all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.accent + "1a"; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.accent + "0d"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Optimize Entire Job Schedule
+          </button>}
+
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+            <Btn variant="ghost" onClick={() => setRescheduleModal(null)}>Cancel</Btn>
+            <Btn onClick={() => {
+              const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+              const personId = (op.team || [])[0];
+              // Apply the move then check for cascades
+              setTasks(prev => {
+                const moved = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({
+                  ...panel, subs: (panel.subs || []).map(o => {
+                    if (o.id !== op.id) return o;
+                    const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual reschedule" };
+                    return { ...o, start: newStart, end: newEnd, moveLog: [...(o.moveLog || []), logEntry] };
+                  })
+                })) }));
+                if (!personId) return recalcBounds(moved, movedByName);
+                const { pushes, blocked, lockedOps } = previewPush(moved, op.id, personId, newStart, newEnd);
+                if (blocked) { setTimeout(() => showLockedError(lockedOps), 0); return prev; }
+                if (pushes.length > 0) {
+                  const finalState = applyPushes(moved, pushes, movedByName);
+                  setTimeout(() => setConfirmPush({
+                    pushes, people,
+                    onConfirm: () => { setTasks(finalState); setConfirmPush(null); },
+                    onConfirmSingle: () => { setTasks(recalcBounds(moved, movedByName)); setConfirmPush(null); },
+                    onCancel: () => { setConfirmPush(null); },
+                  }), 0);
+                  return recalcBounds(moved, movedByName);
+                }
+                return recalcBounds(moved, movedByName);
+              });
+              setRescheduleModal(null);
+            }}>Apply Schedule</Btn>
+          </div>
+        </div>
+      </div>;
+    })()}
+
     {/* Push confirmation modal */}
     {confirmPush && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 560, width: "100%", border: `1px solid #f59e0b33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative" }} onClick={e => e.stopPropagation()}>
@@ -7191,7 +8056,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
       {/* Action bar */}
       <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", paddingTop: 16, borderTop: `1px solid ${T.border}`, marginTop: 8 }}>
         <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-        <Btn onClick={() => { if (selectedPerson) onStartTask(selectedPerson, aS, aE, aH); }} style={{ opacity: selectedPerson ? 1 : 0.4, pointerEvents: selectedPerson ? "auto" : "none" }}>Start New Task →</Btn>
+        <Btn onClick={() => { if (selectedPerson) onStartTask(selectedPerson, aS, aE, aH); }} style={{ opacity: selectedPerson ? 1 : 0.4, pointerEvents: selectedPerson ? "auto" : "none" }}>Start New Job →</Btn>
       </div>
     </div>
   </div>;
