@@ -3223,7 +3223,8 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                   { id: "team", label: "Team" },
                 ];
                 const allCols = [...STD_EXPORT_COLS, ...customCols.map(c => ({ id: "_cc_" + c.id, label: c.label, col: c }))];
-                const exportRows = filteredTasks.map(job => allCols.map(c => c.col ? String(c.col.fieldKey ? (job[c.col.fieldKey] ?? "") : (job["_cc_" + c.col.id] || "")) : getVal(job, c.id)));
+                const allJobs = [...activeTasks, ...finishedTasks];
+                const exportRows = allJobs.map(job => allCols.map(c => c.col ? String(c.col.fieldKey ? (job[c.col.fieldKey] ?? "") : (job["_cc_" + c.col.id] || "")) : getVal(job, c.id)));
                 const downloadFile = (name, mime, content) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: mime })); a.download = name; a.click(); };
                 const exportCSV = () => {
                   const rows = [allCols.map(c => c.label), ...exportRows];
