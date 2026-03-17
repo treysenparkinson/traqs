@@ -4,6 +4,15 @@ import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClien
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
+// Predefined job fields that can be added as linked columns
+const FIELD_COL_CATALOG = [
+  { fieldKey: "poNumber",      label: "PO #",        type: "text",   defaultWidth: 100, description: "Purchase order number" },
+  { fieldKey: "drawingNumber", label: "Drawing #",   type: "text",   defaultWidth: 100, description: "Engineering drawing reference" },
+  { fieldKey: "jobType",       label: "Job Type",    type: "text",   defaultWidth: 110, description: "Type or category of job" },
+  { fieldKey: "hpd",           label: "Hrs/Day",     type: "number", defaultWidth: 80,  description: "Hours per day capacity" },
+  { fieldKey: "notes",         label: "Notes",       type: "text",   defaultWidth: 180, description: "Free-form job notes" },
+  { fieldKey: "color",         label: "Color",       type: "text",   defaultWidth: 70,  description: "Job color tag" },
+];
 const ADMIN_PERMS = [
   { key: "editJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>, label: "Create, edit & delete jobs" },
   { key: "moveJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>, label: "Move & resize jobs on Gantt and team view" },
@@ -1093,6 +1102,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [jobsCollapsed, setJobsCollapsed] = useState(false);
   const [customCols, setCustomCols] = useState([]);
   const [addColForm, setAddColForm] = useState(null); // null=closed, { label, type }="open"
+  const [colPickerOpen, setColPickerOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [customColLabel, setCustomColLabel] = useState("");
+  const [customColType, setCustomColType] = useState("text");
   const [editingColHeader, setEditingColHeader] = useState(null); // colId being renamed
   const removeCustomCol = (colId) => {
     const idx = customCols.findIndex(c => c.id === colId);
@@ -3177,20 +3190,114 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
         {/* Right: list-view actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
           {taskSubView === "list" && <>
+            {/* Export button */}
             <div style={{ position: "relative" }}>
-              <button onClick={() => setAddColForm(f => f ? null : { label: "", type: "text" })} style={{ height: 29, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: T.text, fontSize: 12, fontFamily: T.font, fontWeight: 600 }}>
+              <button onClick={() => { setExportOpen(o => !o); setColPickerOpen(false); }} style={{ height: 29, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: T.textSec, fontSize: 12, fontFamily: T.font, fontWeight: 600 }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export
+              </button>
+              {exportOpen && (() => {
+                const addExportWidths = id => setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]);
+                const getColLabel = col => col.label;
+                const getVal = (job, colId) => {
+                  if (colId === "_expand" || colId === "_actions") return "";
+                  if (colId === "title") return job.title || "";
+                  if (colId === "jobNumber") return job.jobNumber ? `#${job.jobNumber}` : "";
+                  if (colId === "client") return (clients.find(c => c.id === job.clientId) || {}).name || "";
+                  if (colId === "status") return job.status || "";
+                  if (colId === "pri") return job.pri || "";
+                  if (colId === "start") return job.start || "";
+                  if (colId === "end") return job.end || "";
+                  if (colId === "dueDate") return job.dueDate || "";
+                  if (colId === "hrs") return jobHrs(job) > 0 ? jobHrs(job) + "h" : "";
+                  if (colId === "progress") return jobPct(job) + "%";
+                  if (colId === "team") return (job.team || []).map(id => (people.find(p => p.id === id) || {}).name || "").filter(Boolean).join(", ");
+                  return "";
+                };
+                const STD_EXPORT_COLS = [
+                  { id: "title", label: "Name" }, { id: "jobNumber", label: "Job #" },
+                  { id: "client", label: "Client" }, { id: "status", label: "Status" },
+                  { id: "pri", label: "Priority" }, { id: "start", label: "Start" },
+                  { id: "end", label: "End" }, { id: "dueDate", label: "Due" },
+                  { id: "hrs", label: "Hrs" }, { id: "progress", label: "Progress" },
+                  { id: "team", label: "Team" },
+                ];
+                const allCols = [...STD_EXPORT_COLS, ...customCols.map(c => ({ id: "_cc_" + c.id, label: c.label, col: c }))];
+                const exportRows = filteredTasks.map(job => allCols.map(c => c.col ? String(c.col.fieldKey ? (job[c.col.fieldKey] ?? "") : (job["_cc_" + c.col.id] || "")) : getVal(job, c.id)));
+                const downloadFile = (name, mime, content) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: mime })); a.download = name; a.click(); };
+                const exportCSV = () => {
+                  const rows = [allCols.map(c => c.label), ...exportRows];
+                  downloadFile("jobs_export.csv", "text/csv", rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n"));
+                  setExportOpen(false);
+                };
+                const exportWord = () => {
+                  const hdr = allCols.map(c => `<th style="border:1px solid #ccc;padding:6px 10px;background:#f3f4f6;font-size:11px;text-transform:uppercase;letter-spacing:.05em">${c.label}</th>`).join("");
+                  const bdy = exportRows.map(row => `<tr>${row.map(v => `<td style="border:1px solid #ccc;padding:6px 10px;font-size:12px">${v || "—"}</td>`).join("")}</tr>`).join("");
+                  const html = `<html><head><meta charset="utf-8"/></head><body><h2 style="font-family:Arial">Job Queue Export</h2><table style="border-collapse:collapse;font-family:Arial"><thead><tr>${hdr}</tr></thead><tbody>${bdy}</tbody></table></body></html>`;
+                  downloadFile("jobs_export.doc", "application/msword", html);
+                  setExportOpen(false);
+                };
+                const exportPDF = () => {
+                  const hdr = allCols.map(c => `<th>${c.label}</th>`).join("");
+                  const bdy = exportRows.map(row => `<tr>${row.map(v => `<td>${v || "—"}</td>`).join("")}</tr>`).join("");
+                  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>body{font-family:Arial,sans-serif;font-size:11px;margin:20px}h2{font-size:14px;margin-bottom:12px}table{border-collapse:collapse;width:100%}th{background:#f3f4f6;padding:5px 8px;border:1px solid #ccc;font-size:10px;text-transform:uppercase;letter-spacing:.05em;text-align:left}td{padding:5px 8px;border:1px solid #ccc}tr:nth-child(even){background:#f9fafb}@media print{@page{margin:12mm}}</style></head><body><h2>Job Queue Export</h2><table><thead><tr>${hdr}</tr></thead><tbody>${bdy}</tbody></table></body></html>`;
+                  const w = window.open("", "_blank"); w.document.write(html); w.document.close(); w.focus(); setTimeout(() => { w.print(); setExportOpen(false); }, 300);
+                };
+                return <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 180, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", zIndex: 200, overflow: "hidden" }}>
+                  <div style={{ padding: "8px 12px 6px", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", borderBottom: `1px solid ${T.border}` }}>Export As</div>
+                  {[
+                    { label: "PDF", icon: "📄", action: exportPDF },
+                    { label: "Excel / CSV", icon: "📊", action: exportCSV },
+                    { label: "Word Document", icon: "📝", action: exportWord },
+                  ].map(({ label, icon, action }) => (
+                    <button key={label} onClick={action} style={{ width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <span>{icon}</span>{label}
+                    </button>
+                  ))}
+                </div>;
+              })()}
+            </div>
+            {/* Column picker button */}
+            <div style={{ position: "relative" }}>
+              <button onClick={() => { setColPickerOpen(o => !o); setExportOpen(false); }} style={{ height: 29, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: colPickerOpen ? T.accent + "22" : T.bg, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: colPickerOpen ? T.accent : T.text, fontSize: 12, fontFamily: T.font, fontWeight: 600 }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 Column
               </button>
-              {addColForm && <div className="anim-drop" style={{ position: "absolute", top: 36, right: 0, width: 220, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", zIndex: 200, padding: 14, display: "flex", flexDirection: "column", gap: 10 }} onClick={e => e.stopPropagation()}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em" }}>New Column</div>
-                <input autoFocus value={addColForm.label} onChange={e => setAddColForm(f => ({ ...f, label: e.target.value }))} onKeyDown={e => { if (e.key === "Enter" && addColForm.label.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: addColForm.label.trim(), type: addColForm.type }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setAddColForm(null); } if (e.key === "Escape") setAddColForm(null); }} placeholder="Column name…" style={{ padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", width: "100%", boxSizing: "border-box" }} />
-                <select value={addColForm.type} onChange={e => setAddColForm(f => ({ ...f, type: e.target.value }))} style={{ padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                  <option value="text">Text</option>
-                  <option value="number">Number</option>
-                  <option value="date">Date</option>
-                </select>
-                <button onClick={() => { if (!addColForm.label.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: addColForm.label.trim(), type: addColForm.type }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setAddColForm(null); }} style={{ padding: "8px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Add Column</button>
+              {colPickerOpen && <div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 300 }}>
+                {/* Section: Link to Job Field */}
+                <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Link to Job Field</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {FIELD_COL_CATALOG.map(fc => {
+                      const alreadyAdded = customCols.some(c => c.fieldKey === fc.fieldKey);
+                      return <button key={fc.fieldKey} disabled={alreadyAdded} onClick={() => { if (alreadyAdded) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: fc.label, type: fc.type, fieldKey: fc.fieldKey }]); setColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setColPickerOpen(false); }}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1 }}
+                        onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "15"; }}
+                        onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = "transparent"; }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{fc.label}</span>
+                          <span style={{ fontSize: 10, color: T.textDim }}>{fc.description}</span>
+                        </div>
+                        {alreadyAdded
+                          ? <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600 }}>Added ✓</span>
+                          : <span style={{ fontSize: 11, color: T.accent, fontWeight: 700 }}>+ Add</span>}
+                      </button>;
+                    })}
+                  </div>
+                </div>
+                {/* Section: Custom Column */}
+                <div style={{ padding: "10px 14px 14px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Custom Column</div>
+                  <input value={customColLabel} onChange={e => setCustomColLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && customColLabel.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); } if (e.key === "Escape") setColPickerOpen(false); }} placeholder="Column name…" style={{ width: "100%", padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <select value={customColType} onChange={e => setCustomColType(e.target.value)} style={{ flex: 1, padding: "7px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+                      <option value="text">Text</option>
+                      <option value="number">Number</option>
+                      <option value="date">Date</option>
+                    </select>
+                    <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
+                  </div>
+                </div>
               </div>}
             </div>
             {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
@@ -3641,10 +3748,17 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                 {level > 0 && !assigneePerson && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>—</span>}
               </div>
 
-              {/* Custom columns */}
+              {/* Custom columns (including field-linked) */}
               {customCols.map(col => {
-                const key = "_cc_" + col.id;
-                const val = item[key] || "";
+                const key = col.fieldKey || ("_cc_" + col.id);
+                const rawVal = col.fieldKey ? (item[col.fieldKey] ?? "") : (item["_cc_" + col.id] || "");
+                const val = String(rawVal);
+                // Color column: show swatch
+                if (col.fieldKey === "color") return (
+                  <div key={col.id} style={{ ...cellBase, justifyContent: "center" }}>
+                    {level === 0 && <div style={{ width: 18, height: 18, borderRadius: 5, background: item.color || T.accent, border: `1.5px solid ${T.border}` }} />}
+                  </div>
+                );
                 return (
                   <div key={col.id} style={{ ...cellBase, cursor: "text" }} onClick={e => { e.stopPropagation(); startEdit(e, item.id, key); }}>
                     {isEdit(item.id, key)
@@ -3799,7 +3913,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
             {finishedTasks.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓ {finishedTasks.length}</span>}
           </div>
           {/* Grid table */}
-          {!jobsCollapsed && <div style={{ flex: 1, overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={() => { if (gridCell) setGridCell(null); }}>
+          {!jobsCollapsed && <div style={{ flex: 1, overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={() => { if (gridCell) setGridCell(null); setColPickerOpen(false); setExportOpen(false); }}>
             <div style={{ minWidth: colWidths.reduce((a, b) => a + b, 0) }}>
             {/* Header */}
             <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.surface, borderBottom: `1.5px solid ${T.border}` }}>
