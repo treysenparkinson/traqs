@@ -5348,105 +5348,6 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
           </button>
         </div>
       </div>}
-      {/* Customization Modal */}
-      {customizationOpen && (() => {
-        const presetThemes = [
-          { id: "midnight", label: "Dark",    bg: "#080d18", accent: "#3d7fff" },
-          { id: "frost",    label: "Light",   bg: "#f0f4f9", accent: "#0ea5e9" },
-          { id: "slate",    label: "Slate",   bg: "#0f172a", accent: "#7c3aed" },
-          { id: "forest",   label: "Forest",  bg: "#0d1f13", accent: "#22c55e" },
-          { id: "ember",    label: "Ember",   bg: "#1a0e0a", accent: "#f97316" },
-          { id: "rose",     label: "Rose",    bg: "#1a0a10", accent: "#f43f5e" },
-        ];
-        return <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}
-          onClick={() => setCustomizationOpen(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
-            {/* Header */}
-            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
-              <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Customization</span>
-              <button onClick={() => setCustomizationOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
-            </div>
-            <div style={{ padding: "20px" }}>
-              {/* Built-in themes */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Theme</div>
-              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                {[
-                  { id: "midnight", label: "Dark",   bg: "#080d18", accent: "#3d7fff" },
-                  { id: "frost",    label: "Light",  bg: "#f0f4f9", accent: "#0ea5e9" },
-                  { id: "custom",   label: "Custom", bg: customTheme.bg, accent: customTheme.accent },
-                ].map(th => {
-                  const active = themeMode === th.id;
-                  return <button key={th.id} onClick={() => setThemeMode(th.id)} title={th.label}
-                    style={{ flex: 1, padding: "12px 4px 10px", background: th.bg, border: `2px solid ${active ? th.accent : "transparent"}`, borderRadius: T.radiusXs, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, transition: "border 0.18s, transform 0.18s, box-shadow 0.18s", transform: active ? "scale(1.06)" : "scale(1)", boxShadow: active ? `0 0 0 2px ${th.accent}44` : "none" }}>
-                    {th.id === "custom"
-                      ? <div style={{ width: 20, height: 20, borderRadius: 10, background: "conic-gradient(#f43f5e,#f59e0b,#10b981,#3d7fff,#7c3aed,#f43f5e)" }} />
-                      : <div style={{ width: 20, height: 20, borderRadius: 10, background: th.accent, boxShadow: active ? `0 0 10px ${th.accent}88` : "none" }} />}
-                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? th.accent : "#888" }}>{th.label}</span>
-                  </button>;
-                })}
-              </div>
-              {/* Custom color pickers */}
-              {themeMode === "custom" && <div style={{ marginBottom: 20, padding: "14px 16px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Custom Colors</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {[
-                    { key: "bg",     label: "Background", sub: "App background & surfaces" },
-                    { key: "accent", label: "Accent",     sub: "Buttons, highlights & indicators" },
-                  ].map(({ key, label, sub }) => (
-                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <label style={{ position: "relative", width: 42, height: 42, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block", boxShadow: `0 0 0 1px ${customTheme[key]}44` }}>
-                        <div style={{ width: "100%", height: "100%", background: customTheme[key] }} />
-                        <input type="color" value={customTheme[key]} onChange={e => setCustomTheme(p => ({ ...p, [key]: e.target.value }))}
-                          style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
-                      </label>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
-                        <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
-                      </div>
-                      <div style={{ fontSize: 11, color: T.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{customTheme[key]}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>}
-              {/* Saved Presets */}
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Saved Presets</div>
-              {themePresets.length === 0 && <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14 }}>No saved presets yet. Save your custom theme as a preset below.</div>}
-              {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-                {themePresets.map((p, idx) => (
-                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
-                    onClick={() => { setThemeMode("custom"); setCustomTheme({ bg: p.bg, accent: p.accent }); }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
-                    <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }}
-                      style={{ background: "none", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
-                  </div>
-                ))}
-              </div>}
-              {/* Save current custom theme as preset */}
-              <div style={{ display: "flex", gap: 8 }}>
-                <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)}
-                  placeholder="Preset name…"
-                  onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent }]); setPresetNameInput(""); } }}
-                  style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
-                <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent }]); setPresetNameInput(""); }}
-                  style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
-              </div>
-              <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>Saves the current custom background &amp; accent as a named preset you can apply later.</div>
-            </div>
-          </div>
-        </div>;
-      })()}
-      {/* Mobile + Desktop Clients Modal */}
-      {clientsSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
-        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
-          <button onClick={() => setClientsSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
-          <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Clients</span>
-        </div>
-        <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
-          {renderClients()}
-        </div>
-      </div>}
       {/* Mobile Notifications Dropdown */}
       {notifOpen && <>
         <div onClick={() => setNotifOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
@@ -6636,6 +6537,92 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       </div>
       {teamDayGhost.time && <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top - 24, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${teamDayGhost.color}88`, backdropFilter: "blur(4px)", fontFamily: T.mono }}>{teamDayGhost.time}</div>}
     </>}
+    {/* Customization Modal */}
+    {customizationOpen && (() => {
+      return <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}
+        onClick={() => setCustomizationOpen(false)}>
+        <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Customization</span>
+            <button onClick={() => setCustomizationOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
+          </div>
+          <div style={{ padding: "20px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Theme</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+              {[
+                { id: "midnight", label: "Dark",   bg: "#080d18", accent: "#3d7fff" },
+                { id: "frost",    label: "Light",  bg: "#f0f4f9", accent: "#0ea5e9" },
+                { id: "custom",   label: "Custom", bg: customTheme.bg, accent: customTheme.accent },
+              ].map(th => {
+                const active = themeMode === th.id;
+                return <button key={th.id} onClick={() => setThemeMode(th.id)} title={th.label}
+                  style={{ flex: 1, padding: "12px 4px 10px", background: th.bg, border: `2px solid ${active ? th.accent : "transparent"}`, borderRadius: T.radiusXs, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, transition: "border 0.18s, transform 0.18s, box-shadow 0.18s", transform: active ? "scale(1.06)" : "scale(1)", boxShadow: active ? `0 0 0 2px ${th.accent}44` : "none" }}>
+                  {th.id === "custom"
+                    ? <div style={{ width: 20, height: 20, borderRadius: 10, background: "conic-gradient(#f43f5e,#f59e0b,#10b981,#3d7fff,#7c3aed,#f43f5e)" }} />
+                    : <div style={{ width: 20, height: 20, borderRadius: 10, background: th.accent, boxShadow: active ? `0 0 10px ${th.accent}88` : "none" }} />}
+                  <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? th.accent : "#888" }}>{th.label}</span>
+                </button>;
+              })}
+            </div>
+            {themeMode === "custom" && <div style={{ marginBottom: 20, padding: "14px 16px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Custom Colors</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {[
+                  { key: "bg",     label: "Background", sub: "App background & surfaces" },
+                  { key: "accent", label: "Accent",     sub: "Buttons, highlights & indicators" },
+                ].map(({ key, label, sub }) => (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <label style={{ position: "relative", width: 42, height: 42, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block", boxShadow: `0 0 0 1px ${customTheme[key]}44` }}>
+                      <div style={{ width: "100%", height: "100%", background: customTheme[key] }} />
+                      <input type="color" value={customTheme[key]} onChange={e => setCustomTheme(p => ({ ...p, [key]: e.target.value }))}
+                        style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+                    </label>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
+                      <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
+                    </div>
+                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{customTheme[key]}</div>
+                  </div>
+                ))}
+              </div>
+            </div>}
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Saved Presets</div>
+            {themePresets.length === 0 && <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14 }}>No saved presets yet. Save your custom theme as a preset below.</div>}
+            {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              {themePresets.map((p, idx) => (
+                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
+                  onClick={() => { setThemeMode("custom"); setCustomTheme({ bg: p.bg, accent: p.accent }); }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
+                  <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
+                </div>
+              ))}
+            </div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)}
+                placeholder="Preset name…"
+                onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent }]); setPresetNameInput(""); } }}
+                style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
+              <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent }]); setPresetNameInput(""); }}
+                style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
+            </div>
+            <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>Saves the current custom background &amp; accent as a named preset you can apply later.</div>
+          </div>
+        </div>
+      </div>;
+    })()}
+    {/* Clients Modal */}
+    {clientsSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
+      <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
+        <button onClick={() => setClientsSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
+        <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Clients</span>
+      </div>
+      <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+        {renderClients()}
+      </div>
+    </div>}
     {/* Ask TRAQS Panel */}
     {askOpen && <div style={{ position: "fixed", inset: 0, zIndex: 3000, display: "flex", justifyContent: "flex-end" }} onClick={() => setAskOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "95vw", height: "100%", background: T.card, borderLeft: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", animation: "slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
