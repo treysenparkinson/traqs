@@ -3776,16 +3776,20 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
               </div>}
             </div>;
           })()}
+          {/* Job Queue section header */}
+          <div onClick={() => setJobsCollapsed(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", cursor: "pointer", marginBottom: jobsCollapsed ? 0 : 8 }}>
+            <svg style={{ color: T.textDim, transition: "transform 0.2s", transform: jobsCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            <span style={{ lineHeight: 0, color: T.text }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg></span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Job Queue</span>
+            {activeTasks.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{activeTasks.length}</span>}
+            {finishedTasks.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓ {finishedTasks.length}</span>}
+          </div>
           {/* Grid table */}
-          <div style={{ flex: 1, overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={() => { if (gridCell) setGridCell(null); }}>
+          {!jobsCollapsed && <div style={{ flex: 1, overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={() => { if (gridCell) setGridCell(null); }}>
             <div style={{ minWidth: colWidths.reduce((a, b) => a + b, 0) }}>
             {/* Header */}
             <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.surface, borderBottom: `1.5px solid ${T.border}` }}>
-              <div style={{ ...hdrCell, borderRight: `1px solid ${T.border}`, padding: 0 }}>
-                <button onClick={e => { e.stopPropagation(); setJobsCollapsed(p => !p); }} title={jobsCollapsed ? "Show jobs" : "Collapse jobs"} style={{ width: "100%", height: "100%", minHeight: 28, background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: jobsCollapsed ? T.accent : T.textDim, transition: "color 0.15s" }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: jobsCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.22s cubic-bezier(0.34,1.56,0.64,1)" }}><polyline points="6 9 12 15 18 9"/></svg>
-                </button>
-              </div>
+              <div style={{ ...hdrCell, borderRight: `1px solid ${T.border}`, padding: 0 }} />
               {[["Name","left"],["#","left"],["Client","left"],["Status","left"],["Priority","center"],["Start","left"],["End","left"],["Due","left"],["Hrs","right"],["Progress","left"],["Team","left"],...customCols.map(c => [c.label,"left","custom",c.id]),["","center"]].map(([h, align, flag, colId], i) => {
                 const colIdx = i + 1;
                 const resizable = colIdx < colWidths.length - 1;
@@ -3811,10 +3815,10 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
             </div>}
 
             {/* Active job rows */}
-            {!jobsCollapsed && activeTasks.map(job => <GridRow key={job.id} item={job} level={0} jobColor={job.color} isFinished={false} />)}
+            {activeTasks.map(job => <GridRow key={job.id} item={job} level={0} jobColor={job.color} isFinished={false} />)}
 
             {/* Add row */}
-            {!jobsCollapsed && can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
+            {can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
               onMouseEnter={e => e.currentTarget.style.background = T.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <div />
               <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, color: T.textDim, fontSize: 12 }}>
@@ -3825,7 +3829,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
             </div>}
 
             {/* Finished section */}
-            {!jobsCollapsed && finishedTasks.length > 0 && <>
+            {finishedTasks.length > 0 && <>
               <div style={{ display: "grid", gridTemplateColumns: COL, background: T.surface, borderBottom: `1px solid ${T.border}`, borderTop: `1px solid ${T.border}` }}>
                 <div />
                 <div style={{ ...hdrCell, color: "#10b981", paddingLeft: 10, gap: 6 }}>
@@ -3835,7 +3839,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
               </div>
               {finishedTasks.map(job => <GridRow key={job.id} item={job} level={0} jobColor="#10b981" isFinished={true} />)}
             </>}
-          </div></div>
+          </div></div>}
         </div>;
       })()}
     </div>;
