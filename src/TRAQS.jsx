@@ -6614,13 +6614,15 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       </div>;
     })()}
     {/* Clients Modal */}
-    {clientsSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
-      <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
-        <button onClick={() => setClientsSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
-        <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Clients</span>
-      </div>
-      <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
-        {renderClients()}
+    {clientsSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClientsSettingsOpen(false)}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(600px, calc(100vw - 32px))", maxHeight: "85vh", display: "flex", flexDirection: "column", animation: "slideUp 0.22s ease-out" }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Clients</span>
+          <button onClick={() => setClientsSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+          {renderClients()}
+        </div>
       </div>
     </div>}
     {/* Ask TRAQS Panel */}
