@@ -143,6 +143,11 @@ animStyle.textContent = `
   60%  { opacity: 1; transform: scale(1.02) translateY(2px);   filter: blur(0);   }
   100% { opacity: 1; transform: scale(1)    translateY(0);     filter: blur(0);   }
 }
+@keyframes slideUp {
+  0%   { opacity: 0; transform: translateY(24px) scale(0.96); filter: blur(4px); }
+  60%  { opacity: 1; transform: translateY(-3px) scale(1.01); filter: blur(0);   }
+  100% { opacity: 1; transform: translateY(0)    scale(1);    filter: blur(0);   }
+}
 @keyframes headerSlide {
   0%   { opacity: 0; transform: translateY(-14px); filter: blur(3px); }
   100% { opacity: 1; transform: translateY(0);     filter: blur(0);   }
@@ -545,6 +550,13 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   T = themeMode === "custom" ? buildCustomTheme(customTheme.bg, customTheme.accent) : (THEMES[themeMode] || THEMES.midnight);
   useEffect(() => { localStorage.setItem("tq_theme", themeMode); }, [themeMode]);
   useEffect(() => { localStorage.setItem("tq_custom_theme", JSON.stringify(customTheme)); }, [customTheme]);
+  const [customizationOpen, setCustomizationOpen] = useState(false);
+  const [themePresets, setThemePresets] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("tq_theme_presets") || "null") || []; }
+    catch { return []; }
+  });
+  const [presetNameInput, setPresetNameInput] = useState("");
+  useEffect(() => { localStorage.setItem("tq_theme_presets", JSON.stringify(themePresets)); }, [themePresets]);
   // Inject glow-pulse keyframe so it always matches T.accent
   useEffect(() => {
     let el = document.querySelector("style[data-traqs-glow]");
@@ -1014,6 +1026,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [engQueueOpen, setEngQueueOpen] = useState(true);
   const [personModal, setPersonModal] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [clientsSettingsOpen, setClientsSettingsOpen] = useState(false);
   const [usersOpen, setUsersOpen] = useState(false);
   const [settingsUser, setSettingsUser] = useState(null);
   const [tagInputs, setTagInputs] = useState({}); // keyed by person.id
@@ -2079,7 +2092,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
     else { const nw = { ...withIds, id: uid() }; if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else setTasks(p => [...p, nw]); }
     closeModal();
   };
-  const views = [{ id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>, label: "Jobs" }, { id: "clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, label: "Clients" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
+  const views = [{ id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>, label: "Jobs" }, { id: "timestamp", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time Stamp" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
@@ -3516,13 +3529,14 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
 
           return <>
             <div
-              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, borderLeft: level === 0 ? `3px solid ${jobColor || item.color}` : "3px solid transparent", background: rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.1s" }}
+              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.1s" }}
               onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { setExpandedJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } }}
               onContextMenu={level > 0 ? e => handleCtx(e, { ...item, isSub: true, pid: pid, grandPid: level === 2 ? jobId : null, level, panelTitle: level === 2 ? (tasks.flatMap(j => j.subs || []).find(p => p.id === panelId)?.title || "") : "" }, "job-detail") : undefined}
             >
-              {/* Expand toggle */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", paddingLeft: indent, cursor: hasSubs ? "pointer" : "default" }}
+              {/* Expand toggle + color bar */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", paddingLeft: indent, cursor: hasSubs ? "pointer" : "default", position: "relative" }}
                 onClick={e => { if (!hasSubs) return; e.stopPropagation(); setExpandedJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); }}>
+                {level === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobColor || item.color }} />}
                 {hasSubs && <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, flexShrink: 0 }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
               </div>
 
@@ -5187,7 +5201,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       const totalTasks = tasks.length;
       const totalSubs = allItems.length - tasks.length;
       const avgHpd = tasks.length > 0 ? (tasks.reduce((a, t) => a + (t.hpd || 0), 0) / tasks.length).toFixed(1) : 0;
-      return <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
+      return <div style={{ padding: "8px 0" }}>
         {/* Stats row */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 12 }}>
           {[{ label: "Jobs", val: totalTasks }, { label: "Subtasks", val: totalSubs }, { label: "Avg h/d", val: avgHpd }].map(s => <div key={s.label} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 10px", textAlign: "center", border: `1px solid ${T.border}` }}>
@@ -5294,7 +5308,6 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
         {mobileView === "tasks" && renderMobileTasks()}
         {mobileView === "clients" && renderMobileClients()}
         {mobileView === "schedule" && renderMobileTeam()}
-        {mobileView === "analytics" && renderMobileAnalytics()}
         {mobileView === "messages" && renderMessages()}
       </AnimatedView>
       {/* Mobile Settings Overlay */}
@@ -5304,53 +5317,20 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
           <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Settings</span>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Theme</div>
-            <div style={{ display: "flex", gap: 7 }}>
-              {[
-                { id: "midnight", label: "Dark",   bg: "#080d18", accent: "#3d7fff" },
-                { id: "frost",    label: "White",  bg: "#f0f4f9", accent: "#0ea5e9" },
-                { id: "custom",   label: "Custom", bg: customTheme.bg, accent: customTheme.accent },
-              ].map(th => {
-                const active = themeMode === th.id;
-                return <button key={th.id} onClick={() => setThemeMode(th.id)} title={th.label}
-                  style={{ flex: 1, padding: "10px 4px 8px", background: th.bg, border: `2px solid ${active ? th.accent : "transparent"}`, borderRadius: T.radiusXs, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "border 0.18s, transform 0.18s", transform: active ? "scale(1.06)" : "scale(1)" }}>
-                  {th.id === "custom"
-                    ? <div style={{ width: 18, height: 18, borderRadius: 9, background: "conic-gradient(#f43f5e,#f59e0b,#10b981,#3d7fff,#7c3aed,#f43f5e)", boxShadow: active ? `0 0 8px ${th.accent}88` : "none", transition: "box-shadow 0.18s" }} />
-                    : <div style={{ width: 18, height: 18, borderRadius: 9, background: th.accent, boxShadow: active ? `0 0 8px ${th.accent}88` : "none", transition: "box-shadow 0.18s" }} />}
-                  <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? th.accent : "#888", letterSpacing: "0.02em" }}>{th.label}</span>
-                </button>;
-              })}
-            </div>
-            {themeMode === "custom" && <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Customize</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {[
-                  { key: "bg",     label: "Background", sub: "App background & surfaces" },
-                  { key: "accent", label: "Accent",     sub: "Buttons, highlights & indicators" },
-                ].map(({ key, label, sub }) => (
-                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <label style={{ position: "relative", width: 38, height: 38, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }} title={`Pick ${label}`}>
-                      <div style={{ width: "100%", height: "100%", background: customTheme[key] }} />
-                      <input type="color" value={customTheme[key]}
-                        onChange={e => setCustomTheme(p => ({ ...p, [key]: e.target.value }))}
-                        style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
-                    </label>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
-                      <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
-                    </div>
-                    <div style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{customTheme[key]}</div>
-                  </div>
-                ))}
-              </div>
-            </div>}
-          </div>
-          <button onClick={() => { setSettingsOpen(false); switchView("analytics"); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg></span>
+          <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.accent }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg></span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Analytics</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>View performance & insights</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Customization</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Theme, colors &amp; presets</div>
+            </div>
+            <div style={{ width: 14, height: 14, borderRadius: 7, background: T.accent, marginRight: 4 }} />
+            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+          </button>
+          <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Clients</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{clients.length} client{clients.length !== 1 ? "s" : ""}</div>
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
@@ -5366,6 +5346,105 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.danger }}>Log Out</div>
           </button>
+        </div>
+      </div>}
+      {/* Customization Modal */}
+      {customizationOpen && (() => {
+        const presetThemes = [
+          { id: "midnight", label: "Dark",    bg: "#080d18", accent: "#3d7fff" },
+          { id: "frost",    label: "Light",   bg: "#f0f4f9", accent: "#0ea5e9" },
+          { id: "slate",    label: "Slate",   bg: "#0f172a", accent: "#7c3aed" },
+          { id: "forest",   label: "Forest",  bg: "#0d1f13", accent: "#22c55e" },
+          { id: "ember",    label: "Ember",   bg: "#1a0e0a", accent: "#f97316" },
+          { id: "rose",     label: "Rose",    bg: "#1a0a10", accent: "#f43f5e" },
+        ];
+        return <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}
+          onClick={() => setCustomizationOpen(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
+            {/* Header */}
+            <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Customization</span>
+              <button onClick={() => setCustomizationOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
+            </div>
+            <div style={{ padding: "20px" }}>
+              {/* Built-in themes */}
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Theme</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                {[
+                  { id: "midnight", label: "Dark",   bg: "#080d18", accent: "#3d7fff" },
+                  { id: "frost",    label: "Light",  bg: "#f0f4f9", accent: "#0ea5e9" },
+                  { id: "custom",   label: "Custom", bg: customTheme.bg, accent: customTheme.accent },
+                ].map(th => {
+                  const active = themeMode === th.id;
+                  return <button key={th.id} onClick={() => setThemeMode(th.id)} title={th.label}
+                    style={{ flex: 1, padding: "12px 4px 10px", background: th.bg, border: `2px solid ${active ? th.accent : "transparent"}`, borderRadius: T.radiusXs, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, transition: "border 0.18s, transform 0.18s, box-shadow 0.18s", transform: active ? "scale(1.06)" : "scale(1)", boxShadow: active ? `0 0 0 2px ${th.accent}44` : "none" }}>
+                    {th.id === "custom"
+                      ? <div style={{ width: 20, height: 20, borderRadius: 10, background: "conic-gradient(#f43f5e,#f59e0b,#10b981,#3d7fff,#7c3aed,#f43f5e)" }} />
+                      : <div style={{ width: 20, height: 20, borderRadius: 10, background: th.accent, boxShadow: active ? `0 0 10px ${th.accent}88` : "none" }} />}
+                    <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? th.accent : "#888" }}>{th.label}</span>
+                  </button>;
+                })}
+              </div>
+              {/* Custom color pickers */}
+              {themeMode === "custom" && <div style={{ marginBottom: 20, padding: "14px 16px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Custom Colors</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {[
+                    { key: "bg",     label: "Background", sub: "App background & surfaces" },
+                    { key: "accent", label: "Accent",     sub: "Buttons, highlights & indicators" },
+                  ].map(({ key, label, sub }) => (
+                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <label style={{ position: "relative", width: 42, height: 42, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block", boxShadow: `0 0 0 1px ${customTheme[key]}44` }}>
+                        <div style={{ width: "100%", height: "100%", background: customTheme[key] }} />
+                        <input type="color" value={customTheme[key]} onChange={e => setCustomTheme(p => ({ ...p, [key]: e.target.value }))}
+                          style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+                      </label>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
+                        <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{customTheme[key]}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>}
+              {/* Saved Presets */}
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Saved Presets</div>
+              {themePresets.length === 0 && <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14 }}>No saved presets yet. Save your custom theme as a preset below.</div>}
+              {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+                {themePresets.map((p, idx) => (
+                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
+                    onClick={() => { setThemeMode("custom"); setCustomTheme({ bg: p.bg, accent: p.accent }); }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
+                    <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
+                  </div>
+                ))}
+              </div>}
+              {/* Save current custom theme as preset */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)}
+                  placeholder="Preset name…"
+                  onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent }]); setPresetNameInput(""); } }}
+                  style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
+                <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent }]); setPresetNameInput(""); }}
+                  style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
+              </div>
+              <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>Saves the current custom background &amp; accent as a named preset you can apply later.</div>
+            </div>
+          </div>
+        </div>;
+      })()}
+      {/* Mobile + Desktop Clients Modal */}
+      {clientsSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
+        <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
+          <button onClick={() => setClientsSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
+          <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Clients</span>
+        </div>
+        <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
+          {renderClients()}
         </div>
       </div>}
       {/* Mobile Notifications Dropdown */}
@@ -6505,57 +6584,30 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
           <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ background: settingsOpen ? T.accent + "15" : "transparent", border: `1px solid ${settingsOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={settingsOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.3s", transform: settingsOpen ? "rotate(90deg)" : "none" }}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </button>
-          {settingsOpen && <div onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 32, top: 60, minWidth: 260, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
+          {settingsOpen && <div onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 32, top: 60, width: 520, maxHeight: "85vh", overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, fontFamily: T.font }}>
             <div style={{ padding: "12px 16px 8px", borderBottom: `1px solid ${T.border}` }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Settings</div>
             </div>
-            {/* ── Theme picker ── */}
-            <div style={{ padding: "12px 16px 14px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 10 }}>Theme</div>
-              <div style={{ display: "flex", gap: 7 }}>
-                {[
-                  { id: "midnight", label: "Dark",   bg: "#080d18", accent: "#3d7fff" },
-                  { id: "frost",    label: "White",  bg: "#f0f4f9", accent: "#0ea5e9" },
-                  { id: "custom",   label: "Custom", bg: customTheme.bg, accent: customTheme.accent },
-                ].map(th => {
-                  const active = themeMode === th.id;
-                  return <button key={th.id} onClick={() => setThemeMode(th.id)} title={th.label}
-                    style={{ flex: 1, padding: "10px 4px 8px", background: th.bg, border: `2px solid ${active ? th.accent : "transparent"}`, borderRadius: T.radiusXs, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, transition: "border 0.18s, transform 0.18s", transform: active ? "scale(1.06)" : "scale(1)" }}>
-                    {th.id === "custom"
-                      ? <div style={{ width: 18, height: 18, borderRadius: 9, background: "conic-gradient(#f43f5e,#f59e0b,#10b981,#3d7fff,#7c3aed,#f43f5e)", boxShadow: active ? `0 0 8px ${th.accent}88` : "none", transition: "box-shadow 0.18s" }} />
-                      : <div style={{ width: 18, height: 18, borderRadius: 9, background: th.accent, boxShadow: active ? `0 0 8px ${th.accent}88` : "none", transition: "box-shadow 0.18s" }} />}
-                    <span style={{ fontSize: 9, fontWeight: active ? 700 : 500, color: active ? th.accent : "#888", letterSpacing: "0.02em" }}>{th.label}</span>
-                  </button>;
-                })}
+            {/* ── Customization ── */}
+            <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Customization</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Theme, colors &amp; presets</div>
               </div>
-
-              {/* ── Custom color pickers (shown when Custom is active) ── */}
-              {themeMode === "custom" && <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 12 }}>Customize</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {[
-                    { key: "bg",     label: "Background", sub: "App background & surfaces" },
-                    { key: "accent", label: "Accent",     sub: "Buttons, highlights & indicators" },
-                  ].map(({ key, label, sub }) => (
-                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <label style={{ position: "relative", width: 38, height: 38, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}
-                        title={`Pick ${label}`}>
-                        <div style={{ width: "100%", height: "100%", background: customTheme[key] }} />
-                        <input type="color" value={customTheme[key]}
-                          onChange={e => setCustomTheme(p => ({ ...p, [key]: e.target.value }))}
-                          style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
-                      </label>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
-                        <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
-                      </div>
-                      <div style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{customTheme[key]}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>}
-            </div>
-            <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div style={{ width: 12, height: 12, borderRadius: 6, background: T.accent, marginRight: 4 }} />
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>
+            {/* ── Clients ── */}
+            <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Clients</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>{clients.length} client{clients.length !== 1 ? "s" : ""}</div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>
+            <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Users</div>
@@ -6575,7 +6627,7 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
       </div>
     </div>}
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto" }}>
-      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
+      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "timestamp" && <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ color: T.textDim, fontSize: 15 }}>Time Stamp — coming soon</span></div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     {/* Team day-view drag ghost */}
     {teamDayGhost && <>
