@@ -3140,6 +3140,12 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
     const sel = selTask ? (filtered.find(t => t.id === selTask) || tasks.find(t => t.id === selTask)) : null;
     const fresh = sel ? (allItems.find(x => x.id === sel.id) || sel) : null;
     const parent = fresh ? tasks.find(x => x.id === fresh.id) : null;
+    // Helper fns used by both GridRow and export
+    const _opHrs = (op) => Math.round((op.hpd || 7.5) * (diffBD(op.start, op.end) + 1) * 10) / 10;
+    const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
+    const _jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + _panelHrs(p), 0) * 10) / 10;
+    const _opPct = (op) => op.status === "Finished" ? 100 : op.status === "In Progress" ? 50 : 0;
+    const _jobPct = (job) => { const ops = (job.subs || []).flatMap(p => p.subs || []); return ops.length ? Math.round(ops.reduce((s, op) => s + _opPct(op), 0) / ops.length) : 0; };
 
 
     return <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 6 }}>
@@ -3209,8 +3215,8 @@ Answer scheduling questions conversationally. Be specific: name actual people, j
                   if (colId === "start") return job.start || "";
                   if (colId === "end") return job.end || "";
                   if (colId === "dueDate") return job.dueDate || "";
-                  if (colId === "hrs") return jobHrs(job) > 0 ? jobHrs(job) + "h" : "";
-                  if (colId === "progress") return jobPct(job) + "%";
+                  if (colId === "hrs") return _jobHrs(job) > 0 ? _jobHrs(job) + "h" : "";
+                  if (colId === "progress") return _jobPct(job) + "%";
                   if (colId === "team") return (job.team || []).map(id => (people.find(p => p.id === id) || {}).name || "").filter(Boolean).join(", ");
                   return "";
                 };
