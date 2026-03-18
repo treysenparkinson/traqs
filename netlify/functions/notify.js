@@ -28,7 +28,7 @@ export async function handler(event) {
   let body;
   try { body = JSON.parse(event.body || "{}"); } catch { return err(400, "Invalid JSON"); }
 
-  const { type, jobTitle, panelTitle, stepLabel, jobTeamIds = [], newTeamIds = [], jobNumber, clientName } = body;
+  const { type, jobTitle, panelTitle, stepLabel, jobTeamIds = [], newTeamIds = [], jobNumber, clientName, requestedByName } = body;
   if (!type) return err(400, "Missing type");
 
   // Load people to get push tokens
@@ -47,6 +47,9 @@ export async function handler(event) {
     // Notify only the newly added team members (+ admins)
     const newIds = (newTeamIds || []).map(id => String(id));
     targetIds = [...new Set([...adminIds, ...newIds])];
+  } else if (type === "finish_request") {
+    // Admins only — they need to approve/decline
+    targetIds = [...adminIds];
   } else {
     // step / ready — admins + full team
     targetIds = [...new Set([...adminIds, ...teamIds])];
@@ -77,6 +80,9 @@ export async function handler(event) {
   } else if (type === "ready") {
     heading = `✅ Ready to Build: ${panelTitle}`;
     content = `All engineering steps complete for ${panelTitle} on ${jobLabel}. Shop can start!`;
+  } else if (type === "finish_request") {
+    heading = `🏁 Finish Request: ${jobLabel}`;
+    content = `${requestedByName || "Someone"} has requested to mark "${jobTitle}" as finished. Tap to approve or decline.`;
   } else {
     return err(400, "Unknown notification type");
   }
