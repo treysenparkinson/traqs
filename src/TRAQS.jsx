@@ -6385,7 +6385,7 @@ ${jobsCtx || "No jobs found."}`;
           });
           const panelEnd = opSubs[opSubs.length - 1].end;
           panels.push({
-            id: null, title: `${ed.title}-${String(i + 1).padStart(2, "0")}`, start: pStart, end: panelEnd,
+            id: null, title: `${ed.title}-${String(i + 1).padStart(3, "0")}`, start: pStart, end: panelEnd,
             pri: "High", status: "Not Started", team: [], hpd: ed.hpd, notes: "", deps: [],
             engineering: { designed: null, verified: null, sentToPerforex: null },
             subs: opSubs,
@@ -6534,15 +6534,21 @@ ${jobsCtx || "No jobs found."}`;
 
       const loadTemplate = (tpl) => {
         setEd(p => {
-          const templateSubs = (tpl.ops || []).map(o => ({ ...o, id: uid(), team: o.team || [], subs: o.subs || [], status: "Not Started", start: "", end: "", notes: o.notes || "", deps: o.deps || [] }));
           const existingSubs = p.subs || [];
-          if (existingSubs.length === 0) {
-            return { ...p, subs: [{ id: uid(), title: "Op-01", start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], engineering: { designed: null, verified: null, sentToPerforex: null }, subs: templateSubs }] };
-          } else {
-            const newSubs = [...existingSubs];
-            newSubs[0] = { ...newSubs[0], subs: templateSubs };
-            return { ...p, subs: newSubs };
-          }
+          const nextIndex = existingSubs.length;
+          const newOps = (tpl.ops || []).map((o, i) => ({
+            ...o,
+            id: uid(),
+            title: o.title || "Op-" + String(nextIndex + i + 1).padStart(3, "0"),
+            team: o.team || [],
+            subs: o.subs || [],
+            status: "Not Started",
+            start: "",
+            end: "",
+            notes: o.notes || "",
+            deps: o.deps || [],
+          }));
+          return { ...p, subs: [...existingSubs, ...newOps] };
         });
       };
       const deleteTemplate = (tid) => {
@@ -6590,7 +6596,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>}
 
         {/* Completion dates (filled by AI or manual) */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" /></div>
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => { setEd(p => ({ ...p, start: v })); setAiSuggestion(null); }} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => { setEd(p => ({ ...p, end: v })); setAiSuggestion(null); }} type="date" /></div>
 
         {/* AI Schedule Suggestion */}
         <div style={{ marginBottom: 20 }}>
@@ -6744,7 +6750,7 @@ ${jobsCtx || "No jobs found."}`;
                   </button>
                   <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0 }} />
                   <input value={panel.title} onChange={e => updatePanel({ title: e.target.value })} placeholder="Operation name"
-                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(2, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] })); } }}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] })); } }}
                     style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
                   {panel.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
@@ -6844,7 +6850,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>;
             })}
           </div>
-          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(2, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] }))}
+          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] }))}
             style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
             onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
             onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
