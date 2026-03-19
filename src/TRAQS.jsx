@@ -6595,8 +6595,6 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>}
 
-        {/* Completion dates (filled by AI or manual) */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => { setEd(p => ({ ...p, start: v })); setAiSuggestion(null); }} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => { setEd(p => ({ ...p, end: v })); setAiSuggestion(null); }} type="date" /></div>
 
         {/* AI Schedule Suggestion */}
         <div style={{ marginBottom: 20 }}>
