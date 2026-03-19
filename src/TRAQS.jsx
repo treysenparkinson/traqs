@@ -6605,15 +6605,7 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>}
 
-
-        {/* AI Schedule Suggestion */}
-        <div style={{ marginBottom: 20 }}>
-          <button onClick={suggestSchedule} disabled={aiLoading || (ed.subs || []).length === 0} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 18px", borderRadius: T.radiusSm, border: "none", background: (ed.subs || []).length === 0 ? T.textDim + "33" : T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: aiLoading || (ed.subs || []).length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.2s", width: "100%", opacity: (ed.subs || []).length === 0 ? 0.5 : 1, boxShadow: (ed.subs || []).length > 0 ? `0 4px 14px ${T.accent}59` : "none", letterSpacing: "0.3px" }}>
-            {aiLoading ? "⏳ Checking availability..." : "Check for Availability!"}
-          </button>
-
-          {aiSuggestion && <div style={{ marginTop: 12 }}>
-            {/* Header message based on result */}
+        {aiSuggestion && <div style={{ marginBottom: 20, marginTop: -8 }}>
             {aiSuggestion.canMeetDue === true && <div style={{ padding: "12px 16px", background: "#10b98112", border: "1px solid #10b98133", borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
               <div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
@@ -6635,11 +6627,9 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 20 }}>🤖</span>
               <div style={{ fontSize: 13, color: T.textSec }}>No due date set. Here are the earliest available windows:</div>
             </div>}
-
             {aiSuggestion.slots.length === 0 && <div style={{ padding: 16, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
               No available windows found. Consider adjusting panel count or adding team members.
             </div>}
-
             {aiSuggestion.slots.map((slot, si) => <div key={si} style={{ background: T.surface, border: `1px solid ${slot.meetsDeadline !== false ? T.border : "#f59e0b44"}`, borderRadius: T.radiusSm, padding: 14, marginBottom: 8, transition: "all 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accent + "08"; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = slot.meetsDeadline !== false ? T.border : "#f59e0b44"; e.currentTarget.style.background = T.surface; }}>
@@ -6769,7 +6759,6 @@ ${jobsCtx || "No jobs found."}`;
               </div>}
             </div>)}
           </div>}
-        </div>
 
         {/* ── Operations ── */}
         <div style={{ marginBottom: 20 }}>
@@ -6913,16 +6902,12 @@ ${jobsCtx || "No jobs found."}`;
             onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
             + Add Operation
           </button>
-        </div>
 
-        {/* Optimize button — re-packs all ops from the start date */}
-        {(ed.subs || []).some(p => (p.subs || []).some(o => o.team.length > 0)) && <button onClick={optimizeJobOps}
-          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "11px 16px", borderRadius: T.radiusSm, border: `1.5px solid ${T.accent}55`, background: T.accent + "0d", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginBottom: 4, transition: "all 0.15s" }}
-          onMouseEnter={e => { e.currentTarget.style.background = T.accent + "1a"; e.currentTarget.style.borderColor = T.accent; }}
-          onMouseLeave={e => { e.currentTarget.style.background = T.accent + "0d"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-          Optimize Operations to These Dates
-        </button>}
+          {/* Check for Availability */}
+          <button onClick={suggestSchedule} disabled={aiLoading || (ed.subs || []).length === 0} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 18px", borderRadius: T.radiusSm, border: "none", background: (ed.subs || []).length === 0 ? T.textDim + "33" : T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: aiLoading || (ed.subs || []).length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.2s", width: "100%", marginTop: 12, opacity: (ed.subs || []).length === 0 ? 0.5 : 1, boxShadow: (ed.subs || []).length > 0 ? `0 4px 14px ${T.accent}59` : "none", letterSpacing: "0.3px" }}>
+            {aiLoading ? "⏳ Checking availability..." : "Check for Availability!"}
+          </button>
+        </div>
 
 
         <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>
