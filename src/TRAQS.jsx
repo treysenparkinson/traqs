@@ -6729,8 +6729,8 @@ ${jobsCtx || "No jobs found."}`;
                         });
                         const opStart = newSubOps[0]?.start || slot.start;
                         const opEnd = newSubOps[newSubOps.length - 1]?.end || slot.start;
-                        const allTeam = [...new Set(newSubOps.map(s => s.team[0]).filter(Boolean))];
-                        return { ...op, start: opStart, end: opEnd, team: allTeam, subs: newSubOps };
+                        const leadId = newSubOps[0]?.team?.[0] || null;
+                        return { ...op, start: opStart, end: opEnd, team: leadId ? [leadId] : [], subs: newSubOps };
                       }
 
                       // No sub-ops: assign the panel itself to one person
@@ -6783,7 +6783,7 @@ ${jobsCtx || "No jobs found."}`;
                   {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                 </select>
               )}
-              <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(true); }}
+              <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(ed.subs || []); }}
                 disabled={!(ed.subs || []).some(p => p.title?.trim())}
                 style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}44`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, opacity: (ed.subs || []).some(p => p.title?.trim()) ? 1 : 0.4, cursor: (ed.subs || []).some(p => p.title?.trim()) ? "pointer" : "not-allowed", fontFamily: T.font }}>
                 Save Template
@@ -8049,7 +8049,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}
     {renderModal()}
-    {saveTemplateModal && (
+    {Array.isArray(saveTemplateModal) && (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
         zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
         onClick={() => setSaveTemplateModal(false)}>
@@ -8067,8 +8067,12 @@ ${jobsCtx || "No jobs found."}`;
               onClick={() => {
                 const name = templateNameInput.trim();
                 if (!name) return;
-                const _saveFirstPanel = (modal?.data?.subs || [])[0];
-                const ops = (_saveFirstPanel?.subs || []).filter(o => o.title?.trim());
+                // Save full panel structure (ops + their sub-ops), cleared of stale schedule data
+                const ops = (saveTemplateModal || []).filter(o => o.title?.trim()).map(o => ({
+                  ...o,
+                  start: "", end: "", team: [], status: "Not Started", qty: undefined,
+                  subs: (o.subs || []).map(s => ({ ...s, start: "", end: "", team: [], status: "Not Started" })),
+                }));
                 persistTemplates([...templates, { id: uid(), name, ops }]);
                 setSaveTemplateModal(false);
               }}
