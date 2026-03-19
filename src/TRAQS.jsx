@@ -6430,7 +6430,7 @@ ${jobsCtx || "No jobs found."}`;
         setAiLoading(true);
         setAiSuggestion(null);
         setTimeout(() => {
-          const rawOps = (ed.subs || []).filter(o => o.title?.trim()).map(o => ({ title: o.title, durationBD: 1 }));
+          const rawOps = (ed.subs || []).filter(o => o.title?.trim()).flatMap(o => Array.from({ length: Math.max(1, parseInt(o.qty) || 1) }, () => ({ title: o.title, durationBD: 1 })));
           const opsPerPanel = Math.max(rawOps.length, 1);
           const _clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
           const crewForOp = (opTitle) => people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
@@ -6743,9 +6743,9 @@ ${jobsCtx || "No jobs found."}`;
               return <div key={pi} style={{ background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 12 }}>
                 {/* Panel header row */}
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, flexShrink: 0 }}>
-                    <input type="number" min="1" max="99" value={panel.qty || 1} onChange={e => updatePanel({ qty: Math.max(1, parseInt(e.target.value) || 1) })} title="Quantity — creates this many copies when saved" style={{ width: 38, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${(panel.qty || 1) > 1 ? T.accent : T.border}`, background: T.surface, color: (panel.qty || 1) > 1 ? T.accent : T.text, fontSize: 12, fontFamily: T.font, textAlign: "center", fontWeight: (panel.qty || 1) > 1 ? 700 : 400 }} />
-                    <span style={{ fontSize: 9, color: T.textDim, letterSpacing: "0.02em" }}>qty</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                    <input type="number" min="1" max="999" value={panel.qty || 1} onChange={e => updatePanel({ qty: Math.max(1, parseInt(e.target.value) || 1) })} title="Quantity — creates this many copies when saved" style={{ width: 54, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${(panel.qty || 1) > 1 ? T.accent : T.border}`, background: T.surface, color: (panel.qty || 1) > 1 ? T.accent : T.text, fontSize: 13, fontFamily: T.font, textAlign: "center", fontWeight: (panel.qty || 1) > 1 ? 700 : 400 }} />
+                    <span style={{ fontSize: 11, color: T.textDim }}>qty</span>
                   </div>
                   <button onClick={e => { e.stopPropagation(); setCollapsedOps(prev => ({ ...prev, [panel.id]: !prev[panel.id] })); }} style={{ padding: "3px 5px", background: "transparent", border: "none", cursor: "pointer", color: T.textDim, flexShrink: 0 }}>
                     <svg style={{ transform: collapsedOps[panel.id] ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
