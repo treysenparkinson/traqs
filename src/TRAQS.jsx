@@ -6743,6 +6743,10 @@ ${jobsCtx || "No jobs found."}`;
               return <div key={pi} style={{ background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 12 }}>
                 {/* Panel header row */}
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, flexShrink: 0 }}>
+                    <input type="number" min="1" max="99" value={panel.qty || 1} onChange={e => updatePanel({ qty: Math.max(1, parseInt(e.target.value) || 1) })} title="Quantity — creates this many copies when saved" style={{ width: 38, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${(panel.qty || 1) > 1 ? T.accent : T.border}`, background: T.surface, color: (panel.qty || 1) > 1 ? T.accent : T.text, fontSize: 12, fontFamily: T.font, textAlign: "center", fontWeight: (panel.qty || 1) > 1 ? 700 : 400 }} />
+                    <span style={{ fontSize: 9, color: T.textDim, letterSpacing: "0.02em" }}>qty</span>
+                  </div>
                   <button onClick={e => { e.stopPropagation(); setCollapsedOps(prev => ({ ...prev, [panel.id]: !prev[panel.id] })); }} style={{ padding: "3px 5px", background: "transparent", border: "none", cursor: "pointer", color: T.textDim, flexShrink: 0 }}>
                     <svg style={{ transform: collapsedOps[panel.id] ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
@@ -6800,7 +6804,7 @@ ${jobsCtx || "No jobs found."}`;
                     </div>}
                   </div>;
                 })}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
                   {/* Sign-Off multi-select dropdown */}
                   <div style={{ position: "relative" }}>
                     <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId === panel.id ? null : panel.id); }}
@@ -6870,7 +6874,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       <div style={{ padding: "16px 32px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
         {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })} style={{ marginRight: "auto" }}>Delete Task</Btn> : <span />}
-        <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => { if (window.confirm("Save changes to this job?")) saveTask(ed, modal.parentId); }}>Save Job</Btn></div>
+        <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => { if (window.confirm("Save changes to this job?")) { const expanded = { ...ed, subs: (ed.subs || []).flatMap(op => { const qty = Math.max(1, Math.min(99, parseInt(op.qty) || 1)); if (qty === 1) { const { qty: _q, ...rest } = op; return [rest]; } return Array.from({ length: qty }, (_, i) => { const { qty: _q, ...rest } = op; return { ...rest, id: i === 0 ? op.id : uid(), title: qty > 1 ? `${op.title}-${String(i + 1).padStart(2, "0")}` : op.title, subs: (op.subs || []).map(sub => ({ ...sub, id: i === 0 ? sub.id : uid() })) }; }); }) }; saveTask(expanded, modal.parentId); } }}>Save Job</Btn></div>
       </div>
       </div></div>; }
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
