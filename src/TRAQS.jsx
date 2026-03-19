@@ -4789,13 +4789,23 @@ ${jobsCtx || "No jobs found."}`;
             (panel.subs || []).forEach(op => {
               if (!op.team.includes(pid)) return;
               if (op.status === "Finished") return;
-              if (op.end < tStart || op.start > tEnd) return;
+              if (!op.start || !op.end || op.end < tStart || op.start > tEnd) return;
               const s = op.start < tStart ? tStart : op.start;
               const e = op.end > tEnd ? tEnd : op.end;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = (() => { const p0 = (op.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
               bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
+            // Panel with no sub-ops: render the panel itself so it appears on the schedule
+            if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
+              if (panel.end >= tStart && panel.start <= tEnd) {
+                const s = panel.start < tStart ? tStart : panel.start;
+                const e = panel.end > tEnd ? tEnd : panel.end;
+                const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+                const tc = (() => { const p0 = (panel.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
+                bars.push({ type: "task", id: panel.id, start: s, end: e, title: `${job.title} · ${panel.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+              }
+            }
           });
         } else {
           // General task: flat subtasks assigned directly to people
@@ -6649,47 +6659,88 @@ ${jobsCtx || "No jobs found."}`;
                     const _jobClientName = (clients.find(c => c.id === p.clientId) || {}).name || "";
                     const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
 
-                    const isPersonFreeForRange = (pid, s, e) => {
+                    // Check against existing saved jobs
+                    const isPersonFreeGlobal = (pid, s, eDate) => {
                       for (const job of tasks) {
                         if (ed.id && job.id === ed.id) continue;
                         for (const pnl of (job.subs || [])) {
-                          if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start <= e && pnl.end >= s) return false;
+                          if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= eDate && pnl.end >= s) return false;
                           for (const op of (pnl.subs || [])) {
-                            if (op.team.includes(pid) && op.status !== "Finished" && op.start <= e && op.end >= s) return false;
+                            if ((op.team || []).includes(pid) && op.status !== "Finished" && op.start && op.end && op.start <= eDate && op.end >= s) return false;
                           }
                         }
                       }
                       const pp = people.find(x => x.id === pid);
-                      if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= e && to.end >= s) return false; }
+                      if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
                       return true;
                     };
 
-                    const personSchedule = [];
-                    const isPersonAvail = (pid, s, e) => {
-                      if (!isPersonFreeForRange(pid, s, e)) return false;
-                      for (const a of personSchedule) { if (a.pid === pid && a.start <= e && a.end >= s) return false; }
-                      return true;
+                    // Expand ops by qty so each copy gets its own person+dates
+                    const expandedOps = (p.subs || []).flatMap(op => {
+                      const qty = Math.max(1, parseInt(op.qty) || 1);
+                      return Array.from({ length: qty }, (_, i) => ({
+                        ...op,
+                        id: i === 0 ? op.id : uid(),
+                        title: qty > 1 ? `${op.title}-${String(i + 1).padStart(2, "0")}` : op.title,
+                        qty: undefined,
+                        subs: (op.subs || []).map(sub => ({ ...sub, id: i === 0 ? sub.id : uid() })),
+                      }));
+                    });
+
+                    // Per-person cursor: tracks what date each person is next free
+                    const personCursors = {};
+                    allCrew.forEach(pp => { personCursors[pp.id] = slot.start; });
+                    // In-session schedule to avoid double-booking within this batch
+                    const inSession = []; // { pid, start, end }
+                    const isAvail = (pid, s, eDate) => {
+                      if (!isPersonFreeGlobal(pid, s, eDate)) return false;
+                      return !inSession.some(a => a.pid === pid && a.start <= eDate && a.end >= s);
                     };
 
-                    // Assign each operation sequentially: one person per op, 1 BD each
-                    let cursor = slot.start;
                     let latestEnd = slot.start;
-                    const newSubs = (p.subs || []).map(op => {
-                      const s = cursor;
-                      const e = addBD(s, 0); // 1 BD per op
-                      cursor = addBD(e, 1);
-                      if (e > latestEnd) latestEnd = e;
-                      const avail = allCrew.filter(pp =>
-                        canAssignPerson(pp, op.title, p.title, p.jobNumber || "", _jobClientName) &&
-                        isPersonAvail(pp.id, s, e)
+
+                    const newSubs = expandedOps.map(op => {
+                      const eligible = allCrew.filter(pp =>
+                        canAssignPerson(pp, op.title, p.title, p.jobNumber || "", _jobClientName)
                       );
-                      const assignedPid = avail.length > 0 ? avail[0].id : null;
-                      if (assignedPid) personSchedule.push({ pid: assignedPid, start: s, end: e });
-                      return { ...op, start: s, end: e, team: assignedPid ? [assignedPid] : op.team };
+                      // Sort by earliest available cursor so work distributes across people
+                      const sorted = eligible.slice().sort((a, b) =>
+                        (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start)
+                      );
+
+                      let assignedPerson = null;
+                      let opStart = slot.start;
+                      for (const candidate of sorted) {
+                        const tryStart = personCursors[candidate.id] || slot.start;
+                        const tryEnd = addBD(tryStart, 0);
+                        if (isAvail(candidate.id, tryStart, tryEnd)) {
+                          assignedPerson = candidate;
+                          opStart = tryStart;
+                          break;
+                        }
+                      }
+
+                      const opEnd = addBD(opStart, 0); // 1 BD per op
+                      if (assignedPerson) {
+                        inSession.push({ pid: assignedPerson.id, start: opStart, end: opEnd });
+                        personCursors[assignedPerson.id] = addBD(opEnd, 1);
+                      }
+                      if (opEnd > latestEnd) latestEnd = opEnd;
+
+                      // Cascade dates+team to sub-ops so they appear on the Schedule view
+                      const assignedTeam = assignedPerson ? [assignedPerson.id] : (op.team || []);
+                      const newSubOps = (op.subs || []).map(sub => ({
+                        ...sub,
+                        start: opStart,
+                        end: opEnd,
+                        team: assignedTeam,
+                      }));
+
+                      return { ...op, start: opStart, end: opEnd, team: assignedTeam, subs: newSubOps };
                     });
 
                     updated.subs = newSubs;
-                    updated.start = slot.start;
+                    updated.start = newSubs.length > 0 ? newSubs[0].start : slot.start;
                     updated.end = latestEnd;
                     return updated;
                   });
