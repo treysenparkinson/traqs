@@ -6675,13 +6675,14 @@ ${jobsCtx || "No jobs found."}`;
                       return true;
                     };
 
-                    // Expand ops by qty so each copy gets its own person+dates
+                    // Expand ops by qty — strip trailing number from title, renumber cleanly
                     const expandedOps = (p.subs || []).flatMap(op => {
                       const qty = Math.max(1, parseInt(op.qty) || 1);
+                      const baseTitle = op.title.replace(/-\d+$/, "").trimEnd();
                       return Array.from({ length: qty }, (_, i) => ({
                         ...op,
                         id: i === 0 ? op.id : uid(),
-                        title: qty > 1 ? `${op.title}-${String(i + 1).padStart(2, "0")}` : op.title,
+                        title: qty > 1 ? `${baseTitle}-${String(i + 1).padStart(3, "0")}` : op.title,
                         qty: undefined,
                         subs: (op.subs || []).map(sub => ({ ...sub, id: i === 0 ? sub.id : uid() })),
                       }));
@@ -6697,46 +6698,49 @@ ${jobsCtx || "No jobs found."}`;
                       return !inSession.some(a => a.pid === pid && a.start <= eDate && a.end >= s);
                     };
 
+                    // Pick the earliest-available eligible person for a given slot
+                    const pickPerson = (opTitle) => {
+                      const eligible = allCrew
+                        .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
+                        .sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
+                      for (const candidate of eligible) {
+                        const tryStart = personCursors[candidate.id] || slot.start;
+                        const tryEnd = addBD(tryStart, 0);
+                        if (isAvail(candidate.id, tryStart, tryEnd)) return { person: candidate, start: tryStart, end: tryEnd };
+                      }
+                      return { person: null, start: slot.start, end: addBD(slot.start, 0) };
+                    };
+
                     let latestEnd = slot.start;
 
                     const newSubs = expandedOps.map(op => {
-                      const eligible = allCrew.filter(pp =>
-                        canAssignPerson(pp, op.title, p.title, p.jobNumber || "", _jobClientName)
-                      );
-                      // Sort by earliest available cursor so work distributes across people
-                      const sorted = eligible.slice().sort((a, b) =>
-                        (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start)
-                      );
+                      const hasSubs = (op.subs || []).length > 0;
 
-                      let assignedPerson = null;
-                      let opStart = slot.start;
-                      for (const candidate of sorted) {
-                        const tryStart = personCursors[candidate.id] || slot.start;
-                        const tryEnd = addBD(tryStart, 0);
-                        if (isAvail(candidate.id, tryStart, tryEnd)) {
-                          assignedPerson = candidate;
-                          opStart = tryStart;
-                          break;
-                        }
+                      if (hasSubs) {
+                        // Each sub-op gets its own person assigned independently
+                        const newSubOps = op.subs.map(sub => {
+                          const { person, start: ss, end: se } = pickPerson(op.title);
+                          if (person) {
+                            inSession.push({ pid: person.id, start: ss, end: se });
+                            personCursors[person.id] = addBD(se, 1);
+                          }
+                          if (se > latestEnd) latestEnd = se;
+                          return { ...sub, start: ss, end: se, team: person ? [person.id] : (sub.team || []) };
+                        });
+                        const opStart = newSubOps[0]?.start || slot.start;
+                        const opEnd = newSubOps[newSubOps.length - 1]?.end || slot.start;
+                        const allTeam = [...new Set(newSubOps.map(s => s.team[0]).filter(Boolean))];
+                        return { ...op, start: opStart, end: opEnd, team: allTeam, subs: newSubOps };
                       }
 
-                      const opEnd = addBD(opStart, 0); // 1 BD per op
+                      // No sub-ops: assign the panel itself to one person
+                      const { person: assignedPerson, start: opStart, end: opEnd } = pickPerson(op.title);
                       if (assignedPerson) {
                         inSession.push({ pid: assignedPerson.id, start: opStart, end: opEnd });
                         personCursors[assignedPerson.id] = addBD(opEnd, 1);
                       }
                       if (opEnd > latestEnd) latestEnd = opEnd;
-
-                      // Cascade dates+team to sub-ops so they appear on the Schedule view
-                      const assignedTeam = assignedPerson ? [assignedPerson.id] : (op.team || []);
-                      const newSubOps = (op.subs || []).map(sub => ({
-                        ...sub,
-                        start: opStart,
-                        end: opEnd,
-                        team: assignedTeam,
-                      }));
-
-                      return { ...op, start: opStart, end: opEnd, team: assignedTeam, subs: newSubOps };
+                      return { ...op, start: opStart, end: opEnd, team: assignedPerson ? [assignedPerson.id] : (op.team || []), subs: [] };
                     });
 
                     updated.subs = newSubs;
@@ -6925,7 +6929,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       <div style={{ padding: "16px 32px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
         {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })} style={{ marginRight: "auto" }}>Delete Task</Btn> : <span />}
-        <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => { if (window.confirm("Save changes to this job?")) { const expanded = { ...ed, subs: (ed.subs || []).flatMap(op => { const qty = Math.max(1, Math.min(99, parseInt(op.qty) || 1)); if (qty === 1) { const { qty: _q, ...rest } = op; return [rest]; } return Array.from({ length: qty }, (_, i) => { const { qty: _q, ...rest } = op; return { ...rest, id: i === 0 ? op.id : uid(), title: qty > 1 ? `${op.title}-${String(i + 1).padStart(2, "0")}` : op.title, subs: (op.subs || []).map(sub => ({ ...sub, id: i === 0 ? sub.id : uid() })) }; }); }) }; saveTask(expanded, modal.parentId); } }}>Save Job</Btn></div>
+        <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => { if (window.confirm("Save changes to this job?")) { const expanded = { ...ed, subs: (ed.subs || []).flatMap(op => { const qty = Math.max(1, Math.min(999, parseInt(op.qty) || 1)); const baseTitle = op.title.replace(/-\d+$/, "").trimEnd(); if (qty === 1) { const { qty: _q, ...rest } = op; return [rest]; } return Array.from({ length: qty }, (_, i) => { const { qty: _q, ...rest } = op; return { ...rest, id: i === 0 ? op.id : uid(), title: `${baseTitle}-${String(i + 1).padStart(3, "0")}`, subs: (op.subs || []).map(sub => ({ ...sub, id: i === 0 ? sub.id : uid() })) }; }); }) }; saveTask(expanded, modal.parentId); } }}>Save Job</Btn></div>
       </div>
       </div></div>; }
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
