@@ -1186,6 +1186,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   });
   const [roleInput, setRoleInput] = useState("");
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
+  const [collapsedOps, setCollapsedOps] = useState({});
+  const [gZoom, setGZoom] = useState(1);
   const [signOffSettingsOpen, setSignOffSettingsOpen] = useState(false);
   const [pmSectionsCollapsed, setPmSectionsCollapsed] = useState({});
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
@@ -2815,7 +2817,7 @@ ${jobsCtx || "No jobs found."}`;
     const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
     const lW = isMobile ? 140 : 280;
     const avail = Math.max((ganttWidth || 1200) - lW, 200);
-    const cW = isMobile ? Math.max(32, avail / Math.max(days.length, 1)) : avail / Math.max(days.length, 1);
+    const cW = (isMobile ? Math.max(32, avail / Math.max(days.length, 1)) : avail / Math.max(days.length, 1)) * gZoom;
     ganttCWRef.current = cW;
     const rH = 48, hH = gMode === "month" ? 68 : 56;
     // Build week/month group headers
@@ -3199,8 +3201,9 @@ ${jobsCtx || "No jobs found."}`;
             </div>}
           </div>
         </div>
-        {/* Right side: Clipboard + FAST TRAQS + New Task button */}
+        {/* Right side: Clipboard + Zoom + FAST TRAQS + New Task button */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          <input type="range" min="0.5" max="4" step="0.1" value={gZoom} onChange={e => setGZoom(Number(e.target.value))} style={{ width: 80, accentColor: T.accent }} title="Zoom" />
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
@@ -6546,7 +6549,7 @@ ${jobsCtx || "No jobs found."}`;
         persistTemplates(templates.filter(t => t.id !== tid));
       };
 
-      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>{cls}        {/* ── Header ── */}
+      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>{cls}<div style={{ flex: 1, overflowY: "auto", padding: "0 0 8px 0" }}>        {/* ── Header ── */}
         <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit" : "New Job"}</h3>
 
         {/* ── Task fields ── */}
@@ -6586,137 +6589,8 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>}
 
-        {/* ── Operations ── */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <label style={{ fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Operations</label>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              {templates.length > 0 && (
-                <select defaultValue="" onChange={e => { const tpl = templates.find(t => t.id === e.target.value); if (tpl) loadTemplate(tpl); e.target.value = ""; }}
-                  style={{ padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, cursor: "pointer" }}>
-                  <option value="" disabled>Load template…</option>
-                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              )}
-              <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(true); }}
-                disabled={!(ed.subs || []).some(p => p.title?.trim())}
-                style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}44`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, opacity: (ed.subs || []).some(p => p.title?.trim()) ? 1 : 0.4, cursor: (ed.subs || []).some(p => p.title?.trim()) ? "pointer" : "not-allowed", fontFamily: T.font }}>
-                Save Template
-              </button>
-            </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-            {(ed.subs || []).map((panel, pi) => {
-              const updatePanel = (patch) => { const subs = [...(ed.subs || [])]; subs[pi] = { ...subs[pi], ...patch }; setEd(p => ({ ...p, subs })); };
-              const hasSubs = (panel.subs || []).length > 0;
-              const panelHpdSum = hasSubs ? Math.round((panel.subs || []).reduce((s, x) => s + (x.hpd ?? 7.5), 0) * 10) / 10 : null;
-              return <div key={pi} style={{ background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 12 }}>
-                {/* Panel header row */}
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0 }} />
-                  <input value={panel.title} onChange={e => updatePanel({ title: e.target.value })} placeholder="Operation name" style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
-                  {panel.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
-                    {hasSubs
-                      ? <div style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.accent, fontSize: 13, fontFamily: T.font, textAlign: "center", fontWeight: 700 }} title="Sum of sub-op hours">{panelHpdSum}</div>
-                      : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd ?? 7.5} onChange={e => updatePanel({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
-                    }
-                    <span style={{ fontSize: 11, color: hasSubs ? T.accent : T.textDim, whiteSpace: "nowrap", width: 24 }}>h/d</span>
-                    <button onClick={() => setEd(p => ({ ...p, subs: (p.subs || []).filter((_, j) => j !== pi) }))} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
-                  </div>
-                </div>
-                {/* Operation-level team picker */}
-                {shopCrew.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
-                  {shopCrew.map(p => {
-                    const sel = (panel.team || []).includes(p.id);
-                    return <button key={p.id} onClick={() => updatePanel({ team: sel ? (panel.team || []).filter(id => id !== p.id) : [...(panel.team || []), p.id] })} title={p.name}
-                      style={{ padding: "3px 9px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? accentText(p.color) : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.12s", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                      <span style={{ width: 14, height: 14, borderRadius: 4, background: sel ? p.color + "cc" : p.color + "33", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? accentText(p.color) : p.color, flexShrink: 0 }}>{p.name[0]}</span>
-                      {p.name.split(" ")[0]}
-                    </button>;
-                  })}
-                </div>}
-                {/* Sub-ops */}
-                {(panel.subs || []).map((sub, si) => {
-                  const updateSub = (patch) => { const subs = [...(panel.subs || [])]; subs[si] = { ...subs[si], ...patch }; updatePanel({ subs }); };
-                  return <div key={si} style={{ marginBottom: 6 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4, paddingLeft: 16 }}>
-                      <div style={{ width: 2, height: 20, background: T.border, borderRadius: 2, flexShrink: 0 }} />
-                      <input value={sub.title} onChange={e => updateSub({ title: e.target.value })} placeholder="Sub-operation name" style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
-                      {sub.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
-                        <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd ?? 7.5} onChange={e => updateSub({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
-                        <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", width: 24 }}>h/d</span>
-                        <button onClick={() => updatePanel({ subs: (panel.subs || []).filter((_, j) => j !== si) })} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
-                      </div>
-                    </div>
-                    {/* Sub-op team picker */}
-                    {shopCrew.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", paddingLeft: 32, marginBottom: 2 }}>
-                      {shopCrew.map(p => {
-                        const sel = (sub.team || []).includes(p.id);
-                        return <button key={p.id} onClick={() => updateSub({ team: sel ? (sub.team || []).filter(id => id !== p.id) : [...(sub.team || []), p.id] })} title={p.name}
-                          style={{ padding: "3px 9px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? accentText(p.color) : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.12s", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                          <span style={{ width: 14, height: 14, borderRadius: 4, background: sel ? p.color + "cc" : p.color + "33", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? accentText(p.color) : p.color, flexShrink: 0 }}>{p.name[0]}</span>
-                          {p.name.split(" ")[0]}
-                        </button>;
-                      })}
-                    </div>}
-                  </div>;
-                })}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
-                  {/* Sign-Off multi-select dropdown */}
-                  <div style={{ position: "relative" }}>
-                    <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId === panel.id ? null : panel.id); }}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 8, border: `1px solid ${Object.keys(panel.signOffs || {}).length ? T.accent + "55" : T.border}`, background: Object.keys(panel.signOffs || {}).length ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={Object.keys(panel.signOffs || {}).length ? T.accent : T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                      <span style={{ fontSize: 11, color: Object.keys(panel.signOffs || {}).length ? T.accent : T.textDim, fontWeight: 600 }}>
-                        {Object.keys(panel.signOffs || {}).length ? signOffTemplates.filter(t => panel.signOffs?.[t.id] !== undefined).map(t => t.name).join(", ") : "Sign-Off"}
-                      </span>
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    {soDropPanelId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 200, padding: "8px 0" }}>
-                      {signOffTemplates.length === 0 && <div style={{ padding: "8px 14px", fontSize: 12, color: T.textDim }}>No templates yet</div>}
-                      {signOffTemplates.map(tmpl => {
-                        const isOn = (panel.signOffs || {})[tmpl.id] !== undefined;
-                        return <div key={tmpl.id} onClick={() => {
-                          if (isOn) {
-                            const { [tmpl.id]: _, ...rest } = panel.signOffs || {};
-                            updatePanel({ signOffs: Object.keys(rest).length ? rest : undefined });
-                          } else {
-                            const stepsObj = Object.fromEntries(tmpl.steps.map((_, i) => [String(i), null]));
-                            updatePanel({ signOffs: { ...(panel.signOffs || {}), [tmpl.id]: stepsObj } });
-                          }
-                        }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", transition: "background 0.12s" }}
-                          onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                          <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
-                            {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
-                            <div style={{ fontSize: 10, color: T.textDim }}>{tmpl.steps.length} step{tmpl.steps.length !== 1 ? "s" : ""}</div>
-                          </div>
-                        </div>;
-                      })}
-                      <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
-                        <div onClick={() => { setSoDropPanelId(null); setSignOffSettingsOpen(true); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", fontSize: 12, color: T.accent, fontWeight: 600, transition: "background 0.12s" }}
-                          onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                          <span style={{ fontSize: 14 }}>+</span> Create new template
-                        </div>
-                      </div>
-                    </div>}
-                  </div>
-                  <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [] }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
-                </div>
-              </div>;
-            })}
-          </div>
-          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(2, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] }))}
-            style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
-            onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
-            onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
-            + Add Operation
-          </button>
-        </div>
+        {/* Completion dates (filled by AI or manual) */}
+        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16, marginBottom: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" /></div>
 
         {/* AI Schedule Suggestion */}
         <div style={{ marginBottom: 20 }}>
@@ -6838,8 +6712,145 @@ ${jobsCtx || "No jobs found."}`;
           </div>}
         </div>
 
-        {/* Completion dates (filled by AI or manual) */}
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}><InputField label="Completion Start" value={ed.start} onChange={v => setEd(p => ({ ...p, start: v }))} type="date" /><InputField label="Completion End" value={ed.end} onChange={v => setEd(p => ({ ...p, end: v }))} type="date" /></div>
+        {/* ── Operations ── */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+            <label style={{ fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Operations</label>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {templates.length > 0 && (
+                <select defaultValue="" onChange={e => { const tpl = templates.find(t => t.id === e.target.value); if (tpl) loadTemplate(tpl); e.target.value = ""; }}
+                  style={{ padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, cursor: "pointer" }}>
+                  <option value="" disabled>Load template…</option>
+                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              )}
+              <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(true); }}
+                disabled={!(ed.subs || []).some(p => p.title?.trim())}
+                style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}44`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, opacity: (ed.subs || []).some(p => p.title?.trim()) ? 1 : 0.4, cursor: (ed.subs || []).some(p => p.title?.trim()) ? "pointer" : "not-allowed", fontFamily: T.font }}>
+                Save Template
+              </button>
+            </div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+            {(ed.subs || []).map((panel, pi) => {
+              const updatePanel = (patch) => { const subs = [...(ed.subs || [])]; subs[pi] = { ...subs[pi], ...patch }; setEd(p => ({ ...p, subs })); };
+              const hasSubs = (panel.subs || []).length > 0;
+              const panelHpdSum = hasSubs ? Math.round((panel.subs || []).reduce((s, x) => s + (x.hpd ?? 7.5), 0) * 10) / 10 : null;
+              return <div key={pi} style={{ background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 12 }}>
+                {/* Panel header row */}
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                  <button onClick={e => { e.stopPropagation(); setCollapsedOps(prev => ({ ...prev, [panel.id]: !prev[panel.id] })); }} style={{ padding: "3px 5px", background: "transparent", border: "none", cursor: "pointer", color: T.textDim, flexShrink: 0 }}>
+                    <svg style={{ transform: collapsedOps[panel.id] ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0 }} />
+                  <input value={panel.title} onChange={e => updatePanel({ title: e.target.value })} placeholder="Operation name"
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(2, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] })); } }}
+                    style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
+                  {panel.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
+                    {hasSubs
+                      ? <div style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.accent, fontSize: 13, fontFamily: T.font, textAlign: "center", fontWeight: 700 }} title="Sum of sub-op hours">{panelHpdSum}</div>
+                      : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd ?? 7.5} onChange={e => updatePanel({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
+                    }
+                    <span style={{ fontSize: 11, color: hasSubs ? T.accent : T.textDim, whiteSpace: "nowrap", width: 24 }}>h/d</span>
+                    <button onClick={() => setEd(p => ({ ...p, subs: (p.subs || []).filter((_, j) => j !== pi) }))} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+                  </div>
+                </div>
+                {!collapsedOps[panel.id] && <>
+                {/* Operation-level team picker */}
+                {shopCrew.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                  {shopCrew.map(p => {
+                    const sel = (panel.team || []).includes(p.id);
+                    return <button key={p.id} onClick={() => updatePanel({ team: sel ? (panel.team || []).filter(id => id !== p.id) : [...(panel.team || []), p.id] })} title={p.name}
+                      style={{ padding: "3px 9px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? accentText(p.color) : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.12s", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                      <span style={{ width: 14, height: 14, borderRadius: 4, background: sel ? p.color + "cc" : p.color + "33", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? accentText(p.color) : p.color, flexShrink: 0 }}>{p.name[0]}</span>
+                      {p.name.split(" ")[0]}
+                    </button>;
+                  })}
+                </div>}
+                {/* Sub-ops */}
+                {(panel.subs || []).map((sub, si) => {
+                  const updateSub = (patch) => { const subs = [...(panel.subs || [])]; subs[si] = { ...subs[si], ...patch }; updatePanel({ subs }); };
+                  return <div key={si} draggable onDragStart={e => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx = Number(e.dataTransfer.getData("text/plain")); if (fromIdx === si) return; const newSubs = [...(panel.subs || [])]; const [moved] = newSubs.splice(fromIdx, 1); newSubs.splice(si, 0, moved); updatePanel({ subs: newSubs }); }} style={{ marginBottom: 6 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4, paddingLeft: 16 }}>
+                      <div style={{ cursor: "grab", color: T.textDim, fontSize: 13, userSelect: "none", flexShrink: 0, paddingRight: 4 }} title="Drag to reorder">⠿</div>
+                      <div style={{ width: 2, height: 20, background: T.border, borderRadius: 2, flexShrink: 0 }} />
+                      <input value={sub.title} onChange={e => updateSub({ title: e.target.value })} placeholder="Sub-operation name" style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
+                      {sub.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
+                        <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd ?? 7.5} onChange={e => updateSub({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
+                        <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", width: 24 }}>h/d</span>
+                        <button onClick={() => updatePanel({ subs: (panel.subs || []).filter((_, j) => j !== si) })} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
+                      </div>
+                    </div>
+                    {/* Sub-op team picker */}
+                    {shopCrew.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", paddingLeft: 32, marginBottom: 2 }}>
+                      {shopCrew.map(p => {
+                        const sel = (sub.team || []).includes(p.id);
+                        return <button key={p.id} onClick={() => updateSub({ team: sel ? (sub.team || []).filter(id => id !== p.id) : [...(sub.team || []), p.id] })} title={p.name}
+                          style={{ padding: "3px 9px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? accentText(p.color) : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.12s", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                          <span style={{ width: 14, height: 14, borderRadius: 4, background: sel ? p.color + "cc" : p.color + "33", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? accentText(p.color) : p.color, flexShrink: 0 }}>{p.name[0]}</span>
+                          {p.name.split(" ")[0]}
+                        </button>;
+                      })}
+                    </div>}
+                  </div>;
+                })}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
+                  {/* Sign-Off multi-select dropdown */}
+                  <div style={{ position: "relative" }}>
+                    <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId === panel.id ? null : panel.id); }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 8, border: `1px solid ${Object.keys(panel.signOffs || {}).length ? T.accent + "55" : T.border}`, background: Object.keys(panel.signOffs || {}).length ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={Object.keys(panel.signOffs || {}).length ? T.accent : T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                      <span style={{ fontSize: 11, color: Object.keys(panel.signOffs || {}).length ? T.accent : T.textDim, fontWeight: 600 }}>
+                        {Object.keys(panel.signOffs || {}).length ? signOffTemplates.filter(t => panel.signOffs?.[t.id] !== undefined).map(t => t.name).join(", ") : "Sign-Off"}
+                      </span>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    {soDropPanelId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 200, padding: "8px 0" }}>
+                      {signOffTemplates.length === 0 && <div style={{ padding: "8px 14px", fontSize: 12, color: T.textDim }}>No templates yet</div>}
+                      {signOffTemplates.map(tmpl => {
+                        const isOn = (panel.signOffs || {})[tmpl.id] !== undefined;
+                        return <div key={tmpl.id} onClick={() => {
+                          if (isOn) {
+                            const { [tmpl.id]: _, ...rest } = panel.signOffs || {};
+                            updatePanel({ signOffs: Object.keys(rest).length ? rest : undefined });
+                          } else {
+                            const stepsObj = Object.fromEntries(tmpl.steps.map((_, i) => [String(i), null]));
+                            updatePanel({ signOffs: { ...(panel.signOffs || {}), [tmpl.id]: stepsObj } });
+                          }
+                        }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", transition: "background 0.12s" }}
+                          onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                          <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+                            {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
+                            <div style={{ fontSize: 10, color: T.textDim }}>{tmpl.steps.length} step{tmpl.steps.length !== 1 ? "s" : ""}</div>
+                          </div>
+                        </div>;
+                      })}
+                      <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
+                        <div onClick={() => { setSoDropPanelId(null); setSignOffSettingsOpen(true); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", fontSize: 12, color: T.accent, fontWeight: 600, transition: "background 0.12s" }}
+                          onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                          <span style={{ fontSize: 14 }}>+</span> Create new template
+                        </div>
+                      </div>
+                    </div>}
+                  </div>
+                  <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [] }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
+                </div>
+                </>}
+              </div>;
+            })}
+          </div>
+          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(2, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] }))}
+            style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
+            + Add Operation
+          </button>
+        </div>
 
         {/* Optimize button — re-packs all ops from the start date */}
         {(ed.subs || []).some(p => (p.subs || []).some(o => o.team.length > 0)) && <button onClick={optimizeJobOps}
@@ -6852,10 +6863,11 @@ ${jobsCtx || "No jobs found."}`;
 
 
         <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>
-        <div style={{ display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
-          {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })} style={{ marginRight: "auto" }}>Delete Task</Btn> : <span />}
-          <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => saveTask(ed, modal.parentId)}>Save Task</Btn></div>
-        </div>
+      </div>
+      <div style={{ padding: "16px 32px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
+        {can("editJobs") && ed.id ? <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })} style={{ marginRight: "auto" }}>Delete Task</Btn> : <span />}
+        <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={closeModal}>Cancel</Btn><Btn onClick={() => { if (window.confirm("Save changes to this job?")) saveTask(ed, modal.parentId); }}>Save Job</Btn></div>
+      </div>
       </div></div>; }
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
       // If this is an operation (level 2), show focused operation popup
