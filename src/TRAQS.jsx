@@ -99,9 +99,9 @@ const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+
 const NOW = new Date(); const TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
 const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
-const addBD = (ds, n) => { let d = new Date(ds + "T12:00:00"); let remaining = Math.abs(n); const dir = n >= 0 ? 1 : -1; while (remaining > 0) { d.setDate(d.getDate() + dir); if (d.getDay() !== 0 && d.getDay() !== 6) remaining--; } return toDS(d); };
-const nextBD = ds => { let d = new Date(ds + "T12:00:00"); while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1); return toDS(d); };
-const diffBD = (a, b) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); if (c.getDay() !== 0 && c.getDay() !== 6) count++; } return count; };
+const addBD = (ds, n, { weekends = false, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); let remaining = Math.abs(n); const dir = n >= 0 ? 1 : -1; while (remaining > 0) { d.setDate(d.getDate() + dir); const dow = d.getDay(); const ds2 = toDS(d); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) remaining--; } return toDS(d); };
+const nextBD = (ds, { weekends = false, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); while (true) { const dow = d.getDay(); const ds2 = toDS(d); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) break; d.setDate(d.getDate() + 1); } return toDS(d); };
+const diffBD = (a, b, { weekends = false, holidays = [] } = {}) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); const dow = c.getDay(); const ds2 = toDS(c); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) count++; } return count; };
 const diffD = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5);
 const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const uid = () => "t" + Math.random().toString(36).substr(2, 8);
@@ -670,8 +670,190 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     setUploadResult(null);
     try {
       const excelFiles = uploadFiles.filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+      const hasText = uploadText.trim().length > 0;
+
+      // ── Text-only AI path ─────────────────────────────────────────────────
       if (excelFiles.length === 0) {
-        setUploadResult({ success: false, message: "Please upload an Excel or CSV file (.xlsx, .xls, or .csv)." });
+        if (!hasText) {
+          setUploadResult({ success: false, message: "Please enter a description or upload an Excel/CSV file." });
+          setUploadProcessing(false); return;
+        }
+        // Build context so AI can match names to existing records
+        const today = new Date().toISOString().split("T")[0];
+        const peopleCtx = people.map(p => `${p.name}`).join(", ") || "none";
+        const clientCtx = clients.map(c => c.name).join(", ") || "none";
+        const systemPrompt = `You are a job scheduling data extractor for TRAQS, a manufacturing job tracker.
+Extract structured job/schedule data from the user's text and return ONLY a JSON object.
+
+Today's date: ${today}
+Work schedule: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd} working hours/day, ${orgSettings.weekends ? "Mon–Sun" : "Mon–Fri"})
+Holidays (skip these dates): ${orgSettings.holidays.join(", ") || "none"}
+When computing end dates: count only working days. A 40-hour op at ${orgSettings.hpd}h/day = ${Math.ceil(40 / orgSettings.hpd)} working days.
+Set durationDays as working days needed = ceil(estHours / ${orgSettings.hpd}).
+Existing team members: ${peopleCtx}
+Existing clients: ${clientCtx}
+
+Return this JSON structure (all fields optional, use empty string if unknown):
+{
+  "jobs": [
+    {
+      "title": "Job title",
+      "jobNumber": "e.g. 401999 or WO-123",
+      "start": "YYYY-MM-DD",
+      "end": "YYYY-MM-DD",
+      "dueDate": "YYYY-MM-DD",
+      "client": "Client name",
+      "assignedTo": "Person name (match existing team members when possible)",
+      "notes": "Any notes or special instructions",
+      "poNumber": "PO number",
+      "panels": [
+        {
+          "title": "Panel or operation group title",
+          "start": "YYYY-MM-DD",
+          "end": "YYYY-MM-DD",
+          "assignedTo": "Person name",
+          "ops": [
+            {
+              "title": "Sub-operation name (Wire, Cut, Layout, etc.)",
+              "assignedTo": "Person name",
+              "start": "YYYY-MM-DD",
+              "end": "YYYY-MM-DD",
+              "durationDays": 1
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "updates": [
+    {
+      "jobNumber": "existing job number to update",
+      "patch": { "dueDate": "YYYY-MM-DD", "poNumber": "", "status": "In Progress", "notes": "" }
+    }
+  ]
+}
+
+Rules:
+- If relative dates given (e.g. "next week", "in 2 weeks"), calculate from today ${today}
+- Match assignedTo to existing team members by name when possible
+- If a job has named sub-tasks like Wire/Cut/Layout, put them as ops under a panel
+- If no panels/ops mentioned, leave panels array empty
+- Return ONLY the JSON object, no explanation text`;
+
+        let aiData;
+        try {
+          const aiRes = await callAI({ system: systemPrompt, messages: [{ role: "user", content: uploadText.trim() }], max_tokens: 4000 }, getToken);
+          const textBlock = (aiRes.content || []).find(b => b.type === "text")?.text || "";
+          const jsonMatch = textBlock.match(/\{[\s\S]*\}/);
+          if (!jsonMatch) throw new Error("AI response did not contain JSON");
+          aiData = JSON.parse(jsonMatch[0]);
+        } catch (e) {
+          setUploadResult({ success: false, message: "Could not parse AI response: " + e.message });
+          setUploadProcessing(false); return;
+        }
+
+        // ── Build objects from AI JSON ─────────────────────────────────────
+        const addDaysAI = (d, n) => { const dt = new Date((d || today) + "T12:00:00"); dt.setDate(dt.getDate() + n); return dt.toISOString().split("T")[0]; };
+        const pendingPeopleAI = {};
+        const pendingClientsAI = {};
+        function resolvePersonAI(raw) {
+          if (!raw) return null;
+          const name = raw.trim();
+          const lo = name.toLowerCase();
+          const exact = people.find(p => p.name.toLowerCase() === lo);
+          if (exact) return exact.id;
+          const partial = people.find(p => p.name.toLowerCase().startsWith(lo) || lo.startsWith(p.name.toLowerCase()));
+          if (partial) return partial.id;
+          if (pendingPeopleAI[lo]) return pendingPeopleAI[lo].id;
+          pendingPeopleAI[lo] = { id: uid(), name, role: "Shop", cap: 8, color: COLORS[Object.keys(pendingPeopleAI).length % COLORS.length], timeOff: [], userRole: "user" };
+          return pendingPeopleAI[lo].id;
+        }
+        function resolveClientAI(name) {
+          if (!name) return null;
+          const lo = name.toLowerCase().trim();
+          const ex = clients.find(c => c.name.toLowerCase() === lo);
+          if (ex) return ex.id;
+          if (!pendingClientsAI[lo]) pendingClientsAI[lo] = { id: "c" + uid(), name: name.trim(), contact: "", email: "", phone: "", color: COLORS[(clients.length + Object.keys(pendingClientsAI).length) % COLORS.length], notes: "" };
+          return pendingClientsAI[lo].id;
+        }
+
+        const importedJobsAI = [];
+        let aiTotalJobs = 0, aiTotalUpdated = 0;
+
+        // Handle updates to existing jobs
+        for (const upd of (aiData.updates || [])) {
+          const existing = tasks.find(t => t.jobNumber === upd.jobNumber || t.title === upd.jobNumber);
+          if (existing && upd.patch) { updTask(existing.id, upd.patch); aiTotalUpdated++; }
+        }
+
+        // Handle new jobs
+        for (const j of (aiData.jobs || [])) {
+          const startD = j.start || today;
+          const endD   = j.end   || addDaysAI(startD, 14);
+          const personId = resolvePersonAI(j.assignedTo);
+          const clientId = resolveClientAI(j.client);
+
+          // Check if job already exists
+          const existing = j.jobNumber ? tasks.find(t => t.jobNumber === j.jobNumber) : null;
+          if (existing) {
+            const patch = {};
+            if (j.dueDate)  patch.dueDate  = j.dueDate;
+            if (j.poNumber) patch.poNumber = j.poNumber;
+            if (j.notes)    patch.notes    = j.notes;
+            if (clientId)   patch.clientId = clientId;
+            if (Object.keys(patch).length) updTask(existing.id, patch);
+            aiTotalUpdated++; continue;
+          }
+
+          const subs = (j.panels || []).map(pan => {
+            const panStart = pan.start || startD;
+            const panEnd   = pan.end   || addDaysAI(panStart, 7);
+            const panPerson = resolvePersonAI(pan.assignedTo) || personId;
+            const ops = (pan.ops || []).map(op => {
+              const opStart = op.start || panStart;
+              const opEnd   = op.end   || addDaysAI(opStart, op.durationDays || 1);
+              const opPerson = resolvePersonAI(op.assignedTo) || panPerson;
+              return { id: uid(), title: op.title || "Operation", start: opStart, end: opEnd,
+                pri: "Medium", status: "Not Started", team: opPerson ? [opPerson] : [],
+                hpd: 0, notes: "", deps: [], locked: false, subs: [] };
+            });
+            return { id: uid(), title: pan.title || "Panel", start: panStart, end: panEnd,
+              pri: "Medium", status: "Not Started",
+              team: panPerson ? [panPerson] : [],
+              hpd: 0, notes: "", deps: [], subs: ops };
+          });
+
+          const job = {
+            id: uid(), title: j.title || j.jobNumber || "Imported Job",
+            jobNumber: j.jobNumber || "", start: startD, end: endD,
+            dueDate: j.dueDate || "", pri: "Medium", status: "Not Started",
+            team: personId ? [personId] : (subs[0]?.team || []),
+            color: "#3b82f6", hpd: 0, notes: j.notes || "",
+            clientId: clientId || null, poNumber: j.poNumber || "",
+            deps: [], subs,
+          };
+          importedJobsAI.push(job);
+          aiTotalJobs++;
+        }
+
+        const newPeopleListAI  = Object.values(pendingPeopleAI);
+        const newClientsListAI = Object.values(pendingClientsAI);
+        if (newPeopleListAI.length)  setPeople(prev  => [...prev, ...newPeopleListAI]);
+        if (newClientsListAI.length) setClients(prev => [...prev, ...newClientsListAI]);
+        if (importedJobsAI.length)   setTasks(prev   => [...prev, ...importedJobsAI]);
+
+        if (aiTotalJobs === 0 && aiTotalUpdated === 0) {
+          setUploadResult({ success: false, message: "Could not extract any jobs from the description. Try being more specific (e.g. include job name, due date, assigned person)." });
+        } else {
+          const parts = [];
+          if (aiTotalJobs > 0)    parts.push(`Imported ${aiTotalJobs} job${aiTotalJobs !== 1 ? "s" : ""}`);
+          if (aiTotalUpdated > 0) parts.push(`Updated ${aiTotalUpdated} existing`);
+          if (newPeopleListAI.length > 0) parts.push(`Added ${newPeopleListAI.length} team member${newPeopleListAI.length !== 1 ? "s" : ""}`);
+          if (newClientsListAI.length > 0) parts.push(`Added ${newClientsListAI.length} client${newClientsListAI.length !== 1 ? "s" : ""}`);
+          setUploadResult({ success: true, message: parts.join(" · ") + "." });
+          setUploadText("");
+          setUploadFiles([]);
+        }
         setUploadProcessing(false); return;
       }
 
@@ -837,13 +1019,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
             if (!mainId) continue;
 
             const startRaw = parseDate(getV(row, C.startDate)) || today;
-            const endRaw   = parseDate(getV(row, C.endDate))   || addDays(startRaw, 14);
+            const hpdRaw   = C.hpd !== undefined ? (parseFloat(getV(row, C.hpd)) || 0) : 0;
+            const durationBD = hpdRaw > 0 ? Math.max(1, Math.ceil(hpdRaw / orgSettings.hpd)) - 1 : 0;
+            const endRaw   = parseDate(getV(row, C.endDate))   || (hpdRaw > 0 ? sAddBD(startRaw, durationBD) : addDays(startRaw, 14));
             const dueRaw   = parseDate(getV(row, C.dueDate))   || ""; // details only
             const personId = resolvePerson(getV(row, C.assignedTo));
             const clientId = resolveClient(getV(row, C.client));
             const notes    = getV(row, C.notes);
             const poNum    = getV(row, C.poNumber);
-            const hpdRaw   = C.hpd !== undefined ? (parseFloat(getV(row, C.hpd)) || 0) : 0;
 
             // ── Detect row type ────────────────────────────────────────────
             let rowType = null;
@@ -1103,6 +1286,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [engQueueOpen, setEngQueueOpen] = useState(true);
   const [personModal, setPersonModal] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [prefOpen, setPrefOpen] = useState(false);
   const [clientsSettingsOpen, setClientsSettingsOpen] = useState(false);
   const [usersOpen, setUsersOpen] = useState(false);
   const [settingsUser, setSettingsUser] = useState(null);
@@ -1181,8 +1365,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [orgSettings, setOrgSettings] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; return { hpd: 8, weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], ...s }; }
-    catch { return { hpd: 8, weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [] }; }
+    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [] }; const merged = { ...base, ...s }; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
+    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [] }; }
   });
   const [roleInput, setRoleInput] = useState("");
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
@@ -1212,6 +1396,13 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [rowDragOverId, setRowDragOverId] = useState(null);
   const [conditionsOpen, setConditionsOpen] = useState(false);
   const [condWizard, setCondWizard] = useState(null); // null | { step, id, name, triggerField, triggerOp, triggerValue, applyTo, formatBgColor, formatTextColor, formatBold, formatStrike }
+  // Scheduling opts shorthand — respects weekends toggle and holidays
+  const schedOpts = { weekends: orgSettings.weekends, holidays: orgSettings.holidays };
+  const sAddBD  = (ds, n) => addBD(ds, n, schedOpts);
+  const sNextBD = ds      => nextBD(ds, schedOpts);
+  const sDiffBD = (a, b)  => diffBD(a, b, schedOpts);
+  // Duration of an operation in working days given org's hrs/day
+  const opDurBD = op => Math.max(1, Math.ceil((op?.hpd || orgSettings.hpd) / orgSettings.hpd));
   // Job hours/progress helpers — used by both renderTasks and the export modal
   const _opHrs = (op) => Math.round((op.hpd || 7.5) * (diffBD(op.start, op.end) + 1) * 10) / 10;
   const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
@@ -1460,7 +1651,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return () => ro.disconnect();
   });
 
-  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setFilterOpen(false); setSoDropPanelId(null); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
+  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
 
   const allItems = useMemo(() => { let r = []; const tc = t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.color : T.accent; }; tasks.forEach(t => { const c = tc(t); r.push({ ...t, color: c, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { r.push({ ...s, color: tc(s) || c, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: tc(op) || tc(s) || c, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks, people]);
@@ -1533,8 +1724,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       if (!check.personId || !check.start || !check.end) continue;
       const person = people.find(x => x.id === check.personId);
       if (!person) continue;
-      const cap = person.cap || 8;
-      const newHpd = (check.hpd || 7.5) / Math.max(1, check.teamLength || 1);
+      const cap = person.cap || orgSettings.hpd;
+      const checkTotalH = check.hpd || orgSettings.hpd;
+      const opSpanBD = Math.max(1, diffBD(check.start, check.end) + 1, Math.ceil(checkTotalH / cap));
+      const newHpd = (checkTotalH / opSpanBD) / Math.max(1, check.teamLength || 1);
       let d = check.start;
       while (d <= check.end) {
         if (!isOff(check.personId, d)) {
@@ -1544,8 +1737,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
               for (const op of (panel.subs || [])) {
                 if (op.id === check.excludeOpId || op.status === "Finished") continue;
                 if (!(op.team || []).includes(check.personId)) continue;
-                if (d >= op.start && d <= op.end)
-                  existingH += (op.hpd || 7.5) / Math.max(1, op.team.length);
+                if (d >= op.start && d <= op.end) {
+                  const opTotalH = op.hpd || orgSettings.hpd;
+                  const existingSpanBD = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opTotalH / cap));
+                  existingH += (opTotalH / existingSpanBD) / Math.max(1, op.team.length);
+                }
               }
             }
           }
@@ -2107,7 +2303,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const peopleCtx = people.map(p => {
       const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished" && t.end >= todayStr);
       const todayH = bookedHrs(p.id, todayStr);
-      return `${p.name} [person_id:${p.id}] (${p.role || "—"}, ${p.cap || 8}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
+      return `${p.name} [person_id:${p.id}] (${p.role || "—"}, ${p.cap || orgSettings.hpd}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
     }).join("\n");
     const jobsCtx = tasks.map(t => {
       const team = (t.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
@@ -2122,6 +2318,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       return `Job "${t.title}" [job_id:${t.id}]${t.jobNumber ? ` (#${t.jobNumber})` : ""}${client ? ` [client:${client}]` : ""}: status=${t.status}, priority=${t.pri || "Medium"}, dates=${t.start}–${t.end}${t.dueDate ? `, due:${t.dueDate}` : ""}${team ? `, team: ${team}` : ""}${panels.length > 0 ? `\n${panels.join("\n")}` : ""}`;
     }).join("\n\n");
     return `You are TRAQS AI — a full-featured project management assistant. Today is ${todayStr}.
+Working hours: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd}h/day, ${orgSettings.weekends ? "weekends on" : "Mon–Fri only"}, holidays: ${orgSettings.holidays.join(", ") || "none"}).
 
 You have full control. You can:
 - Create, update, or delete jobs (status, priority, dates, job number, notes, due date)
@@ -2298,12 +2495,6 @@ ${jobsCtx || "No jobs found."}`;
         opsToCheck.push({ personId: sub.team[0], start: sub.start, end: sub.end, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id, hpd: sub.hpd, teamLength: (sub.team || []).length });
       }
     });
-    // Exclude all ops from the job being edited
-    const editJobOpIds = new Set();
-    if (ed.id) {
-      const existingJob = tasks.find(j => j.id === ed.id);
-      if (existingJob) (existingJob.subs || []).forEach(p => (p.subs || []).forEach(op => editJobOpIds.add(op.id)));
-    }
     const filteredTasks = ed.id ? tasks.map(j => j.id === ed.id ? { ...j, subs: [] } : j) : tasks;
     const conflicts = checkOverlapsPure(filteredTasks, opsToCheck);
     if (conflicts.length > 0) { showOverlapIfAny(conflicts); return; }
@@ -3209,7 +3400,7 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
-          {can("editJobs") && !jobSelectMode && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
+          {can("editJobs") && !jobSelectMode && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
 
@@ -4794,7 +4985,8 @@ ${jobsCtx || "No jobs found."}`;
               const e = op.end > tEnd ? tEnd : op.end;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = (() => { const p0 = (op.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
-              bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+              const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
+              bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
             // Panel with no sub-ops: render the panel itself so it appears on the schedule
             if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
@@ -5043,7 +5235,7 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>}
-          {can("editJobs") && <><button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ background: `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`, border: `1px solid ${T.accent}55`, borderRadius: T.radiusSm, padding: "10px 22px", cursor: "pointer", display: "flex", alignItems: "center", fontFamily: T.font, fontSize: 15, fontWeight: 800, color: T.accent, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "all 0.2s", letterSpacing: "0.04em" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}35, ${T.accent}1a)`; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}0d)`; }}>FAST TRAQS</button><Btn onClick={() => openNew()} style={{ padding: "10px 22px", fontSize: 15 }}>+ New Job</Btn></>}
+          {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
 
@@ -5972,9 +6164,6 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
           <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
         </div>
-        {can("editJobs") && <button onClick={() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: T.accent + "18", border: `1px solid ${T.accent}66`, borderRadius: 10, cursor: "pointer", flexShrink: 0, animation: "glow-pulse 2.8s ease-in-out infinite" }} title="Fast TRAQS">
-          <svg width="17" height="17" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
-        </button>}
         <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? T.accent + "15" : T.bg, border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{unreadMessages.length > 9 ? "9+" : unreadMessages.length}</span>}
@@ -6038,10 +6227,36 @@ ${jobsCtx || "No jobs found."}`;
       {/* Mobile Settings Overlay */}
       {settingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
-          <button onClick={() => setSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
-          <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Settings</span>
+          <button onClick={() => prefOpen ? setPrefOpen(false) : setSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
+          <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>{prefOpen ? "Preferences" : "Settings"}</span>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
+          {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "15px 16px", marginBottom: 14, borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, fontFamily: T.font, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: T.accent + "22", border: `1px solid ${T.accent}55`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
+            <div style={{ flex: 1, textAlign: "left" }}>
+              <div style={{ fontSize: 15, fontWeight: 800, color: T.accent, letterSpacing: "0.03em" }}>Fast TRAQS</div>
+              <div style={{ fontSize: 11, color: T.textSec, marginTop: 1 }}>Import jobs from files or describe by text</div>
+            </div>
+            <span style={{ fontSize: 18, color: T.accent }}>⚡</span>
+          </button>}
+          {prefOpen ? <>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10, paddingLeft: 4 }}>Preferences</div>
+            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+              <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Scheduling</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Hours/day, weekends &amp; holidays</div></div>
+              <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+            </button>
+            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+              <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Roles</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{orgSettings.roles.length} role{orgSettings.roles.length !== 1 ? "s" : ""} defined</div></div>
+              <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+            </button>
+            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+              <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Sign Off Preferences</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div></div>
+              <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+            </button>
+          </> : <>
           <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.accent }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg></span>
             <div style={{ flex: 1 }}>
@@ -6059,34 +6274,18 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
-          <button onClick={() => { setSettingsOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+          <button onClick={() => setPrefOpen(true)} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Scheduling</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Hours/day, weekends & holidays</div>
-            </div>
-            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-          </button>
-          <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Roles</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{orgSettings.roles.length} role{orgSettings.roles.length !== 1 ? "s" : ""} defined</div>
-            </div>
-            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-          </button>
-          <button onClick={() => { setSettingsOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Sign Off Preferences</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Preferences</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Scheduling, Roles &amp; Sign Off</div>
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
           {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Users</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>User Permissions</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Manage permissions & access</div>
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
@@ -6095,6 +6294,7 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.danger }}>Log Out</div>
           </button>
+          </>}
         </div>
       </div>}
       {/* Mobile Notifications Dropdown */}
@@ -6440,30 +6640,47 @@ ${jobsCtx || "No jobs found."}`;
         setAiLoading(true);
         setAiSuggestion(null);
         setTimeout(() => {
-          const rawOps = (ed.subs || []).filter(o => o.title?.trim()).flatMap(o => Array.from({ length: Math.max(1, parseInt(o.qty) || 1) }, () => ({ title: o.title, durationBD: 1 })));
+          // Use the first panel's sub-ops as the template (Cut/Wire/Layout order).
+          // Fall back to ed.subs directly if no sub-ops exist yet (template view).
+          const firstPanelWithSubs = (ed.subs || []).find(s => (s.subs || []).length > 0);
+          const rawOps = firstPanelWithSubs
+            ? (firstPanelWithSubs.subs || []).filter(o => o.title?.trim()).map(o => ({ title: o.title, durationBD: opDurBD(o) }))
+            : (ed.subs || []).filter(o => o.title?.trim()).flatMap(o =>
+                Array.from({ length: Math.max(1, parseInt(o.qty) || 1) }, () => ({ title: o.title, durationBD: opDurBD(o) }))
+              );
+          // Actual number of panels to schedule
+          const numPanels = firstPanelWithSubs ? Math.max(1, (ed.subs || []).length) : 1;
           const opsPerPanel = Math.max(rawOps.length, 1);
           const _clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
           const crewForOp = (opTitle) => people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
             .filter(p => canAssignPerson(p, opTitle, ed.title, ed.jobNumber || "", _clientName));
           const crew = people.filter(p => p.userRole === "user" && !p.noAutoSchedule);
-          const numPanels = 1; // all ops scheduled in one sequential pass
           const hasDueDate = ed.dueDate && ed.dueDate > TD;
-          // Per-batch business days (how long each panel takes to complete)
-          const batchBD = Math.max(1, opsPerPanel); // 1 BD per op
+          // Business days to complete ONE panel sequentially (e.g. Cut 1d + Wire 5d + Layout 2d = 8d)
+          const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
 
-          // Helper: check if a person is free for a date range
+          // Capacity-aware free check: person must have enough daily capacity on every day in the range
           const isPersonFree = (pid, checkStart, checkEnd) => {
-            for (const job of tasks) {
-              if (ed.id && job.id === ed.id) continue;
-              for (const panel of (job.subs || [])) {
-                for (const op of (panel.subs || [])) {
-                  if (op.team.includes(pid) && op.status !== "Finished" && op.start <= checkEnd && op.end >= checkStart) return false;
+            const pp = people.find(x => x.id === pid);
+            const cap = (pp?.cap) || orgSettings.hpd;
+            if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= checkEnd && to.end >= checkStart) return false; }
+            let d = checkStart;
+            while (d <= checkEnd) {
+              let dayH = 0;
+              for (const job of tasks) {
+                if (ed.id && job.id === ed.id) continue;
+                for (const panel of (job.subs || [])) {
+                  for (const op of (panel.subs || [])) {
+                    if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
+                    if (!op.start || !op.end || op.start > d || op.end < d) continue;
+                    const opH = op.hpd || orgSettings.hpd;
+                    const opSpan = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opH / cap));
+                    dayH += opH / opSpan / Math.max(1, (op.team || []).length);
+                  }
                 }
               }
-            }
-            const person = people.find(x => x.id === pid);
-            if (person) for (const to of (person.timeOff || [])) {
-              if (to.start <= checkEnd && to.end >= checkStart) return false;
+              if (dayH >= cap) return false;
+              d = sAddBD(d, 1);
             }
             return true;
           };
@@ -6473,46 +6690,38 @@ ${jobsCtx || "No jobs found."}`;
             const results = [];
             const maxScan = 200;
             for (let attempt = 0; attempt < maxScan && results.length < 3; attempt++) {
-              const wStart = addBD(nextBD(TD), attempt);
+              const wStart = sAddBD(sNextBD(TD), attempt);
 
               // Simulate scheduling all panels in batches from wStart
-              let bStart = wStart;
-              let panelsRemaining = numPanels;
-              let totalBatches = 0;
-              let firstBatchPanels = 0;
+              // Direct pipeline estimate:
+              // For each op phase: days needed = ceil(numPanels / crewAvailable) * opDuration
+              // Phases run sequentially in the worst case, giving a reliable upper-bound total.
+              let totalBDCalc = 0;
               let failed = false;
-
-              while (panelsRemaining > 0) {
-                const bEnd = addBD(bStart, batchBD - 1);
-                // Per-op filtering: capacity = min free crew across all ops
-                const panelsThisBatch = Math.max(Math.min(...rawOps.map(o =>
-                  crewForOp(o.title).filter(p => isPersonFree(p.id, bStart, bEnd)).length
-                )), 0);
-
-                if (panelsThisBatch === 0) { failed = true; break; }
-
-                const scheduled = Math.min(panelsThisBatch, panelsRemaining);
-                if (totalBatches === 0) firstBatchPanels = scheduled;
-                panelsRemaining -= scheduled;
-                totalBatches++;
-                bStart = addBD(bEnd, 1);
+              let firstPhaseCrew = null;
+              for (const rawOp of rawOps) {
+                const opCrew = crewForOp(rawOp.title).filter(p => isPersonFree(p.id, wStart, wStart));
+                if (opCrew.length === 0) { failed = true; break; }
+                if (!firstPhaseCrew) firstPhaseCrew = opCrew;
+                totalBDCalc += Math.ceil(numPanels / opCrew.length) * rawOp.durationBD;
               }
 
               if (failed) continue;
 
-              const totalEnd = addBD(wStart, (batchBD * totalBatches) - 1);
-              const firstBatchEnd = addBD(wStart, batchBD - 1);
+              const totalEnd = sAddBD(wStart, totalBDCalc - 1);
+              const firstBatchEnd = sAddBD(wStart, batchBD - 1);
               const available = crew.filter(p => isPersonFree(p.id, wStart, firstBatchEnd));
               const busy = crew.filter(p => !isPersonFree(p.id, wStart, firstBatchEnd));
+              const totalBD = totalBDCalc;
+              const panelsAtOnce = firstPhaseCrew ? firstPhaseCrew.length : 1;
 
-              const isDuplicate = results.some(s => Math.abs(diffBD(s.start, wStart)) < 2);
+              const isDuplicate = results.some(s => Math.abs(sDiffBD(s.start, wStart)) < 2);
               if (!isDuplicate) {
                 const meetsDeadline = deadline ? totalEnd <= deadline : true;
                 results.push({
                   start: wStart, end: totalEnd, available, busy, meetsDeadline,
-                  businessDays: batchBD, numBatches: totalBatches, panelsAtOnce: firstBatchPanels,
-                  totalBD: batchBD * totalBatches,
-                  staggered: totalBatches > 1
+                  businessDays: batchBD, panelsAtOnce,
+                  totalBD, staggered: numPanels > panelsAtOnce
                 });
               }
             }
@@ -6649,19 +6858,30 @@ ${jobsCtx || "No jobs found."}`;
                     const _jobClientName = (clients.find(c => c.id === p.clientId) || {}).name || "";
                     const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
 
-                    // Check against existing saved jobs
-                    const isPersonFreeGlobal = (pid, s, eDate) => {
-                      for (const job of tasks) {
-                        if (ed.id && job.id === ed.id) continue;
-                        for (const pnl of (job.subs || [])) {
-                          if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= eDate && pnl.end >= s) return false;
-                          for (const op of (pnl.subs || [])) {
-                            if ((op.team || []).includes(pid) && op.status !== "Finished" && op.start && op.end && op.start <= eDate && op.end >= s) return false;
+                    // Capacity-aware availability check against existing saved jobs.
+                    // Returns false if adding newDailyRate h/day on any day s..eDate would exceed the person's cap.
+                    const isPersonFreeGlobal = (pid, s, eDate, newDailyRate) => {
+                      const pp = people.find(x => x.id === pid);
+                      const cap = (pp?.cap) || orgSettings.hpd;
+                      if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
+                      let d = s;
+                      while (d <= eDate) {
+                        let dayH = newDailyRate;
+                        for (const job of tasks) {
+                          if (ed.id && job.id === ed.id) continue;
+                          for (const pnl of (job.subs || [])) {
+                            for (const op of (pnl.subs || [])) {
+                              if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
+                              if (!op.start || !op.end || op.start > d || op.end < d) continue;
+                              const opH = op.hpd || orgSettings.hpd;
+                              const opSpan = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opH / cap));
+                              dayH += opH / opSpan / Math.max(1, (op.team || []).length);
+                            }
                           }
                         }
+                        if (dayH > cap) return false;
+                        d = sAddBD(d, 1);
                       }
-                      const pp = people.find(x => x.id === pid);
-                      if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
                       return true;
                     };
 
@@ -6681,56 +6901,114 @@ ${jobsCtx || "No jobs found."}`;
                     // Per-person cursor: tracks what date each person is next free
                     const personCursors = {};
                     allCrew.forEach(pp => { personCursors[pp.id] = slot.start; });
-                    // In-session schedule to avoid double-booking within this batch
-                    const inSession = []; // { pid, start, end }
-                    const isAvail = (pid, s, eDate) => {
-                      if (!isPersonFreeGlobal(pid, s, eDate)) return false;
-                      return !inSession.some(a => a.pid === pid && a.start <= eDate && a.end >= s);
+                    // In-session schedule: tracks ops placed so far in this scheduling pass (includes hpd for capacity math)
+                    const inSession = []; // { pid, start, end, hpd }
+                    const isAvail = (pid, s, eDate, totalHours, durBD) => {
+                      const pp = people.find(x => x.id === pid);
+                      const cap = (pp?.cap) || orgSettings.hpd;
+                      const newDailyRate = totalHours / Math.max(1, durBD);
+                      if (!isPersonFreeGlobal(pid, s, eDate, newDailyRate)) return false;
+                      // Also check capacity against already-placed ops in this scheduling pass
+                      let d = s;
+                      while (d <= eDate) {
+                        let sessH = newDailyRate;
+                        for (const sess of inSession) {
+                          if (sess.pid !== pid || sess.start > d || sess.end < d) continue;
+                          const sessSpan = Math.max(1, diffBD(sess.start, sess.end) + 1);
+                          sessH += (sess.hpd || orgSettings.hpd) / sessSpan;
+                        }
+                        if (sessH > cap) return false;
+                        d = sAddBD(d, 1);
+                      }
+                      return true;
                     };
 
-                    // Pick the earliest-available eligible person for a given slot
-                    const pickPerson = (opTitle) => {
+                    // Pick the earliest-available eligible person at or after minStart (capacity-aware)
+                    const pickPerson = (op, minStart = null) => {
+                      const opTitle = typeof op === "string" ? op : op.title;
+                      const durBD = typeof op === "string" ? 1 : opDurBD(op);
+                      const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
                       const eligible = allCrew
                         .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
                         .sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
                       for (const candidate of eligible) {
-                        const tryStart = personCursors[candidate.id] || slot.start;
-                        const tryEnd = addBD(tryStart, 0);
-                        if (isAvail(candidate.id, tryStart, tryEnd)) return { person: candidate, start: tryStart, end: tryEnd };
+                        // Respect both the person's own cursor and the panel's sequential cursor
+                        let tryStart = personCursors[candidate.id] || slot.start;
+                        if (minStart && tryStart < minStart) tryStart = minStart;
+                        // Scan forward up to 200 days to find a slot with enough capacity
+                        for (let guard = 0; guard < 200; guard++) {
+                          const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
+                          if (isAvail(candidate.id, tryStart, tryEnd, totalHours, durBD)) return { person: candidate, start: tryStart, end: tryEnd };
+                          tryStart = sAddBD(tryStart, 1);
+                        }
                       }
-                      return { person: null, start: slot.start, end: addBD(slot.start, 0) };
+                      const fallback = minStart || slot.start;
+                      return { person: null, start: fallback, end: sAddBD(fallback, 0) };
                     };
 
                     let latestEnd = slot.start;
 
-                    const newSubs = expandedOps.map(op => {
-                      const hasSubs = (op.subs || []).length > 0;
+                    // Priority-queue scheduler: process all ops across all panels sorted by
+                    // earliest possible start. When a person finishes any op, they immediately
+                    // pick up the next ready op from ANY panel — no one sits idle if work is available.
+                    // Intra-panel order (Cut → Wire → Layout) is enforced via dependency tracking.
 
-                      if (hasSubs) {
-                        // Each sub-op gets its own person assigned independently
-                        const newSubOps = op.subs.map(sub => {
-                          const { person, start: ss, end: se } = pickPerson(op.title);
-                          if (person) {
-                            inSession.push({ pid: person.id, start: ss, end: se });
-                            personCursors[person.id] = addBD(se, 1);
-                          }
-                          if (se > latestEnd) latestEnd = se;
-                          return { ...sub, start: ss, end: se, team: person ? [person.id] : (sub.team || []) };
-                        });
-                        const opStart = newSubOps[0]?.start || slot.start;
-                        const opEnd = newSubOps[newSubOps.length - 1]?.end || slot.start;
-                        const leadId = newSubOps[0]?.team?.[0] || null;
-                        return { ...op, start: opStart, end: opEnd, team: leadId ? [leadId] : [], subs: newSubOps };
-                      }
+                    // Build mutable result structures
+                    const resultSubs = expandedOps.map(op => ({
+                      ...op,
+                      placedSubs: (op.subs || []).map(sub => ({ ...sub, _placed: false, start: null, end: null, team: sub.team || [] })),
+                    }));
 
-                      // No sub-ops: assign the panel itself to one person
-                      const { person: assignedPerson, start: opStart, end: opEnd } = pickPerson(op.title);
-                      if (assignedPerson) {
-                        inSession.push({ pid: assignedPerson.id, start: opStart, end: opEnd });
-                        personCursors[assignedPerson.id] = addBD(opEnd, 1);
+                    // Flat panels with no sub-ops — assign immediately, one person each
+                    const flatPanelResults = [];
+                    resultSubs.forEach((op, pi) => {
+                      if ((op.subs || []).length === 0) {
+                        const { person: ap, start: opStart, end: opEnd } = pickPerson(op, slot.start);
+                        if (ap) {
+                          inSession.push({ pid: ap.id, start: opStart, end: opEnd, hpd: op.hpd || orgSettings.hpd });
+                          personCursors[ap.id] = sAddBD(opEnd, 1);
+                        }
+                        if (opEnd > latestEnd) latestEnd = opEnd;
+                        flatPanelResults[pi] = { ...op, start: opStart, end: opEnd, team: ap ? [ap.id] : (op.team || []), subs: [] };
                       }
-                      if (opEnd > latestEnd) latestEnd = opEnd;
-                      return { ...op, start: opStart, end: opEnd, team: assignedPerson ? [assignedPerson.id] : (op.team || []), subs: [] };
+                    });
+
+                    // Seed the queue with the first op of every panel that has sub-ops
+                    // Each entry: { panelIdx, opIdx, earliestStart }
+                    const opQueue = [];
+                    resultSubs.forEach((op, pi) => {
+                      if ((op.subs || []).length > 0) {
+                        opQueue.push({ panelIdx: pi, opIdx: 0, earliestStart: slot.start });
+                      }
+                    });
+
+                    // Process until queue is empty
+                    for (let safety = 0; safety < 10000 && opQueue.length > 0; safety++) {
+                      // Sort by earliestStart so we always schedule the soonest-ready op first
+                      opQueue.sort((a, b) => a.earliestStart.localeCompare(b.earliestStart));
+                      const { panelIdx, opIdx, earliestStart } = opQueue.shift();
+                      const sub = expandedOps[panelIdx].subs[opIdx];
+                      const { person, start: ss, end: se } = pickPerson(sub, earliestStart);
+                      resultSubs[panelIdx].placedSubs[opIdx] = { ...sub, _placed: true, start: ss, end: se, team: person ? [person.id] : (sub.team || []) };
+                      if (person) {
+                        inSession.push({ pid: person.id, start: ss, end: se, hpd: sub.hpd || orgSettings.hpd });
+                        personCursors[person.id] = sAddBD(se, 1);
+                      }
+                      if (se > latestEnd) latestEnd = se;
+                      // Enqueue next op in this panel (Wire after Cut, Layout after Wire, etc.)
+                      const nextOpIdx = opIdx + 1;
+                      if (nextOpIdx < (expandedOps[panelIdx].subs || []).length) {
+                        opQueue.push({ panelIdx, opIdx: nextOpIdx, earliestStart: sAddBD(se, 1) });
+                      }
+                    }
+
+                    // Rebuild newSubs from results
+                    const newSubs = resultSubs.map((op, pi) => {
+                      if (flatPanelResults[pi]) return flatPanelResults[pi];
+                      const placed = op.placedSubs;
+                      const opStart = placed[0]?.start || slot.start;
+                      const opEnd = placed[placed.length - 1]?.end || slot.start;
+                      return { ...op, start: opStart, end: opEnd, team: placed[0]?.team?.[0] ? [placed[0].team[0]] : [], subs: placed.map(({ _placed, ...rest }) => rest) };
                     });
 
                     updated.subs = newSubs;
@@ -6804,7 +7082,7 @@ ${jobsCtx || "No jobs found."}`;
                       ? <div style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.accent, fontSize: 13, fontFamily: T.font, textAlign: "center", fontWeight: 700 }} title="Sum of sub-op hours">{panelHpdSum}</div>
                       : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd ?? 7.5} onChange={e => updatePanel({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
                     }
-                    <span style={{ fontSize: 11, color: hasSubs ? T.accent : T.textDim, whiteSpace: "nowrap", width: 24 }}>h/d</span>
+                    <span style={{ fontSize: 11, color: hasSubs ? T.accent : T.textDim, whiteSpace: "nowrap", width: 24 }} title="Estimated total hours for this operation">hrs</span>
                     <button onClick={() => setEd(p => ({ ...p, subs: (p.subs || []).filter((_, j) => j !== pi) }))} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
                 </div>
@@ -6831,7 +7109,7 @@ ${jobsCtx || "No jobs found."}`;
                       {sub.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
                       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
                         <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd ?? 7.5} onChange={e => updateSub({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
-                        <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", width: 24 }}>h/d</span>
+                        <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", width: 24 }} title="Estimated total hours for this operation">hrs</span>
                         <button onClick={() => updatePanel({ subs: (panel.subs || []).filter((_, j) => j !== si) })} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
                       </div>
                     </div>
@@ -7274,9 +7552,45 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={settingsOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.3s", transform: settingsOpen ? "rotate(90deg)" : "none" }}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </button>
           {settingsOpen && <div onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 32, top: 60, width: 520, maxHeight: "85vh", overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, fontFamily: T.font }}>
-            <div style={{ padding: "12px 16px 8px", borderBottom: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Settings</div>
+            <div style={{ padding: "12px 16px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+              {prefOpen && <button onClick={() => setPrefOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 18, lineHeight: 1, padding: "0 4px 0 0" }}>←</button>}
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>{prefOpen ? "Preferences" : "Settings"}</div>
             </div>
+            {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "11px 16px", background: `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`, border: "none", borderBottom: `1px solid ${T.accent}22`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: T.font, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "22"} onMouseLeave={e => e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`}>
+              <div style={{ width: 28, height: 28, borderRadius: 8, background: T.accent + "22", border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
+              <div style={{ flex: 1, textAlign: "left" }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: T.accent, letterSpacing: "0.03em" }}>Fast TRAQS</div>
+                <div style={{ fontSize: 11, color: T.textSec }}>Import jobs from files or text</div>
+              </div>
+              <span style={{ fontSize: 14, color: T.accent }}>⚡</span>
+            </button>}
+            {prefOpen ? <>
+              {/* ── Preferences sub-panel ── */}
+              <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Scheduling</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>Hours/day, weekends &amp; holidays</div>
+                </div>
+                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+              </button>
+              <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Roles</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{orgSettings.roles.length} role{orgSettings.roles.length !== 1 ? "s" : ""} defined</div>
+                </div>
+                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+              </button>
+              <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Sign Off Preferences</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div>
+                </div>
+                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+              </button>
+            </> : <>
             {/* ── Customization ── */}
             <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
@@ -7296,40 +7610,22 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <span style={{ fontSize: 16, color: T.textDim }}>›</span>
             </button>
-            {/* ── Scheduling ── */}
-            <button onClick={() => { setSettingsOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+            {/* ── Preferences ── */}
+            <button onClick={() => setPrefOpen(true)} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Scheduling</div>
-                <div style={{ fontSize: 11, color: T.textDim }}>Hours/day, weekends & holidays</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Preferences</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Scheduling, Roles &amp; Sign Off</div>
               </div>
               <span style={{ fontSize: 16, color: T.textDim }}>›</span>
             </button>
-            {/* ── Roles ── */}
-            <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Roles</div>
-                <div style={{ fontSize: 11, color: T.textDim }}>{orgSettings.roles.length} role{orgSettings.roles.length !== 1 ? "s" : ""} defined</div>
-              </div>
-              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
-            </button>
-            {/* ── Sign Off Preferences ── */}
-            <button onClick={() => { setSettingsOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Sign Off Preferences</div>
-                <div style={{ fontSize: 11, color: T.textDim }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div>
-              </div>
-              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
-            </button>
-            <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Users</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>User Permissions</div>
                 <div style={{ fontSize: 11, color: T.textDim }}>Manage permissions & access</div>
               </div>
-            </button>
+            </button>}
             <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
             <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = "#ef444411"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
@@ -7338,6 +7634,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ fontSize: 11, color: T.textDim }}>{loggedInUser.name}</div>
               </div>
             </button>
+            </>}
           </div>}
         </div>
       </div>
@@ -7710,16 +8007,29 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={() => setOrgSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
         </div>
         <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
-          {/* Hours per day */}
+          {/* Work hours — Open/Close time pickers */}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Working Hours</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ fontSize: 13, color: T.text, flex: 1 }}>Hours per day</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button onClick={() => setOrgSettings(s => ({ ...s, hpd: Math.max(1, s.hpd - 0.5) }))} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                <span style={{ fontSize: 16, fontWeight: 700, color: T.text, minWidth: 36, textAlign: "center", fontFamily: T.mono }}>{orgSettings.hpd}</span>
-                <button onClick={() => setOrgSettings(s => ({ ...s, hpd: Math.min(24, s.hpd + 0.5) }))} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Work Hours</div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: T.textDim }}>Opens</span>
+                <input type="time" value={orgSettings.workStart || "07:00"} onChange={e => {
+                  const newStart = e.target.value;
+                  const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
+                  const newHpd = Math.max(0.5, parseFloat((parseH(orgSettings.workEnd || "15:00") - parseH(newStart)).toFixed(2)));
+                  setOrgSettings(s => ({ ...s, workStart: newStart, hpd: newHpd }));
+                }} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: T.textDim }}>Closes</span>
+                <input type="time" value={orgSettings.workEnd || "15:00"} onChange={e => {
+                  const newEnd = e.target.value;
+                  const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
+                  const newHpd = Math.max(0.5, parseFloat((parseH(newEnd) - parseH(orgSettings.workStart || "07:00")).toFixed(2)));
+                  setOrgSettings(s => ({ ...s, workEnd: newEnd, hpd: newHpd }));
+                }} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
+              </div>
+              <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>= {orgSettings.hpd} hrs/day</span>
             </div>
           </div>
           {/* Weekends */}
@@ -8076,22 +8386,22 @@ ${jobsCtx || "No jobs found."}`;
       <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 0, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden", position: "relative" }}>
         {/* Header */}
         <div style={{ padding: "24px 28px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.border}` }}>
-          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text }}>Users</h3>
+          <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text }}>User Permissions</h3>
           <button onClick={() => setUsersOpen(false)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
         </div>
         {/* Content */}
         <div style={{ padding: "20px 28px 28px" }}>
           <div>
-            <div style={{ marginBottom: 14, fontSize: 12, color: T.textDim }}>Click a user to manage their permissions. New users have no permissions until explicitly granted.</div>
+            <div style={{ marginBottom: 14, fontSize: 12, color: T.textDim }}>{isAdmin ? "Click a user to manage their permissions. New users have no permissions until explicitly granted." : "Only admins can edit user permissions."}</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {[...people].sort((a, b) => a.name.localeCompare(b.name)).map(person => {
                 const isSelected = settingsUser === person.id;
                 const isAdm = person.userRole === "admin";
                 const permsEnabled = perm => person.adminPerms == null || person.adminPerms[perm] === true;
-                const togglePerm = (key, val) => updPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } });
+                const togglePerm = (key, val) => { if (!isAdmin) return; updPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } }); };
                 return <div key={person.id}>
                   {/* Person row */}
-                  <div onClick={() => setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
+                  <div onClick={() => isAdmin && setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: isAdmin ? "pointer" : "default", transition: "all 0.15s" }}>
                     <div style={{ width: 34, height: 34, borderRadius: 10, background: person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
@@ -8112,7 +8422,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Expanded permissions */}
                   {isSelected && <div style={{ margin: "2px 0 4px", padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
                     {/* Admin toggle */}
-                    <div onClick={() => updPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
+                    <div onClick={() => isAdmin && updPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
                       <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
@@ -8126,7 +8436,7 @@ ${jobsCtx || "No jobs found."}`;
                     {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                       {ADMIN_PERMS.map(({ key, icon, label }) => {
                         const on = permsEnabled(key);
-                        return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, cursor: isAdmin ? "pointer" : "default", transition: "background 0.15s", opacity: isAdmin ? 1 : 0.6 }} onMouseEnter={e => { if (isAdmin) e.currentTarget.style.background = T.accent + "10"; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                           <span style={{ fontSize: 13, width: 18, textAlign: "center", flexShrink: 0 }}>{icon}</span>
                           <span style={{ flex: 1, fontSize: 12, color: on ? T.text : T.textDim, fontWeight: on ? 500 : 400 }}>{label}</span>
                           <div style={{ width: 28, height: 16, borderRadius: 8, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
@@ -8136,7 +8446,7 @@ ${jobsCtx || "No jobs found."}`;
                       })}
                     </div>}
                     {/* Sign-Off Access toggle */}
-                    <div onClick={() => updPerson(person.id, { canSignOff: !person.canSignOff })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canSignOff ? T.accent + "44" : T.border}`, background: person.canSignOff ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
+                    <div onClick={() => isAdmin && updPerson(person.id, { canSignOff: !person.canSignOff })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canSignOff ? T.accent + "44" : T.border}`, background: person.canSignOff ? T.accent + "08" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
                       <span style={{ lineHeight: 0, color: person.canSignOff ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Sign-Off Access</div>
@@ -8147,7 +8457,7 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                     </div>
                     {/* No Auto-Schedule toggle */}
-                    <div onClick={() => updPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
+                    <div onClick={() => isAdmin && updPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
                       <span style={{ lineHeight: 0, color: person.noAutoSchedule ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Exclude from Auto-Scheduling</div>
@@ -8171,12 +8481,12 @@ ${jobsCtx || "No jobs found."}`;
                           {(person.jobTags || []).map((tag, ti) => (
                             <span key={ti} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, background: "#8b5cf615", border: "1px solid #8b5cf633", fontSize: 12, color: "#8b5cf6", fontWeight: 600 }}>
                               {tag}
-                              <button onClick={() => updPerson(person.id, { jobTags: (person.jobTags || []).filter((_, j) => j !== ti) })} style={{ background: "none", border: "none", color: "#8b5cf6", cursor: "pointer", padding: 0, lineHeight: 1, fontSize: 15 }}>×</button>
+                              {isAdmin && <button onClick={() => updPerson(person.id, { jobTags: (person.jobTags || []).filter((_, j) => j !== ti) })} style={{ background: "none", border: "none", color: "#8b5cf6", cursor: "pointer", padding: 0, lineHeight: 1, fontSize: 15 }}>×</button>}
                             </span>
                           ))}
                         </div>
                       )}
-                      <div style={{ display: "flex", gap: 6 }}>
+                      {isAdmin && <div style={{ display: "flex", gap: 6 }}>
                         <input
                           value={tagInputs[person.id] || ""}
                           onChange={e => setTagInputs(p => ({ ...p, [person.id]: e.target.value }))}
@@ -8201,7 +8511,7 @@ ${jobsCtx || "No jobs found."}`;
                         }} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: "1px solid #8b5cf644", background: "#8b5cf610", color: "#8b5cf6", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
                           + Add
                         </button>
-                      </div>
+                      </div>}
                     </div>
                   </div>}
                 </div>;
@@ -8276,7 +8586,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "0.04em" }}>FAST TRAQS</span>
               </div>
-              <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>Drop in your Excel or CSV file — FAST TRAQS detects jobs, panels, and assignments automatically</div>
+              <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>Type a description OR drop in a file — FAST TRAQS detects jobs, panels, and assignments automatically</div>
             </div>
             <button onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>✕</button>
           </div>
@@ -8322,7 +8632,7 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Review imported jobs — column mapping may need adjustment.</span>
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <Btn size="sm" variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
-              <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || uploadFiles.length === 0}>
+              <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || (uploadFiles.length === 0 && !uploadText.trim())}>
                 {uploadProcessing ? "⏳ Processing..." : "⚡ Process"}
               </Btn>
             </div>
