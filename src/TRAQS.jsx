@@ -1,6 +1,6 @@
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment } from "react";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -218,6 +218,13 @@ animStyle.textContent = `
   0%   { opacity: 0; transform: scale(0.90) translateY(-10px); filter: blur(3px); }
   60%  { opacity: 1; transform: scale(1.02) translateY(2px);   filter: blur(0);   }
   100% { opacity: 1; transform: scale(1)    translateY(0);     filter: blur(0);   }
+}
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  20%     { transform: translateX(-8px); }
+  40%     { transform: translateX(8px); }
+  60%     { transform: translateX(-6px); }
+  80%     { transform: translateX(6px); }
 }
 @keyframes slideUp {
   0%   { opacity: 0; transform: translateY(24px) scale(0.96); filter: blur(4px); }
@@ -1281,6 +1288,7 @@ Rules:
   const askInputRef = useRef(null);
   const askBarInputRef = useRef(null);
   const askBarRef = useRef(null);
+  const tsSettingsRef = useRef(null);
   const [modal, setModal] = useState(null);
   const [engBlockError, setEngBlockError] = useState(null);
   const [engQueueOpen, setEngQueueOpen] = useState(true);
@@ -1365,8 +1373,8 @@ Rules:
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [orgSettings, setOrgSettings] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [] }; const merged = { ...base, ...s }; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
-    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [] }; }
+    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
+    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD }; }
   });
   const [roleInput, setRoleInput] = useState("");
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
@@ -1407,7 +1415,51 @@ Rules:
   const _opHrs = (op) => Math.round((op.hpd || 7.5) * (diffBD(op.start, op.end) + 1) * 10) / 10;
   const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
   const _jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + _panelHrs(p), 0) * 10) / 10;
-  const _opPct = (op) => op.status === "Finished" ? 100 : op.status === "In Progress" ? 50 : op.status === "Pending" ? 15 : op.status === "On Hold" ? 25 : 0;
+  const getCurrentPayPeriod = (payDates, today) => {
+    const sorted = [...(Array.isArray(payDates) && payDates.length > 0 ? payDates : [5, 20])]
+      .map(Number).filter(n => n >= 1 && n <= 31).sort((a, b) => a - b);
+    const toDS = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    const clampDay = (y, m, day) => new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate()));
+    const t = new Date(today + "T00:00:00");
+    const y = t.getFullYear(), m = t.getMonth(), d = t.getDate();
+    const idx = sorted.findIndex(pd => pd >= d);
+    let startDate, endDate;
+    if (idx !== -1) {
+      endDate = clampDay(y, m, sorted[idx]);
+      if (idx === 0) {
+        const prevEnd = clampDay(y, m - 1, sorted[sorted.length - 1]);
+        startDate = new Date(prevEnd); startDate.setDate(startDate.getDate() + 1);
+      } else {
+        const prevEnd = clampDay(y, m, sorted[idx - 1]);
+        startDate = new Date(prevEnd); startDate.setDate(startDate.getDate() + 1);
+      }
+    } else {
+      const thisEnd = clampDay(y, m, sorted[sorted.length - 1]);
+      startDate = new Date(thisEnd); startDate.setDate(startDate.getDate() + 1);
+      endDate = clampDay(y, m + 1, sorted[0]);
+    }
+    return { start: toDS(startDate), end: toDS(endDate) };
+  };
+  const getPayPeriodAtOffset = (payDates, today, offset) => {
+    const toDS = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    let period = getCurrentPayPeriod(payDates, today);
+    for (let i = 0; i < Math.abs(offset); i++) {
+      const ref = offset < 0 ? new Date(period.start + "T00:00:00") : new Date(period.end + "T00:00:00");
+      ref.setDate(ref.getDate() + (offset < 0 ? -1 : 1));
+      period = getCurrentPayPeriod(payDates, toDS(ref));
+    }
+    return period;
+  };
+  const _opPct = (op) => {
+    if (op.status === "Finished") return 100;
+    if (op.pendingFinish) return 99;
+    const totalEst = Math.max(1, op.hpd || orgSettings.hpd);
+    const logged = timeclock
+      .filter(e => e.jobRefs?.some(r => r.opId === op.id))
+      .reduce((s, e) => s + (e.hours || 0), 0);
+    if (logged === 0) return op.status === "In Progress" ? 5 : op.status === "On Hold" ? 2 : 0;
+    return Math.min(98, Math.round(logged / totalEst * 100));
+  };
   const _jobPct = (job) => { const ops = (job.subs || []).flatMap(p => p.subs || []); return ops.length ? Math.round(ops.reduce((s, op) => s + _opPct(op), 0) / ops.length) : 0; };
   const condFields = [
     { key: "status", label: "Status", type: "select", options: STATUSES },
@@ -1467,10 +1519,57 @@ Rules:
   const [reminderSending, setReminderSending] = useState(false);
   const [linkingFrom, setLinkingFrom] = useState(null);
   const [clients, setClients] = useState([]);
+  const [timeclock, setTimeclock] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
+
+  // ─── Time Stamp / Kiosk state ─────────────────────────────────────────────
+  const [pinInput, setPinInput] = useState("");
+  const [pinState, setPinState] = useState("closed"); // closed | clockIn_pin | clockIn_jobs | clockOut_pin
+  const [pinPerson, setPinPerson] = useState(null);
+  const [pinError, setPinError] = useState(false);
+  const [pinSelectedOps, setPinSelectedOps] = useState([]);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinSummary, setPinSummary] = useState(null);
+  const [tsElapsed, setTsElapsed] = useState("");
+  const [tsAdminTab, setTsAdminTab] = useState("live");
+  const [tsPeriodDays, setTsPeriodDays] = useState(0);
+  const [tsSettingsOpen, setTsSettingsOpen] = useState(false);
+  const [tsSettingsDraft, setTsSettingsDraft] = useState(null); // local people copy for editing
+  const [tsSettingsSaving, setTsSettingsSaving] = useState(false);
+  const [tsEditEntry, setTsEditEntry] = useState(null); // { id, clockIn, clockOut, personId } | null
+  const [tsCtxMenu, setTsCtxMenu] = useState(null); // { x, y, person } | null
+  const [tsPersonEditModal, setTsPersonEditModal] = useState(null); // { person, draftEntries } | null
+  const [tsExpandedPersons, setTsExpandedPersons] = useState({}); // { [personId]: bool }
+  const [tsPayDateInput, setTsPayDateInput] = useState("");
+
+  // Live timer — update elapsed string when logged-in person is clocked in
+  useEffect(() => {
+    const ci = loggedInUser?.activeClockIn?.clockIn;
+    if (!ci) { setTsElapsed(""); return; }
+    const update = () => {
+      const ms = Date.now() - new Date(ci).getTime();
+      const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+      setTsElapsed(`${h}h ${m}m`);
+    };
+    update();
+    const iv = setInterval(update, 60000);
+    return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedInUser?.activeClockIn?.clockIn]);
+
+  // Admin live refresh every 60s
+  useEffect(() => {
+    if (!isAdmin) return;
+    const iv = setInterval(() => {
+      fetchTimeclock(orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
+    }, 60000);
+    return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   // Load all data from S3 on mount; fall back to seed data if S3 is empty
   useEffect(() => {
+    fetchTimeclock(orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
     Promise.all([fetchTasks(orgCode), fetchPeople(orgCode), fetchClients(orgCode)])
       .then(([t, p, c]) => {
         _setTasks(Array.isArray(t) && t.length > 0 ? t : mkTasks());
@@ -1561,6 +1660,13 @@ Rules:
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [notifOpen]);
+  // Close Time Stamp settings dropdown on outside click
+  useEffect(() => {
+    if (!tsSettingsOpen) return;
+    const h = (e) => { if (tsSettingsRef.current && !tsSettingsRef.current.contains(e.target)) setTsSettingsOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [tsSettingsOpen]);
   // Scroll chat to bottom when thread or view changes, or new message arrives
   useEffect(() => {
     if (view === "messages" && chatBottomRef.current) chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
@@ -5856,6 +5962,883 @@ ${jobsCtx || "No jobs found."}`;
     </div>;
   };
 
+  const renderTimeStamp = () => {
+    if (!loggedInUser) return null;
+
+    // ── Time Stamp Settings modal ─────────────────────────────────────────────
+    const openSettings = () => {
+      setTsSettingsDraft(people.map(p => ({ ...p })));
+      setTsSettingsOpen(true);
+    };
+    const closeSettings = () => { setTsSettingsOpen(false); setTsSettingsDraft(null); };
+    const saveSettings = async () => {
+      if (!tsSettingsDraft) return;
+      setTsSettingsSaving(true);
+      try {
+        await savePeople(tsSettingsDraft, getToken, orgCode);
+        setPeople(tsSettingsDraft);
+      } catch (e) { console.error(e); } finally { setTsSettingsSaving(false); closeSettings(); }
+    };
+    const draftSet = (personId, field, value) => {
+      setTsSettingsDraft(prev => prev.map(p => p.id === personId ? { ...p, [field]: value } : p));
+    };
+
+    const renderSettingsPanel = () => {
+      if (!tsSettingsOpen || !tsSettingsDraft) return null;
+      return (
+        <div className="anim-drop" style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 999, minWidth: 460, maxWidth: "min(560px, 96vw)", maxHeight: "80vh", overflowY: "auto", background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
+          {/* Header row */}
+          <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>Time Stamp Settings</span>
+            <button onClick={closeSettings} style={{ background: "none", border: "none", color: T.textDim, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>✕</button>
+          </div>
+
+          <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 24 }}>
+
+            {/* Pay Period */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Pay Period</div>
+              <div style={{ display: "flex", borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden", marginBottom: 14, width: "fit-content" }}>
+                {[{ v: "setdate", label: "Set Date" }, { v: "biweekly", label: "Bi-Weekly" }].map(opt => (
+                  <button key={opt.v} type="button" onClick={() => setOrgSettings(s => ({ ...s, payMode: opt.v }))}
+                    style={{ padding: "7px 20px", border: "none", background: (orgSettings.payMode || "setdate") === opt.v ? T.accent : T.surface, color: (orgSettings.payMode || "setdate") === opt.v ? "#fff" : T.textDim, fontSize: 13, fontWeight: (orgSettings.payMode || "setdate") === opt.v ? 700 : 500, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}
+                  >{opt.label}</button>
+                ))}
+              </div>
+
+              {(orgSettings.payMode || "setdate") === "setdate" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ fontSize: 12, color: T.textDim }}>Days of the month you get paid (e.g. 5 and 20).</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {(orgSettings.payDates || []).slice().sort((a,b) => a-b).map(day => (
+                      <div key={day} style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 20, background: T.accent + "20", border: `1px solid ${T.accent}50`, fontSize: 13, fontWeight: 600, color: T.accent }}>
+                        {day}{day === 1 ? "st" : day === 2 ? "nd" : day === 3 ? "rd" : "th"}
+                        <button onClick={() => setOrgSettings(s => ({ ...s, payDates: (s.payDates || []).filter(d => d !== day) }))} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", padding: "0 0 0 2px", lineHeight: 1, fontSize: 14 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input type="number" min={1} max={28} placeholder="Day (1–28)" value={tsPayDateInput} onChange={e => setTsPayDateInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") { const v = parseInt(tsPayDateInput, 10); if (v >= 1 && v <= 28 && !(orgSettings.payDates || []).includes(v)) setOrgSettings(s => ({ ...s, payDates: [...(s.payDates || []), v] })); setTsPayDateInput(""); } }}
+                      style={{ width: 110, padding: "6px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }}
+                    />
+                    <button onClick={() => { const v = parseInt(tsPayDateInput, 10); if (v >= 1 && v <= 28 && !(orgSettings.payDates || []).includes(v)) setOrgSettings(s => ({ ...s, payDates: [...(s.payDates || []), v] })); setTsPayDateInput(""); }}
+                      style={{ padding: "6px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Add</button>
+                  </div>
+                  {(orgSettings.payDates || []).length > 0 && (
+                    <div style={{ fontSize: 11, color: T.textDim }}>
+                      {(() => { const pp = getCurrentPayPeriod(orgSettings.payDates, TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {orgSettings.payMode === "biweekly" && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ fontSize: 12, color: T.textDim }}>Set a known period start date — all two-week periods are calculated from it.</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <span style={{ fontSize: 13, color: T.text, flexShrink: 0 }}>Period start</span>
+                    <input type="date" value={orgSettings.payAnchor || TD} onChange={e => setOrgSettings(s => ({ ...s, payAnchor: e.target.value }))}
+                      style={{ colorScheme: T.colorScheme, padding: "6px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>
+                    {(() => { const toMs = d => new Date(d+"T00:00:00").getTime(); const toDS = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; const anchor = orgSettings.payAnchor || TD; const anchorMs = toMs(anchor); const todayMs = toMs(TD); const daysSince = Math.floor((todayMs-anchorMs)/86400000); const off = ((daysSince%14)+14)%14; const start = new Date(todayMs - off*86400000); const end = new Date(start.getTime()+13*86400000); const fmtD = d => new Date(d+"T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}); return `Current period: ${fmtD(toDS(start))} – ${fmtD(toDS(end))}`; })()}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Team */}
+            {isAdmin && (
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Team</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
+                  {["Name","Pay Type","PIN"].map(h => <span key={h} style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</span>)}
+                </div>
+                {tsSettingsDraft.map(p => {
+                  const payType = p.payType || "hourly";
+                  return (
+                    <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                      </div>
+                      <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                        {["hourly","salary"].map(pt => (
+                          <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)}
+                            style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? "#fff" : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}
+                          >{pt}</button>
+                        ))}
+                      </div>
+                      <input type="password" maxLength={4} value={p.pin || ""} onChange={e => { const v = e.target.value.replace(/\D/g,"").slice(0,4); draftSet(p.id, "pin", v); }} placeholder="––––"
+                        style={{ width: "100%", padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.mono, letterSpacing: "0.2em", outline: "none", boxSizing: "border-box" }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 4 }}>
+              <button onClick={closeSettings} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>
+                {tsSettingsSaving ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const isClockedIn = !!loggedInUser.activeClockIn?.clockIn;
+
+    const fmtTime = iso => {
+      if (!iso) return "—";
+      return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+    };
+    const fmtDayHeader = dateStr => {
+      if (!dateStr) return "—";
+      const d = new Date(dateStr + "T00:00:00");
+      const isToday = dateStr === TD;
+      const isYesterday = dateStr === (() => { const y = new Date(TD + "T00:00:00"); y.setDate(y.getDate() - 1); return `${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`; })();
+      const label = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+      return isToday ? `Today · ${label}` : isYesterday ? `Yesterday · ${label}` : label;
+    };
+    const fmtDate = dateStr => {
+      if (!dateStr) return "—";
+      return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    };
+
+    // ── PIN modal helpers ─────────────────────────────────────────────────────
+    // pinState: "closed" | "clockIn_pin" | "clockIn_jobs" | "clockOut_pin"
+
+    const openClockIn = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("clockIn_pin"); };
+    const openClockOut = () => { setPinInput(""); setPinError(false); setPinState("clockOut_pin"); };
+    const closePin = () => { setPinState("closed"); setPinInput(""); setPinError(false); setPinSelectedOps([]); };
+
+    const appendPin = digit => {
+      if (pinInput.length >= 4) return;
+      const next = pinInput + digit;
+      setPinInput(next);
+      if (next.length === 4) {
+        setPinInput("");
+        if (pinState === "clockIn_pin") handleClockInPin(next);
+        else if (pinState === "clockOut_pin") handleClockOutPin(next);
+      }
+    };
+
+    const handleClockInPin = async pin => {
+      setPinLoading(true);
+      try {
+        // Check PIN server-side via identify to validate before showing job selection
+        const res = await fetch("/.netlify/functions/timeclock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+          body: JSON.stringify({ action: "identify", pin }),
+        }).then(r => r.json());
+
+        if (!res.ok || res.personId !== loggedInUser.id) {
+          setPinError(true); setTimeout(() => { setPinError(false); }, 600);
+        } else {
+          setPinPerson({ ...loggedInUser, _pin: pin });
+          const myOps = tasks.flatMap(job =>
+            (job.subs || []).flatMap(panel =>
+              (panel.subs || [])
+                .filter(op => op.team?.includes(loggedInUser.id) && op.start <= TD && op.end >= TD && op.status !== "Finished")
+                .map(op => ({ job, panel, op }))
+            )
+          );
+          if (myOps.length > 0) {
+            setPinState("clockIn_jobs");
+          } else {
+            // No ops — clock in directly with empty jobRefs
+            await doClockIn(pin, []);
+          }
+        }
+      } catch {
+        setPinError(true); setTimeout(() => setPinError(false), 600);
+      } finally { setPinLoading(false); }
+    };
+
+    const doClockIn = async (pin, jobRefs) => {
+      setPinLoading(true);
+      try {
+        const res = await clockInAction({ action: "clockIn", personId: loggedInUser.id, pin, jobRefs }, orgCode);
+        if (res.ok) {
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: { clockIn: res.clockIn, jobRefs } } : p));
+          closePin();
+        } else {
+          alert(res.error || "Clock-in failed");
+        }
+      } catch { alert("Network error"); } finally { setPinLoading(false); }
+    };
+
+    const handleClockOutPin = async pin => {
+      setPinLoading(true);
+      try {
+        const res = await clockOutAction({ action: "clockOut", personId: loggedInUser.id, pin }, orgCode);
+        if (res.ok) {
+          setTimeclock(tc => [...tc, res.entry]);
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: null } : p));
+          closePin();
+        } else {
+          // PIN wrong or not clocked in
+          setPinError(true); setTimeout(() => setPinError(false), 600);
+        }
+      } catch { alert("Network error"); } finally { setPinLoading(false); }
+    };
+
+    // ── Today's ops for loggedInUser ──────────────────────────────────────────
+    const myTodayOps = tasks.flatMap(job =>
+      (job.subs || []).flatMap(panel =>
+        (panel.subs || [])
+          .filter(op => op.team?.includes(loggedInUser.id) && op.start <= TD && op.end >= TD && op.status !== "Finished")
+          .map(op => ({ job, panel, op }))
+      )
+    );
+
+    // ── My time log — last 30 days, grouped by date, newest first ────────────
+    const thirtyDaysAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+    const myEntries = timeclock
+      .filter(e => e.personId === loggedInUser.id && e.date >= thirtyDaysAgo)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
+
+    const byDate = [];
+    myEntries.forEach(e => {
+      const last = byDate[byDate.length - 1];
+      if (last && last.date === e.date) last.entries.push(e);
+      else byDate.push({ date: e.date, entries: [e] });
+    });
+
+    // ── Pay period helpers ────────────────────────────────────────────────────
+    const _payMode = orgSettings.payMode || "setdate";
+    const _payDates = Array.isArray(orgSettings.payDates) && orgSettings.payDates.length > 0 ? orgSettings.payDates : [5, 20];
+    const _payAnchor = orgSettings.payAnchor || TD;
+    const getBiweeklyPeriod = (anchor, today) => {
+      const toMs = d => new Date(d + "T00:00:00").getTime();
+      const toDS = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      const anchorMs = toMs(anchor || today);
+      const todayMs = toMs(today);
+      const daysSince = Math.floor((todayMs - anchorMs) / 86400000);
+      const offset = ((daysSince % 14) + 14) % 14;
+      const start = new Date(todayMs - offset * 86400000);
+      const end = new Date(start.getTime() + 13 * 86400000);
+      return { start: toDS(start), end: toDS(end) };
+    };
+    const getActivePeriod = (today) => _payMode === "biweekly" ? getBiweeklyPeriod(_payAnchor, today) : getCurrentPayPeriod(_payDates, today);
+    const getActivePeriodAtOffset = (today, offset) => {
+      const toDS = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+      let period = getActivePeriod(today);
+      for (let i = 0; i < Math.abs(offset); i++) {
+        const ref = new Date((offset < 0 ? period.start : period.end) + "T00:00:00");
+        ref.setDate(ref.getDate() + (offset < 0 ? -1 : 1));
+        period = getActivePeriod(toDS(ref));
+      }
+      return period;
+    };
+
+    // ── Admin: period data ────────────────────────────────────────────────────
+    const viewPeriod = getActivePeriodAtOffset(TD, tsPeriodDays);
+    const periodEntries = timeclock.filter(e => e.date >= viewPeriod.start && e.date <= viewPeriod.end);
+
+    const pendingFinishOps = tasks.flatMap(job =>
+      (job.subs || []).flatMap(panel =>
+        (panel.subs || []).filter(op => op.pendingFinish).map(op => ({ job, panel, op }))
+      )
+    );
+
+    const exportCSV = () => {
+      const rows = [["Date","Person","Clock In","Clock Out","Hours"]];
+      periodEntries.forEach(e => {
+        const p = people.find(x => x.id === e.personId);
+        rows.push([e.date, p?.name || e.personId, fmtTime(e.clockIn), fmtTime(e.clockOut), (e.hours||0).toFixed(2)]);
+      });
+      const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+      a.download = `timesheets_${viewPeriod.start}_${viewPeriod.end}.csv`; a.click();
+    };
+
+    const adminClockOut = async (personId) => {
+      try {
+        const res = await adminClockOutAction({ personId }, getToken, orgCode);
+        if (res.ok) {
+          setTimeclock(tc => [...tc, res.entry]);
+          setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeClockIn: null } : p));
+        } else { alert(res.error || "Clock-out failed"); }
+      } catch { alert("Network error"); }
+    };
+
+    const saveEditEntry = async () => {
+      if (!tsEditEntry) return;
+      try {
+        const res = await adminEditEntryAction({ entryId: tsEditEntry.id, clockIn: tsEditEntry.clockIn, clockOut: tsEditEntry.clockOut }, getToken, orgCode);
+        if (res.ok) {
+          setTimeclock(tc => tc.map(e => e.id === res.entry.id ? res.entry : e));
+          setTsEditEntry(null);
+        } else { alert(res.error || "Save failed"); }
+      } catch { alert("Network error"); }
+    };
+
+    const approveFinish = (job, panel, op) => {
+      const loggedHours = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
+      const updated = { ...op, status: "Finished", pendingFinish: false, actualHours: Math.round(loggedHours*100)/100 };
+      const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
+      setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    };
+    const rejectFinish = (job, panel, op) => {
+      const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false }) }) });
+      setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    };
+
+    // ── Shared numpad component ───────────────────────────────────────────────
+    const NumKey = ({ d }) => (
+      <button
+        onClick={() => appendPin(String(d))}
+        style={{ width: 76, height: 76, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 26, fontWeight: 500, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" }}
+        onMouseDown={e => e.currentTarget.style.background = T.accent + "25"}
+        onMouseUp={e => e.currentTarget.style.background = T.surface}
+        onMouseLeave={e => e.currentTarget.style.background = T.surface}
+      >{d}</button>
+    );
+
+    const pinModalTitle = pinState === "clockIn_pin" || pinState === "clockIn_jobs" ? "Clock In" : "Clock Out";
+    const pinModalColor = pinState === "clockOut_pin" ? "#ef4444" : T.accent;
+
+    // ── PIN Modal ─────────────────────────────────────────────────────────────
+    const renderPinModal = () => {
+      if (pinState === "closed") return null;
+      return (
+        <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closePin}>
+          <div style={{ background: T.card, borderRadius: 20, padding: 32, width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative" }} onClick={e => e.stopPropagation()}>
+            <button onClick={closePin} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+
+            {/* Title */}
+            <div style={{ textAlign: "center", marginBottom: 24 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: pinModalColor, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>{pinModalTitle}</div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
+            </div>
+
+            {pinState === "clockIn_jobs" ? (
+              /* Job selection step */
+              <div>
+                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14, textAlign: "center" }}>Select what you're working on (optional)</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20, maxHeight: 260, overflowY: "auto" }}>
+                  {myTodayOps.map(({ job, panel, op }) => {
+                    const checked = pinSelectedOps.some(r => r.opId === op.id);
+                    return (
+                      <label key={op.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: checked ? T.accent + "15" : T.surface, borderRadius: T.radiusSm, border: `1.5px solid ${checked ? T.accent : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
+                        <input type="checkbox" checked={checked} onChange={() => setPinSelectedOps(prev => checked ? prev.filter(r => r.opId !== op.id) : [...prev, { jobId: job.id, panelId: panel.id, opId: op.id }])} style={{ width: 16, height: 16, accentColor: T.accent, flexShrink: 0 }} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.title}</div>
+                          <div style={{ fontSize: 11, color: T.textDim }}>{panel.title} · {op.title}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+                <button
+                  onClick={() => doClockIn(pinPerson?._pin, pinSelectedOps)}
+                  disabled={pinLoading}
+                  style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginBottom: 8 }}
+                >
+                  {pinLoading ? "Clocking in…" : "Confirm Clock In"}
+                </button>
+                <button onClick={() => doClockIn(pinPerson?._pin, [])} disabled={pinLoading} style={{ width: "100%", padding: "10px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>
+                  Skip — Clock in without selecting
+                </button>
+              </div>
+            ) : (
+              /* PIN entry step */
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{ animation: pinError ? "shake 0.4s ease" : "none", marginBottom: 24 }}>
+                  <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
+                    {[0,1,2,3].map(i => (
+                      <div key={i} style={{ width: 16, height: 16, borderRadius: 8, background: pinInput.length > i ? pinModalColor : T.border, transition: "background 0.1s" }} />
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 76px)", gap: 10, marginBottom: 16 }}>
+                  {[1,2,3,4,5,6,7,8,9].map(d => <NumKey key={d} d={d} />)}
+                  <div />
+                  <NumKey d={0} />
+                  <button onClick={() => setPinInput(p => p.slice(0, -1))} style={{ width: 76, height: 76, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.textDim, fontSize: 22, cursor: "pointer" }}>⌫</button>
+                </div>
+                {pinLoading && <div style={{ fontSize: 13, color: T.textDim }}>Confirming…</div>}
+                {pinError && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>Incorrect PIN</div>}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    };
+
+    const openPersonEditModal = (person) => {
+      const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+      const entries = timeclock
+        .filter(e => e.personId === person.id && e.date >= thirtyAgo)
+        .sort((a, b) => b.clockIn.localeCompare(a.clockIn))
+        .map(e => ({ ...e })); // shallow clone for draft
+      setTsPersonEditModal({ person, draftEntries: entries, saving: false });
+    };
+
+    const renderPersonEditModal = () => {
+      if (!tsPersonEditModal) return null;
+      const { person, draftEntries, saving } = tsPersonEditModal;
+      const setDraft = (id, field, value) => {
+        setTsPersonEditModal(m => ({
+          ...m,
+          draftEntries: m.draftEntries.map(e => e.id === id ? { ...e, [field]: value } : e),
+        }));
+      };
+      const toLocal = iso => iso ? iso.slice(0, 16) : "";
+      const fromLocal = local => local ? new Date(local).toISOString() : "";
+      const computeHours = (ci, co) => {
+        if (!ci || !co) return 0;
+        return Math.max(0, Math.round(((new Date(co) - new Date(ci)) / 3600000) * 100) / 100);
+      };
+
+      // Group by date for display
+      const byDate = [];
+      draftEntries.forEach(e => {
+        const last = byDate[byDate.length - 1];
+        if (last && last.date === e.date) last.entries.push(e);
+        else byDate.push({ date: e.date, entries: [e] });
+      });
+
+      const saveAll = async () => {
+        setTsPersonEditModal(m => ({ ...m, saving: true }));
+        const original = timeclock.filter(e => e.personId === person.id);
+        const changed = draftEntries.filter(d => {
+          const orig = original.find(o => o.id === d.id);
+          return orig && (orig.clockIn !== d.clockIn || orig.clockOut !== d.clockOut);
+        });
+        try {
+          const results = await Promise.all(
+            changed.map(d => adminEditEntryAction({ entryId: d.id, clockIn: d.clockIn, clockOut: d.clockOut || new Date().toISOString() }, getToken, orgCode))
+          );
+          const updatedEntries = results.filter(r => r.ok).map(r => r.entry);
+          if (updatedEntries.length > 0) {
+            setTimeclock(tc => tc.map(e => { const u = updatedEntries.find(x => x.id === e.id); return u || e; }));
+          }
+          setTsPersonEditModal(null);
+        } catch { alert("Network error"); setTsPersonEditModal(m => ({ ...m, saving: false })); }
+      };
+
+      return (
+        <div style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setTsPersonEditModal(null)}>
+          <div style={{ background: T.card, borderRadius: 16, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out" }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 5, background: person.color || T.accent, flexShrink: 0 }} />
+              <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>{person.name} — Timestamps</span>
+              <span style={{ fontSize: 11, color: T.textDim }}>Last 30 days</span>
+              <button onClick={() => setTsPersonEditModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px", marginLeft: 8 }}>✕</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ maxHeight: "60vh", overflowY: "auto", padding: "16px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+              {draftEntries.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: 24 }}>No entries in the last 30 days.</div>}
+              {byDate.map(({ date, entries }) => (
+                <div key={date}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>{fmtDayHeader(date)}</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {entries.map(e => {
+                      const hrs = computeHours(e.clockIn, e.clockOut);
+                      return (
+                        <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, flexWrap: "wrap", gap: 8 }}>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>In</span>
+                              <input
+                                type="datetime-local"
+                                value={toLocal(e.clockIn)}
+                                onChange={ev => setDraft(e.id, "clockIn", fromLocal(ev.target.value))}
+                                style={{ colorScheme: T.colorScheme, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
+                              />
+                            </div>
+                            <span style={{ color: T.textDim, fontSize: 13, marginTop: 14 }}>→</span>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                              <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>Out</span>
+                              <input
+                                type="datetime-local"
+                                value={toLocal(e.clockOut)}
+                                onChange={ev => setDraft(e.id, "clockOut", fromLocal(ev.target.value))}
+                                style={{ colorScheme: T.colorScheme, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, fontFamily: T.mono, minWidth: 48, textAlign: "right" }}>{hrs.toFixed(2)}h</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={saveAll} disabled={saving} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: saving ? 0.7 : 1 }}>
+                {saving ? "Saving…" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ── My Clock Section (everyone sees this) ─────────────────────────────────
+    const ppNow = getActivePeriod(TD);
+    const myPeriodHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0);
+    const myTodayHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0);
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+        {renderPinModal()}
+        {renderPersonEditModal()}
+
+        {/* ── Settings button + dropdown ── */}
+        <div ref={tsSettingsRef} style={{ display: "flex", justifyContent: "flex-end", position: "relative" }}>
+          <button onClick={openSettings} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: T.radiusSm, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "12" : T.surface, color: tsSettingsOpen ? T.accent : T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { if (!tsSettingsOpen) { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; } }} onMouseLeave={e => { if (!tsSettingsOpen) { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; } }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Time Stamp Settings
+          </button>
+          {renderSettingsPanel()}
+        </div>
+
+        {/* ── Centered clock section — hourly only ── */}
+        {loggedInUser.payType === "salary" ? (
+          <div style={{ textAlign: "center", padding: "32px 0", color: T.textDim, fontSize: 14 }}>
+            Time tracking is not required for salaried employees.
+          </div>
+        ) : null}
+        {loggedInUser.payType !== "salary" && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
+
+          {/* Status indicator */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ width: 9, height: 9, borderRadius: 5, background: isClockedIn ? "#22c55e" : T.border, boxShadow: isClockedIn ? "0 0 8px #22c55e" : "none", transition: "all 0.3s" }} />
+            <span style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{loggedInUser.name}</span>
+            <span style={{ fontSize: 13, color: T.textDim }}>{isClockedIn ? `· clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}` : "· not clocked in"}</span>
+          </div>
+
+          {/* Elapsed timer when clocked in */}
+          {isClockedIn && (
+            <div style={{ fontSize: 44, fontWeight: 700, color: T.accent, fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1 }}>{tsElapsed || "0h 0m"}</div>
+          )}
+
+          {/* Clock In / Clock Out buttons */}
+          <div style={{ display: "flex", gap: 14 }}>
+            <button
+              onClick={openClockIn}
+              disabled={isClockedIn}
+              style={{ padding: "14px 40px", borderRadius: T.radiusSm, border: "none", background: isClockedIn ? T.border : T.accent, color: isClockedIn ? T.textDim : "#fff", fontSize: 15, fontWeight: 700, cursor: isClockedIn ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isClockedIn ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
+            >Clock In</button>
+            <button
+              onClick={openClockOut}
+              disabled={!isClockedIn}
+              style={{ padding: "14px 40px", borderRadius: T.radiusSm, border: `1.5px solid ${!isClockedIn ? T.border : "#ef444460"}`, background: !isClockedIn ? "none" : "#ef444412", color: !isClockedIn ? T.textDim : "#ef4444", fontSize: 15, fontWeight: 700, cursor: !isClockedIn ? "not-allowed" : "pointer", fontFamily: T.font, opacity: !isClockedIn ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
+            >Clock Out</button>
+          </div>
+
+          {!loggedInUser.pin && <div style={{ fontSize: 11, color: T.textDim }}>No PIN set — ask your admin to assign one in Time Stamp Settings</div>}
+
+          {/* Stats row */}
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center", marginTop: 4 }}>
+            <div style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, padding: "16px 28px", textAlign: "center", minWidth: 120 }}>
+              <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Today</div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: T.accent, fontFamily: T.mono, lineHeight: 1 }}>{myTodayHrs.toFixed(1)}</div>
+              <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>hours</div>
+            </div>
+            <div style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, padding: "16px 28px", textAlign: "center", minWidth: 120 }}>
+              <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>This Period</div>
+              <div style={{ fontSize: 30, fontWeight: 700, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{myPeriodHrs.toFixed(1)}</div>
+              <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
+            </div>
+          </div>
+        </div>}
+
+        {/* ── Admin section ── */}
+        {isAdmin && (
+          <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}` }}>
+            {/* Admin tabs */}
+            <div style={{ padding: "0 20px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 2 }}>
+              {[
+                { id: "live", label: "Team Status" },
+                { id: "timesheets", label: "Timesheets" },
+                { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Finish Requests (${pendingFinishOps.length})` : "Finish Requests" },
+              ].map(tab => (
+                <button key={tab.id} onClick={() => setTsAdminTab(tab.id)} style={{ padding: "14px 16px", background: "none", border: "none", borderBottom: `2px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ padding: "20px 24px" }}>
+              {/* Team Status */}
+              {tsAdminTab === "live" && (
+                <div>
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                        {["","Name","Pay Type","Status","Since","Today","Period",""].map(h => (
+                          <th key={h} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {people.filter(p => p.payType !== "salary").map(p => {
+                        const clocked = !!p.activeClockIn?.clockIn;
+                        const ms = clocked ? Date.now() - new Date(p.activeClockIn.clockIn).getTime() : 0;
+                        const eh = Math.floor(ms/3600000), em = Math.floor((ms%3600000)/60000);
+                        const todayH = timeclock.filter(e => e.personId === p.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
+                        const periodH = timeclock.filter(e => e.personId === p.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
+                        const isExpanded = !!tsExpandedPersons[p.id];
+                        const toggleExpand = () => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }));
+
+                        const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+                        const personEntries = timeclock
+                          .filter(e => e.personId === p.id && e.date >= thirtyAgo)
+                          .sort((a, b) => b.clockIn.localeCompare(a.clockIn));
+                        const entryByDate = [];
+                        personEntries.forEach(e => {
+                          const last = entryByDate[entryByDate.length - 1];
+                          if (last && last.date === e.date) last.entries.push(e);
+                          else entryByDate.push({ date: e.date, entries: [e] });
+                        });
+
+                        return (
+                          <Fragment key={p.id}>
+                            <tr onClick={toggleExpand} style={{ borderBottom: isExpanded ? "none" : `1px solid ${T.border}20`, cursor: "pointer", background: isExpanded ? T.accent + "08" : "none" }}>
+                              {/* Chevron */}
+                              <td style={{ padding: "10px 6px 10px 10px", width: 28 }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", display: "block" }}><polyline points="9 18 15 12 9 6"/></svg>
+                              </td>
+                              <td style={{ padding: "10px 10px" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: "10px 10px" }}>
+                                {(() => { const isSalary = p.payType === "salary"; return (
+                                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 8, background: isSalary ? "#6366f118" : "#f59e0b18", color: isSalary ? "#6366f1" : "#f59e0b", border: `1px solid ${isSalary ? "#6366f130" : "#f59e0b30"}` }}>
+                                    {isSalary ? "Salary" : "Hourly"}
+                                  </span>
+                                ); })()}
+                              </td>
+                              <td style={{ padding: "10px 10px" }}>
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}` }}>
+                                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? "#22c55e" : T.textDim }} />
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: clocked ? "#22c55e" : T.textDim }}>{clocked ? "In" : "Out"}</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: "10px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
+                                {clocked ? `${fmtTime(p.activeClockIn.clockIn)} (${eh}h ${em}m)` : "—"}
+                              </td>
+                              <td style={{ padding: "10px 10px", fontSize: 13, fontWeight: 600, color: T.accent, fontFamily: T.mono }}>
+                                {todayH > 0 ? todayH.toFixed(1) + "h" : "—"}
+                              </td>
+                              <td style={{ padding: "10px 10px", fontSize: 13, color: T.text, fontFamily: T.mono }}>
+                                {periodH > 0 ? periodH.toFixed(1) + "h" : "—"}
+                              </td>
+                              <td style={{ padding: "10px 10px" }} onClick={e => e.stopPropagation()}>
+                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                  {clocked && (
+                                    <button onClick={() => adminClockOut(p.id)} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: "1px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                                      Clock Out
+                                    </button>
+                                  )}
+                                  <button onClick={() => openPersonEditModal(p)} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                                    Edit
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                            {isExpanded && (
+                              <tr style={{ borderBottom: `1px solid ${T.border}20` }}>
+                                <td colSpan={8} style={{ padding: "0 16px 14px 40px", background: T.accent + "05" }}>
+                                  {personEntries.length === 0 ? (
+                                    <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>No entries in the last 30 days.</div>
+                                  ) : (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 10 }}>
+                                      {entryByDate.map(({ date, entries: dayEnts }) => {
+                                        const dayTotal = dayEnts.reduce((s, e) => s + (e.hours || 0), 0);
+                                        return (
+                                          <div key={date}>
+                                            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                                              <span>{fmtDayHeader(date)}</span>
+                                              <span style={{ fontFamily: T.mono, color: T.accent }}>{dayTotal.toFixed(2)}h</span>
+                                            </div>
+                                            {dayEnts.map(e => (
+                                              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 10px", background: T.surface, borderRadius: T.radiusXs, marginBottom: 3, fontSize: 12 }}>
+                                                <span style={{ color: T.text, fontFamily: T.mono }}>{fmtTime(e.clockIn)}</span>
+                                                <span style={{ color: T.textDim }}>→</span>
+                                                <span style={{ color: e.clockOut ? T.text : "#f59e0b", fontFamily: T.mono }}>{e.clockOut ? fmtTime(e.clockOut) : "Still in"}</span>
+                                                <span style={{ flex: 1 }} />
+                                                <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours || 0).toFixed(2) + "h" : "—"}</span>
+                                                <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {/* Timesheets */}
+              {tsAdminTab === "timesheets" && (
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+                    <button onClick={() => setTsPeriodDays(d => d - 1)} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer", fontSize: 13 }}>←</button>
+                    <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{fmtDate(viewPeriod.start)} – {fmtDate(viewPeriod.end)}</span>
+                    <button onClick={() => setTsPeriodDays(d => d + 1)} disabled={tsPeriodDays >= 0} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: tsPeriodDays >= 0 ? T.textDim : T.text, cursor: tsPeriodDays >= 0 ? "not-allowed" : "pointer", fontSize: 13 }}>→</button>
+                    <div style={{ flex: 1 }} />
+                    <button onClick={exportCSV} style={{ padding: "6px 14px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}55`, background: T.accent + "15", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Export CSV</button>
+                  </div>
+                  {periodEntries.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>No entries for this period.</div>}
+                  {people.map(person => {
+                    const pEntries = periodEntries.filter(e => e.personId === person.id).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
+                    if (pEntries.length === 0) return null;
+                    // Group by date
+                    const pByDate = [];
+                    pEntries.forEach(e => {
+                      const last = pByDate[pByDate.length - 1];
+                      if (last && last.date === e.date) last.entries.push(e);
+                      else pByDate.push({ date: e.date, entries: [e] });
+                    });
+                    const totalH = pEntries.reduce((s, e) => s + (e.hours||0), 0);
+                    return (
+                      <div key={person.id} style={{ marginBottom: 20, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                        <div style={{ padding: "10px 16px", background: T.card, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                          <div style={{ width: 9, height: 9, borderRadius: 5, background: person.color || T.accent }} />
+                          <span style={{ fontWeight: 700, color: T.text, flex: 1, fontSize: 14 }}>{person.name}</span>
+                          {(() => { const isSalary = person.payType === "salary"; return <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 8, background: isSalary ? "#6366f118" : "#f59e0b18", color: isSalary ? "#6366f1" : "#f59e0b", border: `1px solid ${isSalary ? "#6366f130" : "#f59e0b30"}`, marginRight: 6 }}>{isSalary ? "Salary" : "Hourly"}</span>; })()}
+                          <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{totalH.toFixed(2)} hrs</span>
+                        </div>
+                        {pByDate.map(({ date: d, entries: es }) => {
+                          const dayTot = es.reduce((s, e) => s + (e.hours||0), 0);
+                          return (
+                            <div key={d} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                              <div style={{ padding: "6px 16px", display: "flex", justifyContent: "space-between", background: T.surface + "80" }}>
+                                <span style={{ fontSize: 12, color: T.textDim, fontWeight: 600 }}>{fmtDayHeader(d)}</span>
+                                <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{dayTot.toFixed(2)} hrs</span>
+                              </div>
+                              {es.map((e) => {
+                                const isEditing = tsEditEntry?.id === e.id;
+                                if (isEditing) {
+                                  // Convert ISO to datetime-local value
+                                  const toLocal = iso => iso ? iso.slice(0, 16) : "";
+                                  const fromLocal = local => local ? new Date(local).toISOString() : "";
+                                  return (
+                                    <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 8px 28px", borderTop: `1px solid ${T.border}15`, background: T.accent + "08", flexWrap: "wrap" }}>
+                                      <input type="datetime-local" value={toLocal(tsEditEntry.clockIn)} onChange={ev => setTsEditEntry(x => ({ ...x, clockIn: fromLocal(ev.target.value) }))} style={{ colorScheme: T.colorScheme, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }} />
+                                      <span style={{ color: T.textDim, fontSize: 11 }}>→</span>
+                                      <input type="datetime-local" value={toLocal(tsEditEntry.clockOut)} onChange={ev => setTsEditEntry(x => ({ ...x, clockOut: fromLocal(ev.target.value) }))} style={{ colorScheme: T.colorScheme, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }} />
+                                      <span style={{ flex: 1 }} />
+                                      <button onClick={saveEditEntry} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save</button>
+                                      <button onClick={() => setTsEditEntry(null)} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 16px 7px 28px", borderTop: `1px solid ${T.border}15`, fontSize: 12 }}>
+                                    <span style={{ color: T.text, fontFamily: T.mono }}>{fmtTime(e.clockIn)}</span>
+                                    <span style={{ color: T.textDim }}>→</span>
+                                    <span style={{ color: T.text, fontFamily: T.mono }}>{fmtTime(e.clockOut)}</span>
+                                    <span style={{ flex: 1 }} />
+                                    <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
+                                    <button onClick={() => setTsEditEntry({ id: e.id, clockIn: e.clockIn, clockOut: e.clockOut, personId: e.personId })} style={{ padding: "2px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font, marginLeft: 4 }}>Edit</button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Finish Requests */}
+              {tsAdminTab === "finishRequests" && (
+                <div>
+                  {pendingFinishOps.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>No pending finish requests.</div>}
+                  {pendingFinishOps.map(({ job, panel, op }) => {
+                    const loggedH = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
+                    const lastWorker = [...timeclock].reverse().find(e => e.jobRefs?.some(r => r.opId === op.id));
+                    const worker = lastWorker ? people.find(p => p.id === lastWorker.personId) : null;
+                    return (
+                      <div key={op.id} style={{ padding: "14px 16px", marginBottom: 10, background: T.surface, borderRadius: T.radiusSm, border: "1px solid #f59e0b33", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <div style={{ flex: 1, minWidth: 180 }}>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{job.title}</div>
+                          <div style={{ fontSize: 12, color: T.textDim }}>{panel.title} · {op.title}</div>
+                          {worker && <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{worker.name} · {loggedH.toFixed(1)}h logged</div>}
+                        </div>
+                        <button onClick={() => approveFinish(job, panel, op)} style={{ padding: "6px 16px", borderRadius: T.radiusXs, border: "none", background: "#22c55e", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Approve</button>
+                        <button onClick={() => rejectFinish(job, panel, op)} style={{ padding: "6px 16px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Reject</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Daily time log (last 30 days) ── */}
+        <div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em" }}>Time Log <span style={{ fontWeight: 400, color: T.textDim, textTransform: "none", letterSpacing: 0 }}>· last 30 days</span></div>
+          </div>
+          {byDate.length === 0 && (
+            <div style={{ fontSize: 13, color: T.textDim, padding: "20px 0" }}>No entries in the last 30 days.</div>
+          )}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {byDate.map(({ date, entries }) => {
+              const dayTotal = entries.reduce((s, e) => s + (e.hours||0), 0);
+              return (
+                <div key={date} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
+                  <div style={{ padding: "10px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{fmtDayHeader(date)}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{dayTotal.toFixed(2)} hrs</span>
+                  </div>
+                  <div style={{ padding: "0 16px" }}>
+                    {entries.map((e, i) => (
+                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < entries.length - 1 ? `1px solid ${T.border}` : "none", fontSize: 13 }}>
+                        <div style={{ width: 7, height: 7, borderRadius: 4, background: T.accent, flexShrink: 0 }} />
+                        <span style={{ color: T.text, fontFamily: T.mono, minWidth: 80 }}>{fmtTime(e.clockIn)}</span>
+                        <span style={{ color: T.textDim, fontSize: 11 }}>→</span>
+                        <span style={{ color: e.clockOut ? T.text : "#f59e0b", fontFamily: T.mono, minWidth: 80 }}>
+                          {e.clockOut ? fmtTime(e.clockOut) : "Still in"}
+                        </span>
+                        <span style={{ flex: 1 }} />
+                        <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2) + "h" : "—"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderMobileApp = () => {
     const mobileView = view === "schedule" ? "home" : view;
 
@@ -7847,7 +8830,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto" }}>
-      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "timestamp" && <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}><span style={{ color: T.textDim, fontSize: 15 }}>Time Stamp — coming soon</span></div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
+      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     {/* Team day-view drag ghost */}
     {teamDayGhost && <>
@@ -9288,7 +10271,7 @@ ${jobsCtx || "No jobs found."}`;
             <InputField label="Hours/Day Capacity" value={ed.cap} onChange={v => setEd(p => ({ ...p, cap: +v }))} type="number" />
           </div>
 
-
+          {isAdmin && <div style={{ marginBottom: 4 }}><div style={{ fontSize: 11, color: T.textDim, padding: "8px 12px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>PIN and pay type are managed in <span style={{ color: T.accent, fontWeight: 600 }}>Time Stamp Settings</span>.</div></div>}
           <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Color</label><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{COLORS.map(c => <div key={c} onClick={() => setEd(p => ({ ...p, color: c }))} style={{ width: 32, height: 32, borderRadius: 16, background: c, cursor: "pointer", border: ed.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: ed.color === c ? `0 0 12px ${c}66` : "none" }} />)}</div></div>
 
           {/* Time Off management */}

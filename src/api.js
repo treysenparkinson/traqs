@@ -202,6 +202,49 @@ export async function uploadAndProcess(payload, getToken) {
   return callAI(payload, getToken);
 }
 
+// ─── Timeclock (PIN-auth, no Bearer token required) ───────────────────────────
+export const fetchTimeclock = (orgCode) =>
+  fetch(`${BASE}/timeclock`, { headers: orgCode ? { "X-Org-Code": orgCode } : {} }).then(r => r.json());
+
+export const clockInAction = (payload, orgCode) =>
+  fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify(payload),
+  }).then(r => r.json());
+
+export const clockOutAction = (payload, orgCode) =>
+  fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify(payload),
+  }).then(r => r.json());
+
+export const finishRequestAction = (payload, orgCode) =>
+  fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify(payload),
+  }).then(r => r.json());
+
+export const adminClockOutAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminClockOut", ...payload }),
+  }).then(r => r.json());
+};
+
+export const adminEditEntryAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminEditEntry", ...payload }),
+  }).then(r => r.json());
+};
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 // payload: { type, jobTitle, panelTitle, stepLabel, jobTeamIds, jobNumber }
 export async function callNotify(payload, getToken, orgCode) {

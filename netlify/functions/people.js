@@ -17,7 +17,8 @@ export async function handler(event) {
   if (event.httpMethod === "GET") {
     try {
       const data = await readJson(s3Key);
-      return json(200, data ?? []);
+      const safe = (data ?? []).map(({ pin: _pin, ...rest }) => rest);
+      return json(200, safe);
     } catch (e) {
       console.error("people GET error:", e);
       return err(500, "Failed to read people");
