@@ -6700,7 +6700,9 @@ ${jobsCtx || "No jobs found."}`;
               let failed = false;
               let firstPhaseCrew = null;
               for (const rawOp of rawOps) {
-                const opCrew = crewForOp(rawOp.title).filter(p => isPersonFree(p.id, wStart, wStart));
+                // Check availability over the op's full duration, not just day 1
+                const opEnd = sAddBD(wStart, Math.max(0, rawOp.durationBD - 1));
+                const opCrew = crewForOp(rawOp.title).filter(p => isPersonFree(p.id, wStart, opEnd));
                 if (opCrew.length === 0) { failed = true; break; }
                 if (!firstPhaseCrew) firstPhaseCrew = opCrew;
                 totalBDCalc += Math.ceil(numPanels / opCrew.length) * rawOp.durationBD;
@@ -6712,6 +6714,10 @@ ${jobsCtx || "No jobs found."}`;
               const firstBatchEnd = sAddBD(wStart, batchBD - 1);
               const available = crew.filter(p => isPersonFree(p.id, wStart, firstBatchEnd));
               const busy = crew.filter(p => !isPersonFree(p.id, wStart, firstBatchEnd));
+
+              // Skip windows where nobody is actually free — scheduler would push dates anyway
+              if (available.length === 0) continue;
+
               const totalBD = totalBDCalc;
               const panelsAtOnce = firstPhaseCrew ? firstPhaseCrew.length : 1;
 
