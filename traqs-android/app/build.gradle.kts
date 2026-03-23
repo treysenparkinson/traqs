@@ -37,26 +37,16 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     kotlinOptions {
-        jvmTarget = "21"
+        jvmTarget = "17"
     }
 
     buildFeatures {
         compose = true
-    }
-
-    packaging {
-        resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
-        }
-    }
-
-    aaptOptions {
-        ignoreAssetsPattern = "!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~"
     }
 
     // For Kotlin 1.9.x, Compose compiler version is set here (not via plugin)
@@ -65,22 +55,7 @@ android {
     }
 }
 
-repositories {
-    google()
-    mavenCentral()
-    flatDir {
-        dirs("../capacitor-cordova-android-plugins/src/main/libs", "libs")
-    }
-}
-
 dependencies {
-    // Capacitor
-    implementation(project(":capacitor-android"))
-    implementation(project(":capacitor-cordova-android-plugins"))
-    implementation(project(":capacitor-keyboard"))
-    implementation(project(":capacitor-splash-screen"))
-    implementation(project(":capacitor-status-bar"))
-
     // Compose BOM
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.ui:ui")
