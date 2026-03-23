@@ -1,0 +1,17 @@
+{
+  "appId": "com.matrixsystems.traqs",
+  "appName": "TRAQS",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "launchAutoHide": true,
+      "backgroundColor": "#0f172a",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false
+    }
+  }
+}
