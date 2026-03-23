@@ -6545,6 +6545,349 @@ ${jobsCtx || "No jobs found."}`;
     const myPeriodHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0);
     const myTodayHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0);
 
+    // ── Mobile layout ─────────────────────────────────────────────────────────
+    if (isMobile) {
+      const mobileSettingsPanel = () => {
+        if (!tsSettingsOpen || !tsSettingsDraft) return null;
+        return (
+          <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
+            <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, background: T.surface, flexShrink: 0 }}>
+              <button onClick={closeSettings} style={{ background: "none", border: "none", color: T.text, fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0 }}>←</button>
+              <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Stamp Settings</span>
+              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>{tsSettingsSaving ? "Saving…" : "Save"}</button>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Pay Period</div>
+                <div style={{ display: "flex", borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden", marginBottom: 14 }}>
+                  {[{ v: "setdate", label: "Set Date" }, { v: "biweekly", label: "Bi-Weekly" }].map(opt => (
+                    <button key={opt.v} type="button" onClick={() => setOrgSettings(s => ({ ...s, payMode: opt.v }))} style={{ flex: 1, padding: "11px 0", border: "none", background: (orgSettings.payMode || "setdate") === opt.v ? T.accent : T.surface, color: (orgSettings.payMode || "setdate") === opt.v ? "#fff" : T.textDim, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{opt.label}</button>
+                  ))}
+                </div>
+                {(orgSettings.payMode || "setdate") === "setdate" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontSize: 13, color: T.textDim }}>Days of the month you get paid.</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {(orgSettings.payDates || []).slice().sort((a,b) => a-b).map(day => (
+                        <div key={day} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 20, background: T.accent + "20", border: `1px solid ${T.accent}50`, fontSize: 14, fontWeight: 600, color: T.accent }}>
+                          {day}{day === 1 ? "st" : day === 2 ? "nd" : day === 3 ? "rd" : "th"}
+                          <button onClick={() => setOrgSettings(s => ({ ...s, payDates: (s.payDates || []).filter(d => d !== day) }))} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", padding: "0 0 0 2px", lineHeight: 1, fontSize: 18 }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input type="number" min={1} max={28} placeholder="Day (1–28)" value={tsPayDateInput} onChange={e => setTsPayDateInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { const v = parseInt(tsPayDateInput, 10); if (v >= 1 && v <= 28 && !(orgSettings.payDates || []).includes(v)) setOrgSettings(s => ({ ...s, payDates: [...(s.payDates || []), v] })); setTsPayDateInput(""); } }} style={{ flex: 1, padding: "11px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none" }} />
+                      <button onClick={() => { const v = parseInt(tsPayDateInput, 10); if (v >= 1 && v <= 28 && !(orgSettings.payDates || []).includes(v)) setOrgSettings(s => ({ ...s, payDates: [...(s.payDates || []), v] })); setTsPayDateInput(""); }} style={{ padding: "11px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Add</button>
+                    </div>
+                  </div>
+                )}
+                {orgSettings.payMode === "biweekly" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div style={{ fontSize: 13, color: T.textDim }}>Set a known period start date.</div>
+                    <input type="date" value={orgSettings.payAnchor || TD} onChange={e => setOrgSettings(s => ({ ...s, payAnchor: e.target.value }))} style={{ colorScheme: T.colorScheme, padding: "11px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", width: "100%", boxSizing: "border-box" }} />
+                  </div>
+                )}
+              </div>
+              {isAdmin && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Team</div>
+                  {tsSettingsDraft.map(p => {
+                    const payType = p.payType || "hourly";
+                    return (
+                      <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "14px 16px", marginBottom: 10 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                          <div style={{ width: 10, height: 10, borderRadius: 5, background: p.color || T.accent }} />
+                          <span style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</span>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                          <div>
+                            <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>Pay Type</div>
+                            <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                              {["hourly","salary"].map(pt => (
+                                <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)} style={{ flex: 1, padding: "8px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? "#fff" : T.textDim, fontSize: 12, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, textTransform: "capitalize" }}>{pt}</button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>PIN</div>
+                            <input type="password" maxLength={4} value={p.pin || ""} onChange={e => { const v = e.target.value.replace(/\D/g,"").slice(0,4); draftSet(p.id, "pin", v); }} placeholder="––––" style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 18, fontFamily: T.mono, letterSpacing: "0.3em", outline: "none", boxSizing: "border-box" }} />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      return (
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", fontFamily: T.font }}>
+          {renderPinModal()}
+          {renderPersonEditModal()}
+          {mobileSettingsPanel()}
+
+          {/* Header */}
+          <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: T.surface }}>
+            <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Stamp</span>
+            {isAdmin && (
+              <button onClick={openSettings} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radiusSm, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "15" : "none", cursor: "pointer", color: tsSettingsOpen ? T.accent : T.textDim, transition: "all 0.15s" }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              </button>
+            )}
+          </div>
+
+          {/* Scrollable body */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px 100px" }}>
+
+            {/* Personal clock card */}
+            {loggedInUser.payType === "salary" ? (
+              <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "28px 20px", textAlign: "center", marginBottom: 16 }}>
+                <div style={{ fontSize: 14, color: T.textDim }}>Time tracking is not required for salaried employees.</div>
+              </div>
+            ) : (
+              <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "20px 16px", marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 5, background: isClockedIn ? "#22c55e" : T.border, boxShadow: isClockedIn ? "0 0 10px #22c55e" : "none", transition: "all 0.3s" }} />
+                  <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{loggedInUser.name}</span>
+                  <span style={{ fontSize: 12, color: T.textDim }}>{isClockedIn ? `· in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}` : "· not clocked in"}</span>
+                </div>
+                {isClockedIn && (() => {
+                  const refs = loggedInUser.activeClockIn?.jobRefs || [];
+                  if (refs.length === 0) return <div style={{ fontSize: 12, color: T.textDim }}>No job selected</div>;
+                  return (
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 5, width: "100%" }}>
+                      {refs.map(r => {
+                        const job = tasks.find(j => j.id === r.jobId);
+                        const panel = job?.subs?.find(p => p.id === r.panelId);
+                        const op = panel?.subs?.find(o => o.id === r.opId);
+                        return (
+                          <div key={r.opId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: T.accent + "15", borderRadius: T.radiusSm, border: `1px solid ${T.accent}30` }}>
+                            <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, flexShrink: 0 }} />
+                            <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1 }}>{job?.title || "Unknown job"}</span>
+                            {panel && <span style={{ fontSize: 11, color: T.textDim }}>{panel.title}{op ? ` · ${op.title}` : ""}</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+                {isClockedIn && <div style={{ fontSize: 54, fontWeight: 700, color: T.accent, fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1 }}>{tsElapsed || "0h 0m"}</div>}
+                <div style={{ display: "flex", gap: 10, width: "100%" }}>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusSm, padding: "12px 0", textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Today</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: T.accent, fontFamily: T.mono, lineHeight: 1 }}>{myTodayHrs.toFixed(1)}</div>
+                    <div style={{ fontSize: 10, color: T.textDim, marginTop: 2 }}>hrs</div>
+                  </div>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusSm, padding: "12px 0", textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Period</div>
+                    <div style={{ fontSize: 28, fontWeight: 700, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{myPeriodHrs.toFixed(1)}</div>
+                    <div style={{ fontSize: 10, color: T.textDim, marginTop: 2 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
+                  </div>
+                </div>
+                {!loggedInUser.pin && <div style={{ fontSize: 11, color: T.textDim, textAlign: "center" }}>No PIN set — ask admin to assign one in Settings</div>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
+                  {!isClockedIn ? (
+                    <button onClick={openClockIn} style={{ width: "100%", padding: "17px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 17, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
+                  ) : (
+                    <>
+                      <button onClick={openSwitchJob} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid #f59e0b60`, background: "#f59e0b12", color: "#f59e0b", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Switch Job</button>
+                      <button onClick={openClockOut} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid #ef444460`, background: "#ef444412", color: "#ef4444", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Admin section */}
+            {isAdmin && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ display: "flex", background: T.card, borderRadius: `${T.radius} ${T.radius} 0 0`, border: `1px solid ${T.borderLight}`, borderBottom: `1px solid ${T.border}`, overflow: "hidden" }}>
+                  {[
+                    { id: "live", label: "Team" },
+                    { id: "timesheets", label: "Timesheets" },
+                    { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Requests (${pendingFinishOps.length})` : "Requests" },
+                  ].map(tab => (
+                    <button key={tab.id} onClick={() => setTsAdminTab(tab.id)} style={{ flex: 1, padding: "13px 4px", background: "none", border: "none", borderBottom: `2.5px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 12, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ paddingTop: 12 }}>
+                  {/* Team Status - mobile cards */}
+                  {tsAdminTab === "live" && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      {people.filter(p => p.payType !== "salary").map(p => {
+                        const clocked = !!p.activeClockIn?.clockIn;
+                        const ms = clocked ? Date.now() - new Date(p.activeClockIn.clockIn).getTime() : 0;
+                        const eh = Math.floor(ms/3600000), em = Math.floor((ms%3600000)/60000);
+                        const todayH = timeclock.filter(e => e.personId === p.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
+                        const periodH = timeclock.filter(e => e.personId === p.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
+                        const isExp = !!tsExpandedPersons[p.id];
+                        const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
+                        const recentEntries = timeclock.filter(e => e.personId === p.id && e.date >= thirtyAgo).sort((a, b) => b.clockIn.localeCompare(a.clockIn));
+                        return (
+                          <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? "#22c55e30" : T.borderLight}`, overflow: "hidden" }}>
+                            <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ padding: "14px 16px", cursor: "pointer" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                <div style={{ width: 9, height: 9, borderRadius: 5, background: p.color || T.accent, flexShrink: 0 }} />
+                                <span style={{ fontSize: 15, fontWeight: 700, color: T.text, flex: 1 }}>{p.name}</span>
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}` }}>
+                                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? "#22c55e" : T.textDim }} />
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: clocked ? "#22c55e" : T.textDim }}>{clocked ? "In" : "Out"}</span>
+                                </div>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExp ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+                              </div>
+                              {clocked && (p.activeClockIn?.jobRefs || []).length > 0 && (
+                                <div style={{ marginBottom: 6 }}>
+                                  {(p.activeClockIn.jobRefs).map(r => {
+                                    const job = tasks.find(j => j.id === r.jobId);
+                                    const panel = job?.subs?.find(s => s.id === r.panelId);
+                                    return (
+                                      <div key={r.opId} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text }}>
+                                        <div style={{ width: 5, height: 5, borderRadius: 3, background: T.accent, flexShrink: 0 }} />
+                                        <span style={{ fontWeight: 600 }}>{job?.title || "—"}</span>
+                                        {panel && <span style={{ color: T.textDim }}>· {panel.title}</span>}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                              <div style={{ display: "flex", gap: 14, fontSize: 12, color: T.textDim, flexWrap: "wrap" }}>
+                                {clocked && <span>Since {fmtTime(p.activeClockIn.clockIn)} ({eh}h {em}m)</span>}
+                                <span>Today: <strong style={{ color: T.accent }}>{todayH.toFixed(1)}h</strong></span>
+                                <span>Period: <strong style={{ color: T.text }}>{periodH.toFixed(1)}h</strong></span>
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, padding: "0 14px 12px" }} onClick={e => e.stopPropagation()}>
+                              {clocked && <button onClick={() => adminClockOut(p.id)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusXs, border: "1px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>}
+                              <button onClick={() => openPersonEditModal(p)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Entries</button>
+                            </div>
+                            {isExp && recentEntries.length > 0 && (
+                              <div style={{ padding: "8px 14px 14px", borderTop: `1px solid ${T.border}20` }}>
+                                {recentEntries.slice(0, 10).map(e => (
+                                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
+                                    <span style={{ color: T.textDim, fontSize: 11, minWidth: 38 }}>{e.date.slice(5)}</span>
+                                    <span style={{ fontFamily: T.mono, color: T.text }}>{fmtTime(e.clockIn)}</span>
+                                    <span style={{ color: T.textDim }}>→</span>
+                                    <span style={{ fontFamily: T.mono, color: e.clockOut ? T.text : "#f59e0b" }}>{e.clockOut ? fmtTime(e.clockOut) : "In"}</span>
+                                    <span style={{ flex: 1 }} />
+                                    <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Timesheets - mobile */}
+                  {tsAdminTab === "timesheets" && (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                        <button onClick={() => setTsPeriodDays(d => d - 1)} style={{ width: 40, height: 40, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 20, cursor: "pointer", fontFamily: T.font }}>‹</button>
+                        <span style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 600, color: T.text }}>{fmtDate(viewPeriod.start)} – {fmtDate(viewPeriod.end)}</span>
+                        <button onClick={() => setTsPeriodDays(d => d + 1)} disabled={tsPeriodDays >= 0} style={{ width: 40, height: 40, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: tsPeriodDays >= 0 ? T.textDim : T.text, fontSize: 20, cursor: tsPeriodDays >= 0 ? "default" : "pointer", opacity: tsPeriodDays >= 0 ? 0.4 : 1, fontFamily: T.font }}>›</button>
+                        <button onClick={() => setTsPeriodDays(0)} style={{ padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Now</button>
+                      </div>
+                      {people.filter(p => p.payType !== "salary").map(person => {
+                        const pEntries = periodEntries.filter(e => e.personId === person.id).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
+                        const pTotal = pEntries.reduce((s, e) => s + (e.hours||0), 0);
+                        const isExpTS = !!tsExpandedPersons["ts_" + person.id];
+                        return (
+                          <div key={person.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, marginBottom: 10, overflow: "hidden" }}>
+                            <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, ["ts_" + person.id]: !prev["ts_" + person.id] }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" }}>
+                              <div style={{ width: 8, height: 8, borderRadius: 4, background: person.color || T.accent }} />
+                              <span style={{ fontSize: 14, fontWeight: 600, color: T.text, flex: 1 }}>{person.name}</span>
+                              <span style={{ fontSize: 20, fontWeight: 700, color: pTotal > 0 ? T.accent : T.textDim, fontFamily: T.mono }}>{pTotal.toFixed(1)}h</span>
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExpTS ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0, marginLeft: 4 }}><polyline points="9 18 15 12 9 6"/></svg>
+                            </div>
+                            {isExpTS && (
+                              <div style={{ padding: "0 16px 14px", borderTop: `1px solid ${T.border}` }}>
+                                {pEntries.length === 0 ? <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No entries this period.</div> : pEntries.map(e => (
+                                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
+                                    <span style={{ color: T.textDim, minWidth: 40 }}>{e.date.slice(5)}</span>
+                                    <span style={{ fontFamily: T.mono, color: T.text }}>{fmtTime(e.clockIn)}</span>
+                                    <span style={{ color: T.textDim }}>–</span>
+                                    <span style={{ fontFamily: T.mono, color: T.text }}>{e.clockOut ? fmtTime(e.clockOut) : "In"}</span>
+                                    <span style={{ flex: 1 }} />
+                                    <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Finish Requests - mobile */}
+                  {tsAdminTab === "finishRequests" && (
+                    <div>
+                      {pendingFinishOps.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>No pending finish requests.</div>}
+                      {pendingFinishOps.map(({ job, panel, op }) => {
+                        const loggedHours = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
+                        return (
+                          <div key={op.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid #f59e0b30`, padding: "16px", marginBottom: 10 }}>
+                            <div style={{ fontSize: 12, color: T.textDim, marginBottom: 3 }}>{job.title}</div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 3 }}>{panel.title} · {op.title}</div>
+                            <div style={{ fontSize: 13, color: T.accent, fontFamily: T.mono, marginBottom: 14 }}>{loggedHours.toFixed(2)}h logged</div>
+                            <div style={{ display: "flex", gap: 10 }}>
+                              <button onClick={() => approveFinish(job, panel, op)} style={{ flex: 1, padding: "12px 0", borderRadius: T.radiusXs, border: "none", background: "#22c55e", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Approve</button>
+                              <button onClick={() => rejectFinish(job, panel, op)} style={{ flex: 1, padding: "12px 0", borderRadius: T.radiusXs, border: `1px solid #ef444460`, background: "#ef444412", color: "#ef4444", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Reject</button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* My time log */}
+            {loggedInUser.payType !== "salary" && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>My Time Log</div>
+                {byDate.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "20px 0" }}>No entries in the last 30 days.</div>}
+                {byDate.map(({ date, entries }) => {
+                  const dayTotal = entries.reduce((s, e) => s + (e.hours||0), 0);
+                  return (
+                    <div key={date} style={{ marginBottom: 16 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{fmtDayHeader(date)}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{dayTotal.toFixed(2)}h</span>
+                      </div>
+                      {entries.map(e => (
+                        <div key={e.id} style={{ background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.borderLight}`, padding: "10px 14px", marginBottom: 5 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: (e.jobRefs||[]).length > 0 ? 5 : 0 }}>
+                            <span style={{ fontFamily: T.mono, fontSize: 13, color: T.text }}>{fmtTime(e.clockIn)}</span>
+                            <span style={{ color: T.textDim, fontSize: 11 }}>→</span>
+                            <span style={{ fontFamily: T.mono, fontSize: 13, color: e.clockOut ? T.text : "#f59e0b" }}>{e.clockOut ? fmtTime(e.clockOut) : "Still in"}</span>
+                            <span style={{ flex: 1 }} />
+                            <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono, fontSize: 13 }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
+                          </div>
+                          {(e.jobRefs || []).map(r => {
+                            const job = tasks.find(j => j.id === r.jobId);
+                            return job ? <div key={r.opId} style={{ fontSize: 11, color: T.textDim }}>↳ {job.title}</div> : null;
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
         {renderPinModal()}
@@ -6937,7 +7280,7 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const renderMobileApp = () => {
-    const mobileView = view === "schedule" ? "home" : view;
+    const mobileView = view === "schedule" ? "home" : view; // "home" | "tasks" | "timestamp" | "schedule" | "clients" | "messages"
 
     const renderMobileHome = () => <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
       {/* Toggle + New Task row */}
@@ -7287,11 +7630,11 @@ ${jobsCtx || "No jobs found."}`;
       {/* Top nav */}
       <MobileNav
         tabs={[
-          { id: "home",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, label: "Home" },
-          { id: "tasks",    icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" },
-          { id: "schedule", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Schedule" },
-          { id: "clients",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="10" y1="6" x2="14" y2="6"/><line x1="10" y1="10" x2="14" y2="10"/><line x1="10" y1="14" x2="14" y2="14"/><line x1="10" y1="18" x2="14" y2="18"/></svg>, label: "Clients" },
-          { id: "messages", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Chat", badge: unreadMessages.length },
+          { id: "home",      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, label: "Home" },
+          { id: "tasks",     icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" },
+          { id: "timestamp", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time" },
+          { id: "schedule",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Schedule" },
+          { id: "messages",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Chat", badge: unreadMessages.length },
         ]}
         activeId={mobileView}
         onChange={id => setView(id === "home" ? "schedule" : id)}
@@ -7300,6 +7643,7 @@ ${jobsCtx || "No jobs found."}`;
       <AnimatedView viewKey={mobileView} style={{ flex: 1, minHeight: 0, overflow: mobileView === "messages" ? "hidden" : "auto", display: "flex", flexDirection: "column" }}>
         {mobileView === "home" && renderMobileHome()}
         {mobileView === "tasks" && renderMobileTasks()}
+        {mobileView === "timestamp" && renderTimeStamp()}
         {mobileView === "clients" && renderMobileClients()}
         {mobileView === "schedule" && renderMobileTeam()}
         {mobileView === "messages" && renderMessages()}
