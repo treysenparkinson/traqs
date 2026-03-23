@@ -7281,6 +7281,7 @@ ${jobsCtx || "No jobs found."}`;
 
   const renderMobileApp = () => {
     const mobileView = view === "schedule" ? "home" : view; // "home" | "tasks" | "timestamp" | "schedule" | "clients" | "messages"
+    const [moreOpen, setMoreOpen] = useState(false);
 
     const renderMobileHome = () => <div style={{ display: "flex", flexDirection: "column", flex: 1 }}>
       {/* Toggle + New Task row */}
@@ -7635,16 +7636,35 @@ ${jobsCtx || "No jobs found."}`;
           { id: "timestamp", icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time" },
           { id: "schedule",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Schedule" },
           { id: "messages",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Chat", badge: unreadMessages.length },
+          { id: "more",      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>, label: "More" },
         ]}
-        activeId={mobileView}
-        onChange={id => setView(id === "home" ? "schedule" : id)}
+        activeId={moreOpen ? "more" : mobileView}
+        onChange={id => { if (id === "more") { setMoreOpen(m => !m); } else { setMoreOpen(false); setView(id === "home" ? "schedule" : id); } }}
       />
+      {/* More bottom sheet */}
+      {moreOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9990 }} onClick={() => setMoreOpen(false)}>
+          <div style={{ position: "absolute", bottom: 60, left: 0, right: 0, background: T.surface, borderTop: `1px solid ${T.border}`, borderRadius: `${T.radius}px ${T.radius}px 0 0`, padding: "8px 0 20px", boxShadow: "0 -8px 32px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: T.border, margin: "6px auto 16px" }} />
+            {[
+              { id: "clients", label: "Clients", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg> },
+              { id: "analytics", label: "Analytics", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
+            ].map(item => (
+              <button key={item.id} onClick={() => { setMoreOpen(false); setView(item.id); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 16, padding: "14px 24px", background: "none", border: "none", cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>
+                <span style={{ color: T.textDim, lineHeight: 0 }}>{item.icon}</span>
+                <span style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Animated content */}
       <AnimatedView viewKey={mobileView} style={{ flex: 1, minHeight: 0, overflow: mobileView === "messages" ? "hidden" : "auto", display: "flex", flexDirection: "column" }}>
         {mobileView === "home" && renderMobileHome()}
         {mobileView === "tasks" && renderMobileTasks()}
         {mobileView === "timestamp" && renderTimeStamp()}
         {mobileView === "clients" && renderMobileClients()}
+        {mobileView === "analytics" && renderMobileAnalytics()}
         {mobileView === "schedule" && renderMobileTeam()}
         {mobileView === "messages" && renderMessages()}
       </AnimatedView>
