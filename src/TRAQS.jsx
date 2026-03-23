@@ -1524,7 +1524,7 @@ Rules:
 
   // ─── Time Stamp / Kiosk state ─────────────────────────────────────────────
   const [pinInput, setPinInput] = useState("");
-  const [pinState, setPinState] = useState("closed"); // closed | clockIn_pin | clockIn_jobs | clockOut_pin
+  const [pinState, setPinState] = useState("closed"); // closed | clockIn_pin | clockIn_jobs | clockOut_pin | switchJob_pin | switchJob_jobs
   const [pinPerson, setPinPerson] = useState(null);
   const [pinError, setPinError] = useState(false);
   const [pinSelectedOps, setPinSelectedOps] = useState([]);
@@ -6115,6 +6115,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const openClockIn = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("clockIn_pin"); };
     const openClockOut = () => { setPinInput(""); setPinError(false); setPinState("clockOut_pin"); };
+    const openSwitchJob = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("switchJob_pin"); };
     const closePin = () => { setPinState("closed"); setPinInput(""); setPinError(false); setPinSelectedOps([]); };
 
     const appendPin = digit => {
@@ -6125,6 +6126,7 @@ ${jobsCtx || "No jobs found."}`;
         setPinInput("");
         if (pinState === "clockIn_pin") handleClockInPin(next);
         else if (pinState === "clockOut_pin") handleClockOutPin(next);
+        else if (pinState === "switchJob_pin") handleSwitchJobPin(next);
       }
     };
 
@@ -6183,9 +6185,53 @@ ${jobsCtx || "No jobs found."}`;
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: null } : p));
           closePin();
         } else {
-          // PIN wrong or not clocked in
           setPinError(true); setTimeout(() => setPinError(false), 600);
         }
+      } catch { alert("Network error"); } finally { setPinLoading(false); }
+    };
+
+    const handleSwitchJobPin = async pin => {
+      setPinLoading(true);
+      try {
+        const res = await fetch("/.netlify/functions/timeclock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+          body: JSON.stringify({ action: "identify", pin }),
+        }).then(r => r.json());
+        if (!res.ok || res.personId !== loggedInUser.id) {
+          setPinError(true); setTimeout(() => setPinError(false), 600);
+        } else {
+          setPinPerson({ ...loggedInUser, _pin: pin });
+          const myOps = tasks.flatMap(job =>
+            (job.subs || []).flatMap(panel =>
+              (panel.subs || [])
+                .filter(op => op.team?.includes(loggedInUser.id) && op.start <= TD && op.end >= TD && op.status !== "Finished")
+                .map(op => ({ job, panel, op }))
+            )
+          );
+          if (myOps.length > 0) {
+            setPinState("switchJob_jobs");
+          } else {
+            await doSwitchJob(pin, []);
+          }
+        }
+      } catch {
+        setPinError(true); setTimeout(() => setPinError(false), 600);
+      } finally { setPinLoading(false); }
+    };
+
+    const doSwitchJob = async (pin, jobRefs) => {
+      setPinLoading(true);
+      try {
+        // Clock out current session (saves hours to old jobRefs)
+        const outRes = await clockOutAction({ action: "clockOut", personId: loggedInUser.id, pin }, orgCode);
+        if (!outRes.ok) { alert(outRes.error || "Failed to clock out current job"); return; }
+        setTimeclock(tc => [...tc, outRes.entry]);
+        // Immediately clock in to new job
+        const inRes = await clockInAction({ action: "clockIn", personId: loggedInUser.id, pin, jobRefs }, orgCode);
+        if (!inRes.ok) { alert(inRes.error || "Failed to clock in to new job"); return; }
+        setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: { clockIn: inRes.clockIn, jobRefs } } : p));
+        closePin();
       } catch { alert("Network error"); } finally { setPinLoading(false); }
     };
 
@@ -6303,8 +6349,8 @@ ${jobsCtx || "No jobs found."}`;
       >{d}</button>
     );
 
-    const pinModalTitle = pinState === "clockIn_pin" || pinState === "clockIn_jobs" ? "Clock In" : "Clock Out";
-    const pinModalColor = pinState === "clockOut_pin" ? "#ef4444" : T.accent;
+    const pinModalTitle = (pinState === "clockIn_pin" || pinState === "clockIn_jobs") ? "Clock In" : (pinState === "clockOut_pin") ? "Clock Out" : "Switch Job";
+    const pinModalColor = pinState === "clockOut_pin" ? "#ef4444" : pinState === "switchJob_pin" || pinState === "switchJob_jobs" ? "#f59e0b" : T.accent;
 
     // ── PIN Modal ─────────────────────────────────────────────────────────────
     const renderPinModal = () => {
@@ -6320,16 +6366,18 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
             </div>
 
-            {pinState === "clockIn_jobs" ? (
+            {(pinState === "clockIn_jobs" || pinState === "switchJob_jobs") ? (
               /* Job selection step */
               <div>
-                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14, textAlign: "center" }}>Select what you're working on (optional)</div>
+                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14, textAlign: "center" }}>
+                  {pinState === "switchJob_jobs" ? "Select the job you're switching to" : "Select what you're working on (optional)"}
+                </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20, maxHeight: 260, overflowY: "auto" }}>
                   {myTodayOps.map(({ job, panel, op }) => {
                     const checked = pinSelectedOps.some(r => r.opId === op.id);
                     return (
-                      <label key={op.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: checked ? T.accent + "15" : T.surface, borderRadius: T.radiusSm, border: `1.5px solid ${checked ? T.accent : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
-                        <input type="checkbox" checked={checked} onChange={() => setPinSelectedOps(prev => checked ? prev.filter(r => r.opId !== op.id) : [...prev, { jobId: job.id, panelId: panel.id, opId: op.id }])} style={{ width: 16, height: 16, accentColor: T.accent, flexShrink: 0 }} />
+                      <label key={op.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: checked ? pinModalColor + "15" : T.surface, borderRadius: T.radiusSm, border: `1.5px solid ${checked ? pinModalColor : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
+                        <input type="checkbox" checked={checked} onChange={() => setPinSelectedOps(prev => checked ? prev.filter(r => r.opId !== op.id) : [...prev, { jobId: job.id, panelId: panel.id, opId: op.id }])} style={{ width: 16, height: 16, accentColor: pinModalColor, flexShrink: 0 }} />
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.title}</div>
                           <div style={{ fontSize: 11, color: T.textDim }}>{panel.title} · {op.title}</div>
@@ -6339,15 +6387,17 @@ ${jobsCtx || "No jobs found."}`;
                   })}
                 </div>
                 <button
-                  onClick={() => doClockIn(pinPerson?._pin, pinSelectedOps)}
-                  disabled={pinLoading}
-                  style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginBottom: 8 }}
+                  onClick={() => pinState === "switchJob_jobs" ? doSwitchJob(pinPerson?._pin, pinSelectedOps) : doClockIn(pinPerson?._pin, pinSelectedOps)}
+                  disabled={pinLoading || pinSelectedOps.length === 0}
+                  style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: pinSelectedOps.length === 0 ? T.border : pinModalColor, color: pinSelectedOps.length === 0 ? T.textDim : "#fff", fontSize: 15, fontWeight: 700, cursor: pinSelectedOps.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1 }}
                 >
-                  {pinLoading ? "Clocking in…" : "Confirm Clock In"}
+                  {pinLoading ? "Processing…" : pinState === "switchJob_jobs" ? "Switch to Selected Job" : "Confirm Clock In"}
                 </button>
-                <button onClick={() => doClockIn(pinPerson?._pin, [])} disabled={pinLoading} style={{ width: "100%", padding: "10px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>
-                  Skip — Clock in without selecting
-                </button>
+                {pinState === "clockIn_jobs" && (
+                  <button onClick={() => doClockIn(pinPerson?._pin, [])} disabled={pinLoading} style={{ width: "100%", padding: "10px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>
+                    Skip — Clock in without selecting
+                  </button>
+                )}
               </div>
             ) : (
               /* PIN entry step */
@@ -6524,18 +6574,46 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ fontSize: 13, color: T.textDim }}>{isClockedIn ? `· clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}` : "· not clocked in"}</span>
           </div>
 
+          {/* Current job(s) when clocked in */}
+          {isClockedIn && (() => {
+            const refs = loggedInUser.activeClockIn?.jobRefs || [];
+            if (refs.length === 0) return <div style={{ fontSize: 12, color: T.textDim }}>No job selected</div>;
+            return (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
+                {refs.map(r => {
+                  const job = tasks.find(j => j.id === r.jobId);
+                  const panel = job?.subs?.find(p => p.id === r.panelId);
+                  const op = panel?.subs?.find(o => o.id === r.opId);
+                  return (
+                    <div key={r.opId} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", background: T.accent + "15", borderRadius: 20, border: `1px solid ${T.accent}30` }}>
+                      <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent }} />
+                      <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{job?.title || "Unknown job"}</span>
+                      {panel && <span style={{ fontSize: 11, color: T.textDim }}>· {panel.title}{op ? ` · ${op.title}` : ""}</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+
           {/* Elapsed timer when clocked in */}
           {isClockedIn && (
             <div style={{ fontSize: 44, fontWeight: 700, color: T.accent, fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1 }}>{tsElapsed || "0h 0m"}</div>
           )}
 
-          {/* Clock In / Clock Out buttons */}
-          <div style={{ display: "flex", gap: 14 }}>
+          {/* Clock In / Clock Out / Switch Job buttons */}
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center" }}>
             <button
               onClick={openClockIn}
               disabled={isClockedIn}
               style={{ padding: "14px 40px", borderRadius: T.radiusSm, border: "none", background: isClockedIn ? T.border : T.accent, color: isClockedIn ? T.textDim : "#fff", fontSize: 15, fontWeight: 700, cursor: isClockedIn ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isClockedIn ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
             >Clock In</button>
+            {isClockedIn && (
+              <button
+                onClick={openSwitchJob}
+                style={{ padding: "14px 28px", borderRadius: T.radiusSm, border: `1.5px solid #f59e0b60`, background: "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s", letterSpacing: "0.01em" }}
+              >Switch Job</button>
+            )}
             <button
               onClick={openClockOut}
               disabled={!isClockedIn}
@@ -6583,7 +6661,7 @@ ${jobsCtx || "No jobs found."}`;
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                        {["","Name","Pay Type","Status","Since","Today","Period",""].map(h => (
+                        {["","Name","Pay Type","Status","Since","Working On","Today","Period",""].map(h => (
                           <th key={h} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
                         ))}
                       </tr>
@@ -6638,6 +6716,25 @@ ${jobsCtx || "No jobs found."}`;
                               <td style={{ padding: "10px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
                                 {clocked ? `${fmtTime(p.activeClockIn.clockIn)} (${eh}h ${em}m)` : "—"}
                               </td>
+                              <td style={{ padding: "10px 10px", maxWidth: 200 }}>
+                                {clocked && (p.activeClockIn?.jobRefs || []).length > 0 ? (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                                    {(p.activeClockIn.jobRefs).map(r => {
+                                      const job = tasks.find(j => j.id === r.jobId);
+                                      const panel = job?.subs?.find(s => s.id === r.panelId);
+                                      const op = panel?.subs?.find(o => o.id === r.opId);
+                                      return (
+                                        <div key={r.opId} style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={[job?.title, panel?.title, op?.title].filter(Boolean).join(" · ")}>
+                                          {job?.title || "—"}
+                                          {panel && <span style={{ fontWeight: 400, color: T.textDim }}> · {panel.title}</span>}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: 12, color: T.textDim }}>—</span>
+                                )}
+                              </td>
                               <td style={{ padding: "10px 10px", fontSize: 13, fontWeight: 600, color: T.accent, fontFamily: T.mono }}>
                                 {todayH > 0 ? todayH.toFixed(1) + "h" : "—"}
                               </td>
@@ -6659,7 +6756,7 @@ ${jobsCtx || "No jobs found."}`;
                             </tr>
                             {isExpanded && (
                               <tr style={{ borderBottom: `1px solid ${T.border}20` }}>
-                                <td colSpan={8} style={{ padding: "0 16px 14px 40px", background: T.accent + "05" }}>
+                                <td colSpan={9} style={{ padding: "0 16px 14px 40px", background: T.accent + "05" }}>
                                   {personEntries.length === 0 ? (
                                     <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>No entries in the last 30 days.</div>
                                   ) : (
