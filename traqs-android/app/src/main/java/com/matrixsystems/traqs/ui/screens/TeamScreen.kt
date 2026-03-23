@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,6 +18,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.models.Person
@@ -293,7 +297,12 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
     var newToStart by remember { mutableStateOf("") }
     var newToEnd by remember { mutableStateOf("") }
     var newToReason by remember { mutableStateOf("") }
+    var pinInput by remember { mutableStateOf("") }
+    var pinVisible by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    val currentPerson = appState.currentPerson
+    val viewerIsAdmin = currentPerson?.isAdmin == true
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -319,6 +328,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                         }
                         TextButton(
                             onClick = {
+                                val newPin = pinInput.takeIf { it.length == 4 }
                                 val updated = if (isNew) {
                                     appState.people.value + Person(
                                         id = maxId + 1, name = name, role = role, email = email,
@@ -327,7 +337,8 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                         isEngineer = isEngineer,
                                         isTeamLead = isTeamLead,
                                         autoSchedule = autoSchedule,
-                                        timeOff = timeOffEntries
+                                        timeOff = timeOffEntries,
+                                        pin = newPin
                                     )
                                 } else {
                                     appState.people.value.map {
@@ -338,7 +349,8 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                             isEngineer = isEngineer,
                                             isTeamLead = isTeamLead,
                                             autoSchedule = autoSchedule,
-                                            timeOff = timeOffEntries
+                                            timeOff = timeOffEntries,
+                                            pin = newPin ?: it.pin
                                         ) else it
                                     }
                                 }
@@ -541,6 +553,66 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                             onCheckedChange = { autoSchedule = it },
                             colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = c.accent)
                         )
+                    }
+                }
+            }
+
+            // Clock-In PIN (admin only)
+            if (viewerIsAdmin) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(c.surface, RoundedCornerShape(10.dp))
+                            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Lock, null, tint = c.muted, modifier = Modifier.size(16.dp))
+                            Column {
+                                Text("Clock-In PIN", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
+                                Text("4-digit PIN for clocking in and out", fontSize = 11.sp, color = c.muted)
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = pinInput,
+                                onValueChange = { v -> pinInput = v.filter { it.isDigit() }.take(4) },
+                                placeholder = { Text("New PIN", color = c.muted) },
+                                visualTransformation = if (pinVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                                singleLine = true,
+                                trailingIcon = {
+                                    IconButton(onClick = { pinVisible = !pinVisible }) {
+                                        Icon(
+                                            if (pinVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            null, tint = c.muted, modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = if (pinInput.length == 4) c.accent else c.border,
+                                    unfocusedBorderColor = if (pinInput.length == 4) c.accent.copy(alpha = 0.5f) else c.border,
+                                    focusedTextColor = c.text,
+                                    unfocusedTextColor = c.text,
+                                    cursorColor = c.accent
+                                )
+                            )
+                            if (pinInput.length in 1..3) {
+                                Text("${4 - pinInput.length} more", fontSize = 11.sp, color = c.muted)
+                            }
+                        }
+                        if (!isNew && person?.pin != null) {
+                            Text("PIN is set — enter a new PIN above to change it", fontSize = 11.sp, color = c.muted)
+                        }
                     }
                 }
             }

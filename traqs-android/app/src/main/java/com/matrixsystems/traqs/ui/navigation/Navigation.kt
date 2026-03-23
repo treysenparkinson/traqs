@@ -33,6 +33,7 @@ sealed class Screen(val route: String) {
     object Customize : Screen("customize")
     object Team : Screen("team")
     object Gantt : Screen("gantt")
+    object Clients : Screen("clients")
 }
 
 @Composable
@@ -166,6 +167,14 @@ fun TRAQSNavGraph(
 
         composable(Screen.Gantt.route) {
             GanttScreen(
+                appState = appState,
+                navController = navController,
+                onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
+            )
+        }
+
+        composable(Screen.Clients.route) {
+            ClientsScreen(
                 appState = appState,
                 navController = navController,
                 onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }

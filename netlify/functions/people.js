@@ -26,14 +26,50 @@ export async function handler(event) {
   }
 
   if (event.httpMethod === "POST") {
+    let tokenPayload;
     try {
-      await validateToken(event);
+      tokenPayload = await validateToken(event);
     } catch (e) {
       return err(401, e.message);
     }
     try {
-      const people = JSON.parse(event.body);
-      await writeJson(s3Key, people);
+      const incoming = JSON.parse(event.body);
+
+      // Check for userRole changes — only admins may change them
+      const existing = (await readJson(s3Key)) ?? [];
+      const existingMap = new Map(existing.map(p => [p.id, p]));
+      const hasRoleChange = incoming.some(p => {
+        const old = existingMap.get(p.id);
+        // New person being added as admin, or existing person's role changing
+        return old ? old.userRole !== p.userRole : p.userRole === "admin";
+      });
+
+      if (hasRoleChange) {
+        // Identify the requester by email claim (Auth0 may include this as a standard or custom claim)
+        const requesterEmail = (
+          tokenPayload.email ||
+          tokenPayload["https://traqs.matrixsystems.com/email"] ||
+          ""
+        ).toLowerCase();
+        if (requesterEmail) {
+          const requesterIsAdmin = existing.some(
+            p => p.userRole === "admin" && p.email?.toLowerCase() === requesterEmail
+          );
+          if (!requesterIsAdmin) {
+            return err(403, "Only admins can change user roles");
+          }
+        }
+        // If no email claim is available we allow through — frontend enforces this already
+      }
+
+      // Preserve existing PINs for records that don't supply a new one
+      const merged = incoming.map(p => {
+        const stored = existingMap.get(p.id);
+        if (stored?.pin && !p.pin) return { ...p, pin: stored.pin };
+        return p;
+      });
+
+      await writeJson(s3Key, merged);
       return json(200, { ok: true });
     } catch (e) {
       console.error("people POST error:", e);

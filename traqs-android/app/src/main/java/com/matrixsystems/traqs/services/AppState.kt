@@ -13,6 +13,14 @@ import com.matrixsystems.traqs.models.Panel
 import com.matrixsystems.traqs.models.Person
 import com.matrixsystems.traqs.models.NotifyPayload
 import com.matrixsystems.traqs.models.TRAQSJob
+import com.google.gson.Gson
+import com.matrixsystems.traqs.models.ClockEntry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Job as CoroutineJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -48,6 +56,9 @@ class AppState(private val context: Context) : ViewModel() {
 
     private val _groups = MutableStateFlow<List<ChatGroup>>(emptyList())
     val groups: StateFlow<List<ChatGroup>> = _groups.asStateFlow()
+
+    private val _timeclock = MutableStateFlow<List<ClockEntry>>(emptyList())
+    val timeclock: StateFlow<List<ClockEntry>> = _timeclock.asStateFlow()
 
     // MARK: - Unread messages
     private val msgPrefs = context.getSharedPreferences("traqs_msg_prefs", Context.MODE_PRIVATE)
@@ -351,6 +362,50 @@ class AppState(private val context: Context) : ViewModel() {
             } catch (e: Exception) {
                 onError(e.message ?: "AI error")
             }
+        }
+    }
+
+    // MARK: - Timeclock (PIN-auth, no Bearer token)
+
+    fun loadTimeclock() {
+        viewModelScope.launch {
+            try {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                val request = Request.Builder()
+                    .url("${AppConfig.NETLIFY_BASE}timeclock")
+                    .addHeader("X-Org-Code", _orgCode.value)
+                    .get()
+                    .build()
+                val response = withContext(Dispatchers.IO) { client.newCall(request).execute() }
+                val body = response.body?.string() ?: "[]"
+                val type = com.google.gson.reflect.TypeToken.getParameterized(List::class.java, ClockEntry::class.java).type
+                val entries: List<ClockEntry> = Gson().fromJson(body, type) ?: emptyList()
+                _timeclock.value = entries
+            } catch (_: Exception) {}
+        }
+    }
+
+    suspend fun timeclockPost(body: Map<String, Any>): Map<String, Any> {
+        return withContext(Dispatchers.IO) {
+            val gson = Gson()
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            val json = gson.toJson(body)
+            val requestBody = json.toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("${AppConfig.NETLIFY_BASE}timeclock")
+                .addHeader("X-Org-Code", _orgCode.value)
+                .post(requestBody)
+                .build()
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string() ?: "{}"
+            @Suppress("UNCHECKED_CAST")
+            gson.fromJson(responseBody, Map::class.java) as Map<String, Any>
         }
     }
 }

@@ -20,13 +20,13 @@ import com.matrixsystems.traqs.ui.theme.traQSColors
 sealed class BottomTab(val route: String, val label: String, val icon: ImageVector) {
     object Home : BottomTab("tab_home", "Schedule", Icons.Default.Home)
     object Jobs : BottomTab("tab_jobs", "Jobs", Icons.Default.Checklist)
-    object Clients : BottomTab("tab_clients", "Clients", Icons.Default.Business)
+    object Time : BottomTab("tab_time", "Time", Icons.Default.AccessTime)
     object Messages : BottomTab("tab_messages", "Messages", Icons.Default.Forum)
     object More : BottomTab("tab_more", "More", Icons.Default.MoreHoriz)
 }
 
 val BOTTOM_TABS = listOf(
-    BottomTab.Home, BottomTab.Jobs, BottomTab.Clients, BottomTab.Messages, BottomTab.More
+    BottomTab.Home, BottomTab.Jobs, BottomTab.Time, BottomTab.Messages, BottomTab.More
 )
 
 @Composable
@@ -107,12 +107,8 @@ fun MainScreen(
                         onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
                     )
                 }
-                composable(BottomTab.Clients.route) {
-                    ClientsScreen(
-                        appState = appState,
-                        navController = navController,
-                        onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
-                    )
+                composable(BottomTab.Time.route) {
+                    TimestampScreen(appState = appState)
                 }
                 composable(BottomTab.Messages.route) {
                     MessagesScreen(

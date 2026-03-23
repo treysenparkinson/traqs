@@ -122,6 +122,30 @@ data class TRAQSJob(
     val displayNumber: String get() = jobNumber?.let { "#$it" } ?: ""
 }
 
+// MARK: - Timeclock
+
+data class JobRef(
+    val jobId: String = "",
+    val panelId: String = "",
+    val opId: String = ""
+)
+
+data class ActiveClockIn(
+    val clockIn: String = "",
+    val jobRefs: List<JobRef> = emptyList()
+)
+
+data class ClockEntry(
+    val id: String = "",
+    val personId: String = "",
+    val date: String = "",
+    val clockIn: String = "",
+    val clockOut: String = "",
+    val hours: Double = 0.0,
+    val jobRefs: List<JobRef> = emptyList(),
+    val note: String = ""
+)
+
 // MARK: - Admin Permissions
 
 data class AdminPerms(
@@ -160,7 +184,9 @@ data class Person(
     val teamNumber: Int? = null,
     val autoSchedule: Boolean? = null,
     val timeOff: List<TimeOffEntry> = emptyList(),
-    val pushToken: String? = null
+    val pushToken: String? = null,
+    val activeClockIn: ActiveClockIn? = null,
+    val pin: String? = null
 ) {
     val isAdmin: Boolean get() = userRole == "admin"
 }

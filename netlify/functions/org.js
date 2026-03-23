@@ -43,18 +43,32 @@ export async function handler(event) {
       // If readJson throws (unexpected), fall through to creation attempt
     }
 
+    const cleanDomain = domain.toLowerCase().replace(/^@/, "");
     const config = {
       name,
-      domain: domain.toLowerCase().replace(/^@/, ""),
+      domain: cleanDomain,
       adminEmail,
       createdAt: new Date().toISOString(),
     };
+
+    // Seed the org creator as the first admin person
+    const adminName = adminEmail.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+    const seedPeople = [{
+      id: 1,
+      name: adminName,
+      email: adminEmail.toLowerCase(),
+      role: "Admin",
+      userRole: "admin",
+      cap: 8,
+      color: "#6366f1",
+      timeOff: [],
+    }];
 
     try {
       await Promise.all([
         writeJson(configKey, config),
         writeJson(`orgs/${code}/tasks.json`, []),
-        writeJson(`orgs/${code}/people.json`, []),
+        writeJson(`orgs/${code}/people.json`, seedPeople),
         writeJson(`orgs/${code}/clients.json`, []),
       ]);
       return json(200, { ok: true, code });
