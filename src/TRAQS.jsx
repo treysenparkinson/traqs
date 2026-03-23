@@ -1299,6 +1299,8 @@ Rules:
   const [usersOpen, setUsersOpen] = useState(false);
   const [settingsUser, setSettingsUser] = useState(null);
   const [tagInputs, setTagInputs] = useState({}); // keyed by person.id
+  const [pinDrafts, setPinDrafts] = useState({}); // keyed by person.id — PIN edits in User Permissions modal
+  const [pinSaving, setPinSaving] = useState({}); // keyed by person.id
   const [saveTemplateModal, setSaveTemplateModal] = useState(false);
   const [templateNameInput, setTemplateNameInput] = useState("");
   const [dayDragInfo, setDayDragInfo] = useState(null);
@@ -1380,6 +1382,9 @@ Rules:
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
   const [collapsedOps, setCollapsedOps] = useState({});
   const [gZoom, setGZoom] = useState(1);
+  const [showGanttSplit, setShowGanttSplit] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(55);
+  const [splitGanttExpanded, setSplitGanttExpanded] = useState(new Set());
   const [signOffSettingsOpen, setSignOffSettingsOpen] = useState(false);
   const [pmSectionsCollapsed, setPmSectionsCollapsed] = useState({});
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
@@ -1409,8 +1414,11 @@ Rules:
   const sAddBD  = (ds, n) => addBD(ds, n, schedOpts);
   const sNextBD = ds      => nextBD(ds, schedOpts);
   const sDiffBD = (a, b)  => diffBD(a, b, schedOpts);
-  // Duration of an operation in working days given org's hrs/day
-  const opDurBD = op => Math.max(1, Math.ceil((op?.hpd || orgSettings.hpd) / orgSettings.hpd));
+  // Duration of an operation in working days given org's hrs/day (divided by team size when assigned)
+  const opDurBD = op => {
+    const teamSize = Math.max(1, (op?.team || []).length);
+    return Math.max(1, Math.ceil((op?.hpd || orgSettings.hpd) / (orgSettings.hpd * teamSize)));
+  };
   // Job hours/progress helpers — used by both renderTasks and the export modal
   const _opHrs = (op) => Math.round((op.hpd || 7.5) * (diffBD(op.start, op.end) + 1) * 10) / 10;
   const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
@@ -1746,6 +1754,10 @@ Rules:
   const [ganttWidth, setGanttWidth] = useState(0);
   const ganttCWRef = useRef(8);
   const teamCWRef = useRef(8);
+  const splitContainerRef = useRef(null);
+  const splitGanttRef = useRef(null);
+  const splitGanttPaneRef = useRef(null);
+  const [splitGanttPaneWidth, setSplitGanttPaneWidth] = useState(600);
   const ganttWheelAcc = useRef(0);
   const teamWheelAcc = useRef(0);
   useEffect(() => {
@@ -1756,6 +1768,40 @@ Rules:
     setGanttWidth(el.clientWidth);
     return () => ro.disconnect();
   });
+
+  useEffect(() => {
+    const el = splitGanttPaneRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => { for (const e of entries) setSplitGanttPaneWidth(e.contentRect.width); });
+    ro.observe(el);
+    setSplitGanttPaneWidth(el.clientWidth || 600);
+    return () => ro.disconnect();
+  });
+
+  const handleDividerMouseDown = (e) => {
+    e.preventDefault();
+    const container = splitContainerRef.current;
+    if (!container) return;
+    const onMove = (ev) => {
+      const rect = container.getBoundingClientRect();
+      const ratio = Math.min(80, Math.max(20, ((ev.clientX - rect.left) / rect.width) * 100));
+      setSplitRatio(ratio);
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const handleToggleGanttSplit = () => {
+    if (!showGanttSplit && !gStart) {
+      setGStart(addD(TD, -21));
+      setGEnd(addD(TD, 90));
+    }
+    setShowGanttSplit(v => !v);
+  };
 
   useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
@@ -3655,6 +3701,157 @@ ${jobsCtx || "No jobs found."}`;
     </div>;
   };
 
+  // ═══════════════════ SPLIT GANTT ═══════════════════
+  const renderSplitGantt = (jobs) => {
+    if (!gStart || !gEnd) return null;
+    const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
+    const paneW = splitGanttPaneWidth || 600;
+    const cW = Math.max(14, (paneW / Math.max(days.length, 1)) * gZoom);
+    const totalWidth = days.length * cW;
+    const dToX = (d) => diffD(gStart, d) * cW;
+
+    // Build flat rows array — 3 levels deep
+    const rows = [];
+    jobs.forEach(job => {
+      const jobColor = job.color || T.accent;
+      rows.push({ ...job, _level: 0, _jobColor: jobColor });
+      if (splitGanttExpanded.has(job.id)) {
+        (job.subs || []).forEach(panel => {
+          rows.push({ ...panel, _level: 1, _jobColor: jobColor, _jobId: job.id });
+          if (splitGanttExpanded.has(panel.id)) {
+            (panel.subs || []).forEach(op => {
+              rows.push({ ...op, _level: 2, _jobColor: jobColor, _jobId: job.id, _panelId: panel.id });
+            });
+          }
+        });
+      }
+    });
+
+    // Build group headers (months or weeks)
+    const groups = [];
+    days.forEach(day => {
+      const dt = new Date(day + "T12:00:00");
+      if (gMode === "month") {
+        const key = `${dt.getFullYear()}-${dt.getMonth()}`;
+        if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key, label: dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }), span: 1 });
+        else groups[groups.length - 1].span++;
+      } else {
+        const wk = new Date(dt); wk.setDate(wk.getDate() - wk.getDay());
+        const key = toDS(wk);
+        if (!groups.length || groups[groups.length - 1].key !== key) {
+          const wkEnd = new Date(wk); wkEnd.setDate(wkEnd.getDate() + 6);
+          groups.push({ key, label: `${wk.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${wkEnd.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, span: 1 });
+        } else groups[groups.length - 1].span++;
+      }
+    });
+
+    const btnBase = { padding: "3px 9px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" };
+
+    const toggleRow = (id) => setSplitGanttExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: T.bg, overflow: "hidden" }}>
+        {/* Controls */}
+        <div style={{ padding: "5px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 5, flexShrink: 0, flexWrap: "wrap" }}>
+          {["week", "month"].map(m => (
+            <button key={m} onClick={() => setGMode(m)} style={{ ...btnBase, ...(gMode === m ? { border: `1px solid ${T.accent}66`, background: T.accent + "15", color: T.accent, fontWeight: 700 } : {}) }}>
+              {m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+          <div style={{ width: 1, height: 16, background: T.border, margin: "0 2px" }} />
+          <button onClick={() => setGZoom(z => Math.min(4, +(z * 1.25).toFixed(2)))} style={{ ...btnBase, width: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+          <button onClick={() => setGZoom(z => Math.max(0.25, +(z / 1.25).toFixed(2)))} style={{ ...btnBase, width: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+        </div>
+        {/* Scrollable body */}
+        <div ref={splitGanttRef} style={{ flex: 1, overflowX: "auto", overflowY: "auto" }}>
+          <div style={{ width: totalWidth, position: "relative", minWidth: "100%" }}>
+            {/* Group header — sticky */}
+            <div style={{ display: "flex", height: 26, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 5, background: T.surface }}>
+              {groups.map(g => (
+                <div key={g.key} style={{ minWidth: g.span * cW, maxWidth: g.span * cW, overflow: "hidden", borderRight: `1px solid ${T.border}`, padding: "0 6px", display: "flex", alignItems: "center", fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                  {g.label}
+                </div>
+              ))}
+            </div>
+            {/* Day header — sticky */}
+            <div style={{ display: "flex", height: 22, borderBottom: `2px solid ${T.border}`, position: "sticky", top: 26, zIndex: 5, background: T.surface }}>
+              {days.map(d => {
+                const isToday = d === TD;
+                return (
+                  <div key={d} style={{ minWidth: cW, maxWidth: cW, overflow: "hidden", borderRight: `1px solid ${T.border}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isToday ? T.accent : T.textDim, fontWeight: isToday ? 800 : 400, background: isToday ? T.accent + "12" : "transparent" }}>
+                    {cW > 20 ? new Date(d + "T12:00:00").getDate() : ""}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Rows */}
+            {rows.map(r => {
+              const level = r._level;
+              const jobColor = r._jobColor;
+              const hasSubs = level < 2 && (r.subs || []).length > 0;
+              const isExpanded = splitGanttExpanded.has(r.id);
+              const rowH = level === 0 ? 40 : level === 1 ? 34 : 28;
+              const barH = level === 0 ? 24 : level === 1 ? 20 : 16;
+              // Bar color: ops use assignee color, panels use status color, jobs use job color
+              const assigneeColor = level === 2 && (r.team || [])[0]
+                ? (people.find(p => p.id === r.team[0]) || {}).color : null;
+              const barColor = assigneeColor || (level === 1 ? (STA_C[r.status] || jobColor) : jobColor);
+              const itemTeam = (r.team || []).map(id => people.find(p => p.id === id)).filter(Boolean);
+              // Bar position — clamp to visible range
+              const hasRange = r.start && r.end;
+              const inRange = hasRange && r.start <= gEnd && r.end >= gStart;
+              const bL = hasRange ? Math.max(0, dToX(r.start)) : 0;
+              const bR = hasRange ? Math.min(dToX(r.end) + cW, totalWidth) : 0;
+              const bW = Math.max(barH, bR - bL); // min width = bar height so it's always visible
+
+              return (
+                <div key={r.id} style={{ display: "flex", height: rowH, borderBottom: `1px solid ${T.border}${level === 0 ? "44" : "22"}`, position: "relative", background: level === 0 && isExpanded ? jobColor + "07" : level === 1 ? jobColor + "04" : level === 2 ? jobColor + "02" : "transparent" }}>
+                  {/* Left indent stripe for sub-levels */}
+                  {level === 1 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobColor + "66", zIndex: 2 }} />}
+                  {level === 2 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, background: jobColor + "33", zIndex: 2 }} />}
+                  {/* Day cells */}
+                  {days.map(d => (
+                    <div key={d} style={{ minWidth: cW, maxWidth: cW, borderRight: `1px solid ${T.border}18`, flexShrink: 0, background: d === TD ? T.accent + "08" : "transparent" }} />
+                  ))}
+                  {/* Bar */}
+                  {inRange && (
+                    <div
+                      onClick={hasSubs ? () => toggleRow(r.id) : undefined}
+                      style={{ position: "absolute", top: (rowH - barH) / 2, left: bL, width: bW, height: barH, background: barColor + "dd", borderRadius: level === 0 ? 4 : 3, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", zIndex: 3 }}
+                    >
+                      {hasSubs && (
+                        <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: "rgba(255,255,255,0.85)", flexShrink: 0, marginLeft: 5 }}>
+                          <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      )}
+                      <span style={{ fontSize: level === 0 ? 11 : 10, color: "#fff", fontWeight: level === 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: hasSubs ? 4 : 7, flex: 1, minWidth: 0 }}>
+                        {level === 0 ? `${r.jobNumber ? `#${r.jobNumber} ` : ""}${r.title}` : r.title}
+                      </span>
+                      {itemTeam.length > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 2, paddingRight: 5, flexShrink: 0 }}>
+                          {itemTeam.slice(0, 3).map(p => (
+                            <div key={p.id} title={p.name} style={{ width: level === 0 ? 17 : 14, height: level === 0 ? 17 : 14, borderRadius: "50%", background: p.color || T.accent, border: "1.5px solid rgba(255,255,255,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", flexShrink: 0, overflow: "hidden" }}>
+                              {p.avatar ? <img src={p.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : (p.name || "?").charAt(0).toUpperCase()}
+                            </div>
+                          ))}
+                          {itemTeam.length > 3 && <span style={{ fontSize: 8, color: "rgba(255,255,255,0.8)", fontWeight: 700 }}>+{itemTeam.length - 3}</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {/* Today line */}
+            {TD >= gStart && TD <= gEnd && (
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: diffD(gStart, TD) * cW + cW / 2, width: 2, background: T.accent + "bb", pointerEvents: "none", zIndex: 4 }} />
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ═══════════════════ ANALYTICS ═══════════════════
 
   // ═══════════════════ TASKS ═══════════════════
@@ -3739,10 +3936,11 @@ ${jobsCtx || "No jobs found."}`;
         {/* Left: collapsible toolbar (list view only) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {taskSubView === "list" && <>
-            <button onClick={() => setToolbarExpanded(p => !p)} title={toolbarExpanded ? "Collapse toolbar" : "Expand toolbar"} style={{ width: 28, height: 28, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: toolbarExpanded ? "rotate(180deg)" : "none", transition: "transform 0.28s cubic-bezier(0.34,1.56,0.64,1)" }}><polyline points="15 18 9 12 15 6"/></svg>
+            <button onClick={() => setToolbarExpanded(p => !p)} title={toolbarExpanded ? "Collapse toolbar" : "Expand toolbar"} style={{ height: 28, padding: "0 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: T.textDim, flexShrink: 0, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+              Expand
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: toolbarExpanded ? "rotate(180deg)" : "none", transition: "transform 0.28s cubic-bezier(0.34,1.56,0.64,1)" }}><polyline points="9 18 15 12 9 6"/></svg>
             </button>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden", maxWidth: toolbarExpanded ? "900px" : "0px", opacity: toolbarExpanded ? 1 : 0, transition: "max-width 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.18s", whiteSpace: "nowrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", maxWidth: toolbarExpanded ? "900px" : "0px", opacity: toolbarExpanded ? 1 : 0, transition: "max-width 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.18s", whiteSpace: "nowrap", paddingLeft: 8, borderLeft: `1px solid ${T.border}` }}>
               <div style={{ position: "relative", width: 190, flexShrink: 0 }}>
                 <svg style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "6px 24px 6px 27px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
@@ -3763,6 +3961,21 @@ ${jobsCtx || "No jobs found."}`;
                   {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
                 </div>}
               </div>
+              {/* Conditions */}
+              <button onClick={() => setConditionsOpen(true)} title="TRAQS Conditions" style={{ height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${(orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"88" : T.border}`, background: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Conditions
+              </button>
+              {/* Gantt split toggle */}
+              {!isMobile && (
+                <button onClick={handleToggleGanttSplit} title="Toggle Gantt split view" style={{ height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${showGanttSplit ? T.accent+"88" : T.border}`, background: showGanttSplit ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: showGanttSplit ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }}>
+                  <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${showGanttSplit ? T.accent : T.textDim}`, background: showGanttSplit ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
+                    {showGanttSplit && <svg width="7" height="7" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </div>
+                  Gantt
+                </button>
+              )}
+              {/* Alignment */}
               <button onClick={() => setCellAlign(a => a === "left" ? "center" : a === "center" ? "right" : "left")} title={`Text alignment: ${cellAlign}`} style={{ width: 28, height: 28, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
                 {cellAlign === "left"   && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>}
                 {cellAlign === "center" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>}
@@ -3776,10 +3989,6 @@ ${jobsCtx || "No jobs found."}`;
         {/* Right: list-view actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
           {taskSubView === "list" && <>
-            {/* Conditions button */}
-            <button onClick={() => setConditionsOpen(true)} title="TRAQS Conditions" style={{ height: 29, width: 29, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${(orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.border}`, background: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent + "15" : T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.textDim, fontFamily: T.font }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            </button>
             {/* Export button */}
             <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} title="Export" style={{ height: 29, width: 29, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -4461,7 +4670,7 @@ ${jobsCtx || "No jobs found."}`;
           </>;
         };
 
-        return <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        const listContent = <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
           {/* ── Pending Finish Requests (list view, admin only) ── */}
           {isAdmin && finishRequests.length > 0 && <div style={{ marginBottom: 12, padding: "10px 14px", background: "#f59e0b10", border: "1px solid #f59e0b33", borderRadius: T.radiusSm }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -4821,6 +5030,26 @@ ${jobsCtx || "No jobs found."}`;
             </>;
           })()}
         </div>;
+        if (showGanttSplit && !isMobile) return (
+          <div ref={splitContainerRef} style={{ display: "flex", height: "calc(100vh - 220px)", gap: 0, overflow: "hidden", borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
+            {/* List pane */}
+            <div style={{ width: `${splitRatio}%`, overflowY: "auto", overflowX: "auto", flexShrink: 0, borderRight: `1px solid ${T.border}` }}>
+              {listContent}
+            </div>
+            {/* Draggable divider */}
+            <div
+              onMouseDown={handleDividerMouseDown}
+              style={{ width: 5, background: T.border, cursor: "col-resize", flexShrink: 0, transition: "background 0.15s" }}
+              onMouseEnter={e => e.currentTarget.style.background = T.accent}
+              onMouseLeave={e => e.currentTarget.style.background = T.border}
+            />
+            {/* Gantt pane */}
+            <div ref={splitGanttPaneRef} style={{ flex: 1, overflow: "hidden", minWidth: 0 }}>
+              {renderSplitGantt(activeTasks)}
+            </div>
+          </div>
+        );
+        return listContent;
       })()}
     </div>;
   };
@@ -8373,27 +8602,37 @@ ${jobsCtx || "No jobs found."}`;
                       return true;
                     };
 
-                    // Pick the earliest-available eligible person at or after minStart (capacity-aware)
-                    const pickPerson = (op, minStart = null) => {
+                    // Pick all eligible people for the operation (capacity-aware, team scheduling)
+                    const pickTeam = (op, minStart = null) => {
                       const opTitle = typeof op === "string" ? op : op.title;
-                      const durBD = typeof op === "string" ? 1 : opDurBD(op);
                       const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
                       const eligible = allCrew
                         .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
                         .sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
-                      for (const candidate of eligible) {
-                        // Respect both the person's own cursor and the panel's sequential cursor
-                        let tryStart = personCursors[candidate.id] || slot.start;
-                        if (minStart && tryStart < minStart) tryStart = minStart;
-                        // Scan forward up to 200 days to find a slot with enough capacity
-                        for (let guard = 0; guard < 200; guard++) {
-                          const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
-                          if (isAvail(candidate.id, tryStart, tryEnd, totalHours, durBD)) return { person: candidate, start: tryStart, end: tryEnd };
-                          tryStart = sAddBD(tryStart, 1);
+                      if (eligible.length === 0) {
+                        const fallback = minStart || slot.start;
+                        return { team: [], start: fallback, end: fallback };
+                      }
+                      const teamSize = eligible.length;
+                      const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
+                      const hpdEach = totalHours / teamSize;
+                      let tryStart = eligible.reduce((best, m) => {
+                        const c = personCursors[m.id] || slot.start;
+                        return c > best ? c : best;
+                      }, slot.start);
+                      if (minStart && tryStart < minStart) tryStart = minStart;
+                      for (let guard = 0; guard < 300; guard++) {
+                        const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
+                        let allFree = true;
+                        for (const m of eligible) {
+                          if (!isAvail(m.id, tryStart, tryEnd, hpdEach, durBD)) { allFree = false; break; }
                         }
+                        if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
+                        tryStart = sAddBD(tryStart, 1);
                       }
                       const fallback = minStart || slot.start;
-                      return { person: null, start: fallback, end: sAddBD(fallback, 0) };
+                      const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
+                      return { team: eligible.slice(0, 1), start: fallback, end: sAddBD(fallback, Math.max(0, singleDur - 1)) };
                     };
 
                     let latestEnd = slot.start;
@@ -8409,17 +8648,17 @@ ${jobsCtx || "No jobs found."}`;
                       placedSubs: (op.subs || []).map(sub => ({ ...sub, _placed: false, start: null, end: null, team: sub.team || [] })),
                     }));
 
-                    // Flat panels with no sub-ops — assign immediately, one person each
+                    // Flat panels with no sub-ops — assign all eligible people as a team
                     const flatPanelResults = [];
                     resultSubs.forEach((op, pi) => {
                       if ((op.subs || []).length === 0) {
-                        const { person: ap, start: opStart, end: opEnd } = pickPerson(op, slot.start);
-                        if (ap) {
-                          inSession.push({ pid: ap.id, start: opStart, end: opEnd, hpd: op.hpd || orgSettings.hpd });
-                          personCursors[ap.id] = sAddBD(opEnd, 1);
-                        }
+                        const { team: apTeam, start: opStart, end: opEnd } = pickTeam(op, slot.start);
+                        apTeam.forEach(m => {
+                          inSession.push({ pid: m.id, start: opStart, end: opEnd, hpd: (op.hpd || orgSettings.hpd) / Math.max(1, apTeam.length) });
+                          personCursors[m.id] = sAddBD(opEnd, 1);
+                        });
                         if (opEnd > latestEnd) latestEnd = opEnd;
-                        flatPanelResults[pi] = { ...op, start: opStart, end: opEnd, team: ap ? [ap.id] : (op.team || []), subs: [] };
+                        flatPanelResults[pi] = { ...op, start: opStart, end: opEnd, team: apTeam.length > 0 ? apTeam.map(m => m.id) : (op.team || []), subs: [] };
                       }
                     });
 
@@ -8438,12 +8677,12 @@ ${jobsCtx || "No jobs found."}`;
                       opQueue.sort((a, b) => a.earliestStart.localeCompare(b.earliestStart));
                       const { panelIdx, opIdx, earliestStart } = opQueue.shift();
                       const sub = expandedOps[panelIdx].subs[opIdx];
-                      const { person, start: ss, end: se } = pickPerson(sub, earliestStart);
-                      resultSubs[panelIdx].placedSubs[opIdx] = { ...sub, _placed: true, start: ss, end: se, team: person ? [person.id] : (sub.team || []) };
-                      if (person) {
-                        inSession.push({ pid: person.id, start: ss, end: se, hpd: sub.hpd || orgSettings.hpd });
-                        personCursors[person.id] = sAddBD(se, 1);
-                      }
+                      const { team: subTeam, start: ss, end: se } = pickTeam(sub, earliestStart);
+                      resultSubs[panelIdx].placedSubs[opIdx] = { ...sub, _placed: true, start: ss, end: se, team: subTeam.length > 0 ? subTeam.map(m => m.id) : (sub.team || []) };
+                      subTeam.forEach(m => {
+                        inSession.push({ pid: m.id, start: ss, end: se, hpd: (sub.hpd || orgSettings.hpd) / Math.max(1, subTeam.length) });
+                        personCursors[m.id] = sAddBD(se, 1);
+                      });
                       if (se > latestEnd) latestEnd = se;
                       // Enqueue next op in this panel (Wire after Cut, Layout after Wire, etc.)
                       const nextOpIdx = opIdx + 1;
@@ -8458,7 +8697,7 @@ ${jobsCtx || "No jobs found."}`;
                       const placed = op.placedSubs;
                       const opStart = placed[0]?.start || slot.start;
                       const opEnd = placed[placed.length - 1]?.end || slot.start;
-                      return { ...op, start: opStart, end: opEnd, team: placed[0]?.team?.[0] ? [placed[0].team[0]] : [], subs: placed.map(({ _placed, ...rest }) => rest) };
+                      return { ...op, start: opStart, end: opEnd, team: placed[0]?.team || [], subs: placed.map(({ _placed, ...rest }) => rest) };
                     });
 
                     updated.subs = newSubs;
@@ -8740,24 +8979,36 @@ ${jobsCtx || "No jobs found."}`;
                       return true;
                     };
 
-                    const pickPerson = (op, minStart = null) => {
+                    const pickTeam = (op, minStart = null) => {
                       const opTitle = typeof op === "string" ? op : op.title;
-                      const durBD = typeof op === "string" ? 1 : opDurBD(op);
                       const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
                       const eligible = allCrew
                         .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
                         .sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
-                      for (const candidate of eligible) {
-                        let tryStart = personCursors[candidate.id] || slot.start;
-                        if (minStart && tryStart < minStart) tryStart = minStart;
-                        for (let guard = 0; guard < 200; guard++) {
-                          const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
-                          if (isAvail(candidate.id, tryStart, tryEnd, totalHours, durBD)) return { person: candidate, start: tryStart, end: tryEnd };
-                          tryStart = sAddBD(tryStart, 1);
+                      if (eligible.length === 0) {
+                        const fallback = minStart || slot.start;
+                        return { team: [], start: fallback, end: fallback };
+                      }
+                      const teamSize = eligible.length;
+                      const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
+                      const hpdEach = totalHours / teamSize;
+                      let tryStart = eligible.reduce((best, m) => {
+                        const c = personCursors[m.id] || slot.start;
+                        return c > best ? c : best;
+                      }, slot.start);
+                      if (minStart && tryStart < minStart) tryStart = minStart;
+                      for (let guard = 0; guard < 300; guard++) {
+                        const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
+                        let allFree = true;
+                        for (const m of eligible) {
+                          if (!isAvail(m.id, tryStart, tryEnd, hpdEach, durBD)) { allFree = false; break; }
                         }
+                        if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
+                        tryStart = sAddBD(tryStart, 1);
                       }
                       const fallback = minStart || slot.start;
-                      return { person: null, start: fallback, end: sAddBD(fallback, 0) };
+                      const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
+                      return { team: eligible.slice(0, 1), start: fallback, end: sAddBD(fallback, Math.max(0, singleDur - 1)) };
                     };
 
                     let latestEnd = slot.start;
@@ -8770,13 +9021,13 @@ ${jobsCtx || "No jobs found."}`;
                     const flatPanelResults = [];
                     resultSubs.forEach((op, pi) => {
                       if ((op.subs || []).length === 0) {
-                        const { person: ap, start: opStart, end: opEnd } = pickPerson(op, slot.start);
-                        if (ap) {
-                          inSession.push({ pid: ap.id, start: opStart, end: opEnd, hpd: op.hpd || orgSettings.hpd });
-                          personCursors[ap.id] = sAddBD(opEnd, 1);
-                        }
+                        const { team: apTeam, start: opStart, end: opEnd } = pickTeam(op, slot.start);
+                        apTeam.forEach(m => {
+                          inSession.push({ pid: m.id, start: opStart, end: opEnd, hpd: (op.hpd || orgSettings.hpd) / Math.max(1, apTeam.length) });
+                          personCursors[m.id] = sAddBD(opEnd, 1);
+                        });
                         if (opEnd > latestEnd) latestEnd = opEnd;
-                        flatPanelResults[pi] = { ...op, start: opStart, end: opEnd, team: ap ? [ap.id] : (op.team || []), subs: [] };
+                        flatPanelResults[pi] = { ...op, start: opStart, end: opEnd, team: apTeam.length > 0 ? apTeam.map(m => m.id) : (op.team || []), subs: [] };
                       }
                     });
 
@@ -8791,12 +9042,12 @@ ${jobsCtx || "No jobs found."}`;
                       opQueue.sort((a, b) => a.earliestStart.localeCompare(b.earliestStart));
                       const { panelIdx, opIdx, earliestStart } = opQueue.shift();
                       const sub = expandedOps[panelIdx].subs[opIdx];
-                      const { person, start: ss, end: se } = pickPerson(sub, earliestStart);
-                      resultSubs[panelIdx].placedSubs[opIdx] = { ...sub, _placed: true, start: ss, end: se, team: person ? [person.id] : (sub.team || []) };
-                      if (person) {
-                        inSession.push({ pid: person.id, start: ss, end: se, hpd: sub.hpd || orgSettings.hpd });
-                        personCursors[person.id] = sAddBD(se, 1);
-                      }
+                      const { team: subTeam, start: ss, end: se } = pickTeam(sub, earliestStart);
+                      resultSubs[panelIdx].placedSubs[opIdx] = { ...sub, _placed: true, start: ss, end: se, team: subTeam.length > 0 ? subTeam.map(m => m.id) : (sub.team || []) };
+                      subTeam.forEach(m => {
+                        inSession.push({ pid: m.id, start: ss, end: se, hpd: (sub.hpd || orgSettings.hpd) / Math.max(1, subTeam.length) });
+                        personCursors[m.id] = sAddBD(se, 1);
+                      });
                       if (se > latestEnd) latestEnd = se;
                       const nextOpIdx = opIdx + 1;
                       if (nextOpIdx < (expandedOps[panelIdx].subs || []).length) {
@@ -8809,7 +9060,7 @@ ${jobsCtx || "No jobs found."}`;
                       const placed = op.placedSubs;
                       const opStart = placed[0]?.start || slot.start;
                       const opEnd = placed[placed.length - 1]?.end || slot.start;
-                      return { ...op, start: opStart, end: opEnd, team: placed[0]?.team?.[0] ? [placed[0].team[0]] : [], subs: placed.map(({ _placed, ...rest }) => rest) };
+                      return { ...op, start: opStart, end: opEnd, team: placed[0]?.team || [], subs: placed.map(({ _placed, ...rest }) => rest) };
                     });
 
                     updated.subs = newSubs;
@@ -9734,6 +9985,9 @@ ${jobsCtx || "No jobs found."}`;
             }
           </div>
         </div>
+        <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: T.card, display: "flex", justifyContent: "flex-end", flexShrink: 0, borderBottomLeftRadius: T.radiusSm, borderBottomRightRadius: T.radiusSm }}>
+          <button onClick={() => setOrgSettingsOpen(false)} style={{ padding: "7px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save &amp; Close</button>
+        </div>
       </div>
     </div>}
     {/* Roles Settings Modal */}
@@ -10072,8 +10326,8 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   {/* Expanded permissions */}
                   {isSelected && <div style={{ margin: "2px 0 4px", padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
-                    {/* Admin toggle */}
-                    <div onClick={() => isAdmin && updPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
+                    {/* Admin toggle — only admins can see/change this */}
+                    {isAdmin && <div onClick={() => updPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
                       <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
@@ -10082,7 +10336,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ width: 36, height: 20, borderRadius: 10, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                         <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
-                    </div>
+                    </div>}
                     {/* Sub-permissions when admin */}
                     {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                       {ADMIN_PERMS.map(({ key, icon, label }) => {
@@ -10118,6 +10372,51 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>
+                    {/* Clock-In PIN (admin only) */}
+                    {isAdmin && (() => {
+                      const draft = pinDrafts[person.id] ?? "";
+                      const saving = !!pinSaving[person.id];
+                      const savePin = async () => {
+                        if (draft.length !== 4) return;
+                        setPinSaving(p => ({ ...p, [person.id]: true }));
+                        try {
+                          const updated = people.map(p => p.id === person.id ? { ...p, pin: draft } : p);
+                          await savePeople(updated, getToken, orgCode);
+                          setPeople(updated);
+                          setPinDrafts(p => { const n = { ...p }; delete n[person.id]; return n; });
+                        } catch (e) { console.error(e); }
+                        finally { setPinSaving(p => ({ ...p, [person.id]: false })); }
+                      };
+                      return (
+                        <div style={{ padding: "10px 10px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <span style={{ lineHeight: 0, color: T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Clock-In PIN</div>
+                              <div style={{ fontSize: 11, color: T.textDim }}>4-digit PIN used to clock in and out</div>
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <input
+                              type="password"
+                              inputMode="numeric"
+                              maxLength={4}
+                              value={draft}
+                              onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 4); setPinDrafts(p => ({ ...p, [person.id]: v })); }}
+                              placeholder="New PIN"
+                              style={{ width: 90, padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${draft.length === 4 ? T.accent : T.border}`, background: T.bg, color: T.text, fontSize: 18, fontFamily: T.mono, letterSpacing: "0.3em", outline: "none", textAlign: "center", boxSizing: "border-box", transition: "border-color 0.15s" }}
+                            />
+                            <button
+                              onClick={savePin}
+                              disabled={draft.length !== 4 || saving}
+                              style={{ padding: "6px 14px", borderRadius: T.radiusXs, border: "none", background: draft.length === 4 ? T.accent : T.border, color: draft.length === 4 ? "#fff" : T.textDim, fontSize: 12, fontWeight: 700, cursor: draft.length === 4 ? "pointer" : "default", fontFamily: T.font, transition: "all 0.15s", opacity: saving ? 0.7 : 1 }}
+                            >{saving ? "Saving…" : "Save PIN"}</button>
+                            {draft.length > 0 && draft.length < 4 && <span style={{ fontSize: 11, color: T.textDim }}>{4 - draft.length} more digit{4 - draft.length !== 1 ? "s" : ""}</span>}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {/* Job Restrictions */}
                     <div style={{ padding: "10px 10px 12px", borderRadius: T.radiusXs, border: `1px solid ${(person.jobTags || []).length ? "#8b5cf644" : T.border}`, background: (person.jobTags || []).length ? "#8b5cf608" : T.surface }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
