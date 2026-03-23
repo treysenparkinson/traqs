@@ -3,7 +3,8 @@
   "appName": "TRAQS",
   "webDir": "public",
   "server": {
-    "androidScheme": "https"
+    "url": "https://traqs.netlify.app",
+    "cleartext": false
   },
   "plugins": {
     "SplashScreen": {
