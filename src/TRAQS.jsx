@@ -1729,6 +1729,7 @@ Rules:
   const [overlapError, setOverlapError] = useState(null); // { message, details[] }
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [scheduleTeamMode, setScheduleTeamMode] = useState("team"); // "one" | "team"
   const [confirmMove, setConfirmMove] = useState(null); // { message, onConfirm }
   const [searchQ, setSearchQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -2625,7 +2626,7 @@ ${jobsCtx || "No jobs found."}`;
   };
   const openDeps = id => setModal({ type: "deps", data: allItems.find(x => x.id === id), parentId: null });
   const openAvail = () => setModal({ type: "avail", data: null, parentId: null });
-  const closeModal = () => { setModal(null); setAiSuggestion(null); setAiLoading(false); };
+  const closeModal = () => { setModal(null); setAiSuggestion(null); setAiLoading(false); setScheduleTeamMode("team"); };
   const saveTask = (ed, parentId) => {
     if (!ed.title.trim()) return;
     if (!parentId && !ed.projectManagerId) { alert("Please select a Project Manager before saving."); return; }
@@ -3695,6 +3696,52 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
       </div>}
+      {gMode !== "day" && (() => {
+        const scrStart = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()-6); return toDS(new Date(d.getFullYear(),d.getMonth(),1)); })();
+        const scrEnd   = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()+12); return toDS(new Date(d.getFullYear(),d.getMonth()+1,0)); })();
+        const scrDays  = diffD(scrStart, scrEnd) + 1;
+        const thumbL   = Math.max(0, Math.min(98, (diffD(scrStart, gStart) / scrDays) * 100));
+        const thumbW   = Math.max(2, Math.min(100 - thumbL, ((diffD(gStart, gEnd) + 1) / scrDays) * 100));
+        const months   = [];
+        let md = new Date(scrStart+"T12:00:00");
+        while (toDS(md) <= scrEnd) {
+          months.push({ pct: (diffD(scrStart, toDS(new Date(md.getFullYear(),md.getMonth(),1))) / scrDays)*100, label: md.toLocaleDateString("en-US",{month:"short"}), isJan: md.getMonth()===0, year: md.getFullYear() });
+          md.setMonth(md.getMonth()+1);
+        }
+        const handleThumbDrag = e => {
+          e.stopPropagation();
+          const trackEl = e.currentTarget.parentElement;
+          const trackRect = trackEl.getBoundingClientRect();
+          const startX = e.clientX, startGS = gStart, startGE = gEnd;
+          const span = diffD(gStart, gEnd);
+          const pxPerDay = trackRect.width / scrDays;
+          const sty = document.createElement("style"); sty.textContent="*{cursor:grabbing!important;user-select:none!important}"; document.head.appendChild(sty);
+          const onM = me => { const delta=Math.round((me.clientX-startX)/pxPerDay); let ns=addD(startGS,delta),ne=addD(startGE,delta); if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}setGStart(ns);setGEnd(ne); };
+          const onU = () => { document.head.removeChild(sty); document.removeEventListener("mousemove",onM); document.removeEventListener("mouseup",onU); };
+          document.addEventListener("mousemove",onM); document.addEventListener("mouseup",onU);
+        };
+        const handleTrackClick = e => {
+          if (e.target !== e.currentTarget) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = (e.clientX - rect.left) / rect.width;
+          const target = addD(scrStart, Math.round(pct * scrDays));
+          const span = diffD(gStart, gEnd), half = Math.floor(span/2);
+          let ns=addD(target,-half), ne=addD(target,span-half);
+          if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}
+          setGStart(ns); setGEnd(ne);
+        };
+        return (
+          <div style={{ marginTop: 6, userSelect: "none" }}>
+            <div style={{ position: "relative", height: 30, cursor: "pointer" }} onClick={handleTrackClick}>
+              {months.map((m,i) => <div key={i} style={{ position:"absolute", bottom:0, left:`${m.pct}%`, transform:"translateX(-50%)", fontSize:9, color:T.textDim, fontWeight:m.isJan?700:400, lineHeight:1, whiteSpace:"nowrap", pointerEvents:"none", textAlign:"center" }}>{m.label}{m.isJan && <span style={{display:"block",fontSize:8,opacity:0.6}}>{m.year}</span>}</div>)}
+              <div style={{ position:"absolute", left:0, right:0, top:"40%", height:6, transform:"translateY(-50%)", background:T.bg, borderRadius:3, border:`1px solid ${T.border}` }} />
+              <div style={{ position:"absolute", top:"40%", left:`${thumbL}%`, width:`${thumbW}%`, height:10, transform:"translateY(-50%)", background:T.accent+"88", borderRadius:4, border:`1.5px solid ${T.accent}`, cursor:"grab", minWidth:8 }}
+                onMouseDown={handleThumbDrag} onClick={e=>e.stopPropagation()}
+                onMouseEnter={e=>e.currentTarget.style.background=T.accent+"cc"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"88"} />
+            </div>
+          </div>
+        );
+      })()}
     </div>;
   };
 
@@ -6020,6 +6067,51 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
       </div>}
+      {tMode !== "day" && (() => {
+        const scrStart = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()-6); return toDS(new Date(d.getFullYear(),d.getMonth(),1)); })();
+        const scrEnd   = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()+12); return toDS(new Date(d.getFullYear(),d.getMonth()+1,0)); })();
+        const scrDays  = diffD(scrStart, scrEnd) + 1;
+        const thumbL   = Math.max(0, Math.min(98, (diffD(scrStart, tStart) / scrDays) * 100));
+        const thumbW   = Math.max(2, Math.min(100 - thumbL, ((diffD(tStart, tEnd) + 1) / scrDays) * 100));
+        const months   = [];
+        let md = new Date(scrStart+"T12:00:00");
+        while (toDS(md) <= scrEnd) {
+          months.push({ pct: (diffD(scrStart, toDS(new Date(md.getFullYear(),md.getMonth(),1))) / scrDays)*100, label: md.toLocaleDateString("en-US",{month:"short"}), isJan: md.getMonth()===0, year: md.getFullYear() });
+          md.setMonth(md.getMonth()+1);
+        }
+        const handleThumbDrag = e => {
+          e.stopPropagation();
+          const trackRect = e.currentTarget.parentElement.getBoundingClientRect();
+          const startX = e.clientX, startTS = tStart, startTE = tEnd;
+          const span = diffD(tStart, tEnd);
+          const pxPerDay = trackRect.width / scrDays;
+          const sty = document.createElement("style"); sty.textContent="*{cursor:grabbing!important;user-select:none!important}"; document.head.appendChild(sty);
+          const onM = me => { const delta=Math.round((me.clientX-startX)/pxPerDay); let ns=addD(startTS,delta),ne=addD(startTE,delta); if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}setTStart(ns);setTEnd(ne); };
+          const onU = () => { document.head.removeChild(sty); document.removeEventListener("mousemove",onM); document.removeEventListener("mouseup",onU); };
+          document.addEventListener("mousemove",onM); document.addEventListener("mouseup",onU);
+        };
+        const handleTrackClick = e => {
+          if (e.target !== e.currentTarget) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = (e.clientX - rect.left) / rect.width;
+          const target = addD(scrStart, Math.round(pct * scrDays));
+          const span = diffD(tStart, tEnd), half = Math.floor(span/2);
+          let ns=addD(target,-half), ne=addD(target,span-half);
+          if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}
+          setTStart(ns); setTEnd(ne);
+        };
+        return (
+          <div style={{ marginTop: 6, userSelect: "none" }}>
+            <div style={{ position: "relative", height: 30, cursor: "pointer" }} onClick={handleTrackClick}>
+              {months.map((m,i) => <div key={i} style={{ position:"absolute", bottom:0, left:`${m.pct}%`, transform:"translateX(-50%)", fontSize:9, color:T.textDim, fontWeight:m.isJan?700:400, lineHeight:1, whiteSpace:"nowrap", pointerEvents:"none", textAlign:"center" }}>{m.label}{m.isJan && <span style={{display:"block",fontSize:8,opacity:0.6}}>{m.year}</span>}</div>)}
+              <div style={{ position:"absolute", left:0, right:0, top:"40%", height:6, transform:"translateY(-50%)", background:T.bg, borderRadius:3, border:`1px solid ${T.border}` }} />
+              <div style={{ position:"absolute", top:"40%", left:`${thumbL}%`, width:`${thumbW}%`, height:10, transform:"translateY(-50%)", background:T.accent+"88", borderRadius:4, border:`1.5px solid ${T.accent}`, cursor:"grab", minWidth:8 }}
+                onMouseDown={handleThumbDrag} onClick={e=>e.stopPropagation()}
+                onMouseEnter={e=>e.currentTarget.style.background=T.accent+"cc"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"88"} />
+            </div>
+          </div>
+        );
+      })()}
     {teamDragInfo && teamDragInfo.taskTitle && <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 8, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{teamDragInfo.taskTitle}</div>}
     </div>;
   };
@@ -8490,7 +8582,7 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>}
 
-        {false && <div style={{ marginBottom: 20, marginTop: -8 }}>
+        {aiSuggestion && <div style={{ marginBottom: 20, marginTop: -8 }}>
             {aiSuggestion.canMeetDue === true && <div style={{ padding: "12px 16px", background: "#10b98112", border: "1px solid #10b98133", borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
               <div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
@@ -8612,6 +8704,29 @@ ${jobsCtx || "No jobs found."}`;
                         const fallback = minStart || slot.start;
                         return { team: [], start: fallback, end: fallback };
                       }
+                      const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
+
+                      if (scheduleTeamMode === "one") {
+                        // "1 Person/Op" — pick the earliest-available single person
+                        let tryStart = eligible.reduce((earliest, m) => {
+                          const c = personCursors[m.id] || slot.start;
+                          return c < earliest ? c : earliest;
+                        }, personCursors[eligible[0].id] || slot.start);
+                        if (minStart && tryStart < minStart) tryStart = minStart;
+                        for (let guard = 0; guard < 300; guard++) {
+                          const tryEnd = sAddBD(tryStart, Math.max(0, singleDur - 1));
+                          for (const candidate of eligible) {
+                            if (isAvail(candidate.id, tryStart, tryEnd, totalHours, singleDur)) {
+                              return { team: [candidate], start: tryStart, end: tryEnd };
+                            }
+                          }
+                          tryStart = sAddBD(tryStart, 1);
+                        }
+                        const fallback = minStart || slot.start;
+                        return { team: eligible.slice(0, 1), start: fallback, end: sAddBD(fallback, Math.max(0, singleDur - 1)) };
+                      }
+
+                      // "Full Team/Op" — try all eligible simultaneously; fall back to largest free subset
                       const teamSize = eligible.length;
                       const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
                       const hpdEach = totalHours / teamSize;
@@ -8629,9 +8744,19 @@ ${jobsCtx || "No jobs found."}`;
                         if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
                         tryStart = sAddBD(tryStart, 1);
                       }
-                      const fallback = minStart || slot.start;
-                      const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
-                      return { team: eligible.slice(0, 1), start: fallback, end: sAddBD(fallback, Math.max(0, singleDur - 1)) };
+                      // Fallback: find earliest slot where any free subset exists
+                      const fallbackStart = minStart || slot.start;
+                      for (let g2 = 0; g2 < 300; g2++) {
+                        const tryS = sAddBD(fallbackStart, g2);
+                        const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
+                        const freeSubset = eligible.filter(m => isAvail(m.id, tryS, tryE, totalHours, singleDur));
+                        if (freeSubset.length > 0) {
+                          const sz = freeSubset.length;
+                          const finalDur = Math.max(1, Math.ceil(totalHours / (sz * orgSettings.hpd)));
+                          return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) };
+                        }
+                      }
+                      return { team: eligible.slice(0, 1), start: fallbackStart, end: sAddBD(fallbackStart, Math.max(0, singleDur - 1)) };
                     };
 
                     let latestEnd = slot.start;
@@ -8731,6 +8856,11 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <label style={{ fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Operations</label>
             <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <button onClick={() => setScheduleTeamMode(m => m === "one" ? "team" : "one")}
+                title={scheduleTeamMode === "one" ? "Switch to: Full Team per Op" : "Switch to: 1 Person per Op"}
+                style={{ padding: "5px 10px", borderRadius: T.radiusXs, border: `1px solid ${scheduleTeamMode === "team" ? T.accent : T.textDim}55`, background: scheduleTeamMode === "team" ? T.accent + "18" : "transparent", color: scheduleTeamMode === "team" ? T.accent : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                {scheduleTeamMode === "one" ? "👤 1 Person/Op" : "👥 Full Team/Op"}
+              </button>
               {templates.length > 0 && (
                 <select defaultValue="" onChange={e => { const tpl = templates.find(t => t.id === e.target.value); if (tpl) loadTemplate(tpl); e.target.value = ""; }}
                   style={{ padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, cursor: "pointer" }}>
@@ -8745,6 +8875,10 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             </div>
           </div>
+          {/* Check for Availability */}
+          <button onClick={suggestSchedule} disabled={aiLoading || (ed.subs || []).length === 0} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 18px", borderRadius: T.radiusSm, border: "none", background: (ed.subs || []).length === 0 ? T.textDim + "33" : T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: aiLoading || (ed.subs || []).length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.2s", width: "100%", marginBottom: 12, opacity: (ed.subs || []).length === 0 ? 0.5 : 1, boxShadow: (ed.subs || []).length > 0 ? `0 4px 14px ${T.accent}59` : "none", letterSpacing: "0.3px" }}>
+            {aiLoading ? "⏳ Checking availability..." : "Check for Availability!"}
+          </button>
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
             {(ed.subs || []).map((panel, pi) => {
               const updatePanel = (patch) => { const subs = [...(ed.subs || [])]; subs[pi] = { ...subs[pi], ...patch }; setEd(p => ({ ...p, subs })); };
@@ -8869,13 +9003,9 @@ ${jobsCtx || "No jobs found."}`;
             + Add Operation
           </button>
 
-          {/* Check for Availability */}
-          <button onClick={suggestSchedule} disabled={aiLoading || (ed.subs || []).length === 0} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 18px", borderRadius: T.radiusSm, border: "none", background: (ed.subs || []).length === 0 ? T.textDim + "33" : T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: aiLoading || (ed.subs || []).length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.2s", width: "100%", marginTop: 12, opacity: (ed.subs || []).length === 0 ? 0.5 : 1, boxShadow: (ed.subs || []).length > 0 ? `0 4px 14px ${T.accent}59` : "none", letterSpacing: "0.3px" }}>
-            {aiLoading ? "⏳ Checking availability..." : "Check for Availability!"}
-          </button>
         </div>
 
-        {aiSuggestion && <div style={{ marginBottom: 20, marginTop: 12 }}>
+        {false && <div style={{ marginBottom: 20, marginTop: 12 }}>
             {aiSuggestion.canMeetDue === true && <div style={{ padding: "12px 16px", background: "#10b98112", border: "1px solid #10b98133", borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
               <div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
@@ -8990,6 +9120,29 @@ ${jobsCtx || "No jobs found."}`;
                         const fallback = minStart || slot.start;
                         return { team: [], start: fallback, end: fallback };
                       }
+                      const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
+
+                      if (scheduleTeamMode === "one") {
+                        // "1 Person/Op" — pick the earliest-available single person
+                        let tryStart = eligible.reduce((earliest, m) => {
+                          const c = personCursors[m.id] || slot.start;
+                          return c < earliest ? c : earliest;
+                        }, personCursors[eligible[0].id] || slot.start);
+                        if (minStart && tryStart < minStart) tryStart = minStart;
+                        for (let guard = 0; guard < 300; guard++) {
+                          const tryEnd = sAddBD(tryStart, Math.max(0, singleDur - 1));
+                          for (const candidate of eligible) {
+                            if (isAvail(candidate.id, tryStart, tryEnd, totalHours, singleDur)) {
+                              return { team: [candidate], start: tryStart, end: tryEnd };
+                            }
+                          }
+                          tryStart = sAddBD(tryStart, 1);
+                        }
+                        const fallback = minStart || slot.start;
+                        return { team: eligible.slice(0, 1), start: fallback, end: sAddBD(fallback, Math.max(0, singleDur - 1)) };
+                      }
+
+                      // "Full Team/Op" — try all eligible simultaneously; fall back to largest free subset
                       const teamSize = eligible.length;
                       const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
                       const hpdEach = totalHours / teamSize;
@@ -9007,9 +9160,19 @@ ${jobsCtx || "No jobs found."}`;
                         if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
                         tryStart = sAddBD(tryStart, 1);
                       }
-                      const fallback = minStart || slot.start;
-                      const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
-                      return { team: eligible.slice(0, 1), start: fallback, end: sAddBD(fallback, Math.max(0, singleDur - 1)) };
+                      // Fallback: find earliest slot where any free subset exists
+                      const fallbackStart = minStart || slot.start;
+                      for (let g2 = 0; g2 < 300; g2++) {
+                        const tryS = sAddBD(fallbackStart, g2);
+                        const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
+                        const freeSubset = eligible.filter(m => isAvail(m.id, tryS, tryE, totalHours, singleDur));
+                        if (freeSubset.length > 0) {
+                          const sz = freeSubset.length;
+                          const finalDur = Math.max(1, Math.ceil(totalHours / (sz * orgSettings.hpd)));
+                          return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) };
+                        }
+                      }
+                      return { team: eligible.slice(0, 1), start: fallbackStart, end: sAddBD(fallbackStart, Math.max(0, singleDur - 1)) };
                     };
 
                     let latestEnd = slot.start;
