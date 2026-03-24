@@ -1414,11 +1414,8 @@ Rules:
   const sAddBD  = (ds, n) => addBD(ds, n, schedOpts);
   const sNextBD = ds      => nextBD(ds, schedOpts);
   const sDiffBD = (a, b)  => diffBD(a, b, schedOpts);
-  // Duration of an operation in working days given org's hrs/day (divided by team size when assigned)
-  const opDurBD = op => {
-    const teamSize = Math.max(1, (op?.team || []).length);
-    return Math.max(1, Math.ceil((op?.hpd || orgSettings.hpd) / (orgSettings.hpd * teamSize)));
-  };
+  // Duration of an operation in working days given org's hrs/day
+  const opDurBD = op => Math.max(1, Math.ceil((op?.hpd || orgSettings.hpd) / orgSettings.hpd));
   // Job hours/progress helpers — used by both renderTasks and the export modal
   const _opHrs = (op) => Math.round((op.hpd || 7.5) * (diffBD(op.start, op.end) + 1) * 10) / 10;
   const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
@@ -6012,7 +6009,7 @@ ${jobsCtx || "No jobs found."}`;
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
                     {hasMoveLog && <span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} title="Schedule was changed" />}
                     <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : `${bar.task?.title || bar.title} - ${p.name.split(" ")[0]}`}</span>
-                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.85)", fontFamily: T.mono }}>{bar.task.hpd}h</span>}
+                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.85)", fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>;
                 })}
               </div>
@@ -8606,9 +8603,11 @@ ${jobsCtx || "No jobs found."}`;
                     const pickTeam = (op, minStart = null) => {
                       const opTitle = typeof op === "string" ? op : op.title;
                       const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
-                      const eligible = allCrew
+                      let eligible = allCrew
                         .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
                         .sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
+                      // Fallback: if jobTags filter removed everyone, use all crew
+                      if (eligible.length === 0) eligible = allCrew.slice().sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
                       if (eligible.length === 0) {
                         const fallback = minStart || slot.start;
                         return { team: [], start: fallback, end: fallback };
@@ -8982,9 +8981,11 @@ ${jobsCtx || "No jobs found."}`;
                     const pickTeam = (op, minStart = null) => {
                       const opTitle = typeof op === "string" ? op : op.title;
                       const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
-                      const eligible = allCrew
+                      let eligible = allCrew
                         .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
                         .sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
+                      // Fallback: if jobTags filter removed everyone, use all crew
+                      if (eligible.length === 0) eligible = allCrew.slice().sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
                       if (eligible.length === 0) {
                         const fallback = minStart || slot.start;
                         return { team: [], start: fallback, end: fallback };
