@@ -11,16 +11,11 @@ struct LoginView: View {
                 Spacer()
 
                 // Logo / Brand
-                VStack(spacing: 8) {
-                    Text("TRAQS")
-                        .font(.system(size: 52, weight: .black, design: .default))
-                        .foregroundStyle(
-                            LinearGradient(
-                                colors: [Color(hex: T.accent), Color(hex: "#2563eb")],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
+                VStack(spacing: 12) {
+                    Image("TRAQSLogoWhite")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 220)
                     Text("Scheduling & Production Management")
                         .font(.subheadline)
                         .foregroundColor(Color(hex: T.muted))

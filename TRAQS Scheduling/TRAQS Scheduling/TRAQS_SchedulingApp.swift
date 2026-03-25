@@ -25,16 +25,16 @@ struct TRAQS_SchedulingApp: App {
                 .id(themeSettings.version)
                 .onChange(of: appState.currentPersonId) { _, personId in
                     if let personId {
-                        OneSignal.login(String(personId))
+                        OneSignal.login(personId)
                     }
                 }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 Task { await appState.loadAll() }
-                appState.startAutoRefresh()
+                Task { await MainActor.run { appState.startAutoRefresh() } }
             } else if newPhase == .background {
-                appState.stopAutoRefresh()
+                Task { await MainActor.run { appState.stopAutoRefresh() } }
             }
         }
         #if os(macOS)

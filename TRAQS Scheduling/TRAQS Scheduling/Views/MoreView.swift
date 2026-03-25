@@ -1,5 +1,7 @@
 import SwiftUI
 
+// MARK: - MoreView
+
 struct MoreView: View {
     @Environment(AuthManager.self) private var auth
     @Environment(AppState.self) private var appState
@@ -30,54 +32,56 @@ struct MoreView: View {
                     .background(Color(hex: T.surface))
 
                     List {
-                    Section("AI Tools") {
-                        Button {
-                            showFastTRAQS = true
-                        } label: {
-                            Label("Ask TRAQS", systemImage: "bolt.fill")
-                                .foregroundColor(Color(hex: T.accent))
+                        if appState.isAdmin {
+                            Section("AI Tools") {
+                                Button {
+                                    showFastTRAQS = true
+                                } label: {
+                                    Label("Ask TRAQS", systemImage: "bolt.fill")
+                                        .foregroundColor(Color(hex: T.accent))
+                                }
+                                .listRowBackground(Color(hex: T.card))
+                            }
                         }
-                        .listRowBackground(Color(hex: T.card))
+
+                        Section {
+                            NavigationLink {
+                                AnalyticsView()
+                            } label: {
+                                Label("Analytics", systemImage: "chart.pie")
+                                    .foregroundColor(Color(hex: T.text))
+                            }
+                            .listRowBackground(Color(hex: T.card))
+
+                            NavigationLink {
+                                TeamView()
+                            } label: {
+                                Label("Team", systemImage: "person.3")
+                                    .foregroundColor(Color(hex: T.text))
+                            }
+                            .listRowBackground(Color(hex: T.card))
+
+                            NavigationLink {
+                                CustomizeView()
+                            } label: {
+                                Label("Customize", systemImage: "paintpalette.fill")
+                                    .foregroundColor(Color(hex: T.text))
+                            }
+                            .listRowBackground(Color(hex: T.card))
+                        }
+
+                        Section {
+                            Button(role: .destructive) {
+                                auth.logout()
+                                appState.orgCode = ""
+                                KeychainHelper.delete(forKey: KeychainHelper.orgCodeKey)
+                            } label: {
+                                Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                                    .foregroundColor(Color(hex: T.danger))
+                            }
+                            .listRowBackground(Color(hex: T.card))
+                        }
                     }
-
-                    Section {
-                        NavigationLink {
-                            AnalyticsView()
-                        } label: {
-                            Label("Analytics", systemImage: "chart.pie")
-                                .foregroundColor(Color(hex: T.text))
-                        }
-                        .listRowBackground(Color(hex: T.card))
-
-                        NavigationLink {
-                            TeamView()
-                        } label: {
-                            Label("Team", systemImage: "person.3")
-                                .foregroundColor(Color(hex: T.text))
-                        }
-                        .listRowBackground(Color(hex: T.card))
-
-                        NavigationLink {
-                            CustomizeView()
-                        } label: {
-                            Label("Customize", systemImage: "paintpalette.fill")
-                                .foregroundColor(Color(hex: T.text))
-                        }
-                        .listRowBackground(Color(hex: T.card))
-                    }
-
-                    Section {
-                        Button(role: .destructive) {
-                            auth.logout()
-                            appState.orgCode = ""
-                            KeychainHelper.delete(forKey: KeychainHelper.orgCodeKey)
-                        } label: {
-                            Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
-                                .foregroundColor(Color(hex: T.danger))
-                        }
-                        .listRowBackground(Color(hex: T.card))
-                    }
-                }
                     .listStyle(.insetGrouped)
                     .scrollContentBackground(.hidden)
                 }

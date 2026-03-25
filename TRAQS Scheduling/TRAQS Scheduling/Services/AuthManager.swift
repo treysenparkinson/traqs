@@ -145,10 +145,11 @@ class AuthManager: NSObject {
 extension AuthManager: ASWebAuthenticationPresentationContextProviding {
     nonisolated func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         #if os(iOS)
-        return UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow } ?? ASPresentationAnchor()
+        return MainActor.assumeIsolated {
+            let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            let active = scenes.first(where: { $0.activationState == .foregroundActive }) ?? scenes.first
+            return active?.keyWindow ?? active?.windows.first ?? UIWindow()
+        }
         #else
         return NSApplication.shared.windows.first ?? ASPresentationAnchor()
         #endif

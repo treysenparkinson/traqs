@@ -33,7 +33,7 @@ struct APIService {
         guard let url = URL(string: "\(base)/\(path)") else {
             throw URLError(.badURL)
         }
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")

@@ -1,5 +1,29 @@
 import Foundation
 
+// MARK: - Flexible ID decoding (web app stores some IDs as Int, some as String)
+
+extension KeyedDecodingContainer {
+    /// Decodes a value that may be stored as either String or Int, returning a String.
+    func decodeFlexID(forKey key: Key) throws -> String {
+        if let s = try? decode(String.self, forKey: key) { return s }
+        return String(try decode(Int.self, forKey: key))
+    }
+
+    /// Decodes an array where each element may be String or Int, returning [String].
+    func decodeFlexIDs(forKey key: Key) -> [String] {
+        if let arr = try? decode([String].self, forKey: key) { return arr }
+        if let arr = try? decode([Int].self, forKey: key) { return arr.map { String($0) } }
+        guard var u = try? nestedUnkeyedContainer(forKey: key) else { return [] }
+        var result: [String] = []
+        while !u.isAtEnd {
+            if let s = try? u.decode(String.self) { result.append(s) }
+            else if let i = try? u.decode(Int.self) { result.append(String(i)) }
+            else { break }
+        }
+        return result
+    }
+}
+
 // MARK: - Enums
 
 enum JobStatus: String, Codable, CaseIterable {
@@ -19,9 +43,19 @@ enum Priority: String, Codable, CaseIterable {
 // MARK: - Engineering
 
 struct EngineeringSignOff: Codable, Equatable {
-    var by: Int
+    var by: String
     var byName: String
     var at: String
+
+    init(by: String, byName: String, at: String) {
+        self.by = by; self.byName = byName; self.at = at
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        by     = (try? c.decodeFlexID(forKey: .by)) ?? ""
+        byName = (try? c.decode(String.self, forKey: .byName)) ?? ""
+        at     = (try? c.decode(String.self, forKey: .at)) ?? ""
+    }
 }
 
 struct Engineering: Codable, Equatable {
@@ -56,7 +90,7 @@ struct Operation: Codable, Identifiable, Equatable {
     var end: String
     var status: JobStatus
     var pri: Priority
-    var team: [Int]
+    var team: [String]
     var hpd: Double
     var notes: String
     var deps: [String]
@@ -72,7 +106,7 @@ struct Operation: Codable, Identifiable, Equatable {
         end    = try c.decode(String.self, forKey: .end)
         status = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri    = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
-        team   = (try? c.decode([Int].self, forKey: .team)) ?? []
+        team   = c.decodeFlexIDs(forKey: .team)
         hpd    = (try? c.decode(Double.self, forKey: .hpd)) ?? 7.5
         notes  = (try? c.decode(String.self, forKey: .notes)) ?? ""
         deps   = (try? c.decode([String].self, forKey: .deps)) ?? []
@@ -93,7 +127,7 @@ struct Panel: Codable, Identifiable, Equatable {
     var end: String
     var status: JobStatus
     var pri: Priority
-    var team: [Int]
+    var team: [String]
     var hpd: Double
     var notes: String
     var deps: [String]
@@ -108,7 +142,7 @@ struct Panel: Codable, Identifiable, Equatable {
         end         = try c.decode(String.self, forKey: .end)
         status      = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri         = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
-        team        = (try? c.decode([Int].self, forKey: .team)) ?? []
+        team        = c.decodeFlexIDs(forKey: .team)
         hpd         = (try? c.decode(Double.self, forKey: .hpd)) ?? 7.5
         notes       = (try? c.decode(String.self, forKey: .notes)) ?? ""
         deps        = (try? c.decode([String].self, forKey: .deps)) ?? []
@@ -132,7 +166,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     var dueDate: String?
     var status: JobStatus
     var pri: Priority
-    var team: [Int]
+    var team: [String]
     var color: String
     var hpd: Double
     var notes: String
@@ -150,7 +184,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         end       = try c.decode(String.self, forKey: .end)
         status    = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri       = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
-        team      = (try? c.decode([Int].self, forKey: .team)) ?? []
+        team      = c.decodeFlexIDs(forKey: .team)
         color     = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
         hpd       = (try? c.decode(Double.self, forKey: .hpd)) ?? 7.5
         notes     = (try? c.decode(String.self, forKey: .notes)) ?? ""
@@ -168,7 +202,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     init(id: String, title: String, jobNumber: String? = nil, poNumber: String? = nil,
          start: String, end: String, dueDate: String? = nil,
          status: JobStatus = .notStarted, pri: Priority = .medium,
-         team: [Int] = [], color: String = "#3d7fff", hpd: Double = 7.5,
+         team: [String] = [], color: String = "#3d7fff", hpd: Double = 7.5,
          notes: String = "", clientId: String? = nil, deps: [String] = [],
          subs: [Panel] = [], moveLog: [MoveLogEntry]? = nil, jobType: String? = nil) {
         self.id = id; self.title = title; self.jobNumber = jobNumber; self.poNumber = poNumber
@@ -224,7 +258,7 @@ struct TimeOffEntry: Codable, Identifiable {
 
 struct Person: Codable, Identifiable, Equatable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
-    var id: Int
+    var id: String
     var name: String
     var role: String
     var email: String
@@ -234,6 +268,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var adminPerms: AdminPerms?
     var isEngineer: Bool?
     var isTeamLead: Bool?
+    var autoSchedule: Bool?   // false = excluded from AI scheduling
     var teamNumber: Int?
     var timeOff: [TimeOffEntry]
     var pushToken: String?
@@ -242,7 +277,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id       = try c.decode(Int.self, forKey: .id)
+        id       = try c.decodeFlexID(forKey: .id)
         name     = (try? c.decode(String.self, forKey: .name)) ?? "Unknown"
         role     = (try? c.decode(String.self, forKey: .role)) ?? ""
         email    = (try? c.decode(String.self, forKey: .email)) ?? ""
@@ -251,22 +286,24 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         userRole = (try? c.decode(String.self, forKey: .userRole)) ?? "user"
         timeOff  = (try? c.decode([TimeOffEntry].self, forKey: .timeOff)) ?? []
         adminPerms  = try? c.decodeIfPresent(AdminPerms.self, forKey: .adminPerms)
-        isEngineer  = try? c.decodeIfPresent(Bool.self, forKey: .isEngineer)
-        isTeamLead  = try? c.decodeIfPresent(Bool.self, forKey: .isTeamLead)
-        teamNumber  = try? c.decodeIfPresent(Int.self, forKey: .teamNumber)
+        isEngineer    = try? c.decodeIfPresent(Bool.self, forKey: .isEngineer)
+        isTeamLead    = try? c.decodeIfPresent(Bool.self, forKey: .isTeamLead)
+        autoSchedule  = try? c.decodeIfPresent(Bool.self, forKey: .autoSchedule)
+        teamNumber    = try? c.decodeIfPresent(Int.self, forKey: .teamNumber)
         pushToken   = try? c.decodeIfPresent(String.self, forKey: .pushToken)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
-    init(id: Int, name: String, role: String, email: String, cap: Double,
+    init(id: String, name: String, role: String, email: String, cap: Double,
          color: String, userRole: String, adminPerms: AdminPerms? = nil,
-         isEngineer: Bool? = nil, isTeamLead: Bool? = nil, teamNumber: Int? = nil,
+         isEngineer: Bool? = nil, isTeamLead: Bool? = nil,
+         autoSchedule: Bool? = nil, teamNumber: Int? = nil,
          timeOff: [TimeOffEntry] = [], pushToken: String? = nil) {
         self.id = id; self.name = name; self.role = role; self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
-        self.isTeamLead = isTeamLead; self.teamNumber = teamNumber
-        self.timeOff = timeOff; self.pushToken = pushToken
+        self.isTeamLead = isTeamLead; self.autoSchedule = autoSchedule
+        self.teamNumber = teamNumber; self.timeOff = timeOff; self.pushToken = pushToken
     }
 
     static func == (lhs: Person, rhs: Person) -> Bool { lhs.id == rhs.id }
@@ -302,17 +339,45 @@ struct Attachment: Codable, Identifiable {
 struct Message: Codable, Identifiable {
     var id: String
     var threadKey: String
-    var scope: String   // "job" | "panel" | "op" | "group"
+    var scope: String
     var jobId: String?
     var panelId: String?
     var opId: String?
     var text: String
-    var authorId: Int
+    var authorId: String
     var authorName: String
     var authorColor: String
-    var participantIds: [Int]
+    var participantIds: [String]
     var attachments: [Attachment]
     var timestamp: String
+
+    init(id: String, threadKey: String, scope: String,
+         jobId: String?, panelId: String?, opId: String?,
+         text: String, authorId: String, authorName: String, authorColor: String,
+         participantIds: [String], attachments: [Attachment], timestamp: String) {
+        self.id = id; self.threadKey = threadKey; self.scope = scope
+        self.jobId = jobId; self.panelId = panelId; self.opId = opId
+        self.text = text; self.authorId = authorId; self.authorName = authorName
+        self.authorColor = authorColor; self.participantIds = participantIds
+        self.attachments = attachments; self.timestamp = timestamp
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id             = try c.decode(String.self, forKey: .id)
+        threadKey      = (try? c.decode(String.self, forKey: .threadKey)) ?? ""
+        scope          = (try? c.decode(String.self, forKey: .scope)) ?? "job"
+        jobId          = try? c.decodeIfPresent(String.self, forKey: .jobId)
+        panelId        = try? c.decodeIfPresent(String.self, forKey: .panelId)
+        opId           = try? c.decodeIfPresent(String.self, forKey: .opId)
+        text           = (try? c.decode(String.self, forKey: .text)) ?? ""
+        authorId       = (try? c.decodeFlexID(forKey: .authorId)) ?? ""
+        authorName     = (try? c.decode(String.self, forKey: .authorName)) ?? ""
+        authorColor    = (try? c.decode(String.self, forKey: .authorColor)) ?? "#7c3aed"
+        participantIds = (try? c.decode([String].self, forKey: .participantIds)) ?? c.decodeFlexIDs(forKey: .participantIds)
+        attachments    = (try? c.decode([Attachment].self, forKey: .attachments)) ?? []
+        timestamp      = (try? c.decode(String.self, forKey: .timestamp)) ?? ""
+    }
 }
 
 // MARK: - ChatGroup
@@ -320,7 +385,14 @@ struct Message: Codable, Identifiable {
 struct ChatGroup: Codable, Identifiable {
     var id: String
     var name: String
-    var memberIds: [Int]
+    var memberIds: [String]
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id        = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        name      = (try? c.decode(String.self, forKey: .name)) ?? ""
+        memberIds = c.decodeFlexIDs(forKey: .memberIds)
+    }
 }
 
 // MARK: - Template
@@ -349,7 +421,7 @@ struct NotifyPayload: Codable {
     var jobNumber: String?
     var panelTitle: String
     var stepLabel: String
-    var jobTeamIds: [Int]
-    var newTeamIds: [Int]?
+    var jobTeamIds: [String]
+    var newTeamIds: [String]?
     var clientName: String?
 }
