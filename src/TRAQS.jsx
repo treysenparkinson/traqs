@@ -1729,7 +1729,7 @@ Rules:
   const [overlapError, setOverlapError] = useState(null); // { message, details[] }
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
-  const [scheduleTeamMode, setScheduleTeamMode] = useState("team"); // "one" | "team"
+  const [scheduleTeamMode, setScheduleTeamMode] = useState("one"); // "one" | "team"
   const [confirmMove, setConfirmMove] = useState(null); // { message, onConfirm }
   const [searchQ, setSearchQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -1884,6 +1884,13 @@ Rules:
           let existingH = 0;
           for (const job of taskList) {
             for (const panel of (job.subs || [])) {
+              // Panel-level team (flat/general tasks)
+              if (panel.id !== check.excludeOpId && panel.status !== "Finished" && (panel.team || []).includes(check.personId) && panel.start && panel.end && d >= panel.start && d <= panel.end && (panel.subs || []).length === 0) {
+                const pnlH = panel.hpd || orgSettings.hpd;
+                const pnlSpanBD = Math.max(1, diffBD(panel.start, panel.end) + 1, Math.ceil(pnlH / cap));
+                existingH += (pnlH / pnlSpanBD) / Math.max(1, (panel.team || []).length);
+              }
+              // Op-level team (panel jobs)
               for (const op of (panel.subs || [])) {
                 if (op.id === check.excludeOpId || op.status === "Finished") continue;
                 if (!(op.team || []).includes(check.personId)) continue;
@@ -2626,7 +2633,7 @@ ${jobsCtx || "No jobs found."}`;
   };
   const openDeps = id => setModal({ type: "deps", data: allItems.find(x => x.id === id), parentId: null });
   const openAvail = () => setModal({ type: "avail", data: null, parentId: null });
-  const closeModal = () => { setModal(null); setAiSuggestion(null); setAiLoading(false); setScheduleTeamMode("team"); };
+  const closeModal = () => { setModal(null); setAiSuggestion(null); setAiLoading(false); setScheduleTeamMode("one"); };
   const saveTask = (ed, parentId) => {
     if (!ed.title.trim()) return;
     if (!parentId && !ed.projectManagerId) { alert("Please select a Project Manager before saving."); return; }
@@ -2634,15 +2641,17 @@ ${jobsCtx || "No jobs found."}`;
     const opsToCheck = [];
     (ed.subs || []).forEach(sub => {
       if ((sub.subs || []).length > 0) {
-        // Panel-style: nested ops
+        // Panel-style: nested ops — check every team member
         (sub.subs || []).forEach(op => {
-          if (op.team && op.team[0]) {
-            opsToCheck.push({ personId: op.team[0], start: op.start, end: op.end, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id, hpd: op.hpd, teamLength: (op.team || []).length });
-          }
+          (op.team || []).forEach(personId => {
+            opsToCheck.push({ personId, start: op.start, end: op.end, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id, hpd: op.hpd, teamLength: (op.team || []).length });
+          });
         });
       } else if ((sub.team || []).length > 0) {
-        // Flat subtask (non-panel job)
-        opsToCheck.push({ personId: sub.team[0], start: sub.start, end: sub.end, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id, hpd: sub.hpd, teamLength: (sub.team || []).length });
+        // Flat subtask (non-panel job) — check every team member
+        (sub.team || []).forEach(personId => {
+          opsToCheck.push({ personId, start: sub.start, end: sub.end, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id, hpd: sub.hpd, teamLength: (sub.team || []).length });
+        });
       }
     });
     const filteredTasks = ed.id ? tasks.map(j => j.id === ed.id ? { ...j, subs: [] } : j) : tasks;
@@ -8638,6 +8647,13 @@ ${jobsCtx || "No jobs found."}`;
                         for (const job of tasks) {
                           if (ed.id && job.id === ed.id) continue;
                           for (const pnl of (job.subs || [])) {
+                            // Panel-level team (flat/general tasks)
+                            if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= d && pnl.end >= d && (pnl.subs || []).length === 0) {
+                              const pnlH = pnl.hpd || orgSettings.hpd;
+                              const pnlSpan = Math.max(1, diffBD(pnl.start, pnl.end) + 1, Math.ceil(pnlH / cap));
+                              dayH += pnlH / pnlSpan / Math.max(1, (pnl.team || []).length);
+                            }
+                            // Op-level team (panel jobs)
                             for (const op of (pnl.subs || [])) {
                               if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
                               if (!op.start || !op.end || op.start > d || op.end < d) continue;
@@ -9059,6 +9075,13 @@ ${jobsCtx || "No jobs found."}`;
                         for (const job of tasks) {
                           if (ed.id && job.id === ed.id) continue;
                           for (const pnl of (job.subs || [])) {
+                            // Panel-level team (flat/general tasks)
+                            if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= d && pnl.end >= d && (pnl.subs || []).length === 0) {
+                              const pnlH = pnl.hpd || orgSettings.hpd;
+                              const pnlSpan = Math.max(1, diffBD(pnl.start, pnl.end) + 1, Math.ceil(pnlH / cap));
+                              dayH += pnlH / pnlSpan / Math.max(1, (pnl.team || []).length);
+                            }
+                            // Op-level team (panel jobs)
                             for (const op of (pnl.subs || [])) {
                               if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
                               if (!op.start || !op.end || op.start > d || op.end < d) continue;
