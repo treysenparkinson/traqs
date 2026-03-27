@@ -1360,7 +1360,7 @@ Rules:
   const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
   const [engQueueExpanded, setEngQueueExpanded] = useState(true);
   const [expandedEngRows, setExpandedEngRows] = useState(new Set());
-  const [toolbarExpanded, setToolbarExpanded] = useState(true);
+  const [toolbarExpanded, setToolbarExpanded] = useState(false);
   const [cellAlign, setCellAlign] = useState("left");
   const [jobsCollapsed, setJobsCollapsed] = useState(false);
   const [customCols, setCustomCols] = useState([]);
@@ -1734,10 +1734,14 @@ Rules:
   const [searchQ, setSearchQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef(null);
+  const toolbarRef = useRef(null);
+  const colPickerRef = useRef(null);
   useEffect(() => {
     const handler = e => {
       if (searchRef.current && !searchRef.current.contains(e.target)) setSearchOpen(false);
       if (askBarRef.current && !askBarRef.current.contains(e.target)) { setAskExpanded(false); setAskBarQ(""); }
+      if (toolbarRef.current && !toolbarRef.current.contains(e.target)) setToolbarExpanded(false);
+      if (colPickerRef.current && !colPickerRef.current.contains(e.target)) setColPickerOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -3989,51 +3993,66 @@ ${jobsCtx || "No jobs found."}`;
         {/* Left: collapsible toolbar (list view only) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {taskSubView === "list" && <>
-            <button onClick={() => setToolbarExpanded(p => !p)} title={toolbarExpanded ? "Collapse toolbar" : "Expand toolbar"} style={{ height: 28, padding: "0 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: T.textDim, flexShrink: 0, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
-              Expand
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: toolbarExpanded ? "rotate(180deg)" : "none", transition: "transform 0.28s cubic-bezier(0.34,1.56,0.64,1)" }}><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", maxWidth: toolbarExpanded ? "900px" : "0px", opacity: toolbarExpanded ? 1 : 0, transition: "max-width 0.35s cubic-bezier(0.34,1.56,0.64,1), opacity 0.18s", whiteSpace: "nowrap", paddingLeft: 8, borderLeft: `1px solid ${T.border}` }}>
-              <div style={{ position: "relative", width: 190, flexShrink: 0 }}>
-                <svg style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "6px 24px 6px 27px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
-                {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
-              </div>
-              <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-              {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
-              <div style={{ position: "relative", flexShrink: 0 }}>
-                <button onClick={() => setTaskFilterOpen(p => !p)} style={{ height: 30, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 12, fontFamily: T.font }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                  Filter {activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
-                </button>
-                {taskFilterOpen && <div style={{ position: "absolute", top: 36, left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
-                  <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
-                  <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}><option value="All">All Clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                  <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? p.color+"28" : "transparent", color: active ? p.color : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color||T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
-                  <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
-                  {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-                </div>}
-              </div>
-              {/* Conditions */}
-              <button onClick={() => setConditionsOpen(true)} title="TRAQS Conditions" style={{ height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${(orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"88" : T.border}`, background: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                Conditions
+            <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}`}</style>
+            <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
+              <button onClick={() => setToolbarExpanded(p => !p)} style={{ height: 28, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${toolbarExpanded ? T.accent+"88" : T.border}`, background: toolbarExpanded ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: toolbarExpanded ? T.accent : T.textDim, flexShrink: 0, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "all 0.15s" }}>
+                Tools
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: toolbarExpanded ? "rotate(180deg)" : "none", transition: "transform 0.22s cubic-bezier(0.34,1.56,0.64,1)" }}><polyline points="6 9 12 15 18 9"/></svg>
               </button>
-              {/* Gantt split toggle */}
-              {!isMobile && (
-                <button onClick={handleToggleGanttSplit} title="Toggle Gantt split view" style={{ height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${showGanttSplit ? T.accent+"88" : T.border}`, background: showGanttSplit ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: showGanttSplit ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }}>
-                  <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${showGanttSplit ? T.accent : T.textDim}`, background: showGanttSplit ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
-                    {showGanttSplit && <svg width="7" height="7" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+              {toolbarExpanded && <div style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "8px 8px 6px", boxShadow: "0 10px 32px rgba(0,0,0,0.32)", zIndex: 300, display: "flex", flexDirection: "column", gap: 5, minWidth: 220 }}>
+                {/* Search */}
+                <div style={{ animation: "toolDrop 0.16s 0ms both ease-out" }}>
+                  <div style={{ position: "relative" }}>
+                    <svg style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "6px 24px 6px 27px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                    {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
                   </div>
-                  Gantt
-                </button>
-              )}
-              {/* Alignment */}
-              <button onClick={() => setCellAlign(a => a === "left" ? "center" : a === "center" ? "right" : "left")} title={`Text alignment: ${cellAlign}`} style={{ width: 28, height: 28, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
-                {cellAlign === "left"   && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>}
-                {cellAlign === "center" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>}
-                {cellAlign === "right"  && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>}
-              </button>
+                </div>
+                {/* Select */}
+                <div style={{ animation: "toolDrop 0.16s 55ms both ease-out", display: "flex", gap: 4 }}>
+                  <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+                  {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
+                </div>
+                {/* Filter */}
+                <div style={{ animation: "toolDrop 0.16s 110ms both ease-out", position: "relative" }}>
+                  <button onClick={() => setTaskFilterOpen(p => !p)} style={{ width: "100%", height: 30, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 12, fontFamily: T.font }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                    Filter {activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
+                  </button>
+                  {taskFilterOpen && <div style={{ position: "absolute", top: 36, left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
+                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}><option value="All">All Clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? p.color+"28" : "transparent", color: active ? p.color : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color||T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
+                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
+                    {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+                  </div>}
+                </div>
+                {/* Conditions */}
+                <div style={{ animation: "toolDrop 0.16s 165ms both ease-out" }}>
+                  <button onClick={() => { setConditionsOpen(true); setToolbarExpanded(false); }} title="TRAQS Conditions" style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${(orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"88" : T.border}`, background: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "all 0.15s" }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                    Conditions
+                  </button>
+                </div>
+                {/* Gantt split toggle */}
+                {!isMobile && <div style={{ animation: "toolDrop 0.16s 220ms both ease-out" }}>
+                  <button onClick={handleToggleGanttSplit} title="Toggle Gantt split view" style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${showGanttSplit ? T.accent+"88" : T.border}`, background: showGanttSplit ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: showGanttSplit ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }}>
+                    <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${showGanttSplit ? T.accent : T.textDim}`, background: showGanttSplit ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
+                      {showGanttSplit && <svg width="7" height="7" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                    Gantt
+                  </button>
+                </div>}
+                {/* Alignment */}
+                <div style={{ animation: `toolDrop 0.16s ${isMobile ? "220" : "275"}ms both ease-out` }}>
+                  <button onClick={() => setCellAlign(a => a === "left" ? "center" : a === "center" ? "right" : "left")} title={`Text alignment: ${cellAlign}`} style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, color: T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+                    {cellAlign === "left"   && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>}
+                    {cellAlign === "center" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>}
+                    {cellAlign === "right"  && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>}
+                    Align {cellAlign}
+                  </button>
+                </div>
+              </div>}
             </div>
           </>}
         </div>
@@ -4047,8 +4066,8 @@ ${jobsCtx || "No jobs found."}`;
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
             {/* Column picker button */}
-            <div style={{ position: "relative" }}>
-              <button onClick={() => { setColPickerOpen(o => !o); setExportOpen(false); }} style={{ height: 29, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: colPickerOpen ? T.accent + "22" : T.bg, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: colPickerOpen ? T.accent : T.text, fontSize: 12, fontFamily: T.font, fontWeight: 600 }}>
+            <div ref={colPickerRef} style={{ position: "relative" }}>
+              <button onClick={() => { setColPickerOpen(o => !o); setExportOpen(false); }} style={{ height: 29, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: colPickerOpen ? T.accent + "22" : T.bg, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: T.accent, fontSize: 12, fontFamily: T.font, fontWeight: 600 }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 Column
               </button>
