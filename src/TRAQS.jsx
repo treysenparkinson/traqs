@@ -8426,60 +8426,74 @@ ${jobsCtx || "No jobs found."}`;
         setEd(p => ({ ...p, start: jStart, end: jEnd, subs: newSubs }));
       };
 
+      // Check if all deps of an op/sub are finished; returns array of unfinished dep IDs
+      const checkDeps = (deps) => {
+        const blocked = [];
+        const allItems = [{ subs: ed.subs }, ...tasks];
+        for (const depId of (deps || [])) {
+          let finished = false;
+          outer: for (const job of allItems) {
+            for (const pnl of (job.subs || [])) {
+              if (pnl.id === depId) { finished = pnl.status === "Finished"; break outer; }
+              for (const op of (pnl.subs || [])) {
+                if (op.id === depId) { finished = op.status === "Finished"; break outer; }
+              }
+            }
+          }
+          if (!finished) blocked.push(depId);
+        }
+        return blocked;
+      };
+
       const suggestSchedule = () => {
         setAiLoading(true);
         setAiSuggestion(null);
         setTimeout(() => {
-          // Use the first panel's sub-ops as the template (Cut/Wire/Layout order).
-          // Fall back to ed.subs directly if no sub-ops exist yet (template view).
+          // Use the first panel's sub-ops as the schedulable units.
           const firstPanelWithSubs = (ed.subs || []).find(s => (s.subs || []).length > 0);
-          const rawOps = firstPanelWithSubs
-            ? (firstPanelWithSubs.subs || []).filter(o => o.title?.trim()).map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd }))
-            : (ed.subs || []).filter(o => o.title?.trim()).flatMap(o =>
-                Array.from({ length: Math.max(1, parseInt(o.qty) || 1) }, () => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd }))
-              );
+          if (!firstPanelWithSubs) {
+            setAiSuggestion({ noSubtasks: true });
+            setAiLoading(false);
+            return;
+          }
+          const blockedSubtasks = [];
+          const rawOps = (firstPanelWithSubs.subs || [])
+            .filter(o => o.title?.trim())
+            .filter(o => {
+              const b = checkDeps(o.deps);
+              if (b.length > 0) { blockedSubtasks.push({ title: o.title, count: b.length }); return false; }
+              return true;
+            })
+            .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd, requiredRole: o.requiredRole || "" }));
           // Actual number of panels to schedule
-          const numPanels = firstPanelWithSubs ? Math.max(1, (ed.subs || []).length) : 1;
+          const numPanels = Math.max(1, (ed.subs || []).length);
           const opsPerPanel = Math.max(rawOps.length, 1);
           const _clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
-          const crewForOp = (opTitle) => people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
-            .filter(p => canAssignPerson(p, opTitle, ed.title, ed.jobNumber || "", _clientName));
+          const crewForOp = (rawOp) => people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
+            .filter(p => !rawOp.requiredRole || p.role === rawOp.requiredRole)
+            .filter(p => canAssignPerson(p, rawOp.title, ed.title, ed.jobNumber || "", _clientName));
           const crew = people.filter(p => p.userRole === "user" && !p.noAutoSchedule);
           const hasDueDate = ed.dueDate && ed.dueDate >= TD;
           // Business days to complete ONE panel sequentially (e.g. Cut 1d + Wire 5d + Layout 2d = 8d)
           const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
 
-          // Capacity-aware free check: person must have enough daily capacity on every day in the range
-          const isPersonFree = (pid, checkStart, checkEnd, newDailyRate = 0) => {
+          // Overlap-based free check: person must have no existing assignments that overlap the range
+          const isPersonFree = (pid, checkStart, checkEnd) => {
             const pp = people.find(x => x.id === pid);
-            const cap = (pp?.cap) || orgSettings.hpd;
-            if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= checkEnd && to.end >= checkStart) return false; }
-            let d = checkStart;
-            while (d <= checkEnd) {
-              let dayH = newDailyRate;
-              for (const job of tasks) {
-                if (ed.id && job.id === ed.id) continue;
-                for (const pnl of (job.subs || [])) {
-                  // Flat panel-level assignment (no sub-ops)
-                  if ((pnl.team || []).includes(pid) && pnl.status !== "Finished"
-                      && pnl.start && pnl.end && pnl.start <= d && pnl.end >= d
-                      && (pnl.subs || []).length === 0) {
-                    const pnlH = pnl.hpd || orgSettings.hpd;
-                    const pnlSpan = Math.max(1, diffBD(pnl.start, pnl.end) + 1, Math.ceil(pnlH / cap));
-                    dayH += pnlH / pnlSpan / Math.max(1, (pnl.team || []).length);
-                  }
-                  // Op-level assignment (nested ops inside a panel)
-                  for (const op of (pnl.subs || [])) {
-                    if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
-                    if (!op.start || !op.end || op.start > d || op.end < d) continue;
-                    const opH = op.hpd || orgSettings.hpd;
-                    const opSpan = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opH / cap));
-                    dayH += opH / opSpan / Math.max(1, (op.team || []).length);
-                  }
+            if (pp) for (const to of (pp.timeOff || [])) {
+              if (to.start <= checkEnd && to.end >= checkStart) return false;
+            }
+            for (const job of tasks) {
+              if (ed.id && job.id === ed.id) continue;
+              for (const pnl of (job.subs || [])) {
+                if ((pnl.team || []).includes(pid) && pnl.status !== "Finished"
+                    && pnl.start && pnl.end && pnl.start <= checkEnd && pnl.end >= checkStart
+                    && (pnl.subs || []).length === 0) return false;
+                for (const op of (pnl.subs || [])) {
+                  if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
+                  if (op.start && op.end && op.start <= checkEnd && op.end >= checkStart) return false;
                 }
               }
-              if (dayH > cap) return false;
-              d = sAddBD(d, 1);
             }
             return true;
           };
@@ -8501,8 +8515,7 @@ ${jobsCtx || "No jobs found."}`;
               let firstPhaseCrew = null;
               for (const rawOp of rawOps) {
                 const opEnd = sAddBD(opPhaseStart, Math.max(0, rawOp.durationBD - 1));
-                const newDailyRate = rawOp.hpd / Math.max(1, rawOp.durationBD);
-                const opCrew = crewForOp(rawOp.title).filter(p => isPersonFree(p.id, opPhaseStart, opEnd, newDailyRate));
+                const opCrew = crewForOp(rawOp).filter(p => isPersonFree(p.id, opPhaseStart, opEnd));
                 if (opCrew.length === 0) { failed = true; break; }
                 if (!firstPhaseCrew) firstPhaseCrew = opCrew;
                 const phaseDays = Math.ceil(numPanels / opCrew.length) * rawOp.durationBD;
@@ -8541,19 +8554,19 @@ ${jobsCtx || "No jobs found."}`;
             const beforeDue = windows.filter(w => w.meetsDeadline);
 
             if (beforeDue.length > 0) {
-              setAiSuggestion({ canMeetDue: true, dueDate: ed.dueDate, slots: beforeDue.slice(0, 3), numPanels: opsPerPanel });
+              setAiSuggestion({ canMeetDue: true, dueDate: ed.dueDate, slots: beforeDue.slice(0, 3), numPanels: opsPerPanel, blockedSubtasks });
             } else {
               // Can't meet deadline — find earliest regardless
               const earliest = findWindows(null);
               if (earliest.length === 0) {
-                setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: [], numPanels: opsPerPanel, suggestedDueDate: null, noSlots: true });
+                setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: [], numPanels: opsPerPanel, suggestedDueDate: null, noSlots: true, blockedSubtasks });
               } else {
-                setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: earliest.slice(0, 3), numPanels: opsPerPanel, suggestedDueDate: earliest[0].end });
+                setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: earliest.slice(0, 3), numPanels: opsPerPanel, suggestedDueDate: earliest[0].end, blockedSubtasks });
               }
             }
           } else {
             const slots = findWindows(null);
-            setAiSuggestion({ canMeetDue: null, dueDate: null, slots: slots.slice(0, 3), numPanels: opsPerPanel });
+            setAiSuggestion({ canMeetDue: null, dueDate: null, slots: slots.slice(0, 3), numPanels: opsPerPanel, blockedSubtasks });
           }
 
           setAiLoading(false);
@@ -8626,6 +8639,19 @@ ${jobsCtx || "No jobs found."}`;
         </div>}
 
         {aiSuggestion && <div style={{ marginBottom: 20, marginTop: -8 }}>
+            {aiSuggestion.noSubtasks && <div style={{ padding: 14, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
+              No subtasks found. Add sub-operations to your panels before scheduling.
+            </div>}
+            {aiSuggestion.overlapError && <div style={{ padding: 14, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500, marginBottom: 10 }}>
+              Assignment aborted — conflict detected: {aiSuggestion.overlapError}
+            </div>}
+            {aiSuggestion.blockedSubtasks?.length > 0 && (
+              <div style={{ padding: "10px 14px", background: "#f59e0b12", border: "1px solid #f59e0b33", borderRadius: T.radiusSm, marginBottom: 10, fontSize: 12, color: "#f59e0b" }}>
+                {aiSuggestion.blockedSubtasks.map(b => (
+                  <div key={b.title}>⚠ <strong>{b.title}</strong> is blocked — {b.count} unfinished dependenc{b.count > 1 ? "ies" : "y"} must complete first.</div>
+                ))}
+              </div>
+            )}
             {aiSuggestion.canMeetDue === true && <div style={{ padding: "12px 16px", background: "#10b98112", border: "1px solid #10b98133", borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
               <div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
@@ -8672,36 +8698,23 @@ ${jobsCtx || "No jobs found."}`;
                     const _jobClientName = (clients.find(c => c.id === p.clientId) || {}).name || "";
                     const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
 
-                    // Capacity-aware availability check against existing saved jobs.
-                    // Returns false if adding newDailyRate h/day on any day s..eDate would exceed the person's cap.
-                    const isPersonFreeGlobal = (pid, s, eDate, newDailyRate) => {
+                    // Overlap-based availability check against existing saved jobs.
+                    const isPersonFreeGlobal = (pid, s, eDate) => {
                       const pp = people.find(x => x.id === pid);
-                      const cap = (pp?.cap) || orgSettings.hpd;
-                      if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
-                      let d = s;
-                      while (d <= eDate) {
-                        let dayH = newDailyRate;
-                        for (const job of tasks) {
-                          if (ed.id && job.id === ed.id) continue;
-                          for (const pnl of (job.subs || [])) {
-                            // Panel-level team (flat/general tasks)
-                            if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= d && pnl.end >= d && (pnl.subs || []).length === 0) {
-                              const pnlH = pnl.hpd || orgSettings.hpd;
-                              const pnlSpan = Math.max(1, diffBD(pnl.start, pnl.end) + 1, Math.ceil(pnlH / cap));
-                              dayH += pnlH / pnlSpan / Math.max(1, (pnl.team || []).length);
-                            }
-                            // Op-level team (panel jobs)
-                            for (const op of (pnl.subs || [])) {
-                              if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
-                              if (!op.start || !op.end || op.start > d || op.end < d) continue;
-                              const opH = op.hpd || orgSettings.hpd;
-                              const opSpan = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opH / cap));
-                              dayH += opH / opSpan / Math.max(1, (op.team || []).length);
-                            }
+                      if (pp) for (const to of (pp.timeOff || [])) {
+                        if (to.start <= eDate && to.end >= s) return false;
+                      }
+                      for (const job of tasks) {
+                        if (ed.id && job.id === ed.id) continue;
+                        for (const pnl of (job.subs || [])) {
+                          if ((pnl.team || []).includes(pid) && pnl.status !== "Finished"
+                              && pnl.start && pnl.end && pnl.start <= eDate && pnl.end >= s
+                              && (pnl.subs || []).length === 0) return false;
+                          for (const op of (pnl.subs || [])) {
+                            if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
+                            if (op.start && op.end && op.start <= eDate && op.end >= s) return false;
                           }
                         }
-                        if (dayH > cap) return false;
-                        d = sAddBD(d, 1);
                       }
                       return true;
                     };
@@ -8722,24 +8735,12 @@ ${jobsCtx || "No jobs found."}`;
                     // Per-person cursor: tracks what date each person is next free
                     const personCursors = {};
                     allCrew.forEach(pp => { personCursors[pp.id] = slot.start; });
-                    // In-session schedule: tracks ops placed so far in this scheduling pass (includes hpd for capacity math)
-                    const inSession = []; // { pid, start, end, hpd }
-                    const isAvail = (pid, s, eDate, totalHours, durBD) => {
-                      const pp = people.find(x => x.id === pid);
-                      const cap = (pp?.cap) || orgSettings.hpd;
-                      const newDailyRate = totalHours / Math.max(1, durBD);
-                      if (!isPersonFreeGlobal(pid, s, eDate, newDailyRate)) return false;
-                      // Also check capacity against already-placed ops in this scheduling pass
-                      let d = s;
-                      while (d <= eDate) {
-                        let sessH = newDailyRate;
-                        for (const sess of inSession) {
-                          if (sess.pid !== pid || sess.start > d || sess.end < d) continue;
-                          const sessSpan = Math.max(1, diffBD(sess.start, sess.end) + 1);
-                          sessH += (sess.hpd || orgSettings.hpd) / sessSpan;
-                        }
-                        if (sessH > cap) return false;
-                        d = sAddBD(d, 1);
+                    // In-session schedule: tracks ops placed so far in this scheduling pass
+                    const inSession = []; // { pid, start, end }
+                    const isAvail = (pid, s, eDate) => {
+                      if (!isPersonFreeGlobal(pid, s, eDate)) return false;
+                      for (const sess of inSession) {
+                        if (sess.pid === pid && sess.start <= eDate && sess.end >= s) return false;
                       }
                       return true;
                     };
@@ -8756,15 +8757,19 @@ ${jobsCtx || "No jobs found."}`;
                       return n;
                     }, 0);
 
-                    // Pick all eligible people for the operation (capacity-aware, team scheduling)
+                    // Pick all eligible people for the operation (overlap-based, team scheduling)
                     const pickTeam = (op, minStart = null) => {
                       const opTitle = typeof op === "string" ? op : op.title;
                       const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
+                      const requiredRole = typeof op === "object" ? (op.requiredRole || "") : "";
                       let eligible = allCrew
+                        .filter(pp => !requiredRole || pp.role === requiredRole)
                         .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
                         .sort((a, b) => { const diff = jobCount(a.id) - jobCount(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
-                      // Fallback: if jobTags filter removed everyone, use all crew
-                      if (eligible.length === 0) eligible = allCrew.slice().sort((a, b) => { const diff = jobCount(a.id) - jobCount(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
+                      // Fallback: if jobTags filter removed everyone, use role-filtered crew
+                      if (eligible.length === 0) eligible = allCrew
+                        .filter(pp => !requiredRole || pp.role === requiredRole)
+                        .slice().sort((a, b) => { const diff = jobCount(a.id) - jobCount(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
                       if (eligible.length === 0) {
                         const fallback = minStart || slot.start;
                         return { team: [], start: fallback, end: fallback };
@@ -8781,7 +8786,7 @@ ${jobsCtx || "No jobs found."}`;
                         for (let guard = 0; guard < 300; guard++) {
                           const tryEnd = sAddBD(tryStart, Math.max(0, singleDur - 1));
                           for (const candidate of eligible) {
-                            if (isAvail(candidate.id, tryStart, tryEnd, totalHours, singleDur)) {
+                            if (isAvail(candidate.id, tryStart, tryEnd)) {
                               return { team: [candidate], start: tryStart, end: tryEnd };
                             }
                           }
@@ -8804,7 +8809,7 @@ ${jobsCtx || "No jobs found."}`;
                         const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
                         let allFree = true;
                         for (const m of eligible) {
-                          if (!isAvail(m.id, tryStart, tryEnd, hpdEach, durBD)) { allFree = false; break; }
+                          if (!isAvail(m.id, tryStart, tryEnd)) { allFree = false; break; }
                         }
                         if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
                         tryStart = sAddBD(tryStart, 1);
@@ -8814,7 +8819,7 @@ ${jobsCtx || "No jobs found."}`;
                       for (let g2 = 0; g2 < 300; g2++) {
                         const tryS = sAddBD(fallbackStart, g2);
                         const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
-                        const freeSubset = eligible.filter(m => isAvail(m.id, tryS, tryE, totalHours, singleDur));
+                        const freeSubset = eligible.filter(m => isAvail(m.id, tryS, tryE));
                         if (freeSubset.length > 0) {
                           const sz = freeSubset.length;
                           const finalDur = Math.max(1, Math.ceil(totalHours / (sz * orgSettings.hpd)));
@@ -8837,20 +8842,6 @@ ${jobsCtx || "No jobs found."}`;
                       placedSubs: (op.subs || []).map(sub => ({ ...sub, _placed: false, start: null, end: null, team: sub.team || [] })),
                     }));
 
-                    // Flat panels with no sub-ops — assign all eligible people as a team
-                    const flatPanelResults = [];
-                    resultSubs.forEach((op, pi) => {
-                      if ((op.subs || []).length === 0) {
-                        const { team: apTeam, start: opStart, end: opEnd } = pickTeam(op, slot.start);
-                        apTeam.forEach(m => {
-                          inSession.push({ pid: m.id, start: opStart, end: opEnd, hpd: (op.hpd || orgSettings.hpd) / Math.max(1, apTeam.length) });
-                          personCursors[m.id] = sAddBD(opEnd, 1);
-                        });
-                        if (opEnd > latestEnd) latestEnd = opEnd;
-                        flatPanelResults[pi] = { ...op, start: opStart, end: opEnd, team: apTeam.length > 0 ? apTeam.map(m => m.id) : (op.team || []), subs: [] };
-                      }
-                    });
-
                     // Seed the queue with the first op of every panel that has sub-ops
                     // Each entry: { panelIdx, opIdx, earliestStart }
                     const opQueue = [];
@@ -8866,6 +8857,7 @@ ${jobsCtx || "No jobs found."}`;
                       opQueue.sort((a, b) => a.earliestStart.localeCompare(b.earliestStart));
                       const { panelIdx, opIdx, earliestStart } = opQueue.shift();
                       const sub = expandedOps[panelIdx].subs[opIdx];
+                      if (checkDeps(sub.deps).length > 0) continue;  // skip blocked subtask
                       const { team: subTeam, start: ss, end: se } = pickTeam(sub, earliestStart);
                       resultSubs[panelIdx].placedSubs[opIdx] = { ...sub, _placed: true, start: ss, end: se, team: subTeam.length > 0 ? subTeam.map(m => m.id) : (sub.team || []) };
                       subTeam.forEach(m => {
@@ -8881,13 +8873,40 @@ ${jobsCtx || "No jobs found."}`;
                     }
 
                     // Rebuild newSubs from results
-                    const newSubs = resultSubs.map((op, pi) => {
-                      if (flatPanelResults[pi]) return flatPanelResults[pi];
+                    const newSubs = resultSubs.map((op) => {
                       const placed = op.placedSubs;
                       const opStart = placed[0]?.start || slot.start;
                       const opEnd = placed[placed.length - 1]?.end || slot.start;
                       return { ...op, start: opStart, end: opEnd, team: placed[0]?.team || [], subs: placed.map(({ _placed, ...rest }) => rest) };
                     });
+
+                    const overlapErrors = [];
+                    for (const pnl of newSubs) {
+                      for (const sub of (pnl.subs || [])) {
+                        if (!sub.start || !sub.end || !(sub.team?.length)) continue;
+                        for (const pid of sub.team) {
+                          for (const job of tasks) {
+                            if (p.id && job.id === p.id) continue;
+                            for (const ePnl of (job.subs || [])) {
+                              if ((ePnl.team || []).includes(pid) && ePnl.status !== "Finished"
+                                  && ePnl.start && ePnl.end && ePnl.start <= sub.end && ePnl.end >= sub.start
+                                  && !(ePnl.subs || []).length) {
+                                overlapErrors.push(`${(people.find(x => x.id === pid) || {}).name || pid}: "${sub.title}" overlaps "${job.title}"`);
+                              }
+                              for (const eOp of (ePnl.subs || [])) {
+                                if (!(eOp.team || []).includes(pid) || eOp.status === "Finished") continue;
+                                if (eOp.start && eOp.end && eOp.start <= sub.end && eOp.end >= sub.start)
+                                  overlapErrors.push(`${(people.find(x => x.id === pid) || {}).name || pid}: "${sub.title}" overlaps "${eOp.title}" in "${job.title}"`);
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                    if (overlapErrors.length > 0) {
+                      setTimeout(() => setAiSuggestion(prev => ({ ...(prev || {}), overlapError: overlapErrors.join(" | ") })), 0);
+                      return p;  // abort — return unchanged state
+                    }
 
                     updated.subs = newSubs;
                     updated.start = newSubs.length > 0 ? newSubs[0].start : slot.start;
@@ -8994,9 +9013,17 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ width: 2, height: 20, background: T.border, borderRadius: 2, flexShrink: 0 }} />
                       <input value={sub.title} onChange={e => updateSub({ title: e.target.value })} placeholder="Sub-operation name" style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
                       {sub.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                         <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd ?? 7.5} onChange={e => updateSub({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
                         <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", width: 24 }} title="Estimated total hours for this operation">hrs</span>
+                        {(orgSettings.roles?.length > 0) && (
+                          <select value={sub.requiredRole || ""} onChange={e => updateSub({ requiredRole: e.target.value })}
+                            title="Required department"
+                            style={{ fontSize: 11, padding: "4px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontFamily: T.font }}>
+                            <option value="">Any role</option>
+                            {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
+                          </select>
+                        )}
                         <button onClick={() => updatePanel({ subs: (panel.subs || []).filter((_, j) => j !== si) })} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
                       </div>
                     </div>
@@ -9055,13 +9082,13 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                     </div>}
                   </div>
-                  <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [] }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
+                  <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [], requiredRole: "" }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
                 </div>
                 </>}
               </div>;
             })}
           </div>
-          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] }))}
+          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], requiredRole: "", subs: [] }] }))}
             style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
             onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
             onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
