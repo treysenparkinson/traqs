@@ -8452,7 +8452,7 @@ ${jobsCtx || "No jobs found."}`;
           // Use the first panel's sub-ops as the schedulable units.
           const firstPanelWithSubs = (ed.subs || []).find(s => (s.subs || []).length > 0);
           if (!firstPanelWithSubs) {
-            setAiSuggestion({ noSubtasks: true });
+            setAiSuggestion({ noSubtasks: true, slots: [] });
             setAiLoading(false);
             return;
           }
