@@ -8434,9 +8434,9 @@ ${jobsCtx || "No jobs found."}`;
           // Fall back to ed.subs directly if no sub-ops exist yet (template view).
           const firstPanelWithSubs = (ed.subs || []).find(s => (s.subs || []).length > 0);
           const rawOps = firstPanelWithSubs
-            ? (firstPanelWithSubs.subs || []).filter(o => o.title?.trim()).map(o => ({ title: o.title, durationBD: opDurBD(o) }))
+            ? (firstPanelWithSubs.subs || []).filter(o => o.title?.trim()).map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd }))
             : (ed.subs || []).filter(o => o.title?.trim()).flatMap(o =>
-                Array.from({ length: Math.max(1, parseInt(o.qty) || 1) }, () => ({ title: o.title, durationBD: opDurBD(o) }))
+                Array.from({ length: Math.max(1, parseInt(o.qty) || 1) }, () => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd }))
               );
           // Actual number of panels to schedule
           const numPanels = firstPanelWithSubs ? Math.max(1, (ed.subs || []).length) : 1;
@@ -8445,22 +8445,31 @@ ${jobsCtx || "No jobs found."}`;
           const crewForOp = (opTitle) => people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
             .filter(p => canAssignPerson(p, opTitle, ed.title, ed.jobNumber || "", _clientName));
           const crew = people.filter(p => p.userRole === "user" && !p.noAutoSchedule);
-          const hasDueDate = ed.dueDate && ed.dueDate > TD;
+          const hasDueDate = ed.dueDate && ed.dueDate >= TD;
           // Business days to complete ONE panel sequentially (e.g. Cut 1d + Wire 5d + Layout 2d = 8d)
           const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
 
           // Capacity-aware free check: person must have enough daily capacity on every day in the range
-          const isPersonFree = (pid, checkStart, checkEnd) => {
+          const isPersonFree = (pid, checkStart, checkEnd, newDailyRate = 0) => {
             const pp = people.find(x => x.id === pid);
             const cap = (pp?.cap) || orgSettings.hpd;
             if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= checkEnd && to.end >= checkStart) return false; }
             let d = checkStart;
             while (d <= checkEnd) {
-              let dayH = 0;
+              let dayH = newDailyRate;
               for (const job of tasks) {
                 if (ed.id && job.id === ed.id) continue;
-                for (const panel of (job.subs || [])) {
-                  for (const op of (panel.subs || [])) {
+                for (const pnl of (job.subs || [])) {
+                  // Flat panel-level assignment (no sub-ops)
+                  if ((pnl.team || []).includes(pid) && pnl.status !== "Finished"
+                      && pnl.start && pnl.end && pnl.start <= d && pnl.end >= d
+                      && (pnl.subs || []).length === 0) {
+                    const pnlH = pnl.hpd || orgSettings.hpd;
+                    const pnlSpan = Math.max(1, diffBD(pnl.start, pnl.end) + 1, Math.ceil(pnlH / cap));
+                    dayH += pnlH / pnlSpan / Math.max(1, (pnl.team || []).length);
+                  }
+                  // Op-level assignment (nested ops inside a panel)
+                  for (const op of (pnl.subs || [])) {
                     if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
                     if (!op.start || !op.end || op.start > d || op.end < d) continue;
                     const opH = op.hpd || orgSettings.hpd;
@@ -8469,7 +8478,7 @@ ${jobsCtx || "No jobs found."}`;
                   }
                 }
               }
-              if (dayH >= cap) return false;
+              if (dayH > cap) return false;
               d = sAddBD(d, 1);
             }
             return true;
@@ -8486,16 +8495,19 @@ ${jobsCtx || "No jobs found."}`;
               // Direct pipeline estimate:
               // For each op phase: days needed = ceil(numPanels / crewAvailable) * opDuration
               // Phases run sequentially in the worst case, giving a reliable upper-bound total.
+              let opPhaseStart = wStart;
               let totalBDCalc = 0;
               let failed = false;
               let firstPhaseCrew = null;
               for (const rawOp of rawOps) {
-                // Check availability over the op's full duration, not just day 1
-                const opEnd = sAddBD(wStart, Math.max(0, rawOp.durationBD - 1));
-                const opCrew = crewForOp(rawOp.title).filter(p => isPersonFree(p.id, wStart, opEnd));
+                const opEnd = sAddBD(opPhaseStart, Math.max(0, rawOp.durationBD - 1));
+                const newDailyRate = rawOp.hpd / Math.max(1, rawOp.durationBD);
+                const opCrew = crewForOp(rawOp.title).filter(p => isPersonFree(p.id, opPhaseStart, opEnd, newDailyRate));
                 if (opCrew.length === 0) { failed = true; break; }
                 if (!firstPhaseCrew) firstPhaseCrew = opCrew;
-                totalBDCalc += Math.ceil(numPanels / opCrew.length) * rawOp.durationBD;
+                const phaseDays = Math.ceil(numPanels / opCrew.length) * rawOp.durationBD;
+                totalBDCalc += phaseDays;
+                opPhaseStart = sAddBD(opPhaseStart, phaseDays);
               }
 
               if (failed) continue;
@@ -8533,8 +8545,11 @@ ${jobsCtx || "No jobs found."}`;
             } else {
               // Can't meet deadline — find earliest regardless
               const earliest = findWindows(null);
-              const newDueDate = earliest.length > 0 ? earliest[0].end : null;
-              setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: earliest.slice(0, 3), numPanels: opsPerPanel, suggestedDueDate: newDueDate });
+              if (earliest.length === 0) {
+                setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: [], numPanels: opsPerPanel, suggestedDueDate: null, noSlots: true });
+              } else {
+                setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: earliest.slice(0, 3), numPanels: opsPerPanel, suggestedDueDate: earliest[0].end });
+              }
             }
           } else {
             const slots = findWindows(null);
@@ -8632,7 +8647,10 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 20 }}>🤖</span>
               <div style={{ fontSize: 13, color: T.textSec }}>No due date set. Here are the earliest available windows:</div>
             </div>}
-            {aiSuggestion.slots.length === 0 && <div style={{ padding: 16, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
+            {aiSuggestion.noSlots && <div style={{ padding: 16, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
+              No one is available within the next 200 business days. Consider adding more team members or reducing the panel count.
+            </div>}
+            {!aiSuggestion.noSlots && aiSuggestion.slots.length === 0 && <div style={{ padding: 16, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
               No available windows found. Consider adjusting panel count or adding team members.
             </div>}
             {aiSuggestion.slots.map((slot, si) => <div key={si} style={{ background: T.surface, border: `1px solid ${slot.meetsDeadline !== false ? T.border : "#f59e0b44"}`, borderRadius: T.radiusSm, padding: 14, marginBottom: 8, transition: "all 0.15s" }}
@@ -8726,15 +8744,27 @@ ${jobsCtx || "No jobs found."}`;
                       return true;
                     };
 
+                    // Count active (non-Finished) assignments for a person across all existing jobs
+                    const jobCount = (pid) => tasks.reduce((n, job) => {
+                      if (ed.id && job.id === ed.id) return n;
+                      for (const pnl of (job.subs || [])) {
+                        if ((pnl.team || []).includes(pid) && pnl.status !== "Finished") n++;
+                        for (const op of (pnl.subs || [])) {
+                          if ((op.team || []).includes(pid) && op.status !== "Finished") n++;
+                        }
+                      }
+                      return n;
+                    }, 0);
+
                     // Pick all eligible people for the operation (capacity-aware, team scheduling)
                     const pickTeam = (op, minStart = null) => {
                       const opTitle = typeof op === "string" ? op : op.title;
                       const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
                       let eligible = allCrew
                         .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
-                        .sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
+                        .sort((a, b) => { const diff = jobCount(a.id) - jobCount(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
                       // Fallback: if jobTags filter removed everyone, use all crew
-                      if (eligible.length === 0) eligible = allCrew.slice().sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
+                      if (eligible.length === 0) eligible = allCrew.slice().sort((a, b) => { const diff = jobCount(a.id) - jobCount(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
                       if (eligible.length === 0) {
                         const fallback = minStart || slot.start;
                         return { team: [], start: fallback, end: fallback };
@@ -9039,262 +9069,6 @@ ${jobsCtx || "No jobs found."}`;
           </button>
 
         </div>
-
-        {false && <div style={{ marginBottom: 20, marginTop: 12 }}>
-            {aiSuggestion.canMeetDue === true && <div style={{ padding: "12px 16px", background: "#10b98112", border: "1px solid #10b98133", borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
-              <div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
-              <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>Found {aiSuggestion.slots.length} schedule option{aiSuggestion.slots.length > 1 ? "s" : ""} for {aiSuggestion.numPanels} operation{aiSuggestion.numPanels > 1 ? "s" : ""}</div></div>
-            </div>}
-            {aiSuggestion.canMeetDue === false && <div style={{ padding: "12px 16px", background: "#ef444412", border: "1px solid #ef444433", borderRadius: T.radiusSm, marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                <span style={{ lineHeight: 0, color: "#ef4444" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>Cannot meet the {fm(aiSuggestion.dueDate)} deadline</div>
-              </div>
-              <div style={{ fontSize: 12, color: T.textSec }}>Not enough crew available before the due date for {aiSuggestion.numPanels} operation{aiSuggestion.numPanels > 1 ? "s" : ""}.</div>
-              {aiSuggestion.suggestedDueDate && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: T.textSec }}>Suggested new due date:</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b", fontFamily: T.mono }}>{fm(aiSuggestion.suggestedDueDate)}</span>
-                <button onClick={() => setEd(p => ({ ...p, dueDate: aiSuggestion.suggestedDueDate }))} style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #f59e0b44", background: "#f59e0b15", color: "#f59e0b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Update Due Date</button>
-              </div>}
-            </div>}
-            {aiSuggestion.canMeetDue === null && <div style={{ padding: "12px 16px", background: T.accent + "12", border: `1px solid ${T.accent}33`, borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 20 }}>🤖</span>
-              <div style={{ fontSize: 13, color: T.textSec }}>No due date set. Here are the earliest available windows:</div>
-            </div>}
-            {aiSuggestion.slots.length === 0 && <div style={{ padding: 16, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
-              No available windows found. Consider adjusting panel count or adding team members.
-            </div>}
-            {aiSuggestion.slots.map((slot, si) => <div key={si} style={{ background: T.surface, border: `1px solid ${slot.meetsDeadline !== false ? T.border : "#f59e0b44"}`, borderRadius: T.radiusSm, padding: 14, marginBottom: 8, transition: "all 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accent + "08"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = slot.meetsDeadline !== false ? T.border : "#f59e0b44"; e.currentTarget.style.background = T.surface; }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{fm(slot.start)}</span>
-                  <span style={{ color: T.textDim }}>→</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{fm(slot.end)}</span>
-                  <span style={{ fontSize: 11, color: T.textDim }}>({slot.totalBD || diffBD(slot.start, slot.end) + 1} days total)</span>
-                  {si === 0 && slot.meetsDeadline !== false && <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98115", padding: "2px 8px", borderRadius: 10, border: "1px solid #10b98133" }}>RECOMMENDED</span>}
-                  {slot.meetsDeadline === false && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b15", padding: "2px 8px", borderRadius: 10, border: "1px solid #f59e0b33" }}>AFTER DUE DATE</span>}
-                </div>
-                <button onClick={(e) => {
-                  e.stopPropagation();
-                  setEd(p => {
-                    const updated = { ...p };
-                    const _jobClientName = (clients.find(c => c.id === p.clientId) || {}).name || "";
-                    const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
-
-                    const isPersonFreeGlobal = (pid, s, eDate, newDailyRate) => {
-                      const pp = people.find(x => x.id === pid);
-                      const cap = (pp?.cap) || orgSettings.hpd;
-                      if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
-                      let d = s;
-                      while (d <= eDate) {
-                        let dayH = newDailyRate;
-                        for (const job of tasks) {
-                          if (ed.id && job.id === ed.id) continue;
-                          for (const pnl of (job.subs || [])) {
-                            // Panel-level team (flat/general tasks)
-                            if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= d && pnl.end >= d && (pnl.subs || []).length === 0) {
-                              const pnlH = pnl.hpd || orgSettings.hpd;
-                              const pnlSpan = Math.max(1, diffBD(pnl.start, pnl.end) + 1, Math.ceil(pnlH / cap));
-                              dayH += pnlH / pnlSpan / Math.max(1, (pnl.team || []).length);
-                            }
-                            // Op-level team (panel jobs)
-                            for (const op of (pnl.subs || [])) {
-                              if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
-                              if (!op.start || !op.end || op.start > d || op.end < d) continue;
-                              const opH = op.hpd || orgSettings.hpd;
-                              const opSpan = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opH / cap));
-                              dayH += opH / opSpan / Math.max(1, (op.team || []).length);
-                            }
-                          }
-                        }
-                        if (dayH > cap) return false;
-                        d = sAddBD(d, 1);
-                      }
-                      return true;
-                    };
-
-                    const expandedOps = (p.subs || []).flatMap(op => {
-                      const qty = Math.max(1, parseInt(op.qty) || 1);
-                      const baseTitle = op.title.replace(/-\d+$/, "").trimEnd();
-                      return Array.from({ length: qty }, (_, i) => ({
-                        ...op,
-                        id: i === 0 ? op.id : uid(),
-                        title: qty > 1 ? `${baseTitle}-${String(i + 1).padStart(3, "0")}` : op.title,
-                        qty: undefined,
-                        subs: (op.subs || []).map(sub => ({ ...sub, id: i === 0 ? sub.id : uid() })),
-                      }));
-                    });
-
-                    const personCursors = {};
-                    allCrew.forEach(pp => { personCursors[pp.id] = slot.start; });
-                    const inSession = [];
-                    const isAvail = (pid, s, eDate, totalHours, durBD) => {
-                      const pp = people.find(x => x.id === pid);
-                      const cap = (pp?.cap) || orgSettings.hpd;
-                      const newDailyRate = totalHours / Math.max(1, durBD);
-                      if (!isPersonFreeGlobal(pid, s, eDate, newDailyRate)) return false;
-                      let d = s;
-                      while (d <= eDate) {
-                        let sessH = newDailyRate;
-                        for (const sess of inSession) {
-                          if (sess.pid !== pid || sess.start > d || sess.end < d) continue;
-                          const sessSpan = Math.max(1, diffBD(sess.start, sess.end) + 1);
-                          sessH += (sess.hpd || orgSettings.hpd) / sessSpan;
-                        }
-                        if (sessH > cap) return false;
-                        d = sAddBD(d, 1);
-                      }
-                      return true;
-                    };
-
-                    const pickTeam = (op, minStart = null) => {
-                      const opTitle = typeof op === "string" ? op : op.title;
-                      const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
-                      let eligible = allCrew
-                        .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
-                        .sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
-                      // Fallback: if jobTags filter removed everyone, use all crew
-                      if (eligible.length === 0) eligible = allCrew.slice().sort((a, b) => (personCursors[a.id] || slot.start).localeCompare(personCursors[b.id] || slot.start));
-                      if (eligible.length === 0) {
-                        const fallback = minStart || slot.start;
-                        return { team: [], start: fallback, end: fallback };
-                      }
-                      const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
-
-                      if (scheduleTeamMode === "one") {
-                        // "1 Person/Op" — pick the earliest-available single person
-                        let tryStart = eligible.reduce((earliest, m) => {
-                          const c = personCursors[m.id] || slot.start;
-                          return c < earliest ? c : earliest;
-                        }, personCursors[eligible[0].id] || slot.start);
-                        if (minStart && tryStart < minStart) tryStart = minStart;
-                        for (let guard = 0; guard < 300; guard++) {
-                          const tryEnd = sAddBD(tryStart, Math.max(0, singleDur - 1));
-                          for (const candidate of eligible) {
-                            if (isAvail(candidate.id, tryStart, tryEnd, totalHours, singleDur)) {
-                              return { team: [candidate], start: tryStart, end: tryEnd };
-                            }
-                          }
-                          tryStart = sAddBD(tryStart, 1);
-                        }
-                        const fallback = minStart || slot.start;
-                        return { team: eligible.slice(0, 1), start: fallback, end: sAddBD(fallback, Math.max(0, singleDur - 1)) };
-                      }
-
-                      // "Full Team/Op" — try all eligible simultaneously; fall back to largest free subset
-                      const teamSize = eligible.length;
-                      const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
-                      const hpdEach = totalHours / teamSize;
-                      let tryStart = eligible.reduce((best, m) => {
-                        const c = personCursors[m.id] || slot.start;
-                        return c > best ? c : best;
-                      }, slot.start);
-                      if (minStart && tryStart < minStart) tryStart = minStart;
-                      for (let guard = 0; guard < 300; guard++) {
-                        const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
-                        let allFree = true;
-                        for (const m of eligible) {
-                          if (!isAvail(m.id, tryStart, tryEnd, hpdEach, durBD)) { allFree = false; break; }
-                        }
-                        if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
-                        tryStart = sAddBD(tryStart, 1);
-                      }
-                      // Fallback: find earliest slot where any free subset exists
-                      const fallbackStart = minStart || slot.start;
-                      for (let g2 = 0; g2 < 300; g2++) {
-                        const tryS = sAddBD(fallbackStart, g2);
-                        const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
-                        const freeSubset = eligible.filter(m => isAvail(m.id, tryS, tryE, totalHours, singleDur));
-                        if (freeSubset.length > 0) {
-                          const sz = freeSubset.length;
-                          const finalDur = Math.max(1, Math.ceil(totalHours / (sz * orgSettings.hpd)));
-                          return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) };
-                        }
-                      }
-                      return { team: eligible.slice(0, 1), start: fallbackStart, end: sAddBD(fallbackStart, Math.max(0, singleDur - 1)) };
-                    };
-
-                    let latestEnd = slot.start;
-
-                    const resultSubs = expandedOps.map(op => ({
-                      ...op,
-                      placedSubs: (op.subs || []).map(sub => ({ ...sub, _placed: false, start: null, end: null, team: sub.team || [] })),
-                    }));
-
-                    const flatPanelResults = [];
-                    resultSubs.forEach((op, pi) => {
-                      if ((op.subs || []).length === 0) {
-                        const { team: apTeam, start: opStart, end: opEnd } = pickTeam(op, slot.start);
-                        apTeam.forEach(m => {
-                          inSession.push({ pid: m.id, start: opStart, end: opEnd, hpd: (op.hpd || orgSettings.hpd) / Math.max(1, apTeam.length) });
-                          personCursors[m.id] = sAddBD(opEnd, 1);
-                        });
-                        if (opEnd > latestEnd) latestEnd = opEnd;
-                        flatPanelResults[pi] = { ...op, start: opStart, end: opEnd, team: apTeam.length > 0 ? apTeam.map(m => m.id) : (op.team || []), subs: [] };
-                      }
-                    });
-
-                    const opQueue = [];
-                    resultSubs.forEach((op, pi) => {
-                      if ((op.subs || []).length > 0) {
-                        opQueue.push({ panelIdx: pi, opIdx: 0, earliestStart: slot.start });
-                      }
-                    });
-
-                    for (let safety = 0; safety < 10000 && opQueue.length > 0; safety++) {
-                      opQueue.sort((a, b) => a.earliestStart.localeCompare(b.earliestStart));
-                      const { panelIdx, opIdx, earliestStart } = opQueue.shift();
-                      const sub = expandedOps[panelIdx].subs[opIdx];
-                      const { team: subTeam, start: ss, end: se } = pickTeam(sub, earliestStart);
-                      resultSubs[panelIdx].placedSubs[opIdx] = { ...sub, _placed: true, start: ss, end: se, team: subTeam.length > 0 ? subTeam.map(m => m.id) : (sub.team || []) };
-                      subTeam.forEach(m => {
-                        inSession.push({ pid: m.id, start: ss, end: se, hpd: (sub.hpd || orgSettings.hpd) / Math.max(1, subTeam.length) });
-                        personCursors[m.id] = sAddBD(se, 1);
-                      });
-                      if (se > latestEnd) latestEnd = se;
-                      const nextOpIdx = opIdx + 1;
-                      if (nextOpIdx < (expandedOps[panelIdx].subs || []).length) {
-                        opQueue.push({ panelIdx, opIdx: nextOpIdx, earliestStart: sAddBD(se, 1) });
-                      }
-                    }
-
-                    const newSubs = resultSubs.map((op, pi) => {
-                      if (flatPanelResults[pi]) return flatPanelResults[pi];
-                      const placed = op.placedSubs;
-                      const opStart = placed[0]?.start || slot.start;
-                      const opEnd = placed[placed.length - 1]?.end || slot.start;
-                      return { ...op, start: opStart, end: opEnd, team: placed[0]?.team || [], subs: placed.map(({ _placed, ...rest }) => rest) };
-                    });
-
-                    updated.subs = newSubs;
-                    updated.start = newSubs.length > 0 ? newSubs[0].start : slot.start;
-                    updated.end = latestEnd;
-                    return updated;
-                  });
-                  setAiSuggestion(null);
-                }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap", flexShrink: 0 }}>
-                  Use This Schedule
-                </button>
-              </div>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: slot.busy.length > 0 ? 6 : 0 }}>
-                <span style={{ fontSize: 11, color: "#10b981", fontWeight: 500, marginRight: 4 }}>✓ Available ({slot.available.length}):</span>
-                {slot.available.map(p => <span key={p.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: p.color + "15", color: p.color, fontWeight: 600, border: `1px solid ${p.color}33` }}>{p.name}</span>)}
-              </div>
-              {slot.busy.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, color: T.danger, fontWeight: 500, marginRight: 4 }}>✗ Busy ({slot.busy.length}):</span>
-                {slot.busy.map(p => <span key={p.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: T.danger + "10", color: T.danger + "aa", fontWeight: 500, textDecoration: "line-through" }}>{p.name}</span>)}
-              </div>}
-              {slot.staggered && <div style={{ marginTop: 6, padding: "6px 10px", background: T.accent + "08", borderRadius: T.radiusXs, border: `1px solid ${T.accent}22`, fontSize: 11, color: T.textSec }}>
-                📋 <strong style={{ color: T.text }}>{slot.businessDays} day{slot.businessDays > 1 ? "s" : ""}</strong> window — <strong style={{ color: T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels > 1 ? "s" : ""}</strong> scheduled sequentially
-              </div>}
-              {!slot.staggered && <div style={{ marginTop: 6, padding: "6px 10px", background: "#10b98108", borderRadius: T.radiusXs, border: "1px solid #10b98122", fontSize: 11, color: T.textSec }}>
-                📋 Scheduling <strong style={{ color: T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels > 1 ? "s" : ""}</strong> sequentially — one person per operation
-              </div>}
-            </div>)}
-          </div>}
 
         <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>
       </div>
