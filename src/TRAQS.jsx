@@ -2164,7 +2164,7 @@ Rules:
       taskList.forEach(job => {
         (job.subs || []).forEach(panel => {
           (panel.subs || []).forEach(op => {
-            if (op.team.includes(personId) && op.status !== "Finished" && !(excludeOpIds && excludeOpIds.has(op.id)) && !op.locked) {
+            if ((op.team || []).includes(personId) && op.status !== "Finished" && !(excludeOpIds && excludeOpIds.has(op.id)) && !op.locked) {
               personOps.push({ op, panel, job });
             }
           });
@@ -2237,7 +2237,7 @@ Rules:
       const tryEnd = addBD(tryStart, duration);
       const isFree = teamIds.every(pid => {
         const noConflict = tasks.every(job => (job.subs || []).every(panel => (panel.subs || []).every(o =>
-          o.id === op.id || o.status === "Finished" || !o.team.includes(pid) || o.end < tryStart || o.start > tryEnd
+          o.id === op.id || o.status === "Finished" || !(o.team || []).includes(pid) || o.end < tryStart || o.start > tryEnd
         )));
         if (!noConflict) return false;
         const person = people.find(x => x.id === pid);
@@ -2262,7 +2262,7 @@ Rules:
       newTasks.forEach(job => {
         (job.subs || []).forEach(panel => {
           (panel.subs || []).forEach(op => {
-            if (!op.team.includes(pid) || op.status === "Finished" || op.locked) return;
+            if (!(op.team || []).includes(pid) || op.status === "Finished" || op.locked) return;
             personOps.push({ op, jobPri: priOrder[job.pri] ?? 1, jobDue: job.dueDate || job.end, jobTitle: job.title, panelTitle: panel.title });
           });
         });
@@ -2373,7 +2373,7 @@ Rules:
   const [ptoCtx, setPtoCtx] = useState(null); // { x, y, bar, personId, toIdx }
   const [timeOffEdit, setTimeOffEdit] = useState(null); // { personId, idx, start, end, reason }
   const addPerson = (data) => { setPeople(p => [...p, { ...data, id: uid(), color: data.color || COLORS[p.length % COLORS.length] }]); setPersonModal(null); };
-  const delPerson = (id) => { setPeople(p => p.filter(x => x.id !== id)); setTasks(p => p.map(t => ({ ...t, team: t.team.filter(x => x !== id), subs: (t.subs || []).map(s => ({ ...s, team: s.team.filter(x => x !== id) })) }))); };
+  const delPerson = (id) => { setPeople(p => p.filter(x => x.id !== id)); setTasks(p => p.map(t => ({ ...t, team: (t.team || []).filter(x => x !== id), subs: (t.subs || []).map(s => ({ ...s, team: (s.team || []).filter(x => x !== id), subs: (s.subs || []).map(op => ({ ...op, team: (op.team || []).filter(x => x !== id) })) })) }))); };
   const savePerson = (ed) => {
     if (!ed.name.trim()) return;
     if (!ed.email?.trim()) return;
@@ -2471,14 +2471,14 @@ Rules:
         const panelIdx = (t.subs || []).findIndex(s => s.id === parentId);
         if (panelIdx >= 0) {
           const newSubs = [...t.subs];
-          newSubs[panelIdx] = { ...newSubs[panelIdx], subs: (newSubs[panelIdx].subs || []).map(op => op.id === taskId ? { ...op, team: op.team.map(x => x === fromPersonId ? toPersonId : x) } : op) };
+          newSubs[panelIdx] = { ...newSubs[panelIdx], subs: (newSubs[panelIdx].subs || []).map(op => op.id === taskId ? { ...op, team: (op.team || []).map(x => x === fromPersonId ? toPersonId : x) } : op) };
           return { ...t, subs: newSubs };
         }
         // Check if parentId is this job
-        if (t.id === parentId) return { ...t, subs: (t.subs || []).map(s => s.id === taskId ? { ...s, team: s.team.map(x => x === fromPersonId ? toPersonId : x) } : s) };
+        if (t.id === parentId) return { ...t, subs: (t.subs || []).map(s => s.id === taskId ? { ...s, team: (s.team || []).map(x => x === fromPersonId ? toPersonId : x) } : s) };
         return t;
       }
-      if (t.id === taskId) return { ...t, team: t.team.map(x => x === fromPersonId ? toPersonId : x) };
+      if (t.id === taskId) return { ...t, team: (t.team || []).map(x => x === fromPersonId ? toPersonId : x) };
       return t;
     }));
   };
@@ -4545,7 +4545,7 @@ ${jobsCtx || "No jobs found."}`;
               {(fresh.team || []).length > 0 && <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Team</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {fresh.team.map(id => { const p = people.find(x => x.id === id); if (!p) return null; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: p.color + "15", border: `1px solid ${p.color}44` }}>
+                  {(fresh.team || []).map(id => { const p = people.find(x => x.id === id); if (!p) return null; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: p.color + "15", border: `1px solid ${p.color}44` }}>
                     <div style={{ width: 24, height: 24, borderRadius: 8, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
                     <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
                     <span style={{ fontSize: 11, color: T.textDim }}>{p.department}</span>
@@ -8531,7 +8531,7 @@ ${jobsCtx || "No jobs found."}`;
           if (ed.id && job.id === ed.id) continue; // skip the job we're editing
           for (const panel of (job.subs || [])) {
             for (const op of (panel.subs || [])) {
-              if (op.team.includes(pid) && op.status !== "Finished" && op.start <= opEnd && op.end >= opStart) return true;
+              if ((op.team || []).includes(pid) && op.status !== "Finished" && op.start <= opEnd && op.end >= opStart) return true;
             }
           }
         }
@@ -8540,7 +8540,7 @@ ${jobsCtx || "No jobs found."}`;
           for (let oi = 0; oi < ((ed.subs[pi] || {}).subs || []).length; oi++) {
             if (pi === currentPanelIdx && oi === currentOpIdx) continue;
             const op = ed.subs[pi].subs[oi];
-            if (op.team.includes(pid) && op.start <= opEnd && op.end >= opStart) return true;
+            if ((op.team || []).includes(pid) && op.start <= opEnd && op.end >= opStart) return true;
           }
         }
         // Check time off
@@ -8753,20 +8753,6 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>}
 
-        {/* Job-level team picker — only when no panels/tasks exist */}
-        {shopCrew.length > 0 && (ed.subs || []).length === 0 && <div style={{ marginBottom: 16 }}>
-          <label style={{ display: "block", fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 8 }}>Assign Team</label>
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {shopCrew.map(p => {
-              const sel = (ed.team || []).includes(p.id);
-              return <button key={p.id} type="button" onClick={() => setEd(prev => ({ ...prev, team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id] }))} title={p.name}
-                style={{ padding: "3px 9px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? accentText(p.color) : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.12s", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                <span style={{ width: 14, height: 14, borderRadius: 4, background: sel ? p.color + "cc" : p.color + "33", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? accentText(p.color) : p.color, flexShrink: 0 }}>{p.name[0]}</span>
-                {p.name.split(" ")[0]}
-              </button>;
-            })}
-          </div>
-        </div>}
         {aiSuggestion && <div style={{ marginBottom: 20, marginTop: -8 }}>
             {aiSuggestion.noSubtasks && <div style={{ padding: 14, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
               No subtasks found. Add sub-operations to your panels before scheduling.
@@ -9117,34 +9103,6 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 {!collapsedOps[panel.id] && <>
-                {/* Panel-level department selector */}
-                {(orgSettings.roles?.length > 0) && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 11, color: T.textDim, fontWeight: 600, whiteSpace: "nowrap" }}>Dept:</span>
-                  <select value={panel.requiredDepartment || ""} onChange={e => updatePanel({ requiredDepartment: e.target.value })}
-                    style={{ fontSize: 12, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${panel.requiredDepartment ? T.accent + "66" : T.border}`, background: T.surface, color: panel.requiredDepartment ? T.accent : T.text, fontFamily: T.font, cursor: "pointer" }}>
-                    <option value="">Any dept</option>
-                    {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>}
-                {/* Panel-level team picker — only when no sub-ops */}
-                {shopCrew.length > 0 && (panel.subs || []).length === 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
-                  {shopCrew.map(p => {
-                    const sel = (panel.team || []).includes(p.id);
-                    return <button key={p.id} onClick={() => updatePanel({ team: sel ? (panel.team || []).filter(id => id !== p.id) : [...(panel.team || []), p.id] })} title={p.name}
-                      style={{ padding: "3px 9px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? accentText(p.color) : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.12s", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                      <span style={{ width: 14, height: 14, borderRadius: 4, background: sel ? p.color + "cc" : p.color + "33", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? accentText(p.color) : p.color, flexShrink: 0 }}>{p.name[0]}</span>
-                      {p.name.split(" ")[0]}
-                    </button>;
-                  })}
-                </div>}
-                {/* Warning: team assigned at panel level but sub-ops now exist */}
-                {shopCrew.length > 0 && (panel.subs || []).length > 0 && (panel.team || []).length > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", marginBottom: 8, background: "#f59e0b12", border: "1px solid #f59e0b44", borderRadius: T.radiusXs, fontSize: 11, color: "#f59e0b" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                    Team assigned at panel level — move assignments to sub-operations below
-                    <button onClick={() => updatePanel({ team: [] })} style={{ marginLeft: "auto", padding: "2px 8px", borderRadius: 4, border: `1px solid #f59e0b44`, background: "transparent", color: "#f59e0b", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clear</button>
-                  </div>
-                )}
                 {/* Sub-ops */}
                 {(panel.subs || []).map((sub, si) => {
                   const updateSub = (patch) => { const subs = [...(panel.subs || [])]; subs[si] = { ...subs[si], ...patch }; updatePanel({ subs }); };
@@ -9168,20 +9126,16 @@ ${jobsCtx || "No jobs found."}`;
                         <button onClick={() => updatePanel({ subs: (panel.subs || []).filter((_, j) => j !== si) })} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
                       </div>
                     </div>
-                    {/* Sub-op team picker */}
-                    {shopCrew.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", paddingLeft: 32, marginBottom: 2 }}>
-                      {shopCrew.map(p => {
-                        const sel = (sub.team || []).includes(p.id);
-                        return <button key={p.id} onClick={() => updateSub({ team: sel ? (sub.team || []).filter(id => id !== p.id) : [...(sub.team || []), p.id] })} title={p.name}
-                          style={{ padding: "3px 9px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? accentText(p.color) : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.12s", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                          <span style={{ width: 14, height: 14, borderRadius: 4, background: sel ? p.color + "cc" : p.color + "33", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? accentText(p.color) : p.color, flexShrink: 0 }}>{p.name[0]}</span>
-                          {p.name.split(" ")[0]}
-                        </button>;
-                      })}
-                    </div>}
                   </div>;
                 })}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
+                  {/* Dept dropdown — bottom-left */}
+                  {(orgSettings.roles?.length > 0) ? <select value={panel.requiredDepartment || ""} onChange={e => updatePanel({ requiredDepartment: e.target.value })}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 8, border: `1px solid ${panel.requiredDepartment ? T.accent + "55" : T.border}`, background: panel.requiredDepartment ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 11, color: panel.requiredDepartment ? T.accent : T.textDim, fontWeight: 600, transition: "all 0.15s", outline: "none" }}>
+                    <option value="">Dept</option>
+                    {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select> : <span />}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                   {/* Sign-Off multi-select dropdown */}
                   <div style={{ position: "relative" }}>
                     <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId === panel.id ? null : panel.id); }}
@@ -9224,6 +9178,7 @@ ${jobsCtx || "No jobs found."}`;
                     </div>}
                   </div>
                   <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [], requiredDepartment: "" }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
+                  </div>
                 </div>
                 </>}
               </div>;
