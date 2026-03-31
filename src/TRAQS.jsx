@@ -3248,7 +3248,9 @@ ${jobsCtx || "No jobs found."}`;
         const rawE = mode !== "left"  ? addD(oe, dx) : oe;
         const snapS = nextBD(rawS);
         const snapDelta = diffD(rawS, snapS);
-        const snapE = snapDelta > 0 ? addD(rawE, snapDelta) : rawE;
+        const snapE = mode === "move"
+          ? addBD(snapS, diffBD(os, oe))
+          : (snapDelta > 0 ? addD(rawE, snapDelta) : rawE);
         // Lightweight overlap check against other ops for same person(s)
         const personIds = new Set();
         const movingOpIds = new Set();
@@ -3290,7 +3292,10 @@ ${jobsCtx || "No jobs found."}`;
         const rawNewEnd = mode !== "left" ? addD(oe, finalDx) : oe;
         const newStart = nextBD(rawNewStart);
         const snapDelta = diffD(rawNewStart, newStart);
-        const newEnd = snapDelta > 0 ? addD(rawNewEnd, snapDelta) : rawNewEnd;
+        // For moves, preserve working-day duration so weekends don't eat the end date
+        const newEnd = mode === "move"
+          ? addBD(newStart, diffBD(os, oe))
+          : (snapDelta > 0 ? addD(rawNewEnd, snapDelta) : rawNewEnd);
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
         const actualDelta = diffD(os, newStart);
 
