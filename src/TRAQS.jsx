@@ -99,6 +99,19 @@ const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+
 const NOW = new Date(); const TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
 const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
+const weekdaySegments = (start, end, clampStart, clampEnd) => {
+  const s = start < clampStart ? clampStart : start;
+  const e = end > clampEnd ? clampEnd : end;
+  if (s > e) return [];
+  const segs = []; let segStart = null; let d = s;
+  while (d <= e) {
+    if (!isWeekend(d) && segStart === null) segStart = d;
+    else if (isWeekend(d) && segStart !== null) { segs.push({ start: segStart, end: addD(d, -1) }); segStart = null; }
+    d = addD(d, 1);
+  }
+  if (segStart !== null) segs.push({ start: segStart, end: e });
+  return segs;
+};
 const addBD = (ds, n, { weekends = false, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); let remaining = Math.abs(n); const dir = n >= 0 ? 1 : -1; while (remaining > 0) { d.setDate(d.getDate() + dir); const dow = d.getDay(); const ds2 = toDS(d); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) remaining--; } return toDS(d); };
 const nextBD = (ds, { weekends = false, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); while (true) { const dow = d.getDay(); const ds2 = toDS(d); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) break; d.setDate(d.getDate() + 1); } return toDS(d); };
 const diffBD = (a, b, { weekends = false, holidays = [] } = {}) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); const dow = c.getDay(); const ds2 = toDS(c); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) count++; } return count; };
@@ -3186,7 +3199,7 @@ ${jobsCtx || "No jobs found."}`;
 
   // ═══════════════════ GANTT ═══════════════════
   const renderGantt = () => {
-    const days = []; let c = gStart; while (c <= gEnd) { if (!isWeekend(c)) days.push(c); c = addD(c, 1); }
+    const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
     const lW = isMobile ? 140 : 280;
     const avail = Math.max((ganttWidth || 1200) - lW, 200);
     const cW = (isMobile ? Math.max(32, avail / Math.max(days.length, 1)) : avail / Math.max(days.length, 1)) * gZoom;
@@ -3215,15 +3228,7 @@ ${jobsCtx || "No jobs found."}`;
       return a.start.localeCompare(b.start);
     });
     const rows = []; gSortedFiltered.forEach(t => { rows.push({ ...t, isSub: false, pid: null, level: 0 }); if (exp[t.id]) (t.subs || []).forEach(s => { rows.push({ ...s, isSub: true, pid: t.id, level: 1 }); if (exp[s.id]) (s.subs || []).forEach(op => rows.push({ ...op, isSub: true, pid: s.id, grandPid: t.id, level: 2, panelTitle: s.title })); }); });
-    const dayIdx = {};
-    days.forEach((d, i) => { dayIdx[d] = i; });
-    const dToX = d => {
-      if (dayIdx[d] !== undefined) return dayIdx[d] * cW;
-      // Date falls on a hidden weekend — snap left to the preceding Friday column
-      let snap = d;
-      for (let i = 0; i < 3; i++) { snap = addD(snap, -1); if (dayIdx[snap] !== undefined) return (dayIdx[snap] + 1) * cW; }
-      return 0;
-    };
+    const dToX = d => diffD(gStart, d) * cW;
     const ri4 = {}; rows.forEach((r, i) => { ri4[r.id] = i; });
     const arrows = [];
     const handleDrag = (e, item, mode) => {
@@ -3515,7 +3520,7 @@ ${jobsCtx || "No jobs found."}`;
             onChange={m => {
               setGMode(m);
               if (m==="day") { setGStart(TD); setGEnd(TD); }
-              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setGStart(mon); setGEnd(addD(mon,4)); }
+              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setGStart(mon); setGEnd(addD(mon,6)); }
               else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); }
             }}
           />
@@ -3706,23 +3711,27 @@ ${jobsCtx || "No jobs found."}`;
                 return <div style={{ position: "absolute", top: 3, left: gx - 2, width: gw + 4, height: rH - 6, borderRadius: T.radiusXs + 2, border: `2px solid ${gc}`, background: gc + "18", boxShadow: `0 0 24px ${gc}77, 0 0 8px ${gc}55, 0 0 48px ${gc}33`, pointerEvents: "none", zIndex: 3, animation: "ghost-fade-in 0.22s cubic-bezier(0.34,1.56,0.64,1)" }} />;
               })()}
               {r.start <= gEnd && r.end >= gStart && (() => {
-                const x = dToX(r.start < gStart ? gStart : r.start), xE = dToX(r.end > gEnd ? gEnd : r.end) + cW, w = Math.max(xE - x, cW);
+                const segs = weekdaySegments(r.start, r.end, gStart, gEnd);
+                if (segs.length === 0) return null;
                 const pct = r.status === "Finished" ? 100 : r.status === "In Progress" ? 50 : r.status === "Pending" ? 15 : r.status === "On Hold" ? 25 : 0;
                 const hasSubs = (r.subs || []).length > 0;
                 const isExp = hasSubs && exp[r.id];
                 const isDragging = ganttDragInfo?.itemId === r.id;
-                // Operations (level 2) use assigned person's color; jobs & panels use theme accent
                 const personColor = r.level === 2 && (r.team || [])[0] ? (people.find(pp => pp.id === r.team[0]) || {}).color || T.accent : null;
                 const barColor = r.level === 2 ? (personColor || T.accent) : T.accent;
                 const barBg = r.level === 1 ? T.accent + "cc" : barColor;
                 const barTextColor = accentText(barColor);
-                return <div className="anim-gantt-bar" style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
-                  onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
-                  <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />
-                  {can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                  {can("moveJobs") && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                  <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (() => { const base = r.panelTitle && r.title.startsWith(r.panelTitle + " ") ? r.title.slice(r.panelTitle.length + 1).trim() : r.title; const owner = taskOwner(r); return owner ? `${base} — ${owner}` : base; })() : <>{r.title}{hasSubs && <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 4 }}>({r.subs.length})</span>}{taskOwner(r) && <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}> · {taskOwner(r)}</span>}</>}</span>
-                </div>;
+                return segs.map((seg, si) => {
+                  const x = dToX(seg.start), xE = dToX(seg.end) + cW, w = Math.max(xE - x, cW);
+                  const isFirst = si === 0, isLast = si === segs.length - 1;
+                  return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, cursor: can("moveJobs") && isFirst ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
+                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={isFirst ? e => handleCtx(e, r) : undefined}>
+                    {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
+                    {isFirst && can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isLast && can("moveJobs") && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isFirst && <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (() => { const base = r.panelTitle && r.title.startsWith(r.panelTitle + " ") ? r.title.slice(r.panelTitle.length + 1).trim() : r.title; const owner = taskOwner(r); return owner ? `${base} — ${owner}` : base; })() : <>{r.title}{hasSubs && <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 4 }}>({r.subs.length})</span>}{taskOwner(r) && <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}> · {taskOwner(r)}</span>}</>}</span>}
+                  </div>;
+                });
               })()}
             </div>
           </div>; })}
@@ -3787,19 +3796,11 @@ ${jobsCtx || "No jobs found."}`;
   // ═══════════════════ SPLIT GANTT ═══════════════════
   const renderSplitGantt = (jobs) => {
     if (!gStart || !gEnd) return null;
-    const days = []; let c = gStart; while (c <= gEnd) { if (!isWeekend(c)) days.push(c); c = addD(c, 1); }
+    const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
     const paneW = splitGanttPaneWidth || 600;
     const cW = Math.max(14, (paneW / Math.max(days.length, 1)) * gZoom);
     const totalWidth = days.length * cW;
-    const dayIdx = {};
-    days.forEach((d, i) => { dayIdx[d] = i; });
-    const dToX = d => {
-      if (dayIdx[d] !== undefined) return dayIdx[d] * cW;
-      // Date falls on a hidden weekend — snap left to the preceding Friday column
-      let snap = d;
-      for (let i = 0; i < 3; i++) { snap = addD(snap, -1); if (dayIdx[snap] !== undefined) return (dayIdx[snap] + 1) * cW; }
-      return 0;
-    };
+    const dToX = d => diffD(gStart, d) * cW;
 
     // Build flat rows array — 3 levels deep
     const rows = [];
@@ -3869,7 +3870,7 @@ ${jobsCtx || "No jobs found."}`;
               {days.map(d => {
                 const isToday = d === TD;
                 return (
-                  <div key={d} style={{ minWidth: cW, maxWidth: cW, overflow: "hidden", borderRight: `1px solid ${T.border}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isToday ? T.accent : T.textDim, fontWeight: isToday ? 800 : 400, background: isToday ? T.accent + "12" : "transparent" }}>
+                  <div key={d} style={{ minWidth: cW, maxWidth: cW, overflow: "hidden", borderRight: `1px solid ${T.border}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isToday ? T.accent : isWeekend(d) ? T.textDim + "55" : T.textDim, fontWeight: isToday ? 800 : 400, background: isToday ? T.accent + "12" : isWeekend(d) ? T.bg + "88" : "transparent" }}>
                     {cW > 20 ? new Date(d + "T12:00:00").getDate() : ""}
                   </div>
                 );
@@ -3902,34 +3903,41 @@ ${jobsCtx || "No jobs found."}`;
                   {level === 2 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, background: jobColor + "33", zIndex: 2 }} />}
                   {/* Day cells */}
                   {days.map(d => (
-                    <div key={d} style={{ minWidth: cW, maxWidth: cW, borderRight: `1px solid ${T.border}18`, flexShrink: 0, background: d === TD ? T.accent + "08" : "transparent" }} />
+                    <div key={d} style={{ minWidth: cW, maxWidth: cW, borderRight: `1px solid ${T.border}18`, flexShrink: 0, background: d === TD ? T.accent + "08" : isWeekend(d) ? T.bg + "88" : "transparent" }} />
                   ))}
-                  {/* Bar */}
-                  {inRange && (
-                    <div
-                      onClick={hasSubs ? () => toggleRow(r.id) : undefined}
-                      style={{ position: "absolute", top: (rowH - barH) / 2, left: bL, width: bW, height: barH, background: barColor + "dd", borderRadius: level === 0 ? 4 : 3, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", zIndex: 3 }}
-                    >
-                      {hasSubs && (
-                        <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: "rgba(255,255,255,0.85)", flexShrink: 0, marginLeft: 5 }}>
-                          <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      )}
-                      <span style={{ fontSize: level === 0 ? 11 : 10, color: "#fff", fontWeight: level === 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: hasSubs ? 4 : 7, flex: 1, minWidth: 0 }}>
-                        {level === 0 ? `${r.jobNumber ? `#${r.jobNumber} ` : ""}${r.title}` : r.title}
-                      </span>
-                      {itemTeam.length > 0 && (
-                        <div style={{ display: "flex", alignItems: "center", gap: 2, paddingRight: 5, flexShrink: 0 }}>
-                          {itemTeam.slice(0, 3).map(p => (
-                            <div key={p.id} title={p.name} style={{ width: level === 0 ? 17 : 14, height: level === 0 ? 17 : 14, borderRadius: "50%", background: p.color || T.accent, border: "1.5px solid rgba(255,255,255,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", flexShrink: 0, overflow: "hidden" }}>
-                              {p.avatar ? <img src={p.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : (p.name || "?").charAt(0).toUpperCase()}
-                            </div>
-                          ))}
-                          {itemTeam.length > 3 && <span style={{ fontSize: 8, color: "rgba(255,255,255,0.8)", fontWeight: 700 }}>+{itemTeam.length - 3}</span>}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Bar — split at weekends */}
+                  {inRange && weekdaySegments(r.start, r.end, gStart, gEnd).map((seg, si) => {
+                    const sL = Math.max(0, dToX(seg.start));
+                    const sR = Math.min(dToX(seg.end) + cW, totalWidth);
+                    const sW = Math.max(barH, sR - sL);
+                    const isFirst = si === 0;
+                    return (
+                      <div
+                        key={si}
+                        onClick={isFirst && hasSubs ? () => toggleRow(r.id) : undefined}
+                        style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: level === 0 ? 4 : 3, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: isFirst && hasSubs ? "pointer" : "default", zIndex: 3 }}
+                      >
+                        {isFirst && hasSubs && (
+                          <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: "rgba(255,255,255,0.85)", flexShrink: 0, marginLeft: 5 }}>
+                            <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                        {isFirst && <span style={{ fontSize: level === 0 ? 11 : 10, color: "#fff", fontWeight: level === 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: hasSubs ? 4 : 7, flex: 1, minWidth: 0 }}>
+                          {level === 0 ? `${r.jobNumber ? `#${r.jobNumber} ` : ""}${r.title}` : r.title}
+                        </span>}
+                        {isFirst && itemTeam.length > 0 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 2, paddingRight: 5, flexShrink: 0 }}>
+                            {itemTeam.slice(0, 3).map(p => (
+                              <div key={p.id} title={p.name} style={{ width: level === 0 ? 17 : 14, height: level === 0 ? 17 : 14, borderRadius: "50%", background: p.color || T.accent, border: "1.5px solid rgba(255,255,255,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", flexShrink: 0, overflow: "hidden" }}>
+                                {p.avatar ? <img src={p.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : (p.name || "?").charAt(0).toUpperCase()}
+                              </div>
+                            ))}
+                            {itemTeam.length > 3 && <span style={{ fontSize: 8, color: "rgba(255,255,255,0.8)", fontWeight: 700 }}>+{itemTeam.length - 3}</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -5368,7 +5376,7 @@ ${jobsCtx || "No jobs found."}`;
   }, [view]);
 
   const renderTeam = () => {
-    const days = []; let dc = tStart; while (dc <= tEnd) { if (!isWeekend(dc)) days.push(dc); dc = addD(dc, 1); }
+    const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
     const lW = isMobile ? 120 : 260, rH = 42, grpH = 36;
     const tAvail = Math.max((teamWidth || 1200) - lW, 200);
     const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
@@ -5647,7 +5655,7 @@ ${jobsCtx || "No jobs found."}`;
             onChange={m => {
               setTMode(m);
               if (m==="day") { setTStart(TD); setTEnd(TD); }
-              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setTStart(mon); setTEnd(addD(mon,4)); }
+              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setTStart(mon); setTEnd(addD(mon,6)); }
               else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setTStart(toDS(first)); setTEnd(toDS(last)); }
             }}
           />
@@ -5831,32 +5839,40 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ flex: 1, position: "relative", display: "flex" }}>
                   {days.map(day => { const wk = [0, 6].includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? T.bg + "88" : "transparent", borderRight: `1px solid ${T.bg}22` }} />; })}
-                  {sub.start <= tEnd && sub.end >= tStart && <div
-                    title={sub.title}
-                    onContextMenu={e => handleCtx(e, { ...sub, isSub: true, pid: row.parentTaskId }, "team")}
-                    onMouseDown={e => {
-                      if (e.button !== 0) return;
-                      e.preventDefault();
-                      const startX = e.clientX; const os = sub.start, oe = sub.end; let moved = false, lastDx = 0;
-                      const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx !== 0) moved = true; if (dx !== lastDx) { lastDx = dx; updTask(sub.id, { start: addD(os, dx), end: addD(oe, dx) }, row.parentTaskId); } };
-                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
-                      document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
-                    }}
-                    style={{ position: "absolute", top: 3, left: `calc(${sx} + 2px)`, width: `calc(${sw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: sub.id === scheduleHighlightId ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
-                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
-                      e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
-                      const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
-                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
-                      document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
-                    }} />
-                    <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
-                      e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const oe = sub.end; let lastDx = 0;
-                      const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ne = addD(oe, dx); if (ne >= sub.start) updTask(sub.id, { end: ne }, row.parentTaskId); };
-                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
-                      document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
-                    }} />
-                    <span style={{ fontSize: 10, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, opacity: 0.9 }}>{sub.title}</span>
-                  </div>}
+                  {sub.start <= tEnd && sub.end >= tStart && (() => {
+                    const subSegs = weekdaySegments(sub.start, sub.end, tStart, tEnd);
+                    return subSegs.map((seg, si) => {
+                      const segSx = (diffD(tStart, seg.start) / nDays * 100) + "%";
+                      const segSw = ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
+                      const isFirst = si === 0, isLast = si === subSegs.length - 1;
+                      return <div key={si}
+                        title={isFirst ? sub.title : undefined}
+                        onContextMenu={isFirst ? e => handleCtx(e, { ...sub, isSub: true, pid: row.parentTaskId }, "team") : undefined}
+                        onMouseDown={isFirst ? e => {
+                          if (e.button !== 0) return;
+                          e.preventDefault();
+                          const startX = e.clientX; const os = sub.start, oe = sub.end; let moved = false, lastDx = 0;
+                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx !== 0) moved = true; if (dx !== lastDx) { lastDx = dx; updTask(sub.id, { start: addD(os, dx), end: addD(oe, dx) }, row.parentTaskId); } };
+                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                        } : undefined}
+                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, cursor: isFirst ? "grab" : "default", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
+                        {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
+                          e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
+                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
+                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                        }} />}
+                        {isLast && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
+                          e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const oe = sub.end; let lastDx = 0;
+                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ne = addD(oe, dx); if (ne >= sub.start) updTask(sub.id, { end: ne }, row.parentTaskId); };
+                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                        }} />}
+                        {isFirst && <span style={{ fontSize: 10, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, opacity: 0.9 }}>{sub.title}</span>}
+                      </div>;
+                    });
+                  })()}
                 </div>
               </div>;
             }
@@ -5898,8 +5914,10 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Task/PTO bars */}
                 {bars.map(bar => {
                   const nDays = days.length;
-                  const x = (diffD(tStart, bar.start) / nDays * 100) + "%";
-                  const w = (Math.max(diffD(bar.start, bar.end) + 1, 1) / nDays * 100) + "%";
+                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, bar.end, tStart, tEnd);
+                  const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
+                  const x = (diffD(tStart, firstBarSeg.start) / nDays * 100) + "%";
+                  const w = (Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100) + "%";
                   // Engineering chip — render as compact pill, opens job detail
                   if (bar.type === "eng-chip") {
                     const chipJob = tasks.find(j => j.id === bar.jobId);
@@ -6108,7 +6126,7 @@ ${jobsCtx || "No jobs found."}`;
                   const dragTx = isDraggingThis ? (teamDragInfo.translateX || 0) : 0;
                   const dragTy = isDraggingThis ? (teamDragInfo.translateY || 0) : 0;
                   const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
-                  return <div key={bar.id} title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "") + (barLocked ? " 🔒 Locked" : "") + (hasMoveLog ? " 📋 Has schedule changes" : "")}
+                  return [<div key={bar.id + "_0"} title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "") + (barLocked ? " 🔒 Locked" : "") + (hasMoveLog ? " 📋 Has schedule changes" : "")}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99" }}
@@ -6119,7 +6137,14 @@ ${jobsCtx || "No jobs found."}`;
                     {hasMoveLog && <span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} title="Schedule was changed" />}
                     <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : `${bar.task?.title || bar.title} - ${p.name.split(" ")[0]}`}</span>
                     {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.85)", fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
-                  </div>;
+                  </div>,
+                  ...barSegs.slice(1).map((seg, si) => {
+                    const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
+                    const tailW = ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
+                    const isPto2 = bar.type === "pto";
+                    const bc2 = bar.color;
+                    return <div key={bar.id + "_t" + si} style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: `1.5px solid ${isPto2 ? bc2 + "55" : bc2}`, pointerEvents: "none", zIndex: isPto2 ? 3 : 4 }} />;
+                  })];
                 })}
               </div>
             </div>;
