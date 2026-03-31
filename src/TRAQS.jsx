@@ -6052,15 +6052,54 @@ ${jobsCtx || "No jobs found."}`;
                       const newStart = nextBD(addD(os, finalDx));
                       const newEnd = countWorkingDays(newStart, wdDuration);
                       const dropPerson = lastDropPid || origPerson;
-                      const dropConflicts = checkOverlapsPure(tasks, [{ personId: dropPerson, start: newStart, end: newEnd, excludeOpId: bar.task.id, hpd: bar.task?.hpd, teamLength: (bar.task?.team || []).length, opTitle: bar.task?.title, panelTitle: bar.task?.panelTitle }]);
-                      if (showOverlapIfAny(dropConflicts)) return;
-                      updTask(bar.task.id, { start: newStart, end: newEnd }, taskPid);
-                      // Expand visible range if needed (functional update = always reads current state)
-                      setTStart(prev => newStart < prev ? newStart : prev);
-                      setTEnd(prev => newEnd > prev ? newEnd : prev);
-                      // Handle reassign to different person
                       const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
-                      if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
+                      const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+                      // Build a function that applies just the date move to a task list
+                      const applyMove = (tl) => {
+                        const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Moved in schedule" };
+                        return tl.map(t => {
+                          if (taskPid) {
+                            const pi = (t.subs || []).findIndex(s => s.id === taskPid);
+                            if (pi >= 0) { const ns = [...t.subs]; ns[pi] = { ...ns[pi], subs: (ns[pi].subs || []).map(op => op.id === bar.task.id ? { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] } : op) }; return { ...t, subs: ns }; }
+                            if (t.id === taskPid) return { ...t, subs: (t.subs || []).map(s => s.id !== bar.task.id ? s : { ...s, start: newStart, end: newEnd, moveLog: [...(s.moveLog || []), logEntry] }) };
+                          } else if (t.id === bar.task.id) {
+                            return { ...t, start: newStart, end: newEnd, moveLog: [...(t.moveLog || []), logEntry] };
+                          }
+                          return t;
+                        });
+                      };
+                      // Block on PTO conflicts immediately — cannot push time off
+                      const person = people.find(x => x.id === dropPerson);
+                      if (person) {
+                        for (const to of (person.timeOff || [])) {
+                          if (to.start <= newEnd && to.end >= newStart) {
+                            showOverlapIfAny([{ person: person.name, isPto: true, panelTitle: to.reason || to.type || "PTO", start: to.start, end: to.end }]);
+                            return;
+                          }
+                        }
+                      }
+                      setTasks(prev => {
+                        const { pushes, blocked, lockedOps } = previewPush(prev, bar.task.id, dropPerson, newStart, newEnd);
+                        if (blocked) { setTimeout(() => showLockedError(lockedOps), 0); return prev; }
+                        const expandRange = () => { setTStart(p => newStart < p ? newStart : p); setTEnd(p => newEnd > p ? newEnd : p); };
+                        if (pushes.length > 0) {
+                          const snapshot = JSON.parse(JSON.stringify(prev));
+                          const withMove = applyMove(prev);
+                          const finalState = applyPushes(withMove, pushes, movedByName);
+                          const finalStateSingle = recalcBounds(withMove, movedByName);
+                          setTimeout(() => setConfirmPush({
+                            pushes, people,
+                            onConfirm: () => { setTasks(finalState); setConfirmPush(null); expandRange(); if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid); },
+                            onConfirmSingle: () => { setTasks(finalStateSingle); setConfirmPush(null); expandRange(); if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid); },
+                            onCancel: () => { setTasks(snapshot); setConfirmPush(null); },
+                          }), 0);
+                          return prev; // hold until user decides
+                        }
+                        // No conflicts — apply immediately
+                        expandRange();
+                        if (isReassign) setTimeout(() => reassignTask(bar.task.id, origPerson, lastDropPid, taskPid), 0);
+                        return recalcBounds(applyMove(prev), movedByName);
+                      });
                     };
                     document.addEventListener("mousemove", onM);
                     document.addEventListener("mouseup", onU);
