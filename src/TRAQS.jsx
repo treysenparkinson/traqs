@@ -4099,7 +4099,7 @@ ${jobsCtx || "No jobs found."}`;
           </>}
         </div>
         {/* Center: view toggle — always truly centered via CSS Grid 1fr auto 1fr */}
-        <SlidingPill size="sm" options={[{value:"list",label:"List"},{value:"cards",label:"Cards"}]} value={taskSubView} onChange={setTaskSubView} />
+        <SlidingPill size="sm" options={[{value:"list",label:"List"},{value:"cards",label:"Cards"},{value:"gantt",label:"Gantt"}]} value={taskSubView} onChange={setTaskSubView} />
         {/* Right: list-view actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
           {taskSubView === "list" && <>
@@ -5165,6 +5165,8 @@ ${jobsCtx || "No jobs found."}`;
         );
         return listContent;
       })()}
+      {/* ── Gantt View ── */}
+      {taskSubView === "gantt" && renderGantt()}
     </div>;
   };
 
