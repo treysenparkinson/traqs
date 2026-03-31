@@ -98,6 +98,7 @@ const STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "
 const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,"0"); const d = String(dt.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; };
 const NOW = new Date(); const TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
+const addWorkingDays = (ds, n) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); const dow = d.getDay(); if (dow !== 0 && dow !== 6) count++; } return toDS(d); };
 const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
 const weekdaySegments = (start, end, clampStart, clampEnd) => {
   const s = start < clampStart ? clampStart : start;
@@ -3270,7 +3271,7 @@ ${jobsCtx || "No jobs found."}`;
         // For moves: end is always wdDuration working days from snapped start — never calendar days
         const snapE = mode === "move"
           ? countWorkingDays(snapS, wdDuration)
-          : (snapDelta > 0 ? addD(rawE, snapDelta) : rawE);
+          : (snapDelta > 0 ? addWorkingDays(rawE, snapDelta) : rawE);
         // Lightweight overlap check against other ops for same person(s)
         const personIds = new Set();
         const movingOpIds = new Set();
@@ -3317,7 +3318,7 @@ ${jobsCtx || "No jobs found."}`;
         // countWorkingDays steps Mon–Fri only, so weekends are never included in the span.
         const newEnd = mode === "move"
           ? countWorkingDays(newStart, wdDuration)
-          : (snapDelta > 0 ? addD(rawNewEnd, snapDelta) : rawNewEnd);
+          : (snapDelta > 0 ? addWorkingDays(rawNewEnd, snapDelta) : rawNewEnd);
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
         const actualDelta = diffD(os, newStart);
 
