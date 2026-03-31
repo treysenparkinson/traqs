@@ -6078,10 +6078,10 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
+                      const expandRange = () => { setTStart(p => newStart < p ? newStart : p); setTEnd(p => newEnd > p ? newEnd : p); };
                       setTasks(prev => {
                         const { pushes, blocked, lockedOps } = previewPush(prev, bar.task.id, dropPerson, newStart, newEnd);
                         if (blocked) { setTimeout(() => showLockedError(lockedOps), 0); return prev; }
-                        const expandRange = () => { setTStart(p => newStart < p ? newStart : p); setTEnd(p => newEnd > p ? newEnd : p); };
                         if (pushes.length > 0) {
                           const snapshot = JSON.parse(JSON.stringify(prev));
                           const withMove = applyMove(prev);
@@ -6096,8 +6096,7 @@ ${jobsCtx || "No jobs found."}`;
                           return prev; // hold until user decides
                         }
                         // No conflicts — apply immediately
-                        expandRange();
-                        if (isReassign) setTimeout(() => reassignTask(bar.task.id, origPerson, lastDropPid, taskPid), 0);
+                        setTimeout(() => { expandRange(); if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid); }, 0);
                         return recalcBounds(applyMove(prev), movedByName);
                       });
                     };
