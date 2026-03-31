@@ -3724,12 +3724,13 @@ ${jobsCtx || "No jobs found."}`;
                 return segs.map((seg, si) => {
                   const x = dToX(seg.start), xE = dToX(seg.end) + cW, w = Math.max(xE - x, cW);
                   const isFirst = si === 0, isLast = si === segs.length - 1;
-                  return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, cursor: can("moveJobs") && isFirst ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
-                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={isFirst ? e => handleCtx(e, r) : undefined}>
+                  const label = r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (() => { const base = r.panelTitle && r.title.startsWith(r.panelTitle + " ") ? r.title.slice(r.panelTitle.length + 1).trim() : r.title; const owner = taskOwner(r); return owner ? `${base} — ${owner}` : base; })() : r.title;
+                  return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
+                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
                     {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
                     {isFirst && can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isLast && can("moveJobs") && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {isFirst && <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (() => { const base = r.panelTitle && r.title.startsWith(r.panelTitle + " ") ? r.title.slice(r.panelTitle.length + 1).trim() : r.title; const owner = taskOwner(r); return owner ? `${base} — ${owner}` : base; })() : <>{r.title}{hasSubs && <span style={{ fontSize: 10, opacity: 0.6, marginLeft: 4 }}>({r.subs.length})</span>}{taskOwner(r) && <span style={{ fontSize: 11, fontWeight: 400, opacity: 0.8 }}> · {taskOwner(r)}</span>}</>}</span>}
+                    <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{isFirst && hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{(isFirst || w > 80) ? label : ""}</span>
                   </div>;
                 });
               })()}
@@ -3906,23 +3907,23 @@ ${jobsCtx || "No jobs found."}`;
                     <div key={d} style={{ minWidth: cW, maxWidth: cW, borderRight: `1px solid ${T.border}18`, flexShrink: 0, background: d === TD ? T.accent + "08" : isWeekend(d) ? T.bg + "88" : "transparent" }} />
                   ))}
                   {/* Bar — split at weekends */}
-                  {inRange && weekdaySegments(r.start, r.end, gStart, gEnd).map((seg, si) => {
+                  {inRange && weekdaySegments(r.start, r.end, gStart, gEnd).map((seg, si, allSegs) => {
                     const sL = Math.max(0, dToX(seg.start));
                     const sR = Math.min(dToX(seg.end) + cW, totalWidth);
                     const sW = Math.max(barH, sR - sL);
-                    const isFirst = si === 0;
+                    const isFirst = si === 0, isLast = si === allSegs.length - 1;
                     return (
                       <div
                         key={si}
-                        onClick={isFirst && hasSubs ? () => toggleRow(r.id) : undefined}
-                        style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: level === 0 ? 4 : 3, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: isFirst && hasSubs ? "pointer" : "default", zIndex: 3 }}
+                        onClick={hasSubs ? () => toggleRow(r.id) : undefined}
+                        style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: level === 0 ? 4 : 3, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed rgba(255,255,255,0.4)` : undefined, borderLeft: !isFirst ? `2px dashed rgba(255,255,255,0.4)` : undefined, zIndex: 3 }}
                       >
                         {isFirst && hasSubs && (
                           <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: "rgba(255,255,255,0.85)", flexShrink: 0, marginLeft: 5 }}>
                             <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
                         )}
-                        {isFirst && <span style={{ fontSize: level === 0 ? 11 : 10, color: "#fff", fontWeight: level === 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: hasSubs ? 4 : 7, flex: 1, minWidth: 0 }}>
+                        {(isFirst || sW > 80) && <span style={{ fontSize: level === 0 ? 11 : 10, color: "#fff", fontWeight: level === 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: (isFirst && hasSubs) ? 4 : 7, flex: 1, minWidth: 0 }}>
                           {level === 0 ? `${r.jobNumber ? `#${r.jobNumber} ` : ""}${r.title}` : r.title}
                         </span>}
                         {isFirst && itemTeam.length > 0 && (
@@ -5849,16 +5850,16 @@ ${jobsCtx || "No jobs found."}`;
                       const isFirst = si === 0, isLast = si === subSegs.length - 1;
                       return <div key={si}
                         title={isFirst ? sub.title : undefined}
-                        onContextMenu={isFirst ? e => handleCtx(e, { ...sub, isSub: true, pid: row.parentTaskId }, "team") : undefined}
-                        onMouseDown={isFirst ? e => {
+                        onContextMenu={e => handleCtx(e, { ...sub, isSub: true, pid: row.parentTaskId }, "team")}
+                        onMouseDown={e => {
                           if (e.button !== 0) return;
                           e.preventDefault();
                           const startX = e.clientX; const os = sub.start, oe = sub.end; let moved = false, lastDx = 0;
                           const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx !== 0) moved = true; if (dx !== lastDx) { lastDx = dx; updTask(sub.id, { start: addD(os, dx), end: addD(oe, dx) }, row.parentTaskId); } };
                           const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
                           document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
-                        } : undefined}
-                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, cursor: isFirst ? "grab" : "default", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
+                        }}
+                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, borderRight: !isLast ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, borderLeft: !isFirst ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
                         {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
                           e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
                           const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
@@ -6145,7 +6146,12 @@ ${jobsCtx || "No jobs found."}`;
                     const tailW = ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
                     const isPto2 = bar.type === "pto";
                     const bc2 = bar.color;
-                    return <div key={bar.id + "_t" + si} style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: `1.5px solid ${isPto2 ? bc2 + "55" : bc2}`, pointerEvents: "none", zIndex: isPto2 ? 3 : 4 }} />;
+                    return <div key={bar.id + "_t" + si}
+                      title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "")}
+                      onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
+                      onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
+                      style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, cursor: "grab", zIndex: isPto2 ? 3 : 4 }}
+                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }} />;
                   })];
                 })}
               </div>
@@ -8680,6 +8686,20 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>}
 
+        {/* Job-level team picker — only when no panels/tasks exist */}
+        {shopCrew.length > 0 && (ed.subs || []).length === 0 && <div style={{ marginBottom: 16 }}>
+          <label style={{ display: "block", fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 8 }}>Assign Team</label>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {shopCrew.map(p => {
+              const sel = (ed.team || []).includes(p.id);
+              return <button key={p.id} type="button" onClick={() => setEd(prev => ({ ...prev, team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id] }))} title={p.name}
+                style={{ padding: "3px 9px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sel ? accentText(p.color) : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.12s", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                <span style={{ width: 14, height: 14, borderRadius: 4, background: sel ? p.color + "cc" : p.color + "33", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? accentText(p.color) : p.color, flexShrink: 0 }}>{p.name[0]}</span>
+                {p.name.split(" ")[0]}
+              </button>;
+            })}
+          </div>
+        </div>}
         {aiSuggestion && <div style={{ marginBottom: 20, marginTop: -8 }}>
             {aiSuggestion.noSubtasks && <div style={{ padding: 14, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
               No subtasks found. Add sub-operations to your panels before scheduling.
@@ -9030,8 +9050,17 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 {!collapsedOps[panel.id] && <>
-                {/* Operation-level team picker */}
-                {shopCrew.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
+                {/* Panel-level department selector */}
+                {(orgSettings.roles?.length > 0) && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, color: T.textDim, fontWeight: 600, whiteSpace: "nowrap" }}>Dept:</span>
+                  <select value={panel.requiredDepartment || ""} onChange={e => updatePanel({ requiredDepartment: e.target.value })}
+                    style={{ fontSize: 12, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${panel.requiredDepartment ? T.accent + "66" : T.border}`, background: T.surface, color: panel.requiredDepartment ? T.accent : T.text, fontFamily: T.font, cursor: "pointer" }}>
+                    <option value="">Any dept</option>
+                    {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>}
+                {/* Panel-level team picker — only when no sub-ops */}
+                {shopCrew.length > 0 && (panel.subs || []).length === 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
                   {shopCrew.map(p => {
                     const sel = (panel.team || []).includes(p.id);
                     return <button key={p.id} onClick={() => updatePanel({ team: sel ? (panel.team || []).filter(id => id !== p.id) : [...(panel.team || []), p.id] })} title={p.name}
@@ -9041,6 +9070,14 @@ ${jobsCtx || "No jobs found."}`;
                     </button>;
                   })}
                 </div>}
+                {/* Warning: team assigned at panel level but sub-ops now exist */}
+                {shopCrew.length > 0 && (panel.subs || []).length > 0 && (panel.team || []).length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", marginBottom: 8, background: "#f59e0b12", border: "1px solid #f59e0b44", borderRadius: T.radiusXs, fontSize: 11, color: "#f59e0b" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    Team assigned at panel level — move assignments to sub-operations below
+                    <button onClick={() => updatePanel({ team: [] })} style={{ marginLeft: "auto", padding: "2px 8px", borderRadius: 4, border: `1px solid #f59e0b44`, background: "transparent", color: "#f59e0b", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clear</button>
+                  </div>
+                )}
                 {/* Sub-ops */}
                 {(panel.subs || []).map((sub, si) => {
                   const updateSub = (patch) => { const subs = [...(panel.subs || [])]; subs[si] = { ...subs[si], ...patch }; updatePanel({ subs }); };
