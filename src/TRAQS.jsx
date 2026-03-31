@@ -6064,27 +6064,41 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
-                      // Check overlaps on current task state — outside setTasks so errors don't crash React
+                      // All overlap detection + state computation done outside setTasks so
+                      // any error stays in the event handler (not React's reconciler → no white screen)
                       const { pushes, blocked, lockedOps } = previewPush(tasks, bar.task.id, dropPerson, newStart, newEnd);
                       if (blocked) { showLockedError(lockedOps); return; }
-                      // Commit the move (and optionally the cascading pushes)
-                      const doCommit = (withPushes) => {
-                        updTask(bar.task.id, { start: newStart, end: newEnd }, taskPid);
+                      // Build the post-move snapshot directly from current tasks (no setTasks involved)
+                      const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Moved in schedule" };
+                      const withMove = tasks.map(t => {
+                        if (taskPid) {
+                          const pi = (t.subs || []).findIndex(s => s.id === taskPid);
+                          if (pi >= 0) { const ns = [...t.subs]; ns[pi] = { ...ns[pi], subs: (ns[pi].subs || []).map(op => op.id === bar.task.id ? { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] } : op) }; return { ...t, subs: ns }; }
+                          if (t.id === taskPid) return { ...t, subs: (t.subs || []).map(s => s.id !== bar.task.id ? s : { ...s, start: newStart, end: newEnd, moveLog: [...(s.moveLog || []), logEntry] }) };
+                        } else if (t.id === bar.task.id) {
+                          return { ...t, start: newStart, end: newEnd, moveLog: [...(t.moveLog || []), logEntry] };
+                        }
+                        return t;
+                      });
+                      // commit applies a pre-computed snapshot — plain setTasks, no functional update,
+                      // so nothing can throw inside React's reconciler
+                      const commit = (snapshot) => {
+                        setTasks(snapshot);
                         setTStart(p => newStart < p ? newStart : p);
                         setTEnd(p => newEnd > p ? newEnd : p);
                         if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
-                        if (withPushes && pushes.length > 0) setTasks(prev => applyPushes(prev, pushes, movedByName));
                       };
                       if (pushes.length > 0) {
+                        const withPushes = applyPushes(withMove, pushes, movedByName);
                         setConfirmPush({
                           pushes, people,
-                          onConfirm:       () => { doCommit(true);  setConfirmPush(null); },
-                          onConfirmSingle: () => { doCommit(false); setConfirmPush(null); },
+                          onConfirm:       () => { commit(withPushes); setConfirmPush(null); },
+                          onConfirmSingle: () => { commit(withMove);   setConfirmPush(null); },
                           onCancel:        () => { setConfirmPush(null); },
                         });
                         return;
                       }
-                      doCommit(false);
+                      commit(withMove);
                     };
                     document.addEventListener("mousemove", onM);
                     document.addEventListener("mouseup", onU);
