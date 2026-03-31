@@ -127,8 +127,8 @@ const HEALTH_COLOR = { ontime: "#10b981", behind: "#f59e0b", critical: "#ef4444"
 
 
 const mkPeople = () => [
-  { id: 99, name: "Trey", role: "Admin", cap: 8, color: "#6366f1", timeOff: [], userRole: "admin", email: "" },
-  { id: 100, name: "Max", role: "Admin", cap: 8, color: "#f43f5e", timeOff: [], userRole: "admin", email: "" },
+  { id: 99, name: "Trey", department: "Admin", cap: 8, color: "#6366f1", timeOff: [], userRole: "admin", email: "" },
+  { id: 100, name: "Max", department: "Admin", cap: 8, color: "#f43f5e", timeOff: [], userRole: "admin", email: "" },
 ];
 const mkTasks = () => [];
 
@@ -772,7 +772,7 @@ Rules:
           const partial = people.find(p => p.name.toLowerCase().startsWith(lo) || lo.startsWith(p.name.toLowerCase()));
           if (partial) return partial.id;
           if (pendingPeopleAI[lo]) return pendingPeopleAI[lo].id;
-          pendingPeopleAI[lo] = { id: uid(), name, role: "Shop", cap: 8, color: COLORS[Object.keys(pendingPeopleAI).length % COLORS.length], timeOff: [], userRole: "user" };
+          pendingPeopleAI[lo] = { id: uid(), name, department: "Shop", cap: 8, color: COLORS[Object.keys(pendingPeopleAI).length % COLORS.length], timeOff: [], userRole: "user" };
           return pendingPeopleAI[lo].id;
         }
         function resolveClientAI(name) {
@@ -948,7 +948,7 @@ Rules:
         // Also check if already pending under a slightly different casing
         const pendingPartial = Object.values(pendingPeople).find(p => p.name.toLowerCase().startsWith(lo + " ") || p.name.toLowerCase() === lo);
         if (pendingPartial) return pendingPartial.id;
-        pendingPeople[lo] = { id: uid(), name, role: "Shop", cap: 8, color: COLORS[Object.keys(pendingPeople).length % COLORS.length], timeOff: [], userRole: "user" };
+        pendingPeople[lo] = { id: uid(), name, department: "Shop", cap: 8, color: COLORS[Object.keys(pendingPeople).length % COLORS.length], timeOff: [], userRole: "user" };
         return pendingPeople[lo].id;
       }
       function resolveClient(name) {
@@ -1572,13 +1572,31 @@ Rules:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin]);
 
+  // Data migration normalizers: backfill department/requiredDepartment from legacy role/requiredRole fields
+  const normalizePeople = arr => arr.map(p => ({
+    ...p,
+    department: p.department ?? p.role ?? "",
+  }));
+  const normalizeOp = op => ({
+    ...op,
+    requiredDepartment: op.requiredDepartment ?? op.requiredRole ?? "",
+    subs: (op.subs || []).map(normalizeOp),
+  });
+  const normalizeTasks = arr => arr.map(job => ({
+    ...job,
+    subs: (job.subs || []).map(panel => ({
+      ...panel,
+      subs: (panel.subs || []).map(normalizeOp),
+    })),
+  }));
+
   // Load all data from S3 on mount; fall back to seed data if S3 is empty
   useEffect(() => {
     fetchTimeclock(orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
     Promise.all([fetchTasks(orgCode), fetchPeople(orgCode), fetchClients(orgCode)])
       .then(([t, p, c]) => {
-        _setTasks(Array.isArray(t) && t.length > 0 ? t : mkTasks());
-        const resolvedPeople = Array.isArray(p) && p.length > 0 ? p : mkPeople();
+        _setTasks(normalizeTasks(Array.isArray(t) && t.length > 0 ? t : mkTasks()));
+        const resolvedPeople = normalizePeople(Array.isArray(p) && p.length > 0 ? p : mkPeople());
         setPeople(resolvedPeople);
         setClients(Array.isArray(c) && c.length > 0 ? c : mkClients());
         // Match Auth0 user to a people record by email
@@ -1593,8 +1611,8 @@ Rules:
       })
       .catch(e => {
         console.error("Failed to load data from S3:", e);
-        _setTasks(mkTasks());
-        const fallbackPeople = mkPeople();
+        _setTasks(normalizeTasks(mkTasks()));
+        const fallbackPeople = normalizePeople(mkPeople());
         setPeople(fallbackPeople);
         setClients(mkClients());
         setLoggedInUser(fallbackPeople[0] || null);
@@ -1823,7 +1841,7 @@ Rules:
     }
     if (fClient !== "All" && t.clientId !== fClient) return false;
     if (fRole !== "All") {
-      const hasRole = (t.subs || []).some(panel => (panel.subs || []).some(op => { const person = people.find(x => (op.team || []).includes(x.id)); return person && person.role?.toLowerCase() === fRole.toLowerCase(); }));
+      const hasRole = (t.subs || []).some(panel => (panel.subs || []).some(op => { const person = people.find(x => (op.team || []).includes(x.id)); return person && person.department?.toLowerCase() === fRole.toLowerCase(); }));
       if (!hasRole) return false;
     }
     if (fHpd !== "All") {
@@ -1862,7 +1880,7 @@ Rules:
   };
 
   // Unique roles and hpd values for filter panel
-  const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.role).filter(Boolean))].sort(), [people]);
+  const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.department).filter(Boolean))].sort(), [people]);
   const uniqueHpd = useMemo(() => {
     const vals = new Set();
     tasks.forEach(t => { if (t.hpd) vals.add(t.hpd); (t.subs || []).forEach(p => { if (p.hpd) vals.add(p.hpd); (p.subs || []).forEach(op => { if (op.hpd) vals.add(op.hpd); }); }); });
@@ -2464,7 +2482,7 @@ Rules:
     const peopleCtx = people.map(p => {
       const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished" && t.end >= todayStr);
       const todayH = bookedHrs(p.id, todayStr);
-      return `${p.name} [person_id:${p.id}] (${p.role || "—"}, ${p.cap || orgSettings.hpd}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
+      return `${p.name} [person_id:${p.id}] (${p.department || "—"}, ${p.cap || orgSettings.hpd}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
     }).join("\n");
     const jobsCtx = tasks.map(t => {
       const team = (t.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
@@ -3168,7 +3186,7 @@ ${jobsCtx || "No jobs found."}`;
 
   // ═══════════════════ GANTT ═══════════════════
   const renderGantt = () => {
-    const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
+    const days = []; let c = gStart; while (c <= gEnd) { if (!isWeekend(c)) days.push(c); c = addD(c, 1); }
     const lW = isMobile ? 140 : 280;
     const avail = Math.max((ganttWidth || 1200) - lW, 200);
     const cW = (isMobile ? Math.max(32, avail / Math.max(days.length, 1)) : avail / Math.max(days.length, 1)) * gZoom;
@@ -3197,7 +3215,15 @@ ${jobsCtx || "No jobs found."}`;
       return a.start.localeCompare(b.start);
     });
     const rows = []; gSortedFiltered.forEach(t => { rows.push({ ...t, isSub: false, pid: null, level: 0 }); if (exp[t.id]) (t.subs || []).forEach(s => { rows.push({ ...s, isSub: true, pid: t.id, level: 1 }); if (exp[s.id]) (s.subs || []).forEach(op => rows.push({ ...op, isSub: true, pid: s.id, grandPid: t.id, level: 2, panelTitle: s.title })); }); });
-    const dToX = d => diffD(gStart, d) * cW;
+    const dayIdx = {};
+    days.forEach((d, i) => { dayIdx[d] = i; });
+    const dToX = d => {
+      if (dayIdx[d] !== undefined) return dayIdx[d] * cW;
+      // Date falls on a hidden weekend — snap left to the preceding Friday column
+      let snap = d;
+      for (let i = 0; i < 3; i++) { snap = addD(snap, -1); if (dayIdx[snap] !== undefined) return (dayIdx[snap] + 1) * cW; }
+      return 0;
+    };
     const ri4 = {}; rows.forEach((r, i) => { ri4[r.id] = i; });
     const arrows = [];
     const handleDrag = (e, item, mode) => {
@@ -3489,7 +3515,7 @@ ${jobsCtx || "No jobs found."}`;
             onChange={m => {
               setGMode(m);
               if (m==="day") { setGStart(TD); setGEnd(TD); }
-              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setGStart(mon); setGEnd(addD(mon,6)); }
+              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setGStart(mon); setGEnd(addD(mon,4)); }
               else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); }
             }}
           />
@@ -3705,7 +3731,7 @@ ${jobsCtx || "No jobs found."}`;
             <defs><marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" fill="#f59e0b"><polygon points="0 0, 8 3, 0 6" /></marker></defs>
             {arrows.map(a => { const cp = Math.max(20, Math.min(Math.abs(a.tx - a.fx) * 0.4, 80)); const path = `M ${a.fx} ${a.fy} C ${a.fx + cp} ${a.fy}, ${a.tx - cp} ${a.ty}, ${a.tx} ${a.ty}`; return <g key={a.fid + "-" + a.tid}><path d={path} fill="none" stroke="#f59e0b22" strokeWidth="6" /><path d={path} fill="none" stroke="#f59e0baa" strokeWidth="2" markerEnd="url(#ah)" /><circle cx={a.fx} cy={a.fy} r="3.5" fill="#f59e0b" opacity="0.7" /></g>; })}
           </svg>
-          {TD >= gStart && TD <= gEnd && <div style={{ position: "absolute", top: 0, bottom: 0, left: lW + diffD(gStart, TD) * cW + cW / 2, width: 2, background: T.accent + "bb", zIndex: 12, pointerEvents: "none" }} />}
+          {TD >= gStart && TD <= gEnd && <div style={{ position: "absolute", top: 0, bottom: 0, left: lW + dToX(TD) + cW / 2, width: 2, background: T.accent + "bb", zIndex: 12, pointerEvents: "none" }} />}
         </div>
       </div>
       </div>}
@@ -3761,11 +3787,19 @@ ${jobsCtx || "No jobs found."}`;
   // ═══════════════════ SPLIT GANTT ═══════════════════
   const renderSplitGantt = (jobs) => {
     if (!gStart || !gEnd) return null;
-    const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
+    const days = []; let c = gStart; while (c <= gEnd) { if (!isWeekend(c)) days.push(c); c = addD(c, 1); }
     const paneW = splitGanttPaneWidth || 600;
     const cW = Math.max(14, (paneW / Math.max(days.length, 1)) * gZoom);
     const totalWidth = days.length * cW;
-    const dToX = (d) => diffD(gStart, d) * cW;
+    const dayIdx = {};
+    days.forEach((d, i) => { dayIdx[d] = i; });
+    const dToX = d => {
+      if (dayIdx[d] !== undefined) return dayIdx[d] * cW;
+      // Date falls on a hidden weekend — snap left to the preceding Friday column
+      let snap = d;
+      for (let i = 0; i < 3; i++) { snap = addD(snap, -1); if (dayIdx[snap] !== undefined) return (dayIdx[snap] + 1) * cW; }
+      return 0;
+    };
 
     // Build flat rows array — 3 levels deep
     const rows = [];
@@ -3901,7 +3935,7 @@ ${jobsCtx || "No jobs found."}`;
             })}
             {/* Today line */}
             {TD >= gStart && TD <= gEnd && (
-              <div style={{ position: "absolute", top: 0, bottom: 0, left: diffD(gStart, TD) * cW + cW / 2, width: 2, background: T.accent + "bb", pointerEvents: "none", zIndex: 4 }} />
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: dToX(TD) + cW / 2, width: 2, background: T.accent + "bb", pointerEvents: "none", zIndex: 4 }} />
             )}
           </div>
         </div>
@@ -4477,7 +4511,7 @@ ${jobsCtx || "No jobs found."}`;
                   {fresh.team.map(id => { const p = people.find(x => x.id === id); if (!p) return null; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: p.color + "15", border: `1px solid ${p.color}44` }}>
                     <div style={{ width: 24, height: 24, borderRadius: 8, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
                     <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
-                    <span style={{ fontSize: 11, color: T.textDim }}>{p.role}</span>
+                    <span style={{ fontSize: 11, color: T.textDim }}>{p.department}</span>
                   </div>; })}
                 </div>
               </div>}
@@ -5334,14 +5368,14 @@ ${jobsCtx || "No jobs found."}`;
   }, [view]);
 
   const renderTeam = () => {
-    const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
+    const days = []; let dc = tStart; while (dc <= tEnd) { if (!isWeekend(dc)) days.push(dc); dc = addD(dc, 1); }
     const lW = isMobile ? 120 : 260, rH = 42, grpH = 36;
     const tAvail = Math.max((teamWidth || 1200) - lW, 200);
     const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
     teamCWRef.current = cW;
-    // Group people by role
+    // Group people by department
     const roles = []; const roleMap = {};
-    people.forEach(p => { if (!roleMap[p.role]) { roleMap[p.role] = []; roles.push(p.role); } roleMap[p.role].push(p); });
+    people.forEach(p => { if (!roleMap[p.department]) { roleMap[p.department] = []; roles.push(p.department); } roleMap[p.department].push(p); });
     // Build month/week groups for header
     const hGroups = []; days.forEach((day, i) => {
       const dt = new Date(day + "T12:00:00");
@@ -5565,7 +5599,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Top nav */}
       <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", flexWrap: "wrap", position: "relative", minHeight: 44, justifyContent: isAdmin ? "flex-start" : "center" }}>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Member</Btn>
+          <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Member</Btn>
           <Btn size="sm" variant={teamSelectMode ? "primary" : "ghost"} style={!teamSelectMode ? { background: "transparent" } : {}} onClick={() => { setTeamSelectMode(m => !m); setSelPeople(new Set()); }}>{teamSelectMode ? "Done" : "Select"}</Btn>
           {teamSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelPeople(selPeople.size === people.length ? new Set() : new Set(people.map(p => p.id)))}>{selPeople.size === people.length ? "None" : "All"}</Btn>}
         <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
@@ -5613,7 +5647,7 @@ ${jobsCtx || "No jobs found."}`;
             onChange={m => {
               setTMode(m);
               if (m==="day") { setTStart(TD); setTEnd(TD); }
-              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setTStart(mon); setTEnd(addD(mon,6)); }
+              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setTStart(mon); setTEnd(addD(mon,4)); }
               else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setTStart(toDS(first)); setTEnd(toDS(last)); }
             }}
           />
@@ -5652,7 +5686,7 @@ ${jobsCtx || "No jobs found."}`;
         <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 400, lineHeight: 1.75 }}>
           Add your first team member to start scheduling and assigning jobs
         </p>
-        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
+        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
       </div>}
       {/* Hourly day view */}
       {people.length > 0 && tMode === "day" && (() => {
@@ -5713,7 +5747,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{width:28,height:28,borderRadius:14,background:p.color+"22",border:`1.5px solid ${p.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:p.color,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
-                        <div style={{fontSize:11,color:T.textDim}}>{p.role} · {p.cap}h</div>
+                        <div style={{fontSize:11,color:T.textDim}}>{p.department} · {p.cap}h</div>
                       </div>
                       <span style={{fontSize:12,fontWeight:700,color:utilC,fontFamily:T.mono,flexShrink:0}}>{row.util}%</span>
                     </div>
@@ -5844,7 +5878,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ width: 28, height: 28, borderRadius: 14, background: p.color + "22", border: `1.5px solid ${p.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: p.color, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</div>
-                  <div style={{ fontSize: 11, color: T.textDim }}>{p.role} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono, flexShrink: 0 }}>{row.util}%</span>
                 {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
@@ -7817,7 +7851,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderMobileTeam = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
       {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-        <button onClick={() => setPersonModal({ id: null, name: "", role: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
+        <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
       </div>}
       {people.map(p => {
         const isExp = mobileExp["p_" + p.id];
@@ -7831,7 +7865,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ width: 38, height: 38, borderRadius: 19, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{p.role}{p.cap ? ` · ${p.cap}h/day` : ""}</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{p.department}{p.cap ? ` · ${p.cap}h/day` : ""}</div>
               <div style={{ marginTop: 5, background: T.bg, borderRadius: 3, height: 4, overflow: "hidden", width: "65%" }}>
                 <div style={{ height: "100%", borderRadius: 3, background: bookedH > p.cap ? T.danger : pctLoad > 70 ? "#f59e0b" : T.accent, width: pctLoad + "%", transition: "width 0.3s" }} />
               </div>
@@ -8464,16 +8498,17 @@ ${jobsCtx || "No jobs found."}`;
               if (b.length > 0) { blockedSubtasks.push({ title: o.title, count: b.length }); return false; }
               return true;
             })
-            .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd, requiredRole: o.requiredRole || "" }));
+            .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd, requiredDepartment: o.requiredDepartment || "" }));
           // Actual number of panels to schedule
           const numPanels = Math.max(1, (ed.subs || []).length);
           const opsPerPanel = Math.max(rawOps.length, 1);
           const _clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
-          const crewForOp = (rawOp) => people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
-            .filter(p => !rawOp.requiredRole || p.role === rawOp.requiredRole)
-            .filter(p => canAssignPerson(p, rawOp.title, ed.title, ed.jobNumber || "", _clientName));
+          const crewForOp = (rawOp) => {
+            const reqDept = rawOp.requiredDepartment || "";
+            return people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
+              .filter(p => !reqDept || p.department === reqDept);
+          };
           const crew = people.filter(p => p.userRole === "user" && !p.noAutoSchedule);
-          const hasDueDate = ed.dueDate && ed.dueDate >= TD;
           // Business days to complete ONE panel sequentially (e.g. Cut 1d + Wire 5d + Layout 2d = 8d)
           const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
 
@@ -8538,9 +8573,8 @@ ${jobsCtx || "No jobs found."}`;
 
               const isDuplicate = results.some(s => Math.abs(sDiffBD(s.start, wStart)) < 2);
               if (!isDuplicate) {
-                const meetsDeadline = deadline ? totalEnd <= deadline : true;
                 results.push({
-                  start: wStart, end: totalEnd, available, busy, meetsDeadline,
+                  start: wStart, end: totalEnd, available, busy,
                   businessDays: batchBD, panelsAtOnce,
                   totalBD, staggered: numPanels > panelsAtOnce
                 });
@@ -8549,25 +8583,9 @@ ${jobsCtx || "No jobs found."}`;
             return results;
           };
 
-          if (hasDueDate) {
-            const windows = findWindows(ed.dueDate);
-            const beforeDue = windows.filter(w => w.meetsDeadline);
-
-            if (beforeDue.length > 0) {
-              setAiSuggestion({ canMeetDue: true, dueDate: ed.dueDate, slots: beforeDue.slice(0, 3), numPanels: opsPerPanel, blockedSubtasks });
-            } else {
-              // Can't meet deadline — find earliest regardless
-              const earliest = findWindows(null);
-              if (earliest.length === 0) {
-                setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: [], numPanels: opsPerPanel, suggestedDueDate: null, noSlots: true, blockedSubtasks });
-              } else {
-                setAiSuggestion({ canMeetDue: false, dueDate: ed.dueDate, slots: earliest.slice(0, 3), numPanels: opsPerPanel, suggestedDueDate: earliest[0].end, blockedSubtasks });
-              }
-            }
-          } else {
-            const slots = findWindows(null);
-            setAiSuggestion({ canMeetDue: null, dueDate: null, slots: slots.slice(0, 3), numPanels: opsPerPanel, blockedSubtasks });
-          }
+          // Due date is display-only — never passed to the scheduler
+          const slots = findWindows(null);
+          setAiSuggestion({ canMeetDue: null, dueDate: null, slots: slots.slice(0, 3), numPanels: opsPerPanel, blockedSubtasks });
 
           setAiLoading(false);
         }, 500);
@@ -8614,7 +8632,7 @@ ${jobsCtx || "No jobs found."}`;
               Project Manager <span style={{ color: "#ef4444", fontSize: 15, lineHeight: 1 }}>*</span>
             </label>
             <SearchSelect value={ed.projectManagerId} onChange={v => setEd(p => ({ ...p, projectManagerId: v }))}
-              options={people.map(p => ({ value: p.id, label: p.name, color: p.color, sub: p.role || "" }))}
+              options={people.map(p => ({ value: p.id, label: p.name, color: p.color, sub: p.department || "" }))}
               placeholder="Select project manager…"
               style={{ borderColor: !ed.projectManagerId ? "#ef444455" : T.border }} />
           </div>
@@ -8761,15 +8779,10 @@ ${jobsCtx || "No jobs found."}`;
                     const pickTeam = (op, minStart = null) => {
                       const opTitle = typeof op === "string" ? op : op.title;
                       const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
-                      const requiredRole = typeof op === "object" ? (op.requiredRole || "") : "";
-                      let eligible = allCrew
-                        .filter(pp => !requiredRole || pp.role === requiredRole)
-                        .filter(pp => canAssignPerson(pp, opTitle, p.title, p.jobNumber || "", _jobClientName))
+                      const reqDept = typeof op === "object" ? (op.requiredDepartment || "") : "";
+                      const eligible = allCrew
+                        .filter(pp => !reqDept || pp.department === reqDept)
                         .sort((a, b) => { const diff = jobCount(a.id) - jobCount(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
-                      // Fallback: if jobTags filter removed everyone, use role-filtered crew
-                      if (eligible.length === 0) eligible = allCrew
-                        .filter(pp => !requiredRole || pp.role === requiredRole)
-                        .slice().sort((a, b) => { const diff = jobCount(a.id) - jobCount(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
                       if (eligible.length === 0) {
                         const fallback = minStart || slot.start;
                         return { team: [], start: fallback, end: fallback };
@@ -9017,10 +9030,10 @@ ${jobsCtx || "No jobs found."}`;
                         <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd ?? 7.5} onChange={e => updateSub({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
                         <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", width: 24 }} title="Estimated total hours for this operation">hrs</span>
                         {(orgSettings.roles?.length > 0) && (
-                          <select value={sub.requiredRole || ""} onChange={e => updateSub({ requiredRole: e.target.value })}
+                          <select value={sub.requiredDepartment || ""} onChange={e => updateSub({ requiredDepartment: e.target.value })}
                             title="Required department"
                             style={{ fontSize: 11, padding: "4px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontFamily: T.font }}>
-                            <option value="">Any role</option>
+                            <option value="">Any dept</option>
                             {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
                           </select>
                         )}
@@ -9082,13 +9095,13 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                     </div>}
                   </div>
-                  <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [], requiredRole: "" }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
+                  <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [], requiredDepartment: "" }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
                 </div>
                 </>}
               </div>;
             })}
           </div>
-          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], requiredRole: "", subs: [] }] }))}
+          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], requiredDepartment: "", subs: [] }] }))}
             style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
             onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
             onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
@@ -9150,7 +9163,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ width: 36, height: 36, borderRadius: 10, background: person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff", fontWeight: 700 }}>{person.name[0]}</div>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{person.name}</div>
-              <div style={{ fontSize: 12, color: T.textDim }}>{person.role}</div>
+              <div style={{ fontSize: 12, color: T.textDim }}>{person.department}</div>
             </div>
           </div>}
           {!person && <div style={{ padding: "14px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16, fontSize: 14, color: T.textDim, fontStyle: "italic" }}>Unassigned</div>}
@@ -9338,7 +9351,7 @@ ${jobsCtx || "No jobs found."}`;
           const q = searchQ.toLowerCase();
           const jobResults = allItems.filter(t => t.title.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q));
           const clientResults = clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q) || (c.email || "").toLowerCase().includes(q));
-          const personResults = people.filter(p => p.name.toLowerCase().includes(q) || p.role.toLowerCase().includes(q));
+          const personResults = people.filter(p => p.name.toLowerCase().includes(q) || (p.department || "").toLowerCase().includes(q));
           const hasResults = jobResults.length > 0 || clientResults.length > 0 || personResults.length > 0;
           return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.25)", maxHeight: 380, overflow: "auto" }}>
             {!hasResults && <div style={{ padding: "24px 16px", textAlign: "center", color: T.textDim, fontSize: 14 }}>No results for \"{searchQ}\"</div>}
@@ -9347,7 +9360,7 @@ ${jobsCtx || "No jobs found."}`;
               {personResults.slice(0, 5).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <div style={{ width: 24, height: 24, borderRadius: 12, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
                 <span style={{ fontWeight: 500 }}>{p.name}</span>
-                <span style={{ fontSize: 12, color: T.textDim }}>{p.role}</span>
+                <span style={{ fontSize: 12, color: T.textDim }}>{p.department}</span>
               </div>)}
             </div>}
             {clientResults.length > 0 && <div>
@@ -10317,7 +10330,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ width: 34, height: 34, borderRadius: 10, background: person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
-                      <div style={{ fontSize: 11, color: T.textDim }}>{person.role || "No role"}</div>
+                      <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
                     </div>
                     <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                       {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
@@ -10856,7 +10869,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ width: 32, height: 32, borderRadius: 9, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? p.color : T.text }}>{p.name}{sel && " (current)"}</div>
-                  <div style={{ fontSize: 11, color: T.textDim }}>{busy ? "Busy during this period" : p.role || "Team member"}</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{busy ? "Busy during this period" : p.department || "Team member"}</div>
                 </div>
                 {sel && <span style={{ fontSize: 11, color: p.color, fontWeight: 700 }}>✓</span>}
               </button>;
@@ -11025,14 +11038,14 @@ ${jobsCtx || "No jobs found."}`;
           <InputField label="Email" value={ed.email || ""} onChange={v => setEd(p => ({ ...p, email: v.trim().toLowerCase() }))} type="email" placeholder="firstname@domain.com" />
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <div style={{ marginBottom: 4 }}>
-              <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Role</label>
+              <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Department</label>
               {orgSettings.roles.length > 0 ? (
-                <select value={ed.role || ""} onChange={e => setEd(p => ({ ...p, role: e.target.value }))} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: ed.role ? T.text : T.textDim, fontSize: 14, fontFamily: T.font, outline: "none", cursor: "pointer", appearance: "none", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: 32, boxSizing: "border-box" }}>
-                  <option value="">Select a role…</option>
+                <select value={ed.department || ""} onChange={e => setEd(p => ({ ...p, department: e.target.value }))} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: ed.department ? T.text : T.textDim, fontSize: 14, fontFamily: T.font, outline: "none", cursor: "pointer", appearance: "none", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: 32, boxSizing: "border-box" }}>
+                  <option value="">Select a department…</option>
                   {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
                 </select>
               ) : (
-                <input value={ed.role || ""} onChange={e => setEd(p => ({ ...p, role: e.target.value }))} placeholder="e.g. Shop, Engineering…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                <input value={ed.department || ""} onChange={e => setEd(p => ({ ...p, department: e.target.value }))} placeholder="e.g. Shop, Engineering…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
               )}
             </div>
             <InputField label="Hours/Day Capacity" value={ed.cap} onChange={v => setEd(p => ({ ...p, cap: +v }))} type="number" />
@@ -11233,7 +11246,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 28px 6px", position: "sticky", top: 0, background: T.card, zIndex: 2 }}>
                   <div style={{ width: 24, height: 24, borderRadius: 8, background: person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{person.name}</span>
-                  <span style={{ fontSize: 11, color: T.textDim, marginLeft: 2 }}>{person.role}</span>
+                  <span style={{ fontSize: 11, color: T.textDim, marginLeft: 2 }}>{person.department}</span>
                   <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "2px 8px" }}>{pChanges.length} ops</span>
                 </div>
                 {/* That person's changes */}
