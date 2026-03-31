@@ -112,6 +112,23 @@ const weekdaySegments = (start, end, clampStart, clampEnd) => {
   if (segStart !== null) segs.push({ start: segStart, end: e });
   return segs;
 };
+// Returns the number of working days (Mon–Fri) spanned by a date range, inclusive of both ends.
+const getWorkingDayDuration = (startDate, endDate) => {
+  let count = 0;
+  let d = new Date(startDate + "T12:00:00");
+  const end = new Date(endDate + "T12:00:00");
+  while (d <= end) { const dow = d.getDay(); if (dow !== 0 && dow !== 6) count++; d.setDate(d.getDate() + 1); }
+  return count;
+};
+// Given a start date and a count of working days, returns the end date after stepping
+// through exactly numDays working days (Mon–Fri), starting from and including startDate.
+const countWorkingDays = (startDate, numDays) => {
+  if (numDays <= 0) return startDate;
+  let count = 0;
+  let d = new Date(startDate + "T12:00:00");
+  while (true) { const dow = d.getDay(); if (dow !== 0 && dow !== 6) { count++; if (count >= numDays) break; } d.setDate(d.getDate() + 1); }
+  return toDS(d);
+};
 const addBD = (ds, n, { weekends = false, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); let remaining = Math.abs(n); const dir = n >= 0 ? 1 : -1; while (remaining > 0) { d.setDate(d.getDate() + dir); const dow = d.getDay(); const ds2 = toDS(d); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) remaining--; } return toDS(d); };
 const nextBD = (ds, { weekends = false, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); while (true) { const dow = d.getDay(); const ds2 = toDS(d); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) break; d.setDate(d.getDate() + 1); } return toDS(d); };
 const diffBD = (a, b, { weekends = false, holidays = [] } = {}) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); const dow = c.getDay(); const ds2 = toDS(c); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) count++; } return count; };
@@ -3236,6 +3253,8 @@ ${jobsCtx || "No jobs found."}`;
       if (linkingFrom) return;
       e.preventDefault();
       const sx = e.clientX, sy = e.clientY, os = item.start, oe = item.end;
+      // Capture working-day duration once at drag start so the end date is always preserved correctly across weekends
+      const wdDuration = getWorkingDayDuration(os, oe);
       let moved = false, lastDx = 0, finalDx = 0;
       const origRow = ri4[item.id];
       const pidArg = item.isSub ? item.pid : null;
@@ -3248,8 +3267,9 @@ ${jobsCtx || "No jobs found."}`;
         const rawE = mode !== "left"  ? addD(oe, dx) : oe;
         const snapS = nextBD(rawS);
         const snapDelta = diffD(rawS, snapS);
+        // For moves: end is always wdDuration working days from snapped start — never calendar days
         const snapE = mode === "move"
-          ? addBD(snapS, diffBD(os, oe))
+          ? countWorkingDays(snapS, wdDuration)
           : (snapDelta > 0 ? addD(rawE, snapDelta) : rawE);
         // Lightweight overlap check against other ops for same person(s)
         const personIds = new Set();
@@ -3275,7 +3295,8 @@ ${jobsCtx || "No jobs found."}`;
           }
         }
         setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap });
-        if (mode === "move") updTask(item.id, { start: rawS, end: rawE }, pidArg);
+        // For moves, use the working-day end so the bar never shrinks as it crosses a weekend
+        if (mode === "move") updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration) }, pidArg);
         else if (mode === "left") { if (rawS <= oe) updTask(item.id, { start: rawS }, pidArg); }
         else { if (rawE >= os) updTask(item.id, { end: rawE }, pidArg); }
       };
@@ -3292,9 +3313,10 @@ ${jobsCtx || "No jobs found."}`;
         const rawNewEnd = mode !== "left" ? addD(oe, finalDx) : oe;
         const newStart = nextBD(rawNewStart);
         const snapDelta = diffD(rawNewStart, newStart);
-        // For moves, preserve working-day duration so weekends don't eat the end date
+        // For moves: count forward exactly wdDuration working days from the snapped start.
+        // countWorkingDays steps Mon–Fri only, so weekends are never included in the span.
         const newEnd = mode === "move"
-          ? addBD(newStart, diffBD(os, oe))
+          ? countWorkingDays(newStart, wdDuration)
           : (snapDelta > 0 ? addD(rawNewEnd, snapDelta) : rawNewEnd);
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
         const actualDelta = diffD(os, newStart);
