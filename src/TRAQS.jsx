@@ -3297,7 +3297,7 @@ ${jobsCtx || "No jobs found."}`;
         }
         setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap });
         // For moves, use the working-day end so the bar never shrinks as it crosses a weekend
-        if (mode === "move") updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration) }, pidArg);
+        if (mode === "move") { updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration) }, pidArg); console.log("updTask called with start:", rawS, "end:", countWorkingDays(snapS, wdDuration)); }
         else if (mode === "left") { if (rawS <= oe) updTask(item.id, { start: rawS }, pidArg); }
         else { if (rawE >= os) updTask(item.id, { end: rawE }, pidArg); }
       };
@@ -3314,11 +3314,19 @@ ${jobsCtx || "No jobs found."}`;
         const rawNewEnd = mode !== "left" ? addD(oe, finalDx) : oe;
         const newStart = nextBD(rawNewStart);
         const snapDelta = diffD(rawNewStart, newStart);
+        console.log("=== DRAG DEBUG ===");
+        console.log("mode:", mode);
+        console.log("newStart:", newStart);
+        console.log("rawNewEnd:", rawNewEnd);
+        console.log("wdDuration:", wdDuration);
+        console.log("snapDelta:", snapDelta);
         // For moves: count forward exactly wdDuration working days from the snapped start.
         // countWorkingDays steps Mon–Fri only, so weekends are never included in the span.
         const newEnd = mode === "move"
           ? countWorkingDays(newStart, wdDuration)
           : (snapDelta > 0 ? addWorkingDays(rawNewEnd, snapDelta) : rawNewEnd);
+        console.log("newEnd result:", newEnd);
+        console.log("newEnd day of week:", new Date(newEnd + "T12:00:00").getDay(), "(0=Sun, 6=Sat)");
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
         const actualDelta = diffD(os, newStart);
 
