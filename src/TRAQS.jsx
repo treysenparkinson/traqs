@@ -3297,7 +3297,7 @@ ${jobsCtx || "No jobs found."}`;
         }
         setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap });
         // For moves, use the working-day end so the bar never shrinks as it crosses a weekend
-        if (mode === "move") { updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration) }, pidArg); console.log("updTask called with start:", rawS, "end:", countWorkingDays(snapS, wdDuration)); }
+        if (mode === "move") updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration) }, pidArg);
         else if (mode === "left") { if (rawS <= oe) updTask(item.id, { start: rawS }, pidArg); }
         else { if (rawE >= os) updTask(item.id, { end: rawE }, pidArg); }
       };
@@ -3305,7 +3305,6 @@ ${jobsCtx || "No jobs found."}`;
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
         setGanttDragInfo(null);
-        console.log("=== onU fired, moved:", moved, "item:", item.title);
         if (!moved) {
           if ((item.subs || []).length > 0) setExp(p => ({ ...p, [item.id]: !p[item.id] }));
           else openDetail(item);
@@ -3315,19 +3314,11 @@ ${jobsCtx || "No jobs found."}`;
         const rawNewEnd = mode !== "left" ? addD(oe, finalDx) : oe;
         const newStart = nextBD(rawNewStart);
         const snapDelta = diffD(rawNewStart, newStart);
-        console.log("=== DRAG DEBUG ===");
-        console.log("mode:", mode);
-        console.log("newStart:", newStart);
-        console.log("rawNewEnd:", rawNewEnd);
-        console.log("wdDuration:", wdDuration);
-        console.log("snapDelta:", snapDelta);
         // For moves: count forward exactly wdDuration working days from the snapped start.
         // countWorkingDays steps Mon–Fri only, so weekends are never included in the span.
         const newEnd = mode === "move"
           ? countWorkingDays(newStart, wdDuration)
           : (snapDelta > 0 ? addWorkingDays(rawNewEnd, snapDelta) : rawNewEnd);
-        console.log("newEnd result:", newEnd);
-        console.log("newEnd day of week:", new Date(newEnd + "T12:00:00").getDay(), "(0=Sun, 6=Sat)");
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
         const actualDelta = diffD(os, newStart);
 
@@ -6001,6 +5992,7 @@ ${jobsCtx || "No jobs found."}`;
                     e.stopPropagation();
                     const sx = e.clientX, sy = e.clientY;
                     const os = bar.task.start, oe = bar.task.end;
+                    const wdDuration = getWorkingDayDuration(os, oe);
                     const taskPid = bar.task.pid || null;
                     const origPerson = p.id;
                     let moved = false, lastDropPid = null;
@@ -6026,8 +6018,8 @@ ${jobsCtx || "No jobs found."}`;
                       }
                       // Use live-measured column width so overlap preview matches actual render
                       const dx = Math.round(pxDx / liveCW);
-                      const snapS = addD(os, dx);
-                      const snapE = addD(oe, dx);
+                      const snapS = nextBD(addD(os, dx));
+                      const snapE = countWorkingDays(snapS, wdDuration);
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
                       const newHpd = (bar.task?.hpd || 7.5) / Math.max(1, (bar.task?.team || []).length);
@@ -6057,8 +6049,8 @@ ${jobsCtx || "No jobs found."}`;
                       setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (bar.task) openDetail(bar.task); return; }
                       const finalDx = Math.round((me.clientX - sx) / liveCW);
-                      const newStart = addD(os, finalDx);
-                      const newEnd = addD(oe, finalDx);
+                      const newStart = nextBD(addD(os, finalDx));
+                      const newEnd = countWorkingDays(newStart, wdDuration);
                       const dropPerson = lastDropPid || origPerson;
                       const dropConflicts = checkOverlapsPure(tasks, [{ personId: dropPerson, start: newStart, end: newEnd, excludeOpId: bar.task.id, hpd: bar.task?.hpd, teamLength: (bar.task?.team || []).length, opTitle: bar.task?.title, panelTitle: bar.task?.panelTitle }]);
                       if (showOverlapIfAny(dropConflicts)) return;
