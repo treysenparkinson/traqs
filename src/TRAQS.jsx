@@ -1950,7 +1950,7 @@ Rules:
                 if (d >= op.start && d <= op.end) {
                   const opTotalH = op.hpd || orgSettings.hpd;
                   const existingSpanBD = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opTotalH / cap));
-                  existingH += (opTotalH / existingSpanBD) / Math.max(1, op.team.length);
+                  existingH += (opTotalH / existingSpanBD) / Math.max(1, (op.team || []).length);
                 }
               }
             }
@@ -5342,7 +5342,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ height: "100%", borderRadius: 4, background: t.color, width: `${pct}%`, transition: "width 0.3s" }} />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{t.team.slice(0, 4).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{t.team.length > 4 && <Badge t={`+${t.team.length - 4}`} c={T.textDim} />}</div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{(t.team || []).slice(0, 4).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{(t.team || []).length > 4 && <Badge t={`+${(t.team || []).length - 4}`} c={T.textDim} />}</div>
                   {can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn>}
                 </div>
               </div>;
@@ -6034,7 +6034,7 @@ ${jobsCtx || "No jobs found."}`;
                               if (op.id === movingTaskId || op.status === "Finished") continue;
                               if (!(op.team || []).includes(targetPid)) continue;
                               if (chk >= op.start && chk <= op.end)
-                                dayH += (op.hpd || 7.5) / Math.max(1, op.team.length);
+                                dayH += (op.hpd || 7.5) / Math.max(1, (op.team || []).length);
                             }
                           }
                         }
@@ -10946,7 +10946,7 @@ ${jobsCtx || "No jobs found."}`;
               const sel = p.id === currentPerson;
               let busy = false;
               if (!sel) {
-                for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id !== it.id && op.team.includes(p.id) && op.status !== "Finished" && op.start <= it.end && op.end >= it.start) { busy = true; } } } }
+                for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id !== it.id && (op.team||[]).includes(p.id) && op.status !== "Finished" && op.start <= it.end && op.end >= it.start) { busy = true; } } } }
                 if (!busy) { const pp = people.find(x => x.id === p.id); if (pp) for (const to of (pp.timeOff||[])) { if (to.start <= it.end && to.end >= it.start) { busy = true; break; } } }
               }
               return <button key={p.id} onClick={() => { if (busy) return; setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs||[]).map(panel => ({ ...panel, subs: (panel.subs||[]).map(op => op.id === it.id ? { ...op, team: sel ? [] : [p.id] } : op) })) }))); setReassignModal(null); }} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, border: `1.5px solid ${sel ? p.color : busy ? T.border : T.border}`, background: sel ? p.color + "18" : busy ? T.surface : T.surface, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.45 : 1, transition: "all 0.12s", textAlign: "left" }} onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = p.color; }} onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = sel ? p.color : T.border; }}>
@@ -11827,7 +11827,7 @@ ${jobsCtx || "No jobs found."}`;
 function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTask }) {
   const [aS, setAS] = useState(toDS(new Date())); const [aE, setAE] = useState(addD(toDS(new Date()), 5)); const [aH, setAH] = useState(4);
   const [selectedPerson, setSelectedPerson] = useState(null);
-  const results = useMemo(() => people.filter(p => p.userRole !== "admin").map(p => { let tf = 0; const days = []; let c = aS; while (c <= aE) { const b = bookedHrs(p.id, c); const f = Math.max(0, p.cap - b); tf += f; days.push({ d: c, b, f }); c = addD(c, 1); } const avg = days.length ? tf / days.length : 0; const cur = allItems.filter(i => i.team.includes(p.id) && i.end >= aS && i.start <= aE && i.status !== "Finished"); return { p, tf, avg, days, cur, ok: avg >= aH }; }).sort((a, b) => b.tf - a.tf), [aS, aE, aH, people, bookedHrs, allItems]);
+  const results = useMemo(() => people.filter(p => p.userRole !== "admin").map(p => { let tf = 0; const days = []; let c = aS; while (c <= aE) { const b = bookedHrs(p.id, c); const f = Math.max(0, p.cap - b); tf += f; days.push({ d: c, b, f }); c = addD(c, 1); } const avg = days.length ? tf / days.length : 0; const cur = allItems.filter(i => (i.team || []).includes(p.id) && i.end >= aS && i.start <= aE && i.status !== "Finished"); return { p, tf, avg, days, cur, ok: avg >= aH }; }).sort((a, b) => b.tf - a.tf), [aS, aE, aH, people, bookedHrs, allItems]);
   const available = results.filter(r => r.ok);
   const busy = results.filter(r => !r.ok);
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
