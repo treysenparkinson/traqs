@@ -2012,7 +2012,7 @@ Rules:
     if (overlapping.length === 0) return { pushes: [], blocked: false, lockedOps: [] };
     const locked = overlapping.filter(a => a.op.locked);
     if (locked.length > 0) return { pushes: [], blocked: true, lockedOps: locked.map(l => ({ opTitle: l.op.title, panelTitle: l.panel.title })) };
-    overlapping.sort((a, b) => a.op.start.localeCompare(b.op.start));
+    overlapping.sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
     let pushDate = newEnd;
     const toPush = [...overlapping];
     const pushes = [];
@@ -2085,7 +2085,7 @@ Rules:
     Object.entries(byPerson).forEach(([pidStr, ops]) => {
       const pid = parseInt(pidStr, 10) || pidStr;
       const person = people.find(x => x.id === pid);
-      const otherBusy = (busyByPerson[pid] || []).slice().sort((a, b) => a.start.localeCompare(b.start));
+      const otherBusy = (busyByPerson[pid] || []).slice().sort((a, b) => (a.start || "").localeCompare(b.start || ""));
       ops.sort((a, b) => a.pi - b.pi || a.oi - b.oi);
       let cursor = nextBD(job.start || TD);
 
@@ -2170,7 +2170,7 @@ Rules:
           });
         });
       });
-      personOps.sort((a, b) => a.op.start.localeCompare(b.op.start));
+      personOps.sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
       // For each op, try to pull it back to earliest available slot after its predecessor
       for (let i = 0; i < personOps.length; i++) {
         const { op, panel, job } = personOps[i];
@@ -2272,8 +2272,8 @@ Rules:
       // Sort: highest priority first, then soonest due date, then earliest current start
       personOps.sort((a, b) => {
         if (a.jobPri !== b.jobPri) return a.jobPri - b.jobPri;
-        if (a.jobDue !== b.jobDue) return a.jobDue.localeCompare(b.jobDue);
-        return a.op.start.localeCompare(b.op.start);
+        if (a.jobDue !== b.jobDue) return (a.jobDue || "").localeCompare(b.jobDue || "");
+        return (a.op.start || "").localeCompare(b.op.start || "");
       });
 
       let cursor = nextBD(TD);
@@ -3242,8 +3242,8 @@ ${jobsCtx || "No jobs found."}`;
     });
     const gSortedFiltered = [...filtered].filter(t => t.status !== "Finished").sort((a, b) => {
       if (gSort === "project") return String(a.jobNumber || a.title || "").localeCompare(String(b.jobNumber || b.title || ""), undefined, { numeric: true });
-      if (gSort === "client") { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || a.start.localeCompare(b.start); }
-      return a.start.localeCompare(b.start);
+      if (gSort === "client") { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || (a.start || "").localeCompare(b.start || ""); }
+      return (a.start || "").localeCompare(b.start || "");
     });
     const rows = []; gSortedFiltered.forEach(t => { rows.push({ ...t, isSub: false, pid: null, level: 0 }); if (exp[t.id]) (t.subs || []).forEach(s => { rows.push({ ...s, isSub: true, pid: t.id, level: 1 }); if (exp[s.id]) (s.subs || []).forEach(op => rows.push({ ...op, isSub: true, pid: s.id, grandPid: t.id, level: 2, panelTitle: s.title })); }); });
     const dToX = d => diffD(gStart, d) * cW;
@@ -3999,7 +3999,7 @@ ${jobsCtx || "No jobs found."}`;
       const STATUS_ORDER = ["Not Started", "Pending", "In Progress", "On Hold", "Finished"];
       const PRI_ORDER = ["Low", "Medium", "High"];
       return [...arr].sort((a, b) => {
-        if (id === "name")     { return mul * a.title.toLowerCase().localeCompare(b.title.toLowerCase()); }
+        if (id === "name")     { return mul * (a.title || "").toLowerCase().localeCompare((b.title || "").toLowerCase()); }
         if (id === "jobNum")   { return mul * (a.jobNumber || "").localeCompare(b.jobNumber || "", undefined, { numeric: true }); }
         if (id === "client")   { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return mul * ca.localeCompare(cb); }
         if (id === "status")   { return mul * (STATUS_ORDER.indexOf(a.status || "Not Started") - STATUS_ORDER.indexOf(b.status || "Not Started")); }
@@ -4014,8 +4014,8 @@ ${jobsCtx || "No jobs found."}`;
       });
     }
     if (jobSort === "project") return [...arr].sort((a, b) => String(a.jobNumber || a.title).localeCompare(String(b.jobNumber || b.title), undefined, { numeric: true }));
-    if (jobSort === "client") { return [...arr].sort((a, b) => { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || a.start.localeCompare(b.start); }); }
-    return [...arr].sort((a, b) => a.start.localeCompare(b.start));
+    if (jobSort === "client") { return [...arr].sort((a, b) => { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || (a.start || "").localeCompare(b.start || ""); }); }
+    return [...arr].sort((a, b) => (a.start || "").localeCompare(b.start || ""));
   };
   const finishedTasks = sortTasks(tasks.filter(t => t.status === "Finished" && jobSearchMatch(t)));
   const activeTasks = sortTasks(filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t)));
@@ -5525,8 +5525,8 @@ ${jobsCtx || "No jobs found."}`;
       bars.sort((a, b) => {
         if (a.type !== "task" || b.type !== "task") return 0;
         if (gSort === "project") return String(a.jobNumber || "").localeCompare(String(b.jobNumber || ""), undefined, { numeric: true });
-        if (gSort === "client") return (a.clientName || "").localeCompare(b.clientName || "") || a.start.localeCompare(b.start);
-        return a.start.localeCompare(b.start);
+        if (gSort === "client") return (a.clientName || "").localeCompare(b.clientName || "") || (a.start || "").localeCompare(b.start || "");
+        return (a.start || "").localeCompare(b.start || "");
       });
       return bars;
     };
