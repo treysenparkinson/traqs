@@ -3305,6 +3305,7 @@ ${jobsCtx || "No jobs found."}`;
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
         setGanttDragInfo(null);
+        console.log("=== onU fired, moved:", moved, "item:", item.title);
         if (!moved) {
           if ((item.subs || []).length > 0) setExp(p => ({ ...p, [item.id]: !p[item.id] }));
           else openDetail(item);
