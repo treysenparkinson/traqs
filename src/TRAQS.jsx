@@ -4067,11 +4067,6 @@ ${jobsCtx || "No jobs found."}`;
                     {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 7, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
                   </div>
                 </div>
-                {/* Select */}
-                <div style={{ animation: "toolDrop 0.16s 55ms both ease-out", display: "flex", gap: 4 }}>
-                  <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-                  {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
-                </div>
                 {/* Filter */}
                 <div style={{ animation: "toolDrop 0.16s 110ms both ease-out", position: "relative" }}>
                   <button onClick={() => setTaskFilterOpen(p => !p)} style={{ width: "100%", height: 30, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 12, fontFamily: T.font }}>
@@ -4113,6 +4108,11 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>}
             </div>
+            {/* Divider */}
+            <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
+            {/* Select */}
+            <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+            {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
           </>}
         </div>
         {/* Center: view toggle — always truly centered via CSS Grid 1fr auto 1fr */}
