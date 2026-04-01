@@ -1898,18 +1898,6 @@ Rules:
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if ((op.team || []).includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, (op.team || []).length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if ((t.team || []).includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, (t.team || []).length); (t.subs || []).forEach(s => { if ((s.team || []).includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, (s.team || []).length); }); } }); return h; }, [tasks, isOff]);
 
-  // Job-tag claim rule: tagged people exclusively own matching contexts; untagged fill unclaimed slots
-  const canAssignPerson = (person, opTitle, jobTitle, jobNum, clientName) => {
-    const context = `${opTitle || ""} ${jobTitle || ""} ${jobNum || ""} ${clientName || ""}`.toLowerCase();
-    const personTags = person.jobTags || [];
-    if (personTags.length === 0) {
-      return !people.some(p => (p.jobTags || []).length > 0 &&
-        (p.jobTags || []).some(t => context.includes(t.toLowerCase())));
-    } else {
-      return personTags.some(t => context.includes(t.toLowerCase()));
-    }
-  };
-
   // Unique roles and hpd values for filter panel
   const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.department).filter(Boolean))].sort(), [people]);
   const uniqueHpd = useMemo(() => {
@@ -10524,52 +10512,6 @@ ${jobsCtx || "No jobs found."}`;
                       );
                     })()}
 
-                    {/* Job Restrictions */}
-                    <div style={{ padding: "10px 10px 12px", borderRadius: T.radiusXs, border: `1px solid ${(person.jobTags || []).length ? "#8b5cf644" : T.border}`, background: (person.jobTags || []).length ? "#8b5cf608" : T.surface }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                        <span style={{ lineHeight: 0, color: (person.jobTags || []).length ? "#8b5cf6" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Task Claims</div>
-                          <div style={{ fontSize: 11, color: T.textDim }}>Tags this person exclusively owns (e.g. "Wire", "Riverside")</div>
-                        </div>
-                      </div>
-                      {(person.jobTags || []).length > 0 && (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
-                          {(person.jobTags || []).map((tag, ti) => (
-                            <span key={ti} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 6, background: "#8b5cf615", border: "1px solid #8b5cf633", fontSize: 12, color: "#8b5cf6", fontWeight: 600 }}>
-                              {tag}
-                              {isAdmin && <button onClick={() => updPerson(person.id, { jobTags: (person.jobTags || []).filter((_, j) => j !== ti) })} style={{ background: "none", border: "none", color: "#8b5cf6", cursor: "pointer", padding: 0, lineHeight: 1, fontSize: 15 }}>×</button>}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {isAdmin && <div style={{ display: "flex", gap: 6 }}>
-                        <input
-                          value={tagInputs[person.id] || ""}
-                          onChange={e => setTagInputs(p => ({ ...p, [person.id]: e.target.value }))}
-                          onKeyDown={e => {
-                            if (e.key === "Enter") {
-                              const tag = (tagInputs[person.id] || "").trim();
-                              if (tag && !(person.jobTags || []).includes(tag)) {
-                                updPerson(person.id, { jobTags: [...(person.jobTags || []), tag] });
-                                setTagInputs(p => ({ ...p, [person.id]: "" }));
-                              }
-                            }
-                          }}
-                          placeholder='e.g. Wire, Riverside'
-                          style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box" }}
-                        />
-                        <button onClick={() => {
-                          const tag = (tagInputs[person.id] || "").trim();
-                          if (tag && !(person.jobTags || []).includes(tag)) {
-                            updPerson(person.id, { jobTags: [...(person.jobTags || []), tag] });
-                            setTagInputs(p => ({ ...p, [person.id]: "" }));
-                          }
-                        }} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: "1px solid #8b5cf644", background: "#8b5cf610", color: "#8b5cf6", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-                          + Add
-                        </button>
-                      </div>}
-                    </div>
                   </div>}
                 </div>;
               })}
