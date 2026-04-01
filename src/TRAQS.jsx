@@ -4086,30 +4086,27 @@ ${jobsCtx || "No jobs found."}`;
                     {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
                   </div>}
                 </div>
-                {/* Conditions */}
+                {/* Dependencies */}
                 <div style={{ animation: "toolDrop 0.16s 165ms both ease-out" }}>
-                  <button onClick={() => { setConditionsOpen(true); setToolbarExpanded(false); }} title="TRAQS Conditions" style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${(orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"88" : T.border}`, background: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "all 0.15s" }}>
+                  <button onClick={() => { setConditionsOpen(true); setToolbarExpanded(false); }} title="Dependencies" style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${(orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"88" : T.border}`, background: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "all 0.15s" }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-                    Conditions
+                    Dependencies
                   </button>
                 </div>
-                {/* Gantt split toggle */}
-                {!isMobile && <div style={{ animation: "toolDrop 0.16s 220ms both ease-out" }}>
-                  <button onClick={handleToggleGanttSplit} title="Toggle Gantt split view" style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${showGanttSplit ? T.accent+"88" : T.border}`, background: showGanttSplit ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: showGanttSplit ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }}>
-                    <div style={{ width: 13, height: 13, borderRadius: 3, border: `2px solid ${showGanttSplit ? T.accent : T.textDim}`, background: showGanttSplit ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
-                      {showGanttSplit && <svg width="7" height="7" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    </div>
-                    Gantt
-                  </button>
-                </div>}
                 {/* Alignment */}
-                <div style={{ animation: `toolDrop 0.16s ${isMobile ? "220" : "275"}ms both ease-out` }}>
-                  <button onClick={() => setCellAlign(a => a === "left" ? "center" : a === "center" ? "right" : "left")} title={`Text alignment: ${cellAlign}`} style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, color: T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "color 0.15s, border-color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent+"88"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
-                    {cellAlign === "left"   && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>}
-                    {cellAlign === "center" && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>}
-                    {cellAlign === "right"  && <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>}
-                    Align {cellAlign}
-                  </button>
+                <div style={{ animation: `toolDrop 0.16s ${isMobile ? "220" : "220"}ms both ease-out` }}>
+                  <div style={{ display: "flex", gap: 3 }}>
+                    {[
+                      { val: "left",   svg: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg> },
+                      { val: "center", svg: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg> },
+                      { val: "right",  svg: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg> },
+                    ].map(({ val, svg }) => (
+                      <button key={val} onClick={() => setCellAlign(val)} title={`Align ${val}`}
+                        style={{ flex: 1, height: 28, padding: "0 8px", borderRadius: T.radiusXs, border: `1px solid ${cellAlign === val ? T.accent+"88" : T.border}`, background: cellAlign === val ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: cellAlign === val ? T.accent : T.textDim, transition: "all 0.15s" }}>
+                        {svg}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>}
             </div>
