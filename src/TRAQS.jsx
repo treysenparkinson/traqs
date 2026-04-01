@@ -4053,6 +4053,11 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {taskSubView === "list" && <>
             <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}`}</style>
+            {/* Select */}
+            <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+            {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
+            {/* Divider */}
+            <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
             <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
               <button onClick={() => setToolbarExpanded(p => !p)} style={{ height: 28, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${toolbarExpanded ? T.accent+"88" : T.border}`, background: toolbarExpanded ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: toolbarExpanded ? T.accent : T.textDim, flexShrink: 0, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "all 0.15s" }}>
                 Tools
@@ -4108,11 +4113,6 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>}
             </div>
-            {/* Divider */}
-            <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
-            {/* Select */}
-            <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-            {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
           </>}
         </div>
         {/* Center: view toggle — always truly centered via CSS Grid 1fr auto 1fr */}
