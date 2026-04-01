@@ -676,7 +676,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     let el = document.querySelector("style[data-traqs-glow]");
     if (!el) { el = document.createElement("style"); el.setAttribute("data-traqs-glow","1"); document.head.appendChild(el); }
     const a = T.accent;
-    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } }`;
+    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} }`;
   }, [T.accent]);
   // Inject date-picker CSS for dynamic custom theme color-scheme
   useEffect(() => {
@@ -803,7 +803,7 @@ Rules:
           const partial = people.find(p => p.name.toLowerCase().startsWith(lo) || lo.startsWith(p.name.toLowerCase()));
           if (partial) return partial.id;
           if (pendingPeopleAI[lo]) return pendingPeopleAI[lo].id;
-          pendingPeopleAI[lo] = { id: uid(), name, department: "Shop", cap: 8, color: COLORS[Object.keys(pendingPeopleAI).length % COLORS.length], timeOff: [], userRole: "user" };
+          pendingPeopleAI[lo] = { id: uid(), name, department: "Shop", cap: 8, timeOff: [], userRole: "user" };
           return pendingPeopleAI[lo].id;
         }
         function resolveClientAI(name) {
@@ -979,7 +979,7 @@ Rules:
         // Also check if already pending under a slightly different casing
         const pendingPartial = Object.values(pendingPeople).find(p => p.name.toLowerCase().startsWith(lo + " ") || p.name.toLowerCase() === lo);
         if (pendingPartial) return pendingPartial.id;
-        pendingPeople[lo] = { id: uid(), name, department: "Shop", cap: 8, color: COLORS[Object.keys(pendingPeople).length % COLORS.length], timeOff: [], userRole: "user" };
+        pendingPeople[lo] = { id: uid(), name, department: "Shop", cap: 8, timeOff: [], userRole: "user" };
         return pendingPeople[lo].id;
       }
       function resolveClient(name) {
@@ -1129,7 +1129,7 @@ Rules:
               } else if (!jobByNum[jNum]) {
                 curJob = { id: uid(), title: jTitle, jobNumber: jNum, start: startRaw, end: endRaw,
                   dueDate: dueRaw, pri: "Medium", status: "Not Started",
-                  team: personId ? [personId] : [], color: "#3b82f6", hpd: hpdRaw,
+                  team: personId ? [personId] : [], hpd: hpdRaw,
                   notes, clientId: clientId || null, poNumber: poNum, deps: [], subs: [] };
                 importedJobs.push(curJob);
                 jobByNum[jNum] = curJob;
@@ -1151,7 +1151,7 @@ Rules:
                 } else {
                   curJob = { id: uid(), title: pJobNum, jobNumber: pJobNum,
                     start: startRaw, end: endRaw, dueDate: dueRaw,
-                    pri: "Medium", status: "Not Started", team: [], color: "#3b82f6",
+                    pri: "Medium", status: "Not Started", team: [],
                     hpd: hpdRaw, notes: "", clientId: null, poNumber: "", deps: [], subs: [] };
                   importedJobs.push(curJob);
                   jobByNum[pJobNum] = curJob;
@@ -1161,7 +1161,8 @@ Rules:
 
               curPanel = { id: uid(), title: rawPanelId, start: startRaw, end: endRaw,
                 pri: "Medium", status: "Not Started",
-                team: personId ? [personId] : [], hpd: hpdRaw, notes, deps: [], subs: [] };
+                team: personId ? [personId] : [], hpd: hpdRaw, notes, deps: [], subs: [],
+                color: COLORS[(curJob.subs?.length || 0) % COLORS.length] };
               if (!curJob._existing) curJob.subs.push(curPanel);
 
             } else if (rowType === "op") {
@@ -1180,7 +1181,8 @@ Rules:
                   } else {
                     curPanel = { id: uid(), title: rawPanelId, start: startRaw, end: endRaw,
                       pri: "Medium", status: "Not Started", team: [], hpd: hpdRaw,
-                      notes: "", deps: [], subs: [] };
+                      notes: "", deps: [], subs: [],
+                      color: COLORS[(curJob.subs?.length || 0) % COLORS.length] };
                     if (!curJob._existing) curJob.subs.push(curPanel);
                   }
                 }
@@ -1420,6 +1422,10 @@ Rules:
   const [pmSectionsCollapsed, setPmSectionsCollapsed] = useState({});
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
   const [soDropPanelId, setSoDropPanelId] = useState(null); // panel id with sign-off dropdown open in new job modal
+  const [deptDropId, setDeptDropId] = useState(null); // id of panel or sub-op with dept dropdown open
+  const [colorDropId, setColorDropId] = useState(null); // id of panel with color picker open
+  const [dropFlashKey, setDropFlashKey] = useState(null); // key of option currently playing selection flash animation
+  const [hoveredBarPid, setHoveredBarPid] = useState(null); // pid of hovered bar (for sibling highlight on schedule tab)
   const [roleEditId, setRoleEditId] = useState(null); // index being edited
   const [roleEditVal, setRoleEditVal] = useState("");
   const [orgSettingsOpen, setOrgSettingsOpen] = useState(false);
@@ -1551,6 +1557,11 @@ Rules:
   const [clientSelectMode, setClientSelectMode] = useState(false);
   const [jobSelectMode, setJobSelectMode] = useState(false);
   const [teamSelectMode, setTeamSelectMode] = useState(false);
+  const [barSelectMode, setBarSelectMode] = useState(false);
+  const [selBars, setSelBars] = useState(new Set()); // Set of bar IDs selected on schedule tab
+  const [barMoveModalOpen, setBarMoveModalOpen] = useState(false);
+  const [barMoveDays, setBarMoveDays] = useState(""); // days to shift selected bars
+  const [barDeleteConfirmOpen, setBarDeleteConfirmOpen] = useState(false);
   const [reminderNote, setReminderNote] = useState("");
   const [reminderSending, setReminderSending] = useState(false);
   const [linkingFrom, setLinkingFrom] = useState(null);
@@ -1854,11 +1865,11 @@ Rules:
     setShowGanttSplit(v => !v);
   };
 
-  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
+  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
 
-  const allItems = useMemo(() => { let r = []; const tc = t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.color : T.accent; }; tasks.forEach(t => { const c = tc(t); r.push({ ...t, color: c, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { r.push({ ...s, color: tc(s) || c, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: tc(op) || tc(s) || c, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks, people]);
-  const taskColor = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.color : T.accent; }, [people]);
+  const allItems = useMemo(() => { let r = []; tasks.forEach(t => { r.push({ ...t, color: "#94a3b8", isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { const pc = s.color || "#94a3b8"; r.push({ ...s, color: pc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: pc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
+  const taskColor = useCallback(t => t.color || T.accent, []);
   const taskOwner = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.name.split(" ")[0] : null; }, [people]);
   const filtered = useMemo(() => tasks.filter(t => {
     // Non-admins only see jobs where they are the project manager
@@ -1945,7 +1956,7 @@ Rules:
           }
           if (existingH + newHpd > cap) {
             conflicts.push({
-              person: person.name, personColor: person.color,
+              person: person.name, personColor: T.accent,
               opTitle: `Over capacity (${Math.round((existingH + newHpd) * 10) / 10}h / ${cap}h)`,
               panelTitle: check.panelTitle || "", jobTitle: check.opTitle || "",
               start: d, end: d
@@ -1957,7 +1968,7 @@ Rules:
       }
       for (const to of (person.timeOff || [])) {
         if (to.start <= check.end && to.end >= check.start) {
-          conflicts.push({ person: person.name, personColor: person.color, opTitle: "Time Off", panelTitle: to.reason || to.type || "PTO", jobTitle: "", start: to.start, end: to.end, isPto: true });
+          conflicts.push({ person: person.name, personColor: T.accent, opTitle: "Time Off", panelTitle: to.reason || to.type || "PTO", jobTitle: "", start: to.start, end: to.end, isPto: true });
         }
       }
     }
@@ -2017,6 +2028,53 @@ Rules:
       nextOverlaps.forEach(n => { if (!toPush.find(x => x.op.id === n.op.id) && !pushes.find(x => x.opId === n.op.id)) toPush.push(n); });
     }
     return { pushes, blocked: false, lockedOps: [] };
+  };
+
+  // Apply all bars in a group move simultaneously — handles level 1 (panels) and level 2 (ops) in one pass.
+  // moves: [{ id, newStart, newEnd, logEntry }]
+  const buildGroupMove = (taskList, moves) => {
+    const moveMap = new Map(moves.map(m => [m.id, m]));
+    return taskList.map(job => {
+      let jobChanged = false;
+      const newSubs = (job.subs || []).map(panel => {
+        let panelChanged = false; let p = panel;
+        if (moveMap.has(panel.id)) {
+          const mv = moveMap.get(panel.id);
+          p = { ...panel, start: mv.newStart, end: mv.newEnd, moveLog: [...(panel.moveLog || []), mv.logEntry] };
+          panelChanged = true;
+        }
+        const newOps = (p.subs || []).map(op => {
+          if (moveMap.has(op.id)) {
+            panelChanged = true;
+            const mv = moveMap.get(op.id);
+            return { ...op, start: mv.newStart, end: mv.newEnd, moveLog: [...(op.moveLog || []), mv.logEntry] };
+          }
+          return op;
+        });
+        if (panelChanged) { jobChanged = true; return { ...p, subs: newOps }; }
+        return panel;
+      });
+      return jobChanged ? { ...job, subs: newSubs } : job;
+    });
+  };
+
+  // Returns a Set of task IDs that are in the same dependency chain as taskId,
+  // scoped to siblings under the same parent. Returns Set([taskId]) if independent.
+  const getDepGroup = (taskId, taskList) => {
+    let siblings = null;
+    for (const job of taskList) {
+      if ((job.subs || []).find(s => s.id === taskId)) { siblings = job.subs || []; break; }
+      for (const panel of (job.subs || [])) {
+        if ((panel.subs || []).find(op => op.id === taskId)) { siblings = panel.subs || []; break; }
+      }
+      if (siblings) break;
+    }
+    if (!siblings || siblings.length < 2) return new Set([taskId]);
+    const adj = new Map(siblings.map(s => [s.id, new Set()]));
+    siblings.forEach(s => (s.deps || []).forEach(d => { if (adj.has(d)) { adj.get(s.id).add(d); adj.get(d).add(s.id); } }));
+    const group = new Set(); const queue = [taskId];
+    while (queue.length) { const cur = queue.shift(); if (group.has(cur)) continue; group.add(cur); adj.get(cur)?.forEach(n => { if (!group.has(n)) queue.push(n); }); }
+    return group.size > 1 ? group : new Set([taskId]);
   };
 
   // Apply pushes + move log entries to task list
@@ -2279,7 +2337,7 @@ Rules:
         if (slotStart !== op.start || slotEnd !== op.end) {
           const d1 = new Date(op.start + "T12:00:00"), d2 = new Date(slotStart + "T12:00:00");
           const calDays = Math.round((d2 - d1) / 86400000);
-          changes.push({ opId: op.id, opTitle: op.title, jobTitle, panelTitle, oldStart: op.start, oldEnd: op.end, newStart: slotStart, newEnd: slotEnd, personId: pid, personName: person.name, personColor: person.color, calDays });
+          changes.push({ opId: op.id, opTitle: op.title, jobTitle, panelTitle, oldStart: op.start, oldEnd: op.end, newStart: slotStart, newEnd: slotEnd, personId: pid, personName: person.name, personColor: T.accent, calDays });
           newTasks = newTasks.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(o => {
             if (o.id !== op.id) return o;
             const log = { fromStart: op.start, fromEnd: op.end, toStart: slotStart, toEnd: slotEnd, date: TD, movedBy: movedByName, reason: "Auto-optimized" };
@@ -2360,7 +2418,7 @@ Rules:
   const delTimeOff = (pid, idx) => setPeople(pp => pp.map(p => p.id === pid ? { ...p, timeOff: (p.timeOff || []).filter((_, i) => i !== idx) } : p));
   const [ptoCtx, setPtoCtx] = useState(null); // { x, y, bar, personId, toIdx }
   const [timeOffEdit, setTimeOffEdit] = useState(null); // { personId, idx, start, end, reason }
-  const addPerson = (data) => { setPeople(p => [...p, { ...data, id: uid(), color: data.color || COLORS[p.length % COLORS.length] }]); setPersonModal(null); };
+  const addPerson = (data) => { const { color: _dropColor, ...rest } = data; setPeople(p => [...p, { ...rest, id: uid() }]); setPersonModal(null); };
   const delPerson = (id) => { setPeople(p => p.filter(x => x.id !== id)); setTasks(p => p.map(t => ({ ...t, team: (t.team || []).filter(x => x !== id), subs: (t.subs || []).map(s => ({ ...s, team: (s.team || []).filter(x => x !== id), subs: (s.subs || []).map(op => ({ ...op, team: (op.team || []).filter(x => x !== id) })) })) }))); };
   const savePerson = (ed) => {
     if (!ed.name.trim()) return;
@@ -2483,7 +2541,7 @@ Rules:
     setClientModal(null);
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
-  const openNew = (pid = null) => setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid });
+  const openNew = (pid = null) => setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid });
   const openEdit = (t, pid = null) => setModal({ type: "edit", data: { ...t }, parentId: pid });
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
@@ -2592,7 +2650,7 @@ ${jobsCtx || "No jobs found."}`;
           break;
         }
         case "create_job":
-          setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", pri: input.priority || "Medium", team: input.team_ids || [], subs: [], deps: [], hpd: 7.5, notes: input.notes || "", color: T.accent, ...(input.job_number ? { jobNumber: input.job_number } : {}) }]);
+          setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", pri: input.priority || "Medium", team: input.team_ids || [], subs: [], deps: [], hpd: 7.5, notes: input.notes || "", ...(input.job_number ? { jobNumber: input.job_number } : {}) }]);
           break;
         case "delete_job":
           delTask(input.job_id);
@@ -2617,7 +2675,7 @@ ${jobsCtx || "No jobs found."}`;
         case "reschedule_task":    updTask(input.task_id, { ...(input.start && { start: input.start }), ...(input.end && { end: input.end }) }); break;
         case "assign_person":      setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: [...new Set([...(t.team || []), input.person_id])] } : t)); break;
         case "remove_person":      setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: (t.team || []).filter(id => id !== input.person_id) } : t)); break;
-        case "create_task":        setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", team: input.team_ids || [], pri: input.priority || "Medium", subs: [], deps: [], hpd: 7.5, notes: "", color: T.accent, customOps: [] }]); break;
+        case "create_task":        setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", team: input.team_ids || [], pri: input.priority || "Medium", subs: [], deps: [], hpd: 7.5, notes: "", customOps: [] }]); break;
       }
     }
     // Trigger an immediate save so changes persist to S3 right away
@@ -2740,14 +2798,14 @@ ${jobsCtx || "No jobs found."}`;
     });
     let jobToPaste;
     if (level === 0) {
-      jobToPaste = { ...freshen(item), title: item.title + " (Copy)" };
+      { const { color: _dc, ...jobBase } = freshen(item); jobToPaste = { ...jobBase, title: item.title + " (Copy)" }; }
     } else if (level === 1) {
       const panel = freshen(item);
-      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], color: "#3b82f6", hpd: item.hpd || 8, notes: "", subs: [panel], deps: [], clientId: null };
+      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd || 8, notes: "", subs: [panel], deps: [], clientId: null };
     } else {
       const op = freshen(item);
       const panel = { id: uid(), title: "Panel-01", start: op.start, end: op.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd || 8, notes: "", deps: [], engineering: { designed: null, verified: null, sentToPerforex: null }, subs: [op] };
-      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], color: "#3b82f6", hpd: item.hpd || 8, notes: "", subs: [panel], deps: [], clientId: null };
+      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd || 8, notes: "", subs: [panel], deps: [], clientId: null };
     }
     setTasks(prev => [...prev, jobToPaste]);
     setPasteConfirm(null);
@@ -3733,9 +3791,8 @@ ${jobsCtx || "No jobs found."}`;
                 const hasSubs = (r.subs || []).length > 0;
                 const isExp = hasSubs && exp[r.id];
                 const isDragging = ganttDragInfo?.itemId === r.id;
-                const personColor = r.level === 2 && (r.team || [])[0] ? (people.find(pp => pp.id === r.team[0]) || {}).color || T.accent : null;
-                const barColor = r.level === 2 ? (personColor || T.accent) : T.accent;
-                const barBg = r.level === 1 ? T.accent + "cc" : barColor;
+                const barColor = r.color || T.accent;
+                const barBg = r.level === 1 ? barColor + "cc" : barColor;
                 const barTextColor = accentText(barColor);
                 return segs.map((seg, si) => {
                   const x = dToX(seg.start), xE = dToX(seg.end) + cW, w = Math.max(xE - x, cW);
@@ -3822,14 +3879,14 @@ ${jobsCtx || "No jobs found."}`;
     // Build flat rows array — 3 levels deep
     const rows = [];
     jobs.forEach(job => {
-      const jobColor = job.color || T.accent;
-      rows.push({ ...job, _level: 0, _jobColor: jobColor });
+      rows.push({ ...job, _level: 0, _jobColor: "#94a3b8" });
       if (splitGanttExpanded.has(job.id)) {
         (job.subs || []).forEach(panel => {
-          rows.push({ ...panel, _level: 1, _jobColor: jobColor, _jobId: job.id });
+          const panelColor = panel.color || "#94a3b8";
+          rows.push({ ...panel, _level: 1, _jobColor: panelColor, _jobId: job.id });
           if (splitGanttExpanded.has(panel.id)) {
             (panel.subs || []).forEach(op => {
-              rows.push({ ...op, _level: 2, _jobColor: jobColor, _jobId: job.id, _panelId: panel.id });
+              rows.push({ ...op, _level: 2, _jobColor: panelColor, _jobId: job.id, _panelId: panel.id });
             });
           }
         });
@@ -3901,10 +3958,7 @@ ${jobsCtx || "No jobs found."}`;
               const isExpanded = splitGanttExpanded.has(r.id);
               const rowH = level === 0 ? 40 : level === 1 ? 34 : 28;
               const barH = level === 0 ? 24 : level === 1 ? 20 : 16;
-              // Bar color: ops use assignee color, panels use status color, jobs use job color
-              const assigneeColor = level === 2 && (r.team || [])[0]
-                ? (people.find(p => p.id === r.team[0]) || {}).color : null;
-              const barColor = assigneeColor || (level === 1 ? (STA_C[r.status] || jobColor) : jobColor);
+              const barColor = level === 1 ? (STA_C[r.status] || jobColor) : jobColor;
               const itemTeam = (r.team || []).map(id => people.find(p => p.id === id)).filter(Boolean);
               // Bar position — clamp to visible range
               const hasRange = r.start && r.end;
@@ -4078,10 +4132,10 @@ ${jobsCtx || "No jobs found."}`;
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                     Filter {activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
                   </button>
-                  {taskFilterOpen && <div style={{ position: "absolute", top: 36, left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+                  {taskFilterOpen && <div style={{ position: "absolute", top: 0, left: "calc(100% + 4px)", width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}><option value="All">All Clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
-                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? p.color+"28" : "transparent", color: active ? p.color : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color||T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
+                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                     {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
                   </div>}
@@ -4376,7 +4430,7 @@ ${jobsCtx || "No jobs found."}`;
               const health = getHealth(t);
               const healthColor = HEALTH_DOT[health];
               return <div key={t.id} onClick={() => { if (jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); } else { setSelTask(isSel ? null : t.id); } }}
-                style={{ background: isSel ? t.color + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? t.color + "66" : T.border}`, borderLeft: `4px solid ${t.color}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${t.color}15` : "none" }}
+                style={{ background: isSel ? T.accent + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? T.accent + "66" : T.border}`, borderLeft: "4px solid #94a3b8", padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${T.accent}15` : "none" }}
                 onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "44"; } }}
                 onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : T.border; } }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
@@ -4387,7 +4441,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
                   {client && <span style={{ fontSize: 11, color: client.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: client.color, display: "inline-block" }} />{client.name}</span>}
-                  {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: pm.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: pm.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 7, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>{pm.name.split(" ")[0]}</span> : null; })()}
+                  {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: T.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 7, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>{pm.name.split(" ")[0]}</span> : null; })()}
                   <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>
                 </div>
               </div>;
@@ -4530,8 +4584,8 @@ ${jobsCtx || "No jobs found."}`;
               {(fresh.team || []).length > 0 && <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Team</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {(fresh.team || []).map(id => { const p = people.find(x => x.id === id); if (!p) return null; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: p.color + "15", border: `1px solid ${p.color}44` }}>
-                    <div style={{ width: 24, height: 24, borderRadius: 8, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+                  {(fresh.team || []).map(id => { const p = people.find(x => x.id === id); if (!p) return null; const jc = fresh.color || T.accent; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: jc + "15", border: `1px solid ${jc}44` }}>
+                    <div style={{ width: 24, height: 24, borderRadius: 8, background: jc, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
                     <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
                     <span style={{ fontSize: 11, color: T.textDim }}>{p.department}</span>
                   </div>; })}
@@ -4686,10 +4740,10 @@ ${jobsCtx || "No jobs found."}`;
             case "team": return (
               <div style={{ ...cellBase, gap: 4, flexWrap: "nowrap", overflow: "hidden" }}>
                 {level === 0 && teamMembers.slice(0, 4).map(p => (
-                  <div key={p.id} title={p.name} style={{ width: 22, height: 22, borderRadius: 7, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700, flexShrink: 0, border: `1.5px solid ${T.card}` }}>{p.name[0]}</div>
+                  <div key={p.id} title={p.name} style={{ width: 22, height: 22, borderRadius: 7, background: jobColor || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700, flexShrink: 0, border: `1.5px solid ${T.card}` }}>{p.name[0]}</div>
                 ))}
                 {level === 0 && teamMembers.length > 4 && <span style={{ fontSize: 10, color: T.textDim }}>+{teamMembers.length - 4}</span>}
-                {level > 0 && assigneePerson && <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: assigneePerson.color, fontWeight: 600 }}><div style={{ width: 18, height: 18, borderRadius: 6, background: assigneePerson.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{assigneePerson.name[0]}</div>{assigneePerson.name.split(" ")[0]}</span>}
+                {level > 0 && assigneePerson && <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: jobColor || T.accent, fontWeight: 600 }}><div style={{ width: 18, height: 18, borderRadius: 6, background: jobColor || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{assigneePerson.name[0]}</div>{assigneePerson.name.split(" ")[0]}</span>}
                 {level > 0 && !assigneePerson && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>—</span>}
               </div>
             );
@@ -4700,7 +4754,7 @@ ${jobsCtx || "No jobs found."}`;
         const GridRow = ({ item, level = 0, jobId, panelId, jobColor, isFinished }) => {
           const isExpanded = expandedJobs.has(item.id);
           const hasSubs = (item.subs || []).length > 0;
-          const rowBg = level === 0 ? (selTask === item.id ? item.color + "12" : "transparent") : level === 1 ? T.surface + "cc" : T.bg + "cc";
+          const rowBg = level === 0 ? (selTask === item.id ? T.accent + "12" : "transparent") : level === 1 ? T.surface + "cc" : T.bg + "cc";
           const allConds = orgSettings.conditions || [];
           const matchingRowConds = allConds.filter(c => c.applyTo === "row" && evalCondition(c, item));
           const condBg = matchingRowConds.length ? (matchingRowConds[matchingRowConds.length - 1].formatBgColor || null) : null;
@@ -4754,7 +4808,7 @@ ${jobsCtx || "No jobs found."}`;
                 const ccCond = getCellCondStyle(key);
                 if (col.fieldKey === "color") return (
                   <div key={col.id} style={{ ...cellBase, justifyContent: "center", ...ccCond }}>
-                    {level === 0 && <div style={{ width: 18, height: 18, borderRadius: 5, background: item.color || T.accent, border: `1.5px solid ${T.border}` }} />}
+                    {level === 1 && <div style={{ width: 18, height: 18, borderRadius: 9, background: item.color || "#94a3b8", border: `2px solid ${item.color ? item.color + "55" : T.border}`, boxShadow: item.color ? `0 0 6px ${item.color}44` : "none" }} />}
                   </div>
                 );
                 if (col.type === "checkbox") {
@@ -4793,7 +4847,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Sub-rows */}
             {isExpanded && (item.subs || []).map(sub => (
-              <GridRow key={sub.id} item={sub} level={level + 1} jobId={level === 0 ? item.id : jobId} panelId={level === 1 ? item.id : panelId} jobColor={level === 0 ? item.color : jobColor} isFinished={isFinished} />
+              <GridRow key={sub.id} item={sub} level={level + 1} jobId={level === 0 ? item.id : jobId} panelId={level === 1 ? item.id : panelId} jobColor={level === 0 ? (sub.color || "#94a3b8") : jobColor} isFinished={isFinished} />
             ))}
           </>;
         };
@@ -5127,7 +5181,7 @@ ${jobsCtx || "No jobs found."}`;
                   {!isCollapsed && <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                     <div style={{ minWidth: minW }}>
                       <ColHeaders />
-                      {pmJobs.map(job => <GridRow key={job.id} item={job} level={0} jobColor={job.color} isFinished={false} />)}
+                      {pmJobs.map(job => <GridRow key={job.id} item={job} level={0} jobColor="#94a3b8" isFinished={false} />)}
                       {can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
                         onMouseEnter={e => e.currentTarget.style.background = T.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <div />
@@ -5336,7 +5390,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Active Jobs */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Active Jobs ({activeJobs.length})</h4>
-                {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], color: T.accent, hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
+                {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
               </div>
               {activeJobs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: T.textDim, fontSize: 13, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>No active jobs for this client.</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
@@ -5449,7 +5503,7 @@ ${jobsCtx || "No jobs found."}`;
               const s = op.start < tStart ? tStart : op.start;
               const e = op.end > tEnd ? tEnd : op.end;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
-              const tc = (() => { const p0 = (op.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
+              const tc = panel.color || "#94a3b8";
               const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
               bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
@@ -5459,7 +5513,7 @@ ${jobsCtx || "No jobs found."}`;
                 const s = panel.start < tStart ? tStart : panel.start;
                 const e = panel.end > tEnd ? tEnd : panel.end;
                 const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
-                const tc = (() => { const p0 = (panel.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
+                const tc = panel.color || "#94a3b8";
                 bars.push({ type: "task", id: panel.id, start: s, end: e, title: `${job.title} · ${panel.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
               }
             }
@@ -5473,7 +5527,7 @@ ${jobsCtx || "No jobs found."}`;
             const s = sub.start < tStart ? tStart : sub.start;
             const e = sub.end > tEnd ? tEnd : sub.end;
             const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
-            const tc = (() => { const p0 = (sub.team || [])[0]; const pp = people.find(x => x.id === p0); return pp ? pp.color : T.accent; })();
+            const tc = sub.color || "#94a3b8";
             bars.push({ type: "task", id: sub.id, start: s, end: e, title: `${job.title} · ${sub.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
           });
         }
@@ -5523,6 +5577,24 @@ ${jobsCtx || "No jobs found."}`;
         if (fPers.length > 0 && !fPers.includes(String(p.id))) return;
         const bars = getPersonBars(p.id);
         rowList.push({ type: "person", person: p, util: getUtil(p.id), bars });
+      });
+    });
+    // Precompute which task IDs are in a dep group — used to render the chain icon on bars
+    const depGroupTaskIds = new Set();
+    tasks.forEach(job => {
+      const panels = job.subs || [];
+      panels.forEach(panel => {
+        if ((panel.deps || []).some(d => panels.find(s => s.id === d))) {
+          depGroupTaskIds.add(panel.id);
+          (panel.deps || []).filter(d => panels.find(s => s.id === d)).forEach(d => depGroupTaskIds.add(d));
+        }
+        const ops = panel.subs || [];
+        ops.forEach(op => {
+          if ((op.deps || []).some(d => ops.find(o => o.id === d))) {
+            depGroupTaskIds.add(op.id);
+            (op.deps || []).filter(d => ops.find(o => o.id === d)).forEach(d => depGroupTaskIds.add(d));
+          }
+        });
       });
     });
     const subH = 34;
@@ -5623,9 +5695,10 @@ ${jobsCtx || "No jobs found."}`;
       {/* Top nav */}
       <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", flexWrap: "wrap", position: "relative", minHeight: 44, justifyContent: isAdmin ? "flex-start" : "center" }}>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Member</Btn>
-          <Btn size="sm" variant={teamSelectMode ? "primary" : "ghost"} style={!teamSelectMode ? { background: "transparent" } : {}} onClick={() => { setTeamSelectMode(m => !m); setSelPeople(new Set()); }}>{teamSelectMode ? "Done" : "Select"}</Btn>
-          {teamSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelPeople(selPeople.size === people.length ? new Set() : new Set(people.map(p => p.id)))}>{selPeople.size === people.length ? "None" : "All"}</Btn>}
+          <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Member</Btn>
+          <Btn size="sm" variant={barSelectMode ? "primary" : "ghost"} style={!barSelectMode ? { background: "transparent" } : {}} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
+          {barSelectMode && <Btn size="sm" variant="ghost" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>{selBars.size > 0 ? "None" : "All"}</Btn>}
+          {barSelectMode && selBars.size > 0 && <><span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selBars.size} selected</span><Btn size="sm" variant="ghost" style={{ color: "#ef4444", borderColor: "#ef444444" }} onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn><Btn size="sm" variant="ghost" onClick={() => { setBarMoveDays(""); setBarMoveModalOpen(true); }}>Move</Btn></>}
         <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setFilterOpen(p => !p)} title="Filters" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -5710,7 +5783,7 @@ ${jobsCtx || "No jobs found."}`;
         <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 400, lineHeight: 1.75 }}>
           Add your first team member to start scheduling and assigning jobs
         </p>
-        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
+        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
       </div>}
       {/* Hourly day view */}
       {people.length > 0 && tMode === "day" && (() => {
@@ -5741,7 +5814,7 @@ ${jobsCtx || "No jobs found."}`;
                         <span style={{fontSize:11,color:T.textSec,width:14}}>{isC?"▶":"▼"}</span>
                         <span style={{fontSize:14,fontWeight:700,color:T.text,flex:1}}>{row.role}</span>
                         <span style={{fontSize:13,fontWeight:700,color:utilC,fontFamily:T.mono}}>{row.util}%</span>
-                        {isAdmin && <button onClick={e=>{e.stopPropagation();setPersonModal({id:null,name:"",role:row.role,email:"",cap:8,color:COLORS[Math.floor(Math.random()*COLORS.length)],teamNumber:null,isTeamLead:false,isEngineer:false,userRole:"user"});}} title={`Add member to ${row.role}`} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:4,color:T.textDim,fontSize:14,lineHeight:1,padding:"1px 6px",cursor:"pointer",flexShrink:0}}>+</button>}
+                        {isAdmin && <button onClick={e=>{e.stopPropagation();setPersonModal({id:null,name:"",role:row.role,email:"",cap:8,teamNumber:null,isTeamLead:false,isEngineer:false,userRole:"user"});}} title={`Add member to ${row.role}`} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:4,color:T.textDim,fontSize:14,lineHeight:1,padding:"1px 6px",cursor:"pointer",flexShrink:0}}>+</button>}
                       </div>
                       <div style={{flex:1,display:"flex"}}>
                         {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:h<7||h>=18?T.bg+"cc":T.bg+"44",borderRight:`1px solid ${T.bg}33`}}/>)}
@@ -5768,7 +5841,7 @@ ${jobsCtx || "No jobs found."}`;
                   const isDropTarget = dayDragTarget === p.id;
                   return <div key={p.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",transition:"background 0.1s"}}>
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
-                      <div style={{width:28,height:28,borderRadius:14,background:p.color+"22",border:`1.5px solid ${p.color}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:p.color,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
+                      <div style={{width:28,height:28,borderRadius:14,background:T.accent+"22",border:`1.5px solid ${T.accent}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.accent,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
                         <div style={{fontSize:11,color:T.textDim}}>{p.department} · {p.cap}h</div>
@@ -5787,8 +5860,8 @@ ${jobsCtx || "No jobs found."}`;
                         return <div key={bar.id}
                           onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
-                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:1,transition:"box-shadow 0.1s,opacity 0.1s"}}
-                          onMouseEnter={e=>{ if(!dayDragInfo) e.currentTarget.style.filter="brightness(1.1)"; }} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
+                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2),transition:"box-shadow 0.1s,opacity 0.2s"}}
+                          onMouseEnter={e=>{ if(!dayDragInfo){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); }}>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
@@ -5904,7 +5977,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Insertion line indicators */}
               {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
               {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
-              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
+              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : T.surface, zIndex: 10, opacity: !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "background 0.15s, opacity 0.2s" }}>
                 {/* Drag handle */}
                 <div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }} title="Drag to reorder">⠿</div>
                 <div style={{ width: 28, height: 28, borderRadius: 14, background: p.color + "22", border: `1.5px solid ${p.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: p.color, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
@@ -5918,14 +5991,25 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
                 {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = [0, 6].includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
-                {/* Ghost: shows snapped drop position while card follows cursor */}
-                {teamDragInfo && teamDragInfo.targetPersonId === p.id && (() => {
-                  const { snapStart, snapEnd, hasOverlap, barColor } = teamDragInfo;
+                {/* Ghost: dragged bar + dep-group member previews */}
+                {teamDragInfo && (() => {
                   const nDays = days.length;
-                  const snapX = (diffD(tStart, snapStart) / nDays * 100);
-                  const gw = (Math.max(diffD(snapStart, snapEnd) + 1, 1) / nDays * 100) + "%";
+                  const { snapStart, snapEnd, hasOverlap, barColor, groupSnaps } = teamDragInfo;
                   const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
-                  return <div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${snapX}% + 2px)`, width: `calc(${gw} - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />;
+                  const ghosts = [];
+                  if (teamDragInfo.targetPersonId === p.id) {
+                    const snapX = (diffD(tStart, snapStart) / nDays * 100);
+                    const gw = (Math.max(diffD(snapStart, snapEnd) + 1, 1) / nDays * 100) + "%";
+                    ghosts.push(<div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${snapX}% + 2px)`, width: `calc(${gw} - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                  }
+                  (groupSnaps || []).forEach(gs => {
+                    if ((gs.personIds || []).includes(p.id)) {
+                      const snapX = (diffD(tStart, gs.snapStart) / nDays * 100);
+                      const gw = (Math.max(diffD(gs.snapStart, gs.snapEnd) + 1, 1) / nDays * 100) + "%";
+                      ghosts.push(<div key={`ghost-grp-${gs.id}`} style={{ position: "absolute", top: 4, left: `calc(${snapX}% + 2px)`, width: `calc(${gw} - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                    }
+                  });
+                  return ghosts.length ? <>{ghosts}</> : null;
                 })()}
                 {/* Task/PTO bars */}
                 {bars.map(bar => {
@@ -5980,6 +6064,26 @@ ${jobsCtx || "No jobs found."}`;
                     const wdDuration = getWorkingDayDuration(os, oe);
                     const taskPid = bar.task.pid || null;
                     const origPerson = p.id;
+                    // Dep group — collect all bars in the same dependency chain
+                    const depGroupIds = getDepGroup(bar.task.id, tasks);
+                    const isGroupDrag = depGroupIds.size > 1;
+                    const groupMembers = isGroupDrag ? (() => {
+                      const members = [];
+                      depGroupIds.forEach(id => {
+                        if (id === bar.task.id) return;
+                        for (const job of tasks) {
+                          for (const panel of (job.subs || [])) {
+                            const op = (panel.subs || []).find(o => o.id === id);
+                            if (op) { members.push({ id, origStart: op.start, origEnd: op.end, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); return; }
+                          }
+                          const panel = (job.subs || []).find(s => s.id === id);
+                          if (panel) { members.push({ id, origStart: panel.start, origEnd: panel.end, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [] }); return; }
+                        }
+                      });
+                      return members;
+                    })() : [];
+                    // All IDs being moved — used to exclude them from conflict detection
+                    const movingIds = new Set([bar.task.id, ...groupMembers.map(m => m.id)]);
                     let moved = false, lastDropPid = null;
                     const gridEl = teamRef.current;
                     // Measure actual rendered column width from the grid area div so drop
@@ -6005,6 +6109,11 @@ ${jobsCtx || "No jobs found."}`;
                       const dx = Math.round(pxDx / liveCW);
                       const snapS = nextBD(addD(os, dx));
                       const snapE = countWorkingDays(snapS, wdDuration);
+                      // Group member ghost positions (same delta applied to each member's original start)
+                      const groupSnaps = isGroupDrag ? groupMembers.map(m => {
+                        const mSnap = nextBD(addD(m.origStart, dx));
+                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: countWorkingDays(mSnap, m.wdDur), color: bar.color };
+                      }) : [];
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
                       const newHpd = (bar.task?.hpd || 7.5) / Math.max(1, (bar.task?.team || []).length);
@@ -6026,7 +6135,7 @@ ${jobsCtx || "No jobs found."}`;
                         if (dayH + newHpd > personCap) { hasOverlap = true; break; }
                         chk = addD(chk, 1);
                       }
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag });
                     };
                     const onU = me => {
                       document.removeEventListener("mousemove", onM);
@@ -6049,34 +6158,45 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
-                      // All overlap detection + state computation done outside setTasks so
-                      // any error stays in the event handler (not React's reconciler → no white screen)
-                      const { pushes, blocked, lockedOps } = previewPush(tasks, bar.task.id, dropPerson, newStart, newEnd);
-                      if (blocked) { showLockedError(lockedOps); return; }
-                      // Build the post-move snapshot directly from current tasks (no setTasks involved)
-                      const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Moved in schedule" };
-                      const withMove = tasks.map(t => {
-                        if (taskPid) {
-                          const pi = (t.subs || []).findIndex(s => s.id === taskPid);
-                          if (pi >= 0) { const ns = [...t.subs]; ns[pi] = { ...ns[pi], subs: (ns[pi].subs || []).map(op => op.id === bar.task.id ? { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] } : op) }; return { ...t, subs: ns }; }
-                          if (t.id === taskPid) return { ...t, subs: (t.subs || []).map(s => s.id !== bar.task.id ? s : { ...s, start: newStart, end: newEnd, moveLog: [...(s.moveLog || []), logEntry] }) };
-                        } else if (t.id === bar.task.id) {
-                          return { ...t, start: newStart, end: newEnd, moveLog: [...(t.moveLog || []), logEntry] };
-                        }
-                        return t;
+                      // Compute final positions for all group members (same delta)
+                      const groupFinalMoves = groupMembers.map(m => {
+                        const mStart = nextBD(addD(m.origStart, finalDx));
+                        return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
                       });
-                      // commit applies a pre-computed snapshot — plain setTasks, no functional update,
-                      // so nothing can throw inside React's reconciler
+                      // Conflict detection — exclude all moving IDs as obstacles for each other
+                      const { pushes: mainPushes, blocked: mainBlocked, lockedOps: mainLocked } = previewPush(tasks, bar.task.id, dropPerson, newStart, newEnd, movingIds);
+                      if (mainBlocked) { showLockedError(mainLocked); return; }
+                      let allPushes = [...mainPushes];
+                      let anyBlocked = false; let allLocked = [];
+                      for (const gm of groupFinalMoves) {
+                        for (const personId of gm.personIds) {
+                          const { pushes: gmPushes, blocked: gmBlocked, lockedOps: gmLocked } = previewPush(tasks, gm.id, personId, gm.newStart, gm.newEnd, movingIds);
+                          if (gmBlocked) { anyBlocked = true; allLocked = [...allLocked, ...gmLocked]; break; }
+                          gmPushes.forEach(push => { if (!allPushes.find(x => x.opId === push.opId)) allPushes.push(push); });
+                        }
+                        if (anyBlocked) break;
+                      }
+                      if (anyBlocked) { showLockedError(allLocked); return; }
+                      // Build snapshot with all bars in the group moved simultaneously
+                      const logBase = { date: TD, movedBy: movedByName, reason: "Moved in schedule" };
+                      const allMoves = [
+                        { id: bar.task.id, newStart, newEnd, logEntry: { ...logBase, fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd } },
+                        ...groupFinalMoves.map(m => ({ id: m.id, newStart: m.newStart, newEnd: m.newEnd, logEntry: { ...logBase, fromStart: m.origStart, fromEnd: m.origEnd, toStart: m.newStart, toEnd: m.newEnd } }))
+                      ];
+                      const withMove = buildGroupMove(tasks, allMoves);
+                      // Expand viewport to include all newly placed bars
+                      const allNewStarts = [newStart, ...groupFinalMoves.map(m => m.newStart)];
+                      const minNewStart = allNewStarts.reduce((a, b) => a < b ? a : b, newStart);
                       const commit = (snapshot) => {
                         setTasks(snapshot);
-                        setTStart(p => newStart < p ? newStart : p);
+                        setTStart(p => minNewStart < p ? minNewStart : p);
                         setTEnd(p => newEnd > p ? newEnd : p);
                         if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
                       };
-                      if (pushes.length > 0) {
-                        const withPushes = applyPushes(withMove, pushes, movedByName);
+                      if (allPushes.length > 0) {
+                        const withPushes = applyPushes(withMove, allPushes, movedByName);
                         setConfirmPush({
-                          pushes, people,
+                          pushes: allPushes, people,
                           onConfirm:       () => { commit(withPushes); setConfirmPush(null); },
                           onConfirmSingle: () => { commit(withMove);   setConfirmPush(null); },
                           onCancel:        () => { setConfirmPush(null); },
@@ -6181,13 +6301,18 @@ ${jobsCtx || "No jobs found."}`;
                   const dragTx = isDraggingThis ? (teamDragInfo.translateX || 0) : 0;
                   const dragTy = isDraggingThis ? (teamDragInfo.translateY || 0) : 0;
                   const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
+                  const barOpacity = !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
+                  const isBarSelected = barSelectMode && selBars.has(bar.id);
+                  const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   return [<div key={bar.id + "_0"} title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "") + (barLocked ? " 🔒 Locked" : "") + (hasMoveLog ? " 📋 Has schedule changes" : "")}
-                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
+                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99" }}
-                    onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
+                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                    {inDepGroup && !isBarSelected && <span title="Linked — moves with its dependency group" style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
                     {hasMoveLog && <span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} title="Schedule was changed" />}
                     <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : `${bar.task?.title || bar.title} - ${p.name.split(" ")[0]}`}</span>
@@ -6203,8 +6328,8 @@ ${jobsCtx || "No jobs found."}`;
                       title={bar.title + (bar.clientName ? ` (${bar.clientName})` : "")}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, cursor: "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden" }}
-                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
+                      style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, cursor: "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                       {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];
@@ -7773,7 +7898,7 @@ ${jobsCtx || "No jobs found."}`;
       const isExp = mobileExp["t_" + t.id];
       return <div key={t.id} style={{ marginBottom: 6 }}>
         <div onClick={() => { if (hasSubs) setMobileExp(p => ({ ...p, ["t_" + t.id]: !p["t_" + t.id] })); else openDetail(t); }} style={{ display: "flex", gap: 10, padding: "11px 12px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : undefined, cursor: "pointer", alignItems: "flex-start" }}>
-          <div style={{ width: 4, alignSelf: "stretch", minHeight: 36, borderRadius: 2, background: t.color || (owner ? owner.color : T.accent), flexShrink: 0, marginTop: 2 }} />
+          <div style={{ width: 4, alignSelf: "stretch", minHeight: 36, borderRadius: 2, background: "#94a3b8", flexShrink: 0, marginTop: 2 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
               {hasSubs && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}
@@ -7939,7 +8064,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderMobileTeam = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
       {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-        <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
+        <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
       </div>}
       {people.map(p => {
         const isExp = mobileExp["p_" + p.id];
@@ -8143,7 +8268,7 @@ ${jobsCtx || "No jobs found."}`;
           <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>{prefOpen ? "Preferences" : "Settings"}</span>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
-          {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "15px 16px", marginBottom: 14, borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, fontFamily: T.font, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
+          {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "15px 16px", marginBottom: 14, borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, fontFamily: T.font }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: T.accent + "22", border: `1px solid ${T.accent}55`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
             <div style={{ flex: 1, textAlign: "left" }}>
               <div style={{ fontSize: 15, fontWeight: 800, color: T.accent, letterSpacing: "0.03em" }}>Fast TRAQS</div>
@@ -8716,6 +8841,7 @@ ${jobsCtx || "No jobs found."}`;
           <InputField label="Job #" value={ed.jobNumber || ""} onChange={v => setEd(p => ({ ...p, jobNumber: v }))} placeholder="e.g. 2024-001" />
           <InputField label="PO #" value={ed.poNumber || ""} onChange={v => setEd(p => ({ ...p, poNumber: v }))} placeholder="e.g. PO-8821" />
         </div>
+
         <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
           <InputField label="Due Date (Customer)" value={ed.dueDate || ""} onChange={v => setEd(p => ({ ...p, dueDate: v }))} type="date" />
           <div>
@@ -8723,7 +8849,7 @@ ${jobsCtx || "No jobs found."}`;
               Project Manager <span style={{ color: "#ef4444", fontSize: 15, lineHeight: 1 }}>*</span>
             </label>
             <SearchSelect value={ed.projectManagerId} onChange={v => setEd(p => ({ ...p, projectManagerId: v }))}
-              options={people.map(p => ({ value: p.id, label: p.name, color: p.color, sub: p.department || "" }))}
+              options={people.map(p => ({ value: p.id, label: p.name, sub: p.department || "" }))}
               placeholder="Select project manager…"
               style={{ borderColor: !ed.projectManagerId ? "#ef444455" : T.border }} />
           </div>
@@ -9082,9 +9208,14 @@ ${jobsCtx || "No jobs found."}`;
                   <button onClick={e => { e.stopPropagation(); setCollapsedOps(prev => ({ ...prev, [panel.id]: !prev[panel.id] })); }} style={{ padding: "3px 5px", background: "transparent", border: "none", cursor: "pointer", color: T.textDim, flexShrink: 0 }}>
                     <svg style={{ transform: collapsedOps[panel.id] ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
-                  <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0 }} />
+                  <div style={{ position: "relative", flexShrink: 0 }}>
+                    <div onClick={e => { e.stopPropagation(); setColorDropId(colorDropId === panel.id ? null : panel.id); }} title="Set panel color" style={{ width: 16, height: 16, borderRadius: 8, background: panel.color || COLORS[pi % COLORS.length], cursor: "pointer", border: "2px solid rgba(255,255,255,0.5)", boxShadow: `0 0 0 1.5px ${panel.color || COLORS[pi % COLORS.length]}88`, transition: "all 0.15s", flexShrink: 0 }} />
+                    {colorDropId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.22)", padding: 10, display: "flex", flexWrap: "wrap", gap: 6, width: 152, animation: "menuIn 0.15s ease-out" }}>
+                      {COLORS.map(c => { const isOn = (panel.color || COLORS[pi % COLORS.length]) === c; return <div key={c} onClick={() => { updatePanel({ color: c }); setColorDropId(null); }} style={{ width: 26, height: 26, borderRadius: 13, background: c, cursor: "pointer", border: isOn ? "2.5px solid #fff" : "2.5px solid transparent", boxShadow: isOn ? `0 0 10px ${c}88` : "none", transition: "all 0.12s" }} />; })}
+                    </div>}
+                  </div>
                   <input value={panel.title} onChange={e => updatePanel({ title: e.target.value })} placeholder="Operation name"
-                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [] }] })); } }}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [], color: COLORS[(p.subs || []).length % COLORS.length] }] })); } }}
                     style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
                   {panel.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
@@ -9109,27 +9240,34 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                         <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd ?? 7.5} onChange={e => updateSub({ hpd: parseFloat(e.target.value) || 7.5 })} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
                         <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", width: 24 }} title="Estimated total hours for this operation">hrs</span>
-                        {(orgSettings.roles?.length > 0) && (
-                          <select value={sub.requiredDepartment || ""} onChange={e => updateSub({ requiredDepartment: e.target.value })}
-                            title="Required department"
-                            style={{ fontSize: 11, padding: "4px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontFamily: T.font }}>
-                            <option value="">Any dept</option>
-                            {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
-                          </select>
-                        )}
+                        {(orgSettings.roles?.length > 0) && <div style={{ position: "relative", flexShrink: 0 }}>
+                          <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId === sub.id ? null : sub.id); }}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "3px 8px", borderRadius: 8, minWidth: 76, border: `1px solid ${sub.requiredDepartment ? T.accent + "55" : T.border}`, background: sub.requiredDepartment ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s", whiteSpace: "nowrap" }}>
+                            <span style={{ fontSize: 11, color: sub.requiredDepartment ? T.accent : T.textDim, fontWeight: 600 }}>{sub.requiredDepartment || "Dept"}</span>
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                          </button>
+                          {deptDropId === sub.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 160, padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
+                            {orgSettings.roles.map((r, ri) => {
+                              const isOn = sub.requiredDepartment === r;
+                              const fk = `sub-${sub.id}-${r}`;
+                              return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updateSub({ requiredDepartment: isOn ? "" : r }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${ri * 38}ms both ease-out` }}
+                                onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
+                                <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+                                  {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                                </div>
+                                <span style={{ fontSize: 12, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{r}</span>
+                              </div>;
+                            })}
+                          </div>}
+                        </div>}
                         <button onClick={() => updatePanel({ subs: (panel.subs || []).filter((_, j) => j !== si) })} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
                       </div>
                     </div>
                   </div>;
                 })}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
+                  {/* Left: Sign-Off first, then Dept (Dept hidden when sub-ops exist) */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  {/* Dept dropdown */}
-                  {(orgSettings.roles?.length > 0) && <select value={panel.requiredDepartment || ""} onChange={e => updatePanel({ requiredDepartment: e.target.value })}
-                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 8, border: `1px solid ${panel.requiredDepartment ? T.accent + "55" : T.border}`, background: panel.requiredDepartment ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 11, color: panel.requiredDepartment ? T.accent : T.textDim, fontWeight: 600, transition: "all 0.15s", outline: "none" }}>
-                    <option value="">Dept</option>
-                    {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select>}
                   {/* Sign-Off multi-select dropdown */}
                   <div style={{ position: "relative" }}>
                     <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId === panel.id ? null : panel.id); }}
@@ -9140,20 +9278,25 @@ ${jobsCtx || "No jobs found."}`;
                       </span>
                       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
-                    {soDropPanelId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 200, padding: "8px 0" }}>
+                    {soDropPanelId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 200, padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
                       {signOffTemplates.length === 0 && <div style={{ padding: "8px 14px", fontSize: 12, color: T.textDim }}>No templates yet</div>}
-                      {signOffTemplates.map(tmpl => {
+                      {signOffTemplates.map((tmpl, ti) => {
                         const isOn = (panel.signOffs || {})[tmpl.id] !== undefined;
+                        const fk = `so-${panel.id}-${tmpl.id}`;
                         return <div key={tmpl.id} onClick={() => {
-                          if (isOn) {
-                            const { [tmpl.id]: _, ...rest } = panel.signOffs || {};
-                            updatePanel({ signOffs: Object.keys(rest).length ? rest : undefined });
-                          } else {
-                            const stepsObj = Object.fromEntries(tmpl.steps.map((_, i) => [String(i), null]));
-                            updatePanel({ signOffs: { ...(panel.signOffs || {}), [tmpl.id]: stepsObj } });
-                          }
-                        }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", transition: "background 0.12s" }}
-                          onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                          setDropFlashKey(fk);
+                          setTimeout(() => {
+                            if (isOn) {
+                              const { [tmpl.id]: _, ...rest } = panel.signOffs || {};
+                              updatePanel({ signOffs: Object.keys(rest).length ? rest : undefined });
+                            } else {
+                              const stepsObj = Object.fromEntries(tmpl.steps.map((_, i) => [String(i), null]));
+                              updatePanel({ signOffs: { ...(panel.signOffs || {}), [tmpl.id]: stepsObj } });
+                            }
+                            setDropFlashKey(null);
+                          }, 150);
+                        }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
+                          onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
                           <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
                             {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                           </div>
@@ -9171,14 +9314,36 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                     </div>}
                   </div>
-                  <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [], requiredDepartment: "" }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
+                  {/* Dept dropdown — only show at panel level when no sub-ops exist */}
+                  {(orgSettings.roles?.length > 0) && !hasSubs && <div style={{ position: "relative" }}>
+                    <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId === panel.id ? null : panel.id); }}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 8, border: `1px solid ${panel.requiredDepartment ? T.accent + "55" : T.border}`, background: panel.requiredDepartment ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+                      <span style={{ fontSize: 11, color: panel.requiredDepartment ? T.accent : T.textDim, fontWeight: 600 }}>{panel.requiredDepartment || "Dept"}</span>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    {deptDropId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 160, padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
+                      {orgSettings.roles.map((r, ri) => {
+                        const isOn = panel.requiredDepartment === r;
+                        const fk = `panel-${panel.id}-${r}`;
+                        return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel({ requiredDepartment: isOn ? "" : r }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${ri * 38}ms both ease-out` }}
+                          onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
+                          <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+                            {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{r}</span>
+                        </div>;
+                      })}
+                    </div>}
+                  </div>}
                   </div>
+                  {/* Right: Add Sub-operation */}
+                  <button onClick={() => updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [], requiredDepartment: "" }] })} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
                 </div>
                 </>}
               </div>;
             })}
           </div>
-          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], requiredDepartment: "", subs: [] }] }))}
+          <button onClick={() => setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], requiredDepartment: "", subs: [], color: COLORS[(p.subs || []).length % COLORS.length] }] }))}
             style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
             onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
             onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
@@ -9555,7 +9720,7 @@ ${jobsCtx || "No jobs found."}`;
               {prefOpen && <button onClick={() => setPrefOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 18, lineHeight: 1, padding: "0 4px 0 0" }}>←</button>}
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>{prefOpen ? "Preferences" : "Settings"}</div>
             </div>
-            {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "11px 16px", background: `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`, border: "none", borderBottom: `1px solid ${T.accent}22`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: T.font, animation: "glow-pulse 2.8s ease-in-out infinite", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "22"} onMouseLeave={e => e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`}>
+            {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "11px 16px", background: `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`, border: "none", borderBottom: `1px solid ${T.accent}22`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: T.font, transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "22"} onMouseLeave={e => e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`}>
               <div style={{ width: 28, height: 28, borderRadius: 8, background: T.accent + "22", border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
               <div style={{ flex: 1, textAlign: "left" }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: T.accent, letterSpacing: "0.03em" }}>Fast TRAQS</div>
@@ -11087,7 +11252,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
 
           {isAdmin && <div style={{ marginBottom: 4 }}><div style={{ fontSize: 11, color: T.textDim, padding: "8px 12px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>PIN and pay type are managed in <span style={{ color: T.accent, fontWeight: 600 }}>Time Stamp Settings</span>.</div></div>}
-          <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Color</label><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>{COLORS.map(c => <div key={c} onClick={() => setEd(p => ({ ...p, color: c }))} style={{ width: 32, height: 32, borderRadius: 16, background: c, cursor: "pointer", border: ed.color === c ? "3px solid #fff" : "3px solid transparent", boxShadow: ed.color === c ? `0 0 12px ${c}66` : "none" }} />)}</div></div>
+
 
           {/* Time Off management */}
           <div style={{ marginBottom: 20 }}>
@@ -11279,7 +11444,7 @@ ${jobsCtx || "No jobs found."}`;
               <div key={person.id} style={{ marginBottom: 4 }}>
                 {/* Person header */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 28px 6px", position: "sticky", top: 0, background: T.card, zIndex: 2 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: 8, background: person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
+                  <div style={{ width: 24, height: 24, borderRadius: 8, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{person.name}</span>
                   <span style={{ fontSize: 11, color: T.textDim, marginLeft: 2 }}>{person.department}</span>
                   <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "2px 8px" }}>{pChanges.length} ops</span>
@@ -11478,6 +11643,44 @@ ${jobsCtx || "No jobs found."}`;
             <Btn onClick={() => confirmPush.onConfirm()} style={{ flex: 1, background: "#f59e0b", border: "none" }}>Move All Jobs</Btn>
           </div>
           <Btn variant="ghost" onClick={() => confirmPush.onCancel()} style={{ width: "100%" }}>Cancel</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* Bar Delete Confirmation Modal */}
+    {barDeleteConfirmOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarDeleteConfirmOpen(false)}>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 400, width: "100%", border: `1px solid #ef444433`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)` }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 52, height: 52, borderRadius: 26, background: "#ef444415", border: "2px solid #ef444433", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: "#ef4444" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
+        <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 19, fontWeight: 700, textAlign: "center" }}>Delete {selBars.size} {selBars.size === 1 ? "item" : "items"}?</h3>
+        <p style={{ margin: "0 0 24px", fontSize: 13, color: T.textSec, textAlign: "center", lineHeight: 1.55 }}>This will permanently remove the selected bars from the schedule. This action cannot be undone.</p>
+        <div style={{ display: "flex", gap: 10 }}>
+          <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setBarDeleteConfirmOpen(false)}>Cancel</Btn>
+          <Btn style={{ flex: 1, background: "#ef4444", border: "none" }} onClick={() => {
+            const ids = selBars;
+            setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).filter(panel => !ids.has(panel.id)).map(panel => ({ ...panel, subs: (panel.subs || []).filter(op => !ids.has(op.id)) })) })));
+            setSelBars(new Set()); setBarSelectMode(false); setBarDeleteConfirmOpen(false);
+          }}>Delete</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* Bar Move Modal */}
+    {barMoveModalOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarMoveModalOpen(false)}>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 380, width: "100%", border: `1px solid ${T.border}`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)` }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 6px", color: T.text, fontSize: 19, fontWeight: 700 }}>Move {selBars.size} {selBars.size === 1 ? "item" : "items"}</h3>
+        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textSec, lineHeight: 1.55 }}>Shift selected bars by working days. Use a negative number to move backward.</p>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Working Days</label>
+        <input autoFocus type="number" value={barMoveDays} onChange={e => setBarMoveDays(e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.currentTarget.form?.requestSubmit?.() || document.getElementById("barMoveSubmit")?.click(); }} placeholder="e.g. 3 or -2" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 15, fontFamily: T.mono, outline: "none", boxSizing: "border-box", marginBottom: 20 }} />
+        <div style={{ display: "flex", gap: 10 }}>
+          <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setBarMoveModalOpen(false)}>Cancel</Btn>
+          <Btn id="barMoveSubmit" style={{ flex: 1 }} onClick={() => {
+            const n = parseInt(barMoveDays, 10);
+            if (!n || isNaN(n)) return;
+            const ids = selBars;
+            const shift = ds => { if (!ds) return ds; let d = new Date(ds + "T12:00:00"); let count = 0; const dir = n > 0 ? 1 : -1; const target = Math.abs(n); while (count < target) { d.setDate(d.getDate() + dir); const dow = d.getDay(); if (dow !== 0 && dow !== 6) count++; } return toDS(d); };
+            setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, ...(ids.has(panel.id) ? { start: shift(panel.start), end: shift(panel.end) } : {}), subs: (panel.subs || []).map(op => ids.has(op.id) ? { ...op, start: shift(op.start), end: shift(op.end) } : op) })) })));
+            setSelBars(new Set()); setBarSelectMode(false); setBarMoveModalOpen(false); setBarMoveDays("");
+          }}>Move</Btn>
         </div>
       </div>
     </div>}
