@@ -9125,14 +9125,14 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                   </div>;
                 })}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
-                  {/* Dept dropdown — bottom-left */}
-                  {(orgSettings.roles?.length > 0) ? <select value={panel.requiredDepartment || ""} onChange={e => updatePanel({ requiredDepartment: e.target.value })}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  {/* Dept dropdown */}
+                  {(orgSettings.roles?.length > 0) && <select value={panel.requiredDepartment || ""} onChange={e => updatePanel({ requiredDepartment: e.target.value })}
                     style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 8, border: `1px solid ${panel.requiredDepartment ? T.accent + "55" : T.border}`, background: panel.requiredDepartment ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 11, color: panel.requiredDepartment ? T.accent : T.textDim, fontWeight: 600, transition: "all 0.15s", outline: "none" }}>
                     <option value="">Dept</option>
                     {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
-                  </select> : <span />}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  </select>}
                   {/* Sign-Off multi-select dropdown */}
                   <div style={{ position: "relative" }}>
                     <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId === panel.id ? null : panel.id); }}
