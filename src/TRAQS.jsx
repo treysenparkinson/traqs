@@ -8161,21 +8161,11 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Scheduling</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Hours/day, weekends &amp; holidays</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>
-            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-              <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
-              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Roles</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{orgSettings.roles.length} role{orgSettings.roles.length !== 1 ? "s" : ""} defined</div></div>
-              <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-            </button>
             <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Sign Off Preferences</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>
-            {isAdmin && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-              <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>User Permissions</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Manage permissions &amp; access</div></div>
-              <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-            </button>}
           </> : <>
           <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.accent }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg></span>
@@ -8190,10 +8180,26 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Preferences</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Scheduling, Roles &amp; Sign Off</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Scheduling &amp; Sign Off</div>
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
+          <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Departments</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{orgSettings.roles.length} department{orgSettings.roles.length !== 1 ? "s" : ""} defined</div>
+            </div>
+            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+          </button>
+          {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Workers</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Manage team members &amp; access</div>
+            </div>
+            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+          </button>}
           <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></span>
             <div style={{ flex: 1 }}>
@@ -9570,14 +9576,6 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <span style={{ fontSize: 16, color: T.textDim }}>›</span>
               </button>
-              <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Roles</div>
-                  <div style={{ fontSize: 11, color: T.textDim }}>{orgSettings.roles.length} role{orgSettings.roles.length !== 1 ? "s" : ""} defined</div>
-                </div>
-                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
-              </button>
               <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
                 <div style={{ flex: 1 }}>
@@ -9586,14 +9584,6 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <span style={{ fontSize: 16, color: T.textDim }}>›</span>
               </button>
-              {isAdmin && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>User Permissions</div>
-                  <div style={{ fontSize: 11, color: T.textDim }}>Manage permissions &amp; access</div>
-                </div>
-                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
-              </button>}
             </> : <>
             {/* ── Customization ── */}
             <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -9610,10 +9600,28 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Preferences</div>
-                <div style={{ fontSize: 11, color: T.textDim }}>Scheduling, Roles &amp; Sign Off</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Scheduling &amp; Sign Off</div>
               </div>
               <span style={{ fontSize: 16, color: T.textDim }}>›</span>
             </button>
+            {/* ── Departments ── */}
+            <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Departments</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>{orgSettings.roles.length} department{orgSettings.roles.length !== 1 ? "s" : ""} defined</div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>
+            {/* ── Workers ── */}
+            {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Workers</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Manage team members &amp; access</div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>}
             {/* ── Clients ── */}
             <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></span>
@@ -10085,19 +10093,19 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}
-    {/* Roles Settings Modal */}
+    {/* Departments Settings Modal */}
     {rolesSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => { setRolesSettingsOpen(false); setRoleEditId(null); setRoleInput(""); }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", maxHeight: "85vh", display: "flex", flexDirection: "column", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           <span style={{ color: T.textSec, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
-          <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Roles</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Departments</span>
           <button onClick={() => { setRolesSettingsOpen(false); setRoleEditId(null); setRoleInput(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
-          <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.6 }}>Roles group team members into departments and appear as a dropdown when adding or editing members.</div>
-          {/* Existing roles list */}
+          <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.6 }}>Departments determine scheduling eligibility — workers are only assigned to tasks matching their department.</div>
+          {/* Existing departments list */}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {orgSettings.roles.length === 0 && <div style={{ fontSize: 13, color: T.textDim, padding: "12px 0", textAlign: "center" }}>No roles yet — add one below</div>}
+            {orgSettings.roles.length === 0 && <div style={{ fontSize: 13, color: T.textDim, padding: "12px 0", textAlign: "center" }}>No departments yet — add one below</div>}
             {orgSettings.roles.map((r, idx) => (
               <div key={r} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.surface, border: `1px solid ${roleEditId === idx ? T.accent + "66" : T.border}`, borderRadius: T.radiusSm, transition: "border-color 0.15s" }}>
                 {roleEditId === idx ? (
@@ -10154,7 +10162,7 @@ ${jobsCtx || "No jobs found."}`;
                   if (v && !orgSettings.roles.includes(v)) { setOrgSettings(s => ({ ...s, roles: [...s.roles, v] })); setRoleInput(""); }
                 }
               }}
-              placeholder="New role name, e.g. Engineering, Shop…"
+              placeholder="New department name, e.g. Wiring, Fabrication…"
               style={{ flex: 1, padding: "9px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }}
             />
             <button
@@ -10411,11 +10419,6 @@ ${jobsCtx || "No jobs found."}`;
                       {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
                       {person.isEngineer && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>{(orgSettings.approverLabel || "Approver").slice(0, 3)}</span>}
                       {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
-                      {(person.jobTags || []).length > 0 && (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#8b5cf620", color: "#8b5cf6", border: "1px solid #8b5cf633" }}>
-                          🔒 {person.jobTags.length} tag{person.jobTags.length > 1 ? "s" : ""}
-                        </span>
-                      )}
                     </div>
                     <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
                   </div>
@@ -10876,7 +10879,8 @@ ${jobsCtx || "No jobs found."}`;
       const it = reassignModal.item;
       const liveTeam = (() => { for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id === it.id) return op.team; } } } return it.team || []; })();
       const currentPerson = liveTeam[0];
-      const shopCrew = people.filter(p => p.userRole === "user");
+      const reqDept = it.requiredDepartment || "";
+      const shopCrew = people.filter(p => p.userRole === "user" && (!reqDept || (p.department || "") === reqDept));
       return <div style={{ position: "fixed", inset: 0, zIndex: 10005, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setReassignModal(null)}>
         <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(400px, calc(100vw - 32px))", padding: "24px 24px 20px", animation: "slideUp 0.22s ease-out" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -10939,7 +10943,12 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ marginBottom: 12 }}>
           <div style={{ fontSize: 10, color: T.textDim, marginBottom: 6, fontWeight: 600 }}>ASSIGN</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-            {people.filter(p => p.userRole === "user" || p.userRole === "admin").map(p => {
+            {(() => {
+              const _qaReqDept = quickAddSub.type === "op"
+                ? (() => { for (const job of tasks) { const p = (job.subs||[]).find(s => s.id === quickAddSub.parentId); if (p) return p.requiredDepartment || ""; } return ""; })()
+                : "";
+              return people.filter(p => (p.userRole === "user" || p.userRole === "admin") && (!_qaReqDept || (p.department || "") === _qaReqDept));
+            })().map(p => {
               const sel = (quickAddSub.team || []).includes(p.id);
               return <button key={p.id} onClick={() => setQuickAddSub(prev => ({
                 ...prev,
