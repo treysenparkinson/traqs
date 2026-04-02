@@ -1471,6 +1471,7 @@ Rules:
   const [customColLabel, setCustomColLabel] = useState("");
   const [customColType, setCustomColType] = useState("text");
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
+  const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
@@ -4322,34 +4323,6 @@ ${jobsCtx || "No jobs found."}`;
           </>}
         </div>
       </div>
-      {/* ── Pending Finish Requests (cards view, admin only) ── */}
-      {taskSubView === "cards" && isAdmin && finishRequests.length > 0 && <div style={{ marginBottom: 24 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <span style={{ lineHeight: 0, color: "#f59e0b" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg></span>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#f59e0b" }}>Finish Requests</h3>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b", background: "#f59e0b20", borderRadius: 10, padding: "2px 10px" }}>{finishRequests.length}</span>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
-          {finishRequests.map(job => {
-            const req = job.finishRequest;
-            const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-            return <div key={job.id} style={{ background: T.card, border: "2px solid #f59e0b33", borderRadius: T.radius, padding: "18px 20px", boxShadow: "0 2px 12px #f59e0b0f" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "flex", gap: 6, alignItems: "center" }}>
-                {job.jobNumber && <span style={{ color: "#f59e0b", background: "#f59e0b15", borderRadius: 4, padding: "1px 6px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
-                {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>{job.title}</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginBottom: 14 }}>
-                Requested by <strong style={{ color: T.text }}>{req.byName}</strong> · {new Date(req.at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => updTask(job.id, { status: "Finished", finishRequest: undefined })} style={{ flex: 1, padding: "8px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>✓ Approve</button>
-                <button onClick={() => updTask(job.id, { finishRequest: undefined })} style={{ flex: 1, padding: "8px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>✕ Decline</button>
-              </div>
-            </div>;
-          })}
-        </div>
-      </div>}
       {/* ── Sign-Off Queue (cards view) — one section per template ── */}
       {taskSubView === "cards" && canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => (
         (pending.length > 0 || finished.length > 0) && <div key={tmpl.id} style={{ marginBottom: 28 }}>
@@ -4927,30 +4900,6 @@ ${jobsCtx || "No jobs found."}`;
         };
 
         const listContent = <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
-          {/* ── Pending Finish Requests (list view, admin only) ── */}
-          {isAdmin && finishRequests.length > 0 && <div style={{ marginBottom: 12, padding: "10px 14px", background: "#f59e0b10", border: "1px solid #f59e0b33", borderRadius: T.radiusSm }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <span style={{ fontSize: 13 }}>🏁</span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b" }}>Finish Requests</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b20", borderRadius: 10, padding: "1px 8px" }}>{finishRequests.length}</span>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {finishRequests.map(job => {
-                const req = job.finishRequest;
-                const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-                return <div key={job.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.card, borderRadius: T.radiusXs, border: "1px solid #f59e0b22" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{job.title}</span>
-                    {job.jobNumber && <span style={{ fontSize: 11, color: "#f59e0b", fontFamily: T.mono, marginLeft: 6 }}>#{job.jobNumber}</span>}
-                    {jobClient && <span style={{ fontSize: 11, color: jobClient.color, marginLeft: 6 }}>{jobClient.name}</span>}
-                    <span style={{ fontSize: 11, color: T.textDim, marginLeft: 8 }}>by {req.byName} · {new Date(req.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                  </div>
-                  <button onClick={() => updTask(job.id, { status: "Finished", finishRequest: undefined })} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: "none", background: "#10b981", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>✓ Approve</button>
-                  <button onClick={() => updTask(job.id, { finishRequest: undefined })} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: "none", background: "#ef4444", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>✕ Decline</button>
-                </div>;
-              })}
-            </div>
-          </div>}
           {/* ── Sign-Off Template Queues (list view) — one section per template ── */}
           {canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => {
             if (!pending.length && !finished.length) return null;
@@ -7027,6 +6976,84 @@ ${jobsCtx || "No jobs found."}`;
       setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
     };
 
+    // ── Finish Approval Request (job-level) ──────────────────────────────────
+    const requestFinishApproval = async (jobId) => {
+      const job = tasks.find(t => t.id === jobId);
+      if (!job || !loggedInUser) return;
+      const requestId = uid();
+      const now = new Date().toISOString();
+      const newReq = { id: requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now, status: "pending" };
+      const newTasks = tasks.map(t => t.id !== jobId ? t : {
+        ...t,
+        finishRequest: { requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now },
+        finishRequests: [...(t.finishRequests || []), newReq],
+      });
+      setTasks(newTasks);
+      saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+      // Post detailed in-system message to the job thread (all admins are always participants)
+      const allParticipants = getThreadParticipants("job", jobId, null, null);
+      const participantIds = [...new Set([...allParticipants.map(p => p.id), loggedInUser.id])];
+      try {
+        const msg = await postMessage({
+          threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
+          text: `🏁 Finish approval requested by ${loggedInUser.name}`,
+          type: "finish_request", finishRequestId: requestId,
+          authorId: loggedInUser.id, authorName: loggedInUser.name,
+          authorColor: loggedInUser.color || "#64748b",
+          participantIds, attachments: [],
+        }, getToken, orgCode);
+        setMessages(prev => [...prev, msg]);
+      } catch(e) { console.warn("Failed to post finish request message:", e); }
+    };
+
+    const adminApproveJobFinish = async (jobId, requestId) => {
+      if (!isAdmin || !loggedInUser) return;
+      const job = tasks.find(t => t.id === jobId);
+      if (!job) return;
+      const now = new Date().toISOString();
+      const newTasks = tasks.map(t => t.id !== jobId ? t : {
+        ...t, status: "Finished", finishRequest: undefined,
+        finishRequests: (t.finishRequests || []).map(r => r.id !== requestId ? r : {
+          ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+        }),
+      });
+      setTasks(newTasks);
+      saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+      const participants = getThreadParticipants("job", jobId, null, null);
+      const participantIds = [...new Set(participants.map(p => p.id))];
+      postMessage({
+        threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
+        text: `✅ Finish request approved by ${loggedInUser.name}. "${job.title}" has been marked as Finished.`,
+        authorId: loggedInUser.id, authorName: loggedInUser.name,
+        authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
+      }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
+    };
+
+    const adminDeclineJobFinish = async (jobId, requestId, reason) => {
+      if (!isAdmin || !loggedInUser) return;
+      const job = tasks.find(t => t.id === jobId);
+      if (!job) return;
+      const now = new Date().toISOString();
+      const newTasks = tasks.map(t => t.id !== jobId ? t : {
+        ...t, finishRequest: undefined,
+        finishRequests: (t.finishRequests || []).map(r => r.id !== requestId ? r : {
+          ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+          ...(reason ? { declineReason: reason } : {}),
+        }),
+      });
+      setTasks(newTasks);
+      saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+      const participants = getThreadParticipants("job", jobId, null, null);
+      const participantIds = [...new Set(participants.map(p => p.id))];
+      postMessage({
+        threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
+        text: `❌ Finish request for "${job.title}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
+        authorId: loggedInUser.id, authorName: loggedInUser.name,
+        authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
+      }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
+      setFinishDeclineState(prev => { const n = { ...prev }; delete n[requestId]; return n; });
+    };
+
     // ── Shared numpad component ───────────────────────────────────────────────
     const NumKey = ({ d }) => (
       <button
@@ -7905,6 +7932,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Finish Requests */}
               {tsAdminTab === "finishRequests" && (
                 <div>
+                  {/* Op-level pending finish requests (existing behaviour) */}
                   {pendingFinishOps.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>No pending finish requests.</div>}
                   {pendingFinishOps.map(({ job, panel, op }) => {
                     const loggedH = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
@@ -7922,6 +7950,43 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                     );
                   })}
+
+                  {/* ── Finish Requests log (job-level, all statuses) ── */}
+                  {(() => {
+                    const allJobFinishReqs = [];
+                    tasks.forEach(job => {
+                      (job.finishRequests || []).forEach(req => {
+                        allJobFinishReqs.push({ job, req });
+                      });
+                    });
+                    allJobFinishReqs.sort((a, b) => b.req.at.localeCompare(a.req.at));
+                    if (allJobFinishReqs.length === 0) return null;
+                    return <div style={{ marginTop: pendingFinishOps.length > 0 ? 20 : 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Finish Requests</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {allJobFinishReqs.map(({ job, req }) => {
+                          const statusColor = req.status === "approved" ? "#10b981" : req.status === "declined" ? "#ef4444" : "#f59e0b";
+                          const statusLabel = req.status === "approved" ? "Approved" : req.status === "declined" ? "Declined" : "Pending";
+                          return <div key={req.id} style={{ padding: "12px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${statusColor}22` }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                              <div>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{job.title}</span>
+                                {job.jobNumber && <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginLeft: 6 }}>#{job.jobNumber}</span>}
+                              </div>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: statusColor + "18", border: `1px solid ${statusColor}30`, borderRadius: 8, padding: "2px 8px", flexShrink: 0 }}>{statusLabel}</span>
+                            </div>
+                            <div style={{ fontSize: 12, color: T.textDim }}>
+                              Requested by <strong style={{ color: T.text }}>{req.byName}</strong> · {new Date(req.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                            </div>
+                            {(req.status === "approved" || req.status === "declined") && <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>
+                              {req.status === "approved" ? "Approved" : "Declined"} by <strong style={{ color: T.text }}>{req.resolvedByName}</strong> · {new Date(req.resolvedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                            </div>}
+                            {req.status === "declined" && req.declineReason && <div style={{ fontSize: 12, color: T.textSec, marginTop: 4, fontStyle: "italic" }}>Reason: {req.declineReason}</div>}
+                          </div>;
+                        })}
+                      </div>
+                    </div>;
+                  })()}
                 </div>
               )}
             </div>
@@ -8632,6 +8697,116 @@ ${jobsCtx || "No jobs found."}`;
                 {msgs.map((m, i) => {
                   const isMe = loggedInUser && m.authorId === loggedInUser.id;
                   const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+                  // ── Special rendering: Finish Approval Request ──
+                  if (m.type === "finish_request") {
+                    const frJob = tasks.find(t => t.id === m.jobId);
+                    const frReq = (frJob?.finishRequests || []).find(r => r.id === m.finishRequestId);
+                    const frClient = frJob?.clientId ? clients.find(c => c.id === frJob.clientId) : null;
+                    const frPM = frJob?.projectManagerId ? people.find(p => p.id === frJob.projectManagerId) : null;
+                    const frDecState = finishDeclineState[m.finishRequestId] || {};
+                    const isPending = frReq?.status === "pending";
+                    const isApproved = frReq?.status === "approved";
+                    const isDeclined = frReq?.status === "declined";
+                    return <div key={m.id} style={{ padding: "8px 14px" }}>
+                      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius, overflow: "hidden", maxWidth: 560 }}>
+                        {/* Card header */}
+                        <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${T.border}`, background: T.card, display: "flex", alignItems: "flex-start", gap: 12 }}>
+                          <span style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>🏁</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Finish Approval Request</div>
+                            <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Requested by <strong style={{ color: T.text }}>{frReq?.byName || m.authorName}</strong> · {ts}</div>
+                          </div>
+                          {isPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
+                          {isApproved && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
+                          {isDeclined && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Declined</span>}
+                        </div>
+                        {/* Job details */}
+                        {frJob ? (() => {
+                          const fmtD = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+                          return <div style={{ padding: "14px 18px" }}>
+                            {/* Job name */}
+                            <div style={{ fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 6 }}>{frJob.title}</div>
+                            {/* Key fields grid */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", marginBottom: 12 }}>
+                              {[
+                                ["Job #", frJob.jobNumber || "—"],
+                                ["PO #", frJob.poNumber || "—"],
+                                ["Client", frClient?.name || "—"],
+                                ["Project Manager", frPM?.name || "—"],
+                                ["Start Date", fmtD(frJob.start)],
+                                ["End Date", fmtD(frJob.end)],
+                                ["Due Date", fmtD(frJob.dueDate)],
+                              ].map(([label, val]) => <div key={label}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+                                <div style={{ fontSize: 13, color: T.text, marginTop: 1 }}>{val}</div>
+                              </div>)}
+                            </div>
+                            {/* Operations */}
+                            {(frJob.subs || []).length > 0 && <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Operations</div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                {(frJob.subs || []).map(panel => {
+                                  const hasSubs = (panel.subs || []).length > 0;
+                                  const panelWorkers = hasSubs ? [] : (panel.team || []).map(id => people.find(p => p.id === id)?.name).filter(Boolean);
+                                  return <div key={panel.id} style={{ borderRadius: T.radiusXs, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: T.card }}>
+                                      <div style={{ width: 8, height: 8, borderRadius: 4, background: panel.color || T.accent, flexShrink: 0 }} />
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1 }}>{panel.title}</span>
+                                      {!hasSubs && panelWorkers.length > 0 && <span style={{ fontSize: 11, color: T.textDim }}>{panelWorkers.join(", ")}</span>}
+                                    </div>
+                                    {hasSubs && (panel.subs || []).map(sub => {
+                                      const subWorkers = (sub.team || []).map(id => people.find(p => p.id === id)?.name).filter(Boolean);
+                                      return <div key={sub.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px 5px 26px", borderTop: `1px solid ${T.border}` }}>
+                                        <span style={{ fontSize: 12, color: T.textSec, flex: 1 }}>↳ {sub.title}</span>
+                                        {subWorkers.length > 0 && <span style={{ fontSize: 11, color: T.textDim }}>{subWorkers.join(", ")}</span>}
+                                      </div>;
+                                    })}
+                                  </div>;
+                                })}
+                              </div>
+                            </div>}
+                            {/* Notes */}
+                            {frJob.notes && <div style={{ marginBottom: 12 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Notes</div>
+                              <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{frJob.notes}</div>
+                            </div>}
+                            {/* Resolution info */}
+                            {(isApproved || isDeclined) && <div style={{ padding: "10px 12px", borderRadius: T.radiusXs, background: isApproved ? "#10b98110" : "#ef444410", border: `1px solid ${isApproved ? "#10b98130" : "#ef444430"}`, marginBottom: 8 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: isApproved ? "#10b981" : "#ef4444" }}>
+                                {isApproved ? "✅ Approved" : "❌ Declined"} by {frReq.resolvedByName} · {new Date(frReq.resolvedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              </div>
+                              {isDeclined && frReq.declineReason && <div style={{ fontSize: 12, color: T.textSec, marginTop: 4 }}>Reason: {frReq.declineReason}</div>}
+                            </div>}
+                            {/* Approve / Decline buttons — admin only, pending only */}
+                            {isAdmin && isPending && (() => {
+                              if (frDecState.showInput) {
+                                return <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                  <textarea
+                                    value={frDecState.reason || ""}
+                                    onChange={e => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { ...prev[m.finishRequestId], reason: e.target.value } }))}
+                                    placeholder="Reason for declining (optional)…"
+                                    rows={3}
+                                    style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }}
+                                  />
+                                  <div style={{ display: "flex", gap: 8 }}>
+                                    <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: false, reason: "" } }))} style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                                    <button onClick={() => adminDeclineJobFinish(m.jobId, m.finishRequestId, frDecState.reason || "")} style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Confirm Decline</button>
+                                  </div>
+                                </div>;
+                              }
+                              return <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+                                <button onClick={() => adminApproveJobFinish(m.jobId, m.finishRequestId)} style={{ flex: 1, padding: "14px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✓ Approve</button>
+                                <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: true, reason: "" } }))} style={{ flex: 1, padding: "14px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✕ Decline</button>
+                              </div>;
+                            })()}
+                          </div>;
+                        })() : <div style={{ padding: "14px 18px", fontSize: 13, color: T.textDim }}>Job data no longer available.</div>}
+                      </div>
+                    </div>;
+                  }
+
+                  // ── Standard message bubble ──
                   return <div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 10, padding: "4px 14px", alignItems: "center" }}>
                     <div style={{ width: 32, height: 32, borderRadius: 16, background: m.authorColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{m.authorName[0]}</div>
                     <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 3 }}>
@@ -10259,11 +10434,7 @@ ${jobsCtx || "No jobs found."}`;
             <button key={s} onClick={() => {
               setStatusPopover(null);
               if (s === statusPopover.current) return;
-              if (s === "Finished") {
-                const spJob = tasks.find(t => t.id === statusPopover.id) || tasks.find(t => (t.subs || []).some(p => p.id === statusPopover.id || (p.subs || []).some(o => o.id === statusPopover.id)));
-                setFinishApproval({ id: statusPopover.id, pid: statusPopover.pid, title: spJob?.title || "", jobNumber: spJob?.jobNumber || null });
-                return;
-              }
+              if (s === "Finished" && !isAdmin) return; // non-admins must use right-click > Request Finish Approval
               updTask(statusPopover.id, { status: s }, statusPopover.pid || undefined);
             }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: isCurrent ? sc + "22" : "transparent", cursor: s === statusPopover.current ? "default" : "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.12s" }} onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = sc + "18"; }} onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? sc + "22" : "transparent"; }}>
               <span style={{ fontSize: 13, color: sc }}>{STA_ICON[s]}</span>
@@ -10274,35 +10445,18 @@ ${jobsCtx || "No jobs found."}`;
         })}
       </div>
     </>}
-    {/* ── Finish Approval Modal ── */}
+    {/* ── Request Finish Approval Confirmation Modal ── */}
     {finishApproval && <div style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setFinishApproval(null)}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(400px, calc(100vw - 32px))", padding: "28px 28px 24px", animation: "slideUp 0.22s ease-out" }}>
-        {isAdmin ? <>
-          <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>✅</div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: T.text, textAlign: "center", marginBottom: 8 }}>Mark as Finished?</div>
-          <div style={{ fontSize: 13, color: T.textSec, textAlign: "center", marginBottom: 24, lineHeight: 1.65 }}>
-            <strong style={{ color: T.text }}>{finishApproval.title}</strong> will be marked as <span style={{ color: "#10b981", fontWeight: 700 }}>Finished</span>. Please confirm this is complete.
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setFinishApproval(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={() => { updTask(finishApproval.id, { status: "Finished" }, finishApproval.pid); setFinishApproval(null); }} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: "#10b981", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Approve & Finish</button>
-          </div>
-        </> : <>
-          <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>🏁</div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: T.text, textAlign: "center", marginBottom: 8 }}>Request Finish Approval</div>
-          <div style={{ fontSize: 13, color: T.textSec, textAlign: "center", marginBottom: 24, lineHeight: 1.65 }}>
-            Send a request to your admin to mark <strong style={{ color: T.text }}>{finishApproval.title}</strong> as finished. They'll be notified and can approve or decline.
-          </div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setFinishApproval(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={() => {
-              const req = { by: loggedInUser.id, byName: loggedInUser.name, at: new Date().toISOString() };
-              updTask(finishApproval.id, { finishRequest: req }, finishApproval.pid);
-              callNotify({ type: "finish_request", jobTitle: finishApproval.title, jobNumber: finishApproval.jobNumber || null, requestedByName: loggedInUser.name }, getToken, orgCode).catch(console.warn);
-              setFinishApproval(null);
-            }} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Send Request</button>
-          </div>
-        </>}
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(440px, calc(100vw - 32px))", padding: "28px 28px 24px", animation: "slideUp 0.22s ease-out" }}>
+        <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>🏁</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: T.text, textAlign: "center", marginBottom: 8 }}>Request Finish Approval</div>
+        <div style={{ fontSize: 13, color: T.textSec, textAlign: "center", marginBottom: 24, lineHeight: 1.65 }}>
+          A detailed notification will be sent to all admins for <strong style={{ color: T.text }}>{finishApproval.title}</strong>. They can approve or decline directly inside TRAQS.
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => setFinishApproval(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => { requestFinishApproval(finishApproval.id); setFinishApproval(null); }} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Send Request</button>
+        </div>
       </div>
     </div>}
     {/* ── Scheduling / Org Settings Modal ── */}
@@ -11169,6 +11323,8 @@ ${jobsCtx || "No jobs found."}`;
       {can("lockJobs") && (isOp || isPanel) && <CtxMenuItem icon={it.locked ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>} label={it.locked ? "Unlock Job" : "Lock Job"} sub={it.locked ? "Allow this job to be moved" : "Prevent this job from being moved"} onClick={() => { toggleLock(it.id, it.pid); setCtxMenu(null); }} />}
       {/* Copy */}
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>} label="Copy" sub={`Copy this ${isOp ? "operation" : isPanel ? "panel" : "job"} to clipboard`} onClick={() => copyItem(it)} />
+      {/* Request Finish Approval — job bars only */}
+      {isJob && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Finish Approval" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} />}
       {/* Delete */}
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => {
