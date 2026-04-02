@@ -43,7 +43,7 @@ export async function handler(event) {
       return err(400, "Invalid JSON body");
     }
 
-    const { threadKey, scope, jobId, panelId, opId, text, authorId, authorName, authorColor, participantIds, attachments } = body ?? {};
+    const { threadKey, scope, jobId, panelId, opId, text, authorId, authorName, authorColor, participantIds, attachments, type, finishRequestId } = body ?? {};
     if (!threadKey || (!text?.trim() && !attachments?.length) || !authorId) return err(400, "Missing required fields");
 
     try {
@@ -62,6 +62,7 @@ export async function handler(event) {
         participantIds: participantIds || [],
         attachments: Array.isArray(attachments) ? attachments.slice(0, 10) : [],
         timestamp: new Date().toISOString(),
+        ...(type ? { type, finishRequestId: finishRequestId || null } : {}),
       };
       messages.push(newMsg);
       // Keep last 2000 messages to prevent unbounded growth

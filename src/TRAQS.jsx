@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -201,7 +202,7 @@ animStyle.textContent = `
 
 @keyframes viewEnter {
   0%   { opacity: 0; transform: translateY(20px) scale(0.97); filter: blur(6px); }
-  100% { opacity: 1; transform: translateY(0)    scale(1);    filter: blur(0);   }
+  100% { opacity: 1; }
 }
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
@@ -1472,6 +1473,7 @@ Rules:
   const [customColType, setCustomColType] = useState("text");
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
   const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
+  const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
@@ -1887,6 +1889,7 @@ Rules:
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
   const ganttRef = useRef(null);
   const ganttContainerRef = useRef(null);
+  const barTooltipTimer = useRef(null);
   const [ganttWidth, setGanttWidth] = useState(0);
   const ganttCWRef = useRef(8);
   const teamCWRef = useRef(8);
@@ -2971,26 +2974,37 @@ ${jobsCtx || "No jobs found."}`;
   }
 
   // ── Finish Approval Request (job-level) — component-level so modal + messages can call them ──
-  const requestFinishApproval = async (jobId) => {
-    const job = tasks.find(t => t.id === jobId);
-    if (!job || !loggedInUser) return;
+  const requestFinishApproval = async (panelId) => {
+    let parentJob = null, panel = null;
+    for (const job of tasks) {
+      const found = (job.subs || []).find(s => s.id === panelId);
+      if (found) { parentJob = job; panel = found; break; }
+    }
+    if (!panel || !parentJob || !loggedInUser) return;
     const requestId = uid();
     const now = new Date().toISOString();
     const newReq = { id: requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now, status: "pending" };
-    const newTasks = tasks.map(t => t.id !== jobId ? t : {
+    const newTasks = tasks.map(t => t.id !== parentJob.id ? t : {
       ...t,
-      finishRequest: { requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now },
-      finishRequests: [...(t.finishRequests || []), newReq],
+      subs: (t.subs || []).map(s => s.id !== panelId ? s : {
+        ...s,
+        finishRequest: { requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now },
+        finishRequests: [...(s.finishRequests || []), newReq],
+      }),
     });
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    // Post detailed in-system message to the job thread (all admins are always participants)
-    const allParticipants = getThreadParticipants("job", jobId, null, null);
-    const participantIds = [...new Set([...allParticipants.map(p => p.id), loggedInUser.id])];
+    const adminParticipants = people.filter(p => p.userRole === "admin");
+    if (adminParticipants.length === 0) {
+      console.warn("No admins found to receive finish request");
+      alert("No admins are available to receive this request. Please contact your administrator directly.");
+      return;
+    }
+    const participantIds = adminParticipants.map(p => p.id);
     try {
       const msg = await postMessage({
-        threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-        text: `🏁 Finish approval requested by ${loggedInUser.name}`,
+        threadKey: `job:${parentJob.id}`, scope: "job", jobId: parentJob.id, panelId, opId: null,
+        text: `🏁 Finish approval requested by ${loggedInUser.name} for operation "${panel.title}"`,
         type: "finish_request", finishRequestId: requestId,
         authorId: loggedInUser.id, authorName: loggedInUser.name,
         authorColor: loggedInUser.color || "#64748b",
@@ -3000,48 +3014,68 @@ ${jobsCtx || "No jobs found."}`;
     } catch(e) { console.warn("Failed to post finish request message:", e); }
   };
 
-  const adminApproveJobFinish = async (jobId, requestId) => {
+  const adminApproveJobFinish = async (jobId, panelId, requestId) => {
     if (!isAdmin || !loggedInUser) return;
-    const job = tasks.find(t => t.id === jobId);
-    if (!job) return;
+    let parentJob = null, panel = null;
+    for (const job of tasks) {
+      if (job.id !== jobId) continue;
+      const found = (job.subs || []).find(s => s.id === panelId);
+      if (found) { parentJob = job; panel = found; break; }
+    }
+    if (!parentJob || !panel) return;
     const now = new Date().toISOString();
     const newTasks = tasks.map(t => t.id !== jobId ? t : {
-      ...t, status: "Finished", finishRequest: undefined,
-      finishRequests: (t.finishRequests || []).map(r => r.id !== requestId ? r : {
-        ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+      ...t,
+      subs: (t.subs || []).map(s => s.id !== panelId ? s : {
+        ...s, status: "Finished", finishRequest: undefined,
+        finishRequests: (s.finishRequests || []).map(r => r.id !== requestId ? r : {
+          ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+        }),
       }),
     });
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const participants = getThreadParticipants("job", jobId, null, null);
-    const participantIds = [...new Set(participants.map(p => p.id))];
+    const finReq = (panel.finishRequests || []).find(r => r.id === requestId);
+    const requesterId = finReq?.by;
+    const notifyParticipants = people.filter(p => p.userRole === "admin" || (requesterId && p.id === requesterId));
+    const participantIds = [...new Set(notifyParticipants.map(p => p.id))];
     postMessage({
       threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-      text: `✅ Finish request approved by ${loggedInUser.name}. "${job.title}" has been marked as Finished.`,
+      text: `✅ Finish request approved by ${loggedInUser.name}. "${panel.title}" has been marked as Finished.`,
       authorId: loggedInUser.id, authorName: loggedInUser.name,
       authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
     }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
   };
 
-  const adminDeclineJobFinish = async (jobId, requestId, reason) => {
+  const adminDeclineJobFinish = async (jobId, panelId, requestId, reason) => {
     if (!isAdmin || !loggedInUser) return;
-    const job = tasks.find(t => t.id === jobId);
-    if (!job) return;
+    let parentJob = null, panel = null;
+    for (const job of tasks) {
+      if (job.id !== jobId) continue;
+      const found = (job.subs || []).find(s => s.id === panelId);
+      if (found) { parentJob = job; panel = found; break; }
+    }
+    if (!parentJob || !panel) return;
     const now = new Date().toISOString();
     const newTasks = tasks.map(t => t.id !== jobId ? t : {
-      ...t, finishRequest: undefined,
-      finishRequests: (t.finishRequests || []).map(r => r.id !== requestId ? r : {
-        ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
-        ...(reason ? { declineReason: reason } : {}),
+      ...t,
+      subs: (t.subs || []).map(s => s.id !== panelId ? s : {
+        ...s, finishRequest: undefined,
+        finishRequests: (s.finishRequests || []).map(r => r.id !== requestId ? r : {
+          ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+          ...(reason ? { declineReason: reason } : {}),
+        }),
       }),
     });
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const participants = getThreadParticipants("job", jobId, null, null);
-    const participantIds = [...new Set(participants.map(p => p.id))];
+    const finReq = (panel.finishRequests || []).find(r => r.id === requestId);
+    const requesterId = finReq?.by;
+    const notifyParticipants = people.filter(p => p.userRole === "admin" || (requesterId && p.id === requesterId));
+    const participantIds = [...new Set(notifyParticipants.map(p => p.id))];
     postMessage({
       threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-      text: `❌ Finish request for "${job.title}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
+      text: `❌ Finish request for "${panel.title}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
       authorId: loggedInUser.id, authorName: loggedInUser.name,
       authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
     }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
@@ -6409,7 +6443,7 @@ ${jobsCtx || "No jobs found."}`;
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
-                    onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto) setBarTooltip({ x: e.clientX, y: e.clientY, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); setBarTooltip(null); }}>
+                    onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
@@ -6429,7 +6463,7 @@ ${jobsCtx || "No jobs found."}`;
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
                       style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, cursor: "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
-                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto2) setBarTooltip({ x: e.clientX, y: e.clientY, color: bc2, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); setBarTooltip(null); }}>
+                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto2) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc2, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
                       {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];
@@ -6492,7 +6526,7 @@ ${jobsCtx || "No jobs found."}`;
       const flipLeft = barTooltip.x > window.innerWidth - 330;
       const hasMeta = barTooltip.clientName || barTooltip.jobNumber || barTooltip.poNumber;
       const hasFlags = barTooltip.locked || barTooltip.hasMoveLog;
-      return <div style={{ position: "fixed", left: flipLeft ? undefined : barTooltip.x + 16, right: flipLeft ? window.innerWidth - barTooltip.x + 10 : undefined, top: barTooltip.y - 10, zIndex: 10000, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 14px", minWidth: 200, maxWidth: 290, pointerEvents: "none", boxShadow: "0 12px 40px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.12)", animation: "tipIn 0.14s ease-out", fontFamily: T.font }}>
+      return createPortal(<div data-bar-tooltip style={{ position: "fixed", left: flipLeft ? undefined : barTooltip.x + 16, right: flipLeft ? window.innerWidth - barTooltip.x + 10 : undefined, top: barTooltip.y - 10, zIndex: 10000, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 14px", minWidth: 200, maxWidth: 290, pointerEvents: "none", boxShadow: "0 12px 40px rgba(0,0,0,0.3), 0 2px 8px rgba(0,0,0,0.12)", animation: "tipIn 0.14s ease-out", fontFamily: T.font }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: barTooltip.subTitle ? 2 : 6 }}>
           <div style={{ width: 8, height: 8, borderRadius: 4, background: barTooltip.color, flexShrink: 0, boxShadow: `0 0 6px ${barTooltip.color}88` }} />
           <span style={{ fontSize: 13, fontWeight: 700, color: T.text, lineHeight: 1.3, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{barTooltip.jobTitle}</span>
@@ -6509,7 +6543,7 @@ ${jobsCtx || "No jobs found."}`;
           {barTooltip.locked && <span>🔒 Locked</span>}
           {barTooltip.hasMoveLog && <span>📋 Rescheduled</span>}
         </div>}
-      </div>;
+      </div>, document.body);
     })()}
     </div>;
   };
@@ -7955,8 +7989,10 @@ ${jobsCtx || "No jobs found."}`;
                   {(() => {
                     const allJobFinishReqs = [];
                     tasks.forEach(job => {
-                      (job.finishRequests || []).forEach(req => {
-                        allJobFinishReqs.push({ job, req });
+                      (job.subs || []).forEach(panel => {
+                        (panel.finishRequests || []).forEach(req => {
+                          allJobFinishReqs.push({ job, panel, req });
+                        });
                       });
                     });
                     allJobFinishReqs.sort((a, b) => b.req.at.localeCompare(a.req.at));
@@ -7964,7 +8000,7 @@ ${jobsCtx || "No jobs found."}`;
                     return <div style={{ marginTop: pendingFinishOps.length > 0 ? 20 : 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Finish Requests</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                        {allJobFinishReqs.map(({ job, req }) => {
+                        {allJobFinishReqs.map(({ job, panel, req }) => {
                           const statusColor = req.status === "approved" ? "#10b981" : req.status === "declined" ? "#ef4444" : "#f59e0b";
                           const statusLabel = req.status === "approved" ? "Approved" : req.status === "declined" ? "Declined" : "Pending";
                           return <div key={req.id} style={{ padding: "12px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${statusColor}22` }}>
@@ -7972,6 +8008,7 @@ ${jobsCtx || "No jobs found."}`;
                               <div>
                                 <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{job.title}</span>
                                 {job.jobNumber && <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginLeft: 6 }}>#{job.jobNumber}</span>}
+                                <span style={{ fontSize: 11, color: T.textDim, marginLeft: 6 }}>· {panel.title}</span>
                               </div>
                               <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: statusColor + "18", border: `1px solid ${statusColor}30`, borderRadius: 8, padding: "2px 8px", flexShrink: 0 }}>{statusLabel}</span>
                             </div>
@@ -8701,13 +8738,16 @@ ${jobsCtx || "No jobs found."}`;
                   // ── Special rendering: Finish Approval Request ──
                   if (m.type === "finish_request") {
                     const frJob = tasks.find(t => t.id === m.jobId);
-                    const frReq = (frJob?.finishRequests || []).find(r => r.id === m.finishRequestId);
+                    const frPanel = (frJob?.subs || []).find(s => s.id === m.panelId);
+                    const frReq = (frPanel?.finishRequests || []).find(r => r.id === m.finishRequestId);
                     const frClient = frJob?.clientId ? clients.find(c => c.id === frJob.clientId) : null;
                     const frPM = frJob?.projectManagerId ? people.find(p => p.id === frJob.projectManagerId) : null;
                     const frDecState = finishDeclineState[m.finishRequestId] || {};
                     const isPending = frReq?.status === "pending";
                     const isApproved = frReq?.status === "approved";
                     const isDeclined = frReq?.status === "declined";
+                    const isExpanded = !!frDetailsExpanded[m.finishRequestId];
+                    const fmtFR = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
                     return <div key={m.id} style={{ padding: "8px 14px" }}>
                       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius, overflow: "hidden", maxWidth: 560 }}>
                         {/* Card header */}
@@ -8721,87 +8761,96 @@ ${jobsCtx || "No jobs found."}`;
                           {isApproved && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
                           {isDeclined && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Declined</span>}
                         </div>
-                        {/* Job details */}
-                        {frJob ? (() => {
-                          const fmtD = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
-                          return <div style={{ padding: "14px 18px" }}>
-                            {/* Job name */}
-                            <div style={{ fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 6 }}>{frJob.title}</div>
-                            {/* Key fields grid */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", marginBottom: 12 }}>
-                              {[
-                                ["Job #", frJob.jobNumber || "—"],
-                                ["PO #", frJob.poNumber || "—"],
-                                ["Client", frClient?.name || "—"],
-                                ["Project Manager", frPM?.name || "—"],
-                                ["Start Date", fmtD(frJob.start)],
-                                ["End Date", fmtD(frJob.end)],
-                                ["Due Date", fmtD(frJob.dueDate)],
-                              ].map(([label, val]) => <div key={label}>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
-                                <div style={{ fontSize: 13, color: T.text, marginTop: 1 }}>{val}</div>
-                              </div>)}
+                        {/* Body */}
+                        <div style={{ padding: "14px 18px" }}>
+                          {/* Operation + job — always visible */}
+                          {frPanel && <div style={{ fontSize: 14, marginBottom: 12 }}>
+                            <span style={{ color: T.textDim }}>Operation: </span>
+                            <strong style={{ color: T.text }}>{frPanel.title}</strong>
+                            {frJob && <span style={{ color: T.textDim }}> · {frJob.title}{frJob.jobNumber ? ` #${frJob.jobNumber}` : ""}</span>}
+                          </div>}
+                          {/* Collapsible details dropdown */}
+                          {frJob && <>
+                            <button
+                              onClick={() => setFrDetailsExpanded(prev => ({ ...prev, [m.finishRequestId]: !prev[m.finishRequestId] }))}
+                              style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: "none", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "8px 12px", cursor: "pointer", color: T.textSec, fontSize: 13, fontFamily: T.font, marginBottom: 10, textAlign: "left" }}
+                            >
+                              <span style={{ flex: 1 }}>View Job Details</span>
+                              <span style={{ display: "inline-block", transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}>▾</span>
+                            </button>
+                            {isExpanded && <div style={{ marginBottom: 12, animation: "slideUp 0.15s ease-out" }}>
+                              {/* Key fields grid */}
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", marginBottom: 10, padding: "12px 14px", background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>
+                                {[
+                                  ["Job #", frJob.jobNumber || "—"],
+                                  ["PO #", frJob.poNumber || "—"],
+                                  ["Client", frClient?.name || "—"],
+                                  ["Project Manager", frPM?.name || "—"],
+                                  ["Op Start", fmtFR(frPanel?.start)],
+                                  ["Op End", fmtFR(frPanel?.end)],
+                                ].map(([label, val]) => <div key={label}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+                                  <div style={{ fontSize: 13, color: T.text, marginTop: 1 }}>{val}</div>
+                                </div>)}
+                              </div>
+                              {/* Sub-operations */}
+                              {frPanel && (frPanel.subs || []).length > 0 && <div style={{ marginBottom: 8 }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sub-Operations</div>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {(frPanel.subs || []).map(sub => {
+                                    const subWorkers = (sub.team || []).map(id => people.find(p => p.id === id)?.name).filter(Boolean);
+                                    return <div key={sub.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{sub.title}</div>
+                                        {subWorkers.length > 0 && <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>{subWorkers.join(", ")}</div>}
+                                      </div>
+                                      {(sub.start || sub.end) && <div style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap" }}>{fmtFR(sub.start)} – {fmtFR(sub.end)}</div>}
+                                    </div>;
+                                  })}
+                                </div>
+                              </div>}
+                              {/* Notes */}
+                              {frJob.notes && <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Notes</div>
+                                <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{frJob.notes}</div>
+                              </div>}
+                            </div>}
+                          </>}
+                          {/* Resolution card — shown after decision */}
+                          {(isApproved || isDeclined) && <div style={{ padding: "12px 14px", borderRadius: T.radiusXs, background: isApproved ? "#10b98110" : "#ef444410", border: `1px solid ${isApproved ? "#10b98130" : "#ef444430"}`, marginBottom: 4 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: isApproved ? "#10b981" : "#ef4444" }}>
+                              {isApproved ? "✅ Approved" : "❌ Declined"} by {frReq.resolvedByName} · {new Date(frReq.resolvedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                             </div>
-                            {/* Operations */}
-                            {(frJob.subs || []).length > 0 && <div style={{ marginBottom: 12 }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Operations</div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                {(frJob.subs || []).map(panel => {
-                                  const hasSubs = (panel.subs || []).length > 0;
-                                  const panelWorkers = hasSubs ? [] : (panel.team || []).map(id => people.find(p => p.id === id)?.name).filter(Boolean);
-                                  return <div key={panel.id} style={{ borderRadius: T.radiusXs, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", background: T.card }}>
-                                      <div style={{ width: 8, height: 8, borderRadius: 4, background: panel.color || T.accent, flexShrink: 0 }} />
-                                      <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1 }}>{panel.title}</span>
-                                      {!hasSubs && panelWorkers.length > 0 && <span style={{ fontSize: 11, color: T.textDim }}>{panelWorkers.join(", ")}</span>}
-                                    </div>
-                                    {hasSubs && (panel.subs || []).map(sub => {
-                                      const subWorkers = (sub.team || []).map(id => people.find(p => p.id === id)?.name).filter(Boolean);
-                                      return <div key={sub.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px 5px 26px", borderTop: `1px solid ${T.border}` }}>
-                                        <span style={{ fontSize: 12, color: T.textSec, flex: 1 }}>↳ {sub.title}</span>
-                                        {subWorkers.length > 0 && <span style={{ fontSize: 11, color: T.textDim }}>{subWorkers.join(", ")}</span>}
-                                      </div>;
-                                    })}
-                                  </div>;
-                                })}
-                              </div>
-                            </div>}
-                            {/* Notes */}
-                            {frJob.notes && <div style={{ marginBottom: 12 }}>
-                              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Notes</div>
-                              <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{frJob.notes}</div>
-                            </div>}
-                            {/* Resolution info */}
-                            {(isApproved || isDeclined) && <div style={{ padding: "10px 12px", borderRadius: T.radiusXs, background: isApproved ? "#10b98110" : "#ef444410", border: `1px solid ${isApproved ? "#10b98130" : "#ef444430"}`, marginBottom: 8 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: isApproved ? "#10b981" : "#ef4444" }}>
-                                {isApproved ? "✅ Approved" : "❌ Declined"} by {frReq.resolvedByName} · {new Date(frReq.resolvedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                              </div>
-                              {isDeclined && frReq.declineReason && <div style={{ fontSize: 12, color: T.textSec, marginTop: 4 }}>Reason: {frReq.declineReason}</div>}
-                            </div>}
-                            {/* Approve / Decline buttons — admin only, pending only */}
-                            {isAdmin && isPending && (() => {
-                              if (frDecState.showInput) {
-                                return <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                                  <textarea
-                                    value={frDecState.reason || ""}
-                                    onChange={e => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { ...prev[m.finishRequestId], reason: e.target.value } }))}
-                                    placeholder="Reason for declining (optional)…"
-                                    rows={3}
-                                    style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }}
-                                  />
-                                  <div style={{ display: "flex", gap: 8 }}>
-                                    <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: false, reason: "" } }))} style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                                    <button onClick={() => adminDeclineJobFinish(m.jobId, m.finishRequestId, frDecState.reason || "")} style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Confirm Decline</button>
-                                  </div>
-                                </div>;
-                              }
-                              return <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-                                <button onClick={() => adminApproveJobFinish(m.jobId, m.finishRequestId)} style={{ flex: 1, padding: "14px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✓ Approve</button>
-                                <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: true, reason: "" } }))} style={{ flex: 1, padding: "14px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✕ Decline</button>
+                            {isDeclined && frReq.declineReason && <div style={{ fontSize: 12, color: T.textSec, marginTop: 4 }}>Reason: {frReq.declineReason}</div>}
+                          </div>}
+                          {/* Approve / Decline buttons — admin only, pending only */}
+                          {isAdmin && isPending && (() => {
+                            if (frDecState.showInput) {
+                              const hasReason = !!(frDecState.reason?.trim());
+                              return <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                <textarea
+                                  value={frDecState.reason || ""}
+                                  onChange={e => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { ...prev[m.finishRequestId], reason: e.target.value } }))}
+                                  placeholder="Reason for declining (required)…"
+                                  rows={3}
+                                  style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${hasReason ? T.border : "#ef444466"}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }}
+                                />
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: false, reason: "" } }))} style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                                  <button
+                                    disabled={!hasReason}
+                                    onClick={() => adminDeclineJobFinish(m.jobId, m.panelId, m.finishRequestId, frDecState.reason || "")}
+                                    style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: "none", background: hasReason ? "#ef4444" : T.border, color: hasReason ? "#fff" : T.textDim, fontSize: 14, fontWeight: 700, cursor: hasReason ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}
+                                  >Confirm Decline</button>
+                                </div>
                               </div>;
-                            })()}
-                          </div>;
-                        })() : <div style={{ padding: "14px 18px", fontSize: 13, color: T.textDim }}>Job data no longer available.</div>}
+                            }
+                            return <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+                              <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: true, reason: "" } }))} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✕ Decline</button>
+                              <button onClick={() => adminApproveJobFinish(m.jobId, m.panelId, m.finishRequestId)} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✓ Approve</button>
+                            </div>;
+                          })()}
+                        </div>
                       </div>
                     </div>;
                   }
@@ -11279,6 +11328,12 @@ ${jobsCtx || "No jobs found."}`;
       const isOp = it.level === 2 || (it.isSub && it.pid && !tasks.find(x => x.id === it.id));
       const isPanel = it.level === 1 || (it.isSub && it.pid && !it.grandPid && tasks.find(j => (j.subs||[]).find(p => p.id === it.id)));
       const isJob = it.level === 0 || (!it.isSub && !it.pid);
+      // Live children count — read from tasks state, not from the spread item (which may not have subs populated)
+      const liveChildCount = (() => {
+        if (isJob) return (tasks.find(t => t.id === it.id)?.subs || []).length;
+        if (isPanel) { for (const job of tasks) { const p = (job.subs || []).find(s => s.id === it.id); if (p) return (p.subs || []).length; } return 0; }
+        return 0; // ops never have children
+      })();
       // Schedule log count
       let logCount = 0;
       if (it.moveLog) logCount = it.moveLog.length;
@@ -11313,8 +11368,8 @@ ${jobsCtx || "No jobs found."}`;
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>} label={logCount > 0 ? `Schedule Log (${logCount})` : "Schedule Log"} sub={logCount > 0 ? "View move history" : "No changes recorded"} onClick={() => { openDetail(it); setCtxMenu(null); }} />
       {/* Lock Job */}
       {can("lockJobs") && (isOp || isPanel) && <CtxMenuItem icon={it.locked ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>} label={it.locked ? "Unlock Job" : "Lock Job"} sub={it.locked ? "Allow this job to be moved" : "Prevent this job from being moved"} onClick={() => { toggleLock(it.id, it.pid); setCtxMenu(null); }} />}
-      {/* Request Finish Approval — operation bars only (not job or sub-op) */}
-      {isPanel && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Finish Approval" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} />}
+      {/* Request Finish Approval — lowest level bar with no children */}
+      {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Finish Approval" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} />}
       {/* Delete */}
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => {
