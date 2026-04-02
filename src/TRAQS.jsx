@@ -9006,7 +9006,7 @@ ${jobsCtx || "No jobs found."}`;
                 const updatePanel = (patch) => { const subs=[...(ed.subs||[])]; subs[pi]={...subs[pi],...patch}; setEd(p => ({ ...p, subs })); };
                 const hasSubs = (panel.subs||[]).length>0;
                 const panelHpdSum = hasSubs ? Math.round((panel.subs||[]).reduce((s,x) => s+(x.hpd??7.5),0)*10)/10 : null;
-                return <div key={pi} style={{ background:T.bg, borderRadius:T.radiusSm, border:`1px solid ${T.border}`, padding:12 }}>
+                return <div key={panel.id} style={{ background:T.bg, borderRadius:T.radiusSm, border:`1px solid ${T.border}`, padding:12, animation:"staggerUp 0.28s cubic-bezier(0.34,1.56,0.64,1) both" }}>
                   {/* Panel header row */}
                   <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:3, flexShrink:0 }}>
@@ -9042,7 +9042,7 @@ ${jobsCtx || "No jobs found."}`;
                   {!collapsedOps[panel.id] && <>
                   {(panel.subs||[]).map((sub,si) => {
                     const updateSub = (patch) => { const subs=[...(panel.subs||[])]; subs[si]={...subs[si],...patch}; updatePanel({subs}); };
-                    return <div key={si} draggable onDragStart={e => { e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx=Number(e.dataTransfer.getData("text/plain")); if(fromIdx===si) return; const newSubs=[...(panel.subs||[])]; const [moved]=newSubs.splice(fromIdx,1); newSubs.splice(si,0,moved); updatePanel({subs:newSubs}); }} style={{ marginBottom:6 }}>
+                    return <div key={sub.id} draggable onDragStart={e => { e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx=Number(e.dataTransfer.getData("text/plain")); if(fromIdx===si) return; const newSubs=[...(panel.subs||[])]; const [moved]=newSubs.splice(fromIdx,1); newSubs.splice(si,0,moved); updatePanel({subs:newSubs}); }} style={{ marginBottom:6, animation:"fadeScale 0.2s ease-out both" }}>
                       <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, paddingLeft:16 }}>
                         <div style={{ cursor:"grab", color:T.textDim, fontSize:13, userSelect:"none", flexShrink:0, paddingRight:4 }} title="Drag to reorder">⠿</div>
                         <div style={{ width:2, height:20, background:T.border, borderRadius:2, flexShrink:0 }} />
