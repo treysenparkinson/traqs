@@ -1858,6 +1858,8 @@ Rules:
   const [aiLoading, setAiLoading] = useState(false);
   const [availCheckPassed, setAvailCheckPassed] = useState(false);
   const [scheduleConfirmed, setScheduleConfirmed] = useState(false);
+  const [previewExpanded, setPreviewExpanded] = useState(false);
+  const [previewPanelExpanded, setPreviewPanelExpanded] = useState({});
   const [modalStep, setModalStep] = useState(1);   // 1 | 2 | 3
   const [stepDir, setStepDir] = useState(1);        // 1 = forward, -1 = back
   const [scheduleTeamMode, setScheduleTeamMode] = useState("one"); // "one" | "team"
@@ -2613,8 +2615,8 @@ Rules:
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
-  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
-  const openEdit = (t, pid = null) => { setModalStep(1); setStepDir(1); const hasAssign = (t.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0); setAvailCheckPassed(hasAssign); setScheduleConfirmed(hasAssign); setAiSuggestion(null); setModal({ type: "edit", data: { ...t }, parentId: pid }); };
+  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
+  const openEdit = (t, pid = null) => { setModalStep(1); setStepDir(1); const hasAssign = (t.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0); setAvailCheckPassed(hasAssign); setScheduleConfirmed(hasAssign); setPreviewExpanded(false); setPreviewPanelExpanded({}); setAiSuggestion(null); setModal({ type: "edit", data: { ...t }, parentId: pid }); };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
@@ -9164,6 +9166,11 @@ ${jobsCtx || "No jobs found."}`;
               if (!hasAnyAssignment) return <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 0", gap:12 }}>
                 <div style={{ fontSize:14, color:T.textSec }}>Finding available windows…</div>
               </div>;
+              // Compute overall job date range from all assigned items
+              const assignedPanels=(ed.subs||[]).filter(p=>(p.subs||[]).some(s=>(s.team||[]).length>0)||(p.team||[]).length>0);
+              const allDates=assignedPanels.flatMap(p=>(p.subs||[]).length>0?(p.subs||[]).flatMap(s=>[s.start,s.end]):[p.start,p.end]).filter(Boolean);
+              const jobStart=allDates.length?allDates.reduce((a,b)=>a<b?a:b):null;
+              const jobEnd=allDates.length?allDates.reduce((a,b)=>a>b?a:b):null;
               return <div>
                 {/* Success banner */}
                 <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", background:"#10b98112", border:"1px solid #10b98133", borderRadius:T.radiusSm, marginBottom:16 }}>
@@ -9173,42 +9180,55 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ fontSize:12, color:T.textSec }}>Review the assignments below, then click <strong style={{ color:T.text }}>Save Job</strong>.</div>
                   </div>
                 </div>
-                {/* Per-operation overview */}
-                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
-                  {(ed.subs||[]).filter(panel => (panel.subs||[]).some(sub=>(sub.team||[]).length>0) || (panel.team||[]).length>0).map((panel, pi) => {
-                    const color = panel.color || COLORS[pi % COLORS.length];
-                    const hasSubs = (panel.subs||[]).length > 0;
-                    return <div key={panel.id||pi} style={{ borderRadius:T.radiusSm, border:`1px solid ${T.border}`, overflow:"hidden" }}>
-                      {/* Panel header */}
-                      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:color+"12", borderBottom: hasSubs ? `1px solid ${T.border}` : "none" }}>
-                        <div style={{ width:10, height:10, borderRadius:5, background:color, flexShrink:0 }} />
-                        <span style={{ fontSize:13, fontWeight:700, color:T.text, flex:1 }}>{panel.title||"Untitled"}</span>
-                        {!hasSubs && panel.start && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span>}
-                        {!hasSubs && (panel.team||[]).map(pid => {
-                          const person = people.find(x=>x.id===pid);
-                          if (!person) return null;
-                          return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:6, background:(person.color||color)+"20", color:person.color||color, border:`1px solid ${person.color||color}33` }}>{person.name}</span>;
-                        })}
-                      </div>
-                      {/* Sub-ops */}
-                      {hasSubs && <div>
-                        {(panel.subs||[]).filter(sub=>(sub.team||[]).length>0).map((sub, si) => {
-                          return <div key={sub.id||si} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px 8px 28px", borderBottom: si < (panel.subs||[]).filter(s=>(s.team||[]).length>0).length-1 ? `1px solid ${T.border}` : "none", background: si%2===0 ? "transparent" : T.bg+"80" }}>
-                            <div style={{ width:2, height:16, background:color+"66", borderRadius:1, flexShrink:0 }} />
+                {/* Collapsible job preview */}
+                <div style={{ border:`1px solid ${T.border}`, borderRadius:T.radiusSm, overflow:"hidden" }}>
+                  {/* Job row — collapsed by default */}
+                  <div onClick={() => setPreviewExpanded(x=>!x)}
+                    style={{ display:"flex", alignItems:"center", gap:10, padding:"12px 16px", background:T.surface, cursor:"pointer", userSelect:"none", transition:"background 0.12s" }}
+                    onMouseEnter={e=>e.currentTarget.style.background=T.accent+"0a"}
+                    onMouseLeave={e=>e.currentTarget.style.background=T.surface}>
+                    <svg style={{ flexShrink:0, transition:"transform 0.2s", transform:previewExpanded?"rotate(0deg)":"rotate(-90deg)" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    <span style={{ fontSize:14, fontWeight:700, color:T.text, flex:1 }}>{ed.title||"Untitled Job"}</span>
+                    {jobStart && <span style={{ fontSize:12, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(jobStart)}<span style={{ margin:"0 5px", opacity:0.5 }}>→</span>{fm(jobEnd)}</span>}
+                  </div>
+                  {/* Expanded: operations list */}
+                  {previewExpanded && <div style={{ borderTop:`1px solid ${T.border}`, animation:"menuIn 0.18s ease-out" }}>
+                    {assignedPanels.map((panel,pi) => {
+                      const color=panel.color||COLORS[pi%COLORS.length];
+                      const hasSubs=(panel.subs||[]).length>0;
+                      const panelOpen=!!previewPanelExpanded[panel.id];
+                      const pDates=(hasSubs?(panel.subs||[]).flatMap(s=>[s.start,s.end]):[panel.start,panel.end]).filter(Boolean);
+                      const pStart=pDates.length?pDates.reduce((a,b)=>a<b?a:b):null;
+                      const pEnd=pDates.length?pDates.reduce((a,b)=>a>b?a:b):null;
+                      return <div key={panel.id||pi} style={{ borderBottom:pi<assignedPanels.length-1?`1px solid ${T.border}`:"none" }}>
+                        {/* Panel row */}
+                        <div onClick={() => hasSubs && setPreviewPanelExpanded(prev=>({...prev,[panel.id]:!prev[panel.id]}))}
+                          style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 16px 10px 36px", cursor:hasSubs?"pointer":"default", userSelect:"none", transition:"background 0.12s" }}
+                          onMouseEnter={e=>{ if(hasSubs) e.currentTarget.style.background=T.accent+"08"; }}
+                          onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                          {hasSubs
+                            ? <svg style={{ flexShrink:0, transition:"transform 0.2s", transform:panelOpen?"rotate(0deg)":"rotate(-90deg)" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                            : <div style={{ width:10 }} />}
+                          <div style={{ width:9, height:9, borderRadius:5, background:color, flexShrink:0 }} />
+                          <span style={{ fontSize:13, fontWeight:600, color:T.text, flex:1 }}>{panel.title||"Untitled"}</span>
+                          {pStart && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(pStart)}<span style={{ margin:"0 4px", opacity:0.5 }}>→</span>{fm(pEnd)}</span>}
+                          {!hasSubs && (panel.team||[]).map(pid=>{ const person=people.find(x=>x.id===pid); if(!person) return null; return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:6, background:(person.color||color)+"20", color:person.color||color, border:`1px solid ${person.color||color}33` }}>{person.name}</span>; })}
+                        </div>
+                        {/* Sub-ops */}
+                        {hasSubs && panelOpen && <div style={{ animation:"menuIn 0.15s ease-out" }}>
+                          {(panel.subs||[]).filter(sub=>(sub.team||[]).length>0).map((sub,si)=><div key={sub.id||si}
+                            style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 16px 8px 60px", borderTop:`1px solid ${T.border}`, background:si%2===0?T.bg+"88":"transparent" }}>
+                            <div style={{ width:2, height:14, background:color+"77", borderRadius:1, flexShrink:0 }} />
                             <span style={{ fontSize:12, color:T.text, flex:1 }}>{sub.title||"Untitled"}</span>
-                            {sub.start && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span>}
+                            {sub.start && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)}<span style={{ margin:"0 4px", opacity:0.5 }}>→</span>{fm(sub.end)}</span>}
                             <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                              {(sub.team||[]).map(pid => {
-                                const person = people.find(x=>x.id===pid);
-                                if (!person) return null;
-                                return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:6, background:(person.color||T.accent)+"20", color:person.color||T.accent, border:`1px solid ${person.color||T.accent}33` }}>{person.name}</span>;
-                              })}
+                              {(sub.team||[]).map(pid=>{ const person=people.find(x=>x.id===pid); if(!person) return null; return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:6, background:(person.color||T.accent)+"20", color:person.color||T.accent, border:`1px solid ${person.color||T.accent}33` }}>{person.name}</span>; })}
                             </div>
-                          </div>;
-                        })}
-                      </div>}
-                    </div>;
-                  })}
+                          </div>)}
+                        </div>}
+                      </div>;
+                    })}
+                  </div>}
                 </div>
               </div>;
             })()}
