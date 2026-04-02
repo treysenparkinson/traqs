@@ -459,7 +459,7 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
   onMouseLeave={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.glassBorder}`; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = "none"; } : undefined}
   style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.glassBorder}`, padding: 24, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
-const InputField = ({ label, value, onChange, type = "text", placeholder }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;
+const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input id={id} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;
 const SelectField = ({ label, value, onChange, options }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><select value={value} onChange={e => onChange(e.target.value)} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }}>{options.map(o => <option key={o} value={o}>{o}</option>)}</select></div>;
 function CtxMenuItem({ icon, label, sub, onClick }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
 
@@ -8946,13 +8946,13 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* STEP 1 — Job Details */}
           {modalStep === 1 && <div key="step1" style={{ animation:"stepIn 0.22s ease-out", "--sd":stepDir }}>
-            <InputField label="Job Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title:v }))} style={{ borderColor:!ed.title.trim()?"#ef444455":T.border }} />
+            <InputField id="s1-title" label="Job Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title:v }))} style={{ borderColor:!ed.title.trim()?"#ef444455":T.border }} />
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
-              <InputField label="Job #" value={ed.jobNumber||""} onChange={v => setEd(p => ({ ...p, jobNumber:v }))} placeholder="e.g. 2024-001" />
-              <InputField label="PO #" value={ed.poNumber||""} onChange={v => setEd(p => ({ ...p, poNumber:v }))} placeholder="e.g. PO-8821" />
+              <InputField id="s1-jobnum" label="Job #" value={ed.jobNumber||""} onChange={v => setEd(p => ({ ...p, jobNumber:v }))} placeholder="e.g. 2024-001" />
+              <InputField id="s1-ponum" label="PO #" value={ed.poNumber||""} onChange={v => setEd(p => ({ ...p, poNumber:v }))} placeholder="e.g. PO-8821" />
             </div>
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
-              <InputField label="Due Date (Customer)" value={ed.dueDate||""} onChange={v => setEd(p => ({ ...p, dueDate:v }))} type="date" />
+              <InputField id="s1-duedate" label="Due Date (Customer)" value={ed.dueDate||""} onChange={v => setEd(p => ({ ...p, dueDate:v }))} type="date" />
               <div>
                 <label style={{ display:"flex", alignItems:"center", gap:4, fontSize:13, color:T.textSec, fontWeight:600, letterSpacing:"0.04em", textTransform:"uppercase", marginBottom:6 }}>
                   Project Manager <span style={{ color:"#ef4444", fontSize:15, lineHeight:1 }}>*</span>
@@ -8981,7 +8981,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>}
             <div style={{ marginBottom:20, marginTop:8 }}>
               <label style={{ display:"block", fontSize:13, color:T.textSec, marginBottom:6, fontWeight:500 }}>Notes</label>
-              <textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes:e.target.value }))} rows={3} style={{ width:"100%", padding:"12px 16px", borderRadius:T.radiusSm, border:`1px solid ${T.glassBorder}`, background:T.glass, color:T.text, fontSize:14, fontFamily:T.font, resize:"vertical", boxSizing:"border-box", outline:"none", transition:"border 0.2s, box-shadow 0.2s", colorScheme:T.colorScheme }} onFocus={e => { e.target.style.borderColor=T.accent+"55"; e.target.style.boxShadow=`0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor=T.glassBorder; e.target.style.boxShadow="none"; }} />
+              <textarea id="s1-notes" value={ed.notes} onChange={e => setEd(p => ({ ...p, notes:e.target.value }))} rows={3} style={{ width:"100%", padding:"12px 16px", borderRadius:T.radiusSm, border:`1px solid ${T.glassBorder}`, background:T.glass, color:T.text, fontSize:14, fontFamily:T.font, resize:"vertical", boxSizing:"border-box", outline:"none", transition:"border 0.2s, box-shadow 0.2s", colorScheme:T.colorScheme }} onFocus={e => { e.target.style.borderColor=T.accent+"55"; e.target.style.boxShadow=`0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor=T.glassBorder; e.target.style.boxShadow="none"; }} />
             </div>
           </div>}
 
@@ -9167,7 +9167,44 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ fontSize:14, color:T.textSec }}>Finding available windows…</div>
               </div>;
               const assignedPanels=(ed.subs||[]).filter(p=>(p.subs||[]).some(s=>(s.team||[]).length>0)||(p.team||[]).length>0);
+              const pm=people.find(x=>x.id===ed.projectManagerId);
+              const cl=clients.find(x=>x.id===ed.clientId);
+              const goToField=(fieldId)=>{ goStep(1); if(fieldId) setTimeout(()=>{ const el=document.getElementById(fieldId); if(el){el.focus();el.scrollIntoView({block:"center",behavior:"smooth"});} },280); };
+              const hIn=e=>{ e.currentTarget.style.background=T.accent+"14"; const p=e.currentTarget.querySelector("[data-pencil]"); if(p) p.style.opacity="1"; };
+              const hOut=e=>{ e.currentTarget.style.background="transparent"; const p=e.currentTarget.querySelector("[data-pencil]"); if(p) p.style.opacity="0"; };
+              const PencilIco=()=><svg data-pencil="1" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity:0, transition:"opacity 0.18s", flexShrink:0 }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>;
+              const fld=(label,value,fieldId)=><div>
+                <div style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:2 }}>{label}</div>
+                <div onClick={()=>goToField(fieldId)} style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"2px 6px", marginLeft:-6, borderRadius:T.radiusXs, cursor:"pointer", transition:"background 0.18s" }} onMouseEnter={hIn} onMouseLeave={hOut}>
+                  <span style={{ fontSize:13, color:value?T.text:T.textDim }}>{value||"Not set"}</span>
+                  <PencilIco/>
+                </div>
+              </div>;
               return <div>
+                {/* ── Job summary header ── */}
+                <div style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, padding:"14px 16px", marginBottom:14 }}>
+                  {/* Title */}
+                  <div onClick={()=>goToField("s1-title")} style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"2px 8px", marginLeft:-8, marginBottom:10, borderRadius:T.radiusXs, cursor:"pointer", transition:"background 0.18s" }} onMouseEnter={hIn} onMouseLeave={hOut}>
+                    <span style={{ fontSize:18, fontWeight:700, color:ed.title?T.text:T.textDim, lineHeight:1.2, fontFamily:T.font }}>{ed.title||"Untitled Job"}</span>
+                    <svg data-pencil="1" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity:0, transition:"opacity 0.18s", flexShrink:0 }}><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </div>
+                  {/* Fields grid */}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px 24px" }}>
+                    {fld("Job #", ed.jobNumber||null, "s1-jobnum")}
+                    {fld("PO #", ed.poNumber||null, "s1-ponum")}
+                    {fld("Due Date", ed.dueDate?fm(ed.dueDate):null, "s1-duedate")}
+                    {fld("Project Manager", pm?.name||null, null)}
+                    {fld("Client", cl?.name||null, null)}
+                  </div>
+                  {/* Notes — full width */}
+                  <div style={{ borderTop:`1px solid ${T.border}`, marginTop:10, paddingTop:10 }}>
+                    <div style={{ fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:3 }}>Notes</div>
+                    <div onClick={()=>goToField("s1-notes")} style={{ display:"flex", alignItems:"flex-start", gap:5, padding:"2px 6px", marginLeft:-6, borderRadius:T.radiusXs, cursor:"pointer", transition:"background 0.18s" }} onMouseEnter={hIn} onMouseLeave={hOut}>
+                      <span style={{ fontSize:12, color:ed.notes?T.text:T.textDim, lineHeight:1.6, flex:1, whiteSpace:"pre-wrap", fontFamily:T.font }}>{ed.notes||"Not set"}</span>
+                      <PencilIco/>
+                    </div>
+                  </div>
+                </div>
                 {/* Success banner */}
                 <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", background:"#10b98112", border:"1px solid #10b98133", borderRadius:T.radiusSm, marginBottom:14 }}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
