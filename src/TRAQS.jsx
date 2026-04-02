@@ -647,6 +647,70 @@ function AnimatedView({ viewKey, children, style }) {
   return <div key={`${viewKey}-${k}`} className="anim-view-enter" style={style}>{children}</div>;
 }
 
+// Generic cascading dropdown — matches deptDrop/soDrop animation style
+function CustomDrop({ value, onChange, options, placeholder = "Select…" }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  return <div ref={ref} style={{ position: "relative" }}>
+    <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.surface, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
+      <span style={{ fontSize: 14, color: value ? T.text : T.textDim, fontFamily: T.font, flex: 1 }}>{value || placeholder}</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
+      {options.map((r, ri) => {
+        const isOn = value === r;
+        return <div key={r} onClick={() => { onChange(r); setOpen(false); }}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${ri * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+          onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"}
+          onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+          <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0, transition: "background 0.12s" }} />
+          <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, fontFamily: T.font }}>{r}</span>
+        </div>;
+      })}
+    </div>}
+  </div>;
+}
+// Template loader dropdown — cascading animation + per-item delete button
+function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  if (!templates.length) return null;
+  return <div ref={ref} style={{ position: "relative" }}>
+    <button onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusXs, border: `1px solid ${open ? T.accent + "66" : T.border}`, background: open ? T.accent + "12" : "transparent", color: open ? T.accent : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>
+      Load Template
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", minWidth: 220, padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
+      {templates.map((tpl, ti) => (
+        <div key={tpl.id} style={{ display: "flex", alignItems: "center", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}>
+          <div onClick={() => { onLoad(tpl); setOpen(false); }} style={{ flex: 1, padding: "9px 14px", cursor: "pointer", fontSize: 13, color: T.text, fontWeight: 500, fontFamily: T.font, borderRadius: "4px 0 0 4px" }}
+            onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"}
+            onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            {tpl.name}
+          </div>
+          <button onClick={e => { e.stopPropagation(); onDeleteRequest(tpl); setOpen(false); }} title="Delete template"
+            style={{ flexShrink: 0, padding: "6px 10px", background: "transparent", border: "none", color: T.textDim, cursor: "pointer", lineHeight: 1, borderRadius: "0 4px 4px 0" }}
+            onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.background = T.danger + "12"; }}
+            onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.background = "transparent"; }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+          </button>
+        </div>
+      ))}
+    </div>}
+  </div>;
+}
 function autoEmail(name, domain) {
   const first = (name || "").trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z0-9]/g, "");
   return first && domain ? `${first}@${domain}` : "";
@@ -1299,6 +1363,7 @@ Rules:
     setTemplates(newTemplates);
     localStorage.setItem(`tq_templates_${orgCode}`, JSON.stringify(newTemplates));
   };
+  const deleteTemplate = (tid) => { persistTemplates(templates.filter(t => t.id !== tid)); };
 
   const [fStat, setFStat] = useState("All");
   const [fPers, setFPers] = useState([]);      // multi-select person IDs (strings); empty = All
@@ -1783,6 +1848,7 @@ Rules:
   const [clientCompletedExpanded, setClientCompletedExpanded] = useState(false);
   const [jobSearch, setJobSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [templateDeleteConfirm, setTemplateDeleteConfirm] = useState(null); // template object pending deletion
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [rescheduleModal, setRescheduleModal] = useState(null); // { op, panelId, newStart, newEnd }
   const [editNotesModal, setEditNotesModal] = useState(null); // { op, panelId, notes }
@@ -8859,10 +8925,6 @@ ${jobsCtx || "No jobs found."}`;
           return { ...p, subs: [...existingSubs, ...newOps] };
         });
       };
-      const deleteTemplate = (tid) => {
-        persistTemplates(templates.filter(t => t.id !== tid));
-      };
-
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>{cls}
         {/* ── Scrollable content (title + step indicator + step body) ── */}
         <div style={{ flex:1, overflowY:"auto", padding:"24px 32px" }}>
@@ -8931,13 +8993,7 @@ ${jobsCtx || "No jobs found."}`;
                   style={{ padding:"5px 10px", borderRadius:T.radiusXs, border:`1px solid ${scheduleTeamMode==="team"?T.accent:T.textDim}55`, background:scheduleTeamMode==="team"?T.accent+"18":"transparent", color:scheduleTeamMode==="team"?T.accent:T.textDim, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, whiteSpace:"nowrap" }}>
                   {scheduleTeamMode==="one"?"👤 1 Person/Op":"👥 Full Team/Op"}
                 </button>
-                {templates.length > 0 && (
-                  <select defaultValue="" onChange={e => { const tpl=templates.find(t => t.id===e.target.value); if(tpl) loadTemplate(tpl); e.target.value=""; }}
-                    style={{ padding:"5px 8px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, fontFamily:T.font, cursor:"pointer" }}>
-                    <option value="" disabled>Load template…</option>
-                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                  </select>
-                )}
+                <TemplateDrop templates={templates} onLoad={loadTemplate} onDeleteRequest={tpl => setTemplateDeleteConfirm(tpl)} />
                 <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(ed.subs||[]); }}
                   disabled={!(ed.subs||[]).some(p => p.title?.trim())}
                   style={{ padding:"5px 12px", borderRadius:T.radiusXs, border:`1px solid ${T.accent}44`, background:T.accent+"10", color:T.accent, fontSize:12, fontWeight:700, opacity:(ed.subs||[]).some(p => p.title?.trim())?1:0.4, cursor:(ed.subs||[]).some(p => p.title?.trim())?"pointer":"not-allowed", fontFamily:T.font }}>
@@ -11298,10 +11354,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ marginBottom: 4 }}>
               <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Department</label>
               {orgSettings.roles.length > 0 ? (
-                <select value={ed.department || ""} onChange={e => setEd(p => ({ ...p, department: e.target.value }))} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: ed.department ? T.text : T.textDim, fontSize: 14, fontFamily: T.font, outline: "none", cursor: "pointer", appearance: "none", backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`, backgroundRepeat: "no-repeat", backgroundPosition: "right 12px center", paddingRight: 32, boxSizing: "border-box" }}>
-                  <option value="">Select a department…</option>
-                  {orgSettings.roles.map(r => <option key={r} value={r}>{r}</option>)}
-                </select>
+                <CustomDrop value={ed.department || ""} onChange={v => setEd(p => ({ ...p, department: v }))} options={orgSettings.roles} placeholder="Select a department…" />
               ) : (
                 <input value={ed.department || ""} onChange={e => setEd(p => ({ ...p, department: e.target.value }))} placeholder="e.g. Shop, Engineering…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
               )}
@@ -11393,6 +11446,20 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     )}
     {/* Delete confirmation modal */}
+    {templateDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      <div className="anim-delete-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 48, height: 48, borderRadius: 24, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
+        <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 18, fontWeight: 700 }}>Delete Template?</h3>
+        <p style={{ margin: "0 0 12px", fontSize: 14, color: T.textSec }}>This will permanently remove:</p>
+        <div style={{ padding: "10px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 20 }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{templateDeleteConfirm.name}</span>
+        </div>
+        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+          <Btn variant="ghost" onClick={() => setTemplateDeleteConfirm(null)} style={{ minWidth: 100 }}>Cancel</Btn>
+          <Btn variant="danger" onClick={() => { deleteTemplate(templateDeleteConfirm.id); setTemplateDeleteConfirm(null); }} style={{ minWidth: 100, background: T.danger, color: "#fff", border: "none" }}>Delete</Btn>
+        </div>
+      </div>
+    </div>}
     {confirmDelete && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-delete-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
