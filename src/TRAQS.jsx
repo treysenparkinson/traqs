@@ -9038,7 +9038,7 @@ ${jobsCtx || "No jobs found."}`;
                       <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${T.danger}33`, background:T.danger+"10", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                     </div>
                   </div>
-                  {hasSubs && (panel.team||[]).length>0 && <div style={{ margin:"0 0 8px", padding:"8px 12px", background:"#f59e0b15", border:"1px solid #f59e0b44", borderRadius:T.radiusXs, fontSize:12, color:"#f59e0b", lineHeight:1.5 }}>⚠ {panel.team.length} worker{panel.team.length>1?"s":""} assigned directly to this panel — but sub-operations now exist. Run <strong>Schedule & Assign</strong> to reassign at the sub-operation level.</div>}
+                  {hasSubs && (panel.team||[]).length>0 && (panel.subs||[]).every(sub => !(sub.team||[]).length) && <div style={{ margin:"0 0 8px", padding:"8px 12px", background:"#f59e0b15", border:"1px solid #f59e0b44", borderRadius:T.radiusXs, fontSize:12, color:"#f59e0b", lineHeight:1.5 }}>⚠ {panel.team.length} worker{panel.team.length>1?"s":""} assigned directly to this panel — but sub-operations now exist. Run <strong>Schedule & Assign</strong> to reassign at the sub-operation level.</div>}
                   {!collapsedOps[panel.id] && <>
                   {(panel.subs||[]).map((sub,si) => {
                     const updateSub = (patch) => { const subs=[...(panel.subs||[])]; subs[si]={...subs[si],...patch}; updatePanel({subs}); };
