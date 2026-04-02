@@ -1791,6 +1791,7 @@ Rules:
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [availCheckPassed, setAvailCheckPassed] = useState(false);
+  const [scheduleConfirmed, setScheduleConfirmed] = useState(false);
   const [modalStep, setModalStep] = useState(1);   // 1 | 2 | 3
   const [stepDir, setStepDir] = useState(1);        // 1 = forward, -1 = back
   const [scheduleTeamMode, setScheduleTeamMode] = useState("one"); // "one" | "team"
@@ -2546,8 +2547,8 @@ Rules:
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
-  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
-  const openEdit = (t, pid = null) => { setModalStep(1); setStepDir(1); const hasAssign = (t.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0); setAvailCheckPassed(hasAssign); setAiSuggestion(null); setModal({ type: "edit", data: { ...t }, parentId: pid }); };
+  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
+  const openEdit = (t, pid = null) => { setModalStep(1); setStepDir(1); const hasAssign = (t.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0); setAvailCheckPassed(hasAssign); setScheduleConfirmed(hasAssign); setAiSuggestion(null); setModal({ type: "edit", data: { ...t }, parentId: pid }); };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
@@ -9169,44 +9170,22 @@ ${jobsCtx || "No jobs found."}`;
                   ))}
                 </div>
               )}
-              {aiSuggestion.canMeetDue===true && <div style={{ padding:"12px 16px", background:"#10b98112", border:"1px solid #10b98133", borderRadius:T.radiusSm, marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
-                <span style={{ lineHeight:0, color:"#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
-                <div><div style={{ fontSize:14, fontWeight:700, color:"#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
-                <div style={{ fontSize:12, color:T.textSec, marginTop:2 }}>Found {aiSuggestion.slots.length} schedule option{aiSuggestion.slots.length>1?"s":""} for {aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}</div></div>
-              </div>}
-              {aiSuggestion.canMeetDue===false && <div style={{ padding:"12px 16px", background:"#ef444412", border:"1px solid #ef444433", borderRadius:T.radiusSm, marginBottom:10 }}>
-                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
-                  <span style={{ lineHeight:0, color:"#ef4444" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
-                  <div style={{ fontSize:14, fontWeight:700, color:"#ef4444" }}>Cannot meet the {fm(aiSuggestion.dueDate)} deadline</div>
-                </div>
-                <div style={{ fontSize:12, color:T.textSec }}>Not enough crew available before the due date for {aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}.</div>
-                {aiSuggestion.suggestedDueDate && <div style={{ marginTop:8, display:"flex", alignItems:"center", gap:8 }}>
-                  <span style={{ fontSize:12, color:T.textSec }}>Suggested new due date:</span>
-                  <span style={{ fontSize:14, fontWeight:700, color:"#f59e0b", fontFamily:T.mono }}>{fm(aiSuggestion.suggestedDueDate)}</span>
-                  <button onClick={() => setEd(p => ({ ...p, dueDate:aiSuggestion.suggestedDueDate }))} style={{ padding:"4px 12px", borderRadius:6, border:"1px solid #f59e0b44", background:"#f59e0b15", color:"#f59e0b", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font }}>Update Due Date</button>
-                </div>}
-              </div>}
-              {aiSuggestion.canMeetDue===null && <div style={{ padding:"12px 16px", background:T.accent+"12", border:`1px solid ${T.accent}33`, borderRadius:T.radiusSm, marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
-                <span style={{ fontSize:20 }}>🤖</span>
-                <div style={{ fontSize:13, color:T.textSec }}>No due date set. Here are the earliest available windows:</div>
-              </div>}
               {aiSuggestion.noSlots && <div style={{ padding:16, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
                 No one is available within the next 200 business days. Consider adding more team members or reducing the panel count.
               </div>}
               {!aiSuggestion.noSlots && aiSuggestion.slots.length===0 && <div style={{ padding:16, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
                 No available windows found. Consider adjusting panel count or adding team members.
               </div>}
-              {aiSuggestion.slots.map((slot,si) => <div key={si} style={{ background:T.surface, border:`1px solid ${slot.meetsDeadline!==false?T.border:"#f59e0b44"}`, borderRadius:T.radiusSm, padding:14, marginBottom:8, transition:"all 0.15s" }}
+              {aiSuggestion.slots.map((slot,si) => <div key={si} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, padding:14, marginBottom:8, transition:"all 0.15s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor=T.accent; e.currentTarget.style.background=T.accent+"08"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor=slot.meetsDeadline!==false?T.border:"#f59e0b44"; e.currentTarget.style.background=T.surface; }}>
+                onMouseLeave={e => { e.currentTarget.style.borderColor=T.border; e.currentTarget.style.background=T.surface; }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                     <span style={{ fontSize:13, fontWeight:700, color:T.text, fontFamily:T.mono }}>{fm(slot.start)}</span>
                     <span style={{ color:T.textDim }}>→</span>
                     <span style={{ fontSize:13, fontWeight:700, color:T.text, fontFamily:T.mono }}>{fm(slot.end)}</span>
                     <span style={{ fontSize:11, color:T.textDim }}>({slot.totalBD||diffBD(slot.start,slot.end)+1} days total)</span>
-                    {si===0 && slot.meetsDeadline!==false && <span style={{ fontSize:10, fontWeight:700, color:"#10b981", background:"#10b98115", padding:"2px 8px", borderRadius:10, border:"1px solid #10b98133" }}>RECOMMENDED</span>}
-                    {slot.meetsDeadline===false && <span style={{ fontSize:10, fontWeight:700, color:"#f59e0b", background:"#f59e0b15", padding:"2px 8px", borderRadius:10, border:"1px solid #f59e0b33" }}>AFTER DUE DATE</span>}
+                    {si===0 && <span style={{ fontSize:10, fontWeight:700, color:"#10b981", background:"#10b98115", padding:"2px 8px", borderRadius:10, border:"1px solid #10b98133" }}>RECOMMENDED</span>}
                   </div>
                   <button onClick={(e) => {
                     e.stopPropagation();
@@ -9376,6 +9355,7 @@ ${jobsCtx || "No jobs found."}`;
                       return updated;
                     });
                     setAiSuggestion(null);
+                    setScheduleConfirmed(true);
                   }} style={{ padding:"6px 14px", borderRadius:8, border:"none", background:T.accent, color:T.accentText, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:T.font, whiteSpace:"nowrap", flexShrink:0 }}>
                     Use This Schedule
                   </button>
@@ -9412,13 +9392,13 @@ ${jobsCtx || "No jobs found."}`;
           </>}
           {modalStep === 3 && <>
             <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-              <Btn variant="ghost" onClick={() => goStep(2)}>← Back</Btn>
+              <Btn variant="ghost" onClick={() => { goStep(2); setScheduleConfirmed(false); setAvailCheckPassed(false); }}>← Back</Btn>
               {can("editJobs") && ed.id && <Btn variant="danger" onClick={() => setConfirmDelete({title:ed.title,id:ed.id,pid:modal.parentId,extra:closeModal})}>Delete</Btn>}
             </div>
             {(() => {
               const hasAnyAssignment=(ed.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub => (sub.team||[]).length>0):(panel.team||[]).length>0);
-              const saveOk=availCheckPassed && hasAnyAssignment;
-              return <Btn disabled={!saveOk} onClick={saveOk?() => { const expanded={...ed,subs:(ed.subs||[]).flatMap(op => { const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-d+$/,"").trimEnd(); if(qty===1) { const {qty:_q,...rest}=op; return [rest]; } return Array.from({length:qty},(_,i) => { const {qty:_q,...rest}=op; return {...rest,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`,subs:(op.subs||[]).map(sub => ({...sub,id:i===0?sub.id:uid()}))}; }); })}; saveTask(expanded,modal.parentId); }:undefined} style={{ opacity:saveOk?1:0.4, cursor:saveOk?"pointer":"not-allowed" }}>Save Job</Btn>;
+              const saveOk=scheduleConfirmed && hasAnyAssignment;
+              return <Btn disabled={!saveOk} onClick={saveOk?() => { const expanded={...ed,subs:(ed.subs||[]).flatMap(op => { const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-d+$/,"").trimEnd(); if(qty===1) { const {qty:_q,...rest}=op; return [rest]; } return Array.from({length:qty},(_,i) => { const {qty:_q,...rest}=op; return {...rest,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`,subs:(op.subs||[]).map(sub => ({...sub,id:i===0?sub.id:uid()}))}; }); })}; saveTask(expanded,modal.parentId); }:undefined} style={{ opacity:saveOk?1:0.4, cursor:saveOk?"pointer":"not-allowed", pointerEvents:saveOk?"auto":"none" }}>Save Job</Btn>;
             })()}
           </>}
         </div>
@@ -11094,7 +11074,21 @@ ${jobsCtx || "No jobs found."}`;
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>} label="Copy" sub={`Copy this ${isOp ? "operation" : isPanel ? "panel" : "job"} to clipboard`} onClick={() => copyItem(it)} />
       {/* Delete */}
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-      {can("editJobs") && <div onClick={() => { setCtxMenu(null); setConfirmDelete({ id: it.id, title: it.title, pid: it.isSub ? it.pid : null }); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      {can("editJobs") && <div onClick={() => {
+        setCtxMenu(null);
+        let deleteTarget = { id: it.id, title: it.title, pid: null };
+        if (ctxMenu.source === "team") {
+          // Schedule tab bars are always panels/ops — resolve up to the parent job
+          let parentJob = null;
+          if (isOp) { for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } }
+          else if (isPanel) { parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); }
+          else { parentJob = tasks.find(j => j.id === it.id); }
+          if (parentJob) deleteTarget = { id: parentJob.id, title: parentJob.title, pid: null };
+        } else {
+          deleteTarget.pid = it.isSub ? it.pid : null;
+        }
+        setConfirmDelete(deleteTarget);
+      }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Permanently remove this item</div></div>
       </div>}
