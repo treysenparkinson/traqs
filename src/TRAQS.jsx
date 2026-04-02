@@ -7720,8 +7720,8 @@ ${jobsCtx || "No jobs found."}`;
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                        {["","Name","Pay Type","Status","Since","Working On","Today","Period",""].map(h => (
-                          <th key={h} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                        {["","Name","Pay Type","Status","Since","Working On","Today","Period",""].map((h, hi) => (
+                          <th key={`${h}-${hi}`} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
