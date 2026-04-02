@@ -2970,6 +2970,84 @@ ${jobsCtx || "No jobs found."}`;
     }
   }
 
+  // ── Finish Approval Request (job-level) — component-level so modal + messages can call them ──
+  const requestFinishApproval = async (jobId) => {
+    const job = tasks.find(t => t.id === jobId);
+    if (!job || !loggedInUser) return;
+    const requestId = uid();
+    const now = new Date().toISOString();
+    const newReq = { id: requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now, status: "pending" };
+    const newTasks = tasks.map(t => t.id !== jobId ? t : {
+      ...t,
+      finishRequest: { requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now },
+      finishRequests: [...(t.finishRequests || []), newReq],
+    });
+    setTasks(newTasks);
+    saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    // Post detailed in-system message to the job thread (all admins are always participants)
+    const allParticipants = getThreadParticipants("job", jobId, null, null);
+    const participantIds = [...new Set([...allParticipants.map(p => p.id), loggedInUser.id])];
+    try {
+      const msg = await postMessage({
+        threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
+        text: `🏁 Finish approval requested by ${loggedInUser.name}`,
+        type: "finish_request", finishRequestId: requestId,
+        authorId: loggedInUser.id, authorName: loggedInUser.name,
+        authorColor: loggedInUser.color || "#64748b",
+        participantIds, attachments: [],
+      }, getToken, orgCode);
+      setMessages(prev => [...prev, msg]);
+    } catch(e) { console.warn("Failed to post finish request message:", e); }
+  };
+
+  const adminApproveJobFinish = async (jobId, requestId) => {
+    if (!isAdmin || !loggedInUser) return;
+    const job = tasks.find(t => t.id === jobId);
+    if (!job) return;
+    const now = new Date().toISOString();
+    const newTasks = tasks.map(t => t.id !== jobId ? t : {
+      ...t, status: "Finished", finishRequest: undefined,
+      finishRequests: (t.finishRequests || []).map(r => r.id !== requestId ? r : {
+        ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+      }),
+    });
+    setTasks(newTasks);
+    saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    const participants = getThreadParticipants("job", jobId, null, null);
+    const participantIds = [...new Set(participants.map(p => p.id))];
+    postMessage({
+      threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
+      text: `✅ Finish request approved by ${loggedInUser.name}. "${job.title}" has been marked as Finished.`,
+      authorId: loggedInUser.id, authorName: loggedInUser.name,
+      authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
+    }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
+  };
+
+  const adminDeclineJobFinish = async (jobId, requestId, reason) => {
+    if (!isAdmin || !loggedInUser) return;
+    const job = tasks.find(t => t.id === jobId);
+    if (!job) return;
+    const now = new Date().toISOString();
+    const newTasks = tasks.map(t => t.id !== jobId ? t : {
+      ...t, finishRequest: undefined,
+      finishRequests: (t.finishRequests || []).map(r => r.id !== requestId ? r : {
+        ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+        ...(reason ? { declineReason: reason } : {}),
+      }),
+    });
+    setTasks(newTasks);
+    saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    const participants = getThreadParticipants("job", jobId, null, null);
+    const participantIds = [...new Set(participants.map(p => p.id))];
+    postMessage({
+      threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
+      text: `❌ Finish request for "${job.title}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
+      authorId: loggedInUser.id, authorName: loggedInUser.name,
+      authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
+    }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
+    setFinishDeclineState(prev => { const n = { ...prev }; delete n[requestId]; return n; });
+  };
+
   async function sendReminder(item, note) {
     if (!loggedInUser || reminderSending) return;
     setReminderSending(true);
@@ -6974,84 +7052,6 @@ ${jobsCtx || "No jobs found."}`;
     const rejectFinish = (job, panel, op) => {
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false }) }) });
       setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    };
-
-    // ── Finish Approval Request (job-level) ──────────────────────────────────
-    const requestFinishApproval = async (jobId) => {
-      const job = tasks.find(t => t.id === jobId);
-      if (!job || !loggedInUser) return;
-      const requestId = uid();
-      const now = new Date().toISOString();
-      const newReq = { id: requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now, status: "pending" };
-      const newTasks = tasks.map(t => t.id !== jobId ? t : {
-        ...t,
-        finishRequest: { requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now },
-        finishRequests: [...(t.finishRequests || []), newReq],
-      });
-      setTasks(newTasks);
-      saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-      // Post detailed in-system message to the job thread (all admins are always participants)
-      const allParticipants = getThreadParticipants("job", jobId, null, null);
-      const participantIds = [...new Set([...allParticipants.map(p => p.id), loggedInUser.id])];
-      try {
-        const msg = await postMessage({
-          threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-          text: `🏁 Finish approval requested by ${loggedInUser.name}`,
-          type: "finish_request", finishRequestId: requestId,
-          authorId: loggedInUser.id, authorName: loggedInUser.name,
-          authorColor: loggedInUser.color || "#64748b",
-          participantIds, attachments: [],
-        }, getToken, orgCode);
-        setMessages(prev => [...prev, msg]);
-      } catch(e) { console.warn("Failed to post finish request message:", e); }
-    };
-
-    const adminApproveJobFinish = async (jobId, requestId) => {
-      if (!isAdmin || !loggedInUser) return;
-      const job = tasks.find(t => t.id === jobId);
-      if (!job) return;
-      const now = new Date().toISOString();
-      const newTasks = tasks.map(t => t.id !== jobId ? t : {
-        ...t, status: "Finished", finishRequest: undefined,
-        finishRequests: (t.finishRequests || []).map(r => r.id !== requestId ? r : {
-          ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
-        }),
-      });
-      setTasks(newTasks);
-      saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-      const participants = getThreadParticipants("job", jobId, null, null);
-      const participantIds = [...new Set(participants.map(p => p.id))];
-      postMessage({
-        threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-        text: `✅ Finish request approved by ${loggedInUser.name}. "${job.title}" has been marked as Finished.`,
-        authorId: loggedInUser.id, authorName: loggedInUser.name,
-        authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
-      }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
-    };
-
-    const adminDeclineJobFinish = async (jobId, requestId, reason) => {
-      if (!isAdmin || !loggedInUser) return;
-      const job = tasks.find(t => t.id === jobId);
-      if (!job) return;
-      const now = new Date().toISOString();
-      const newTasks = tasks.map(t => t.id !== jobId ? t : {
-        ...t, finishRequest: undefined,
-        finishRequests: (t.finishRequests || []).map(r => r.id !== requestId ? r : {
-          ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
-          ...(reason ? { declineReason: reason } : {}),
-        }),
-      });
-      setTasks(newTasks);
-      saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-      const participants = getThreadParticipants("job", jobId, null, null);
-      const participantIds = [...new Set(participants.map(p => p.id))];
-      postMessage({
-        threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-        text: `❌ Finish request for "${job.title}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
-        authorId: loggedInUser.id, authorName: loggedInUser.name,
-        authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
-      }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
-      setFinishDeclineState(prev => { const n = { ...prev }; delete n[requestId]; return n; });
     };
 
     // ── Shared numpad component ───────────────────────────────────────────────
