@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment } from "react";
+import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction } from "./api.js";
@@ -462,6 +462,19 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
   style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.glassBorder}`, padding: 24, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
 const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input id={id} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;
 const SelectField = ({ label, value, onChange, options }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><select value={value} onChange={e => onChange(e.target.value)} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }}>{options.map(o => <option key={o} value={o}>{o}</option>)}</select></div>;
+// ── Tooltip system ──────────────────────────────────────────────────────────
+const TooltipCtx = createContext(null);
+const Tip = ({ label, children }) => {
+  const ctx = useContext(TooltipCtx);
+  if (!ctx) return children;
+  return (
+    <div style={{ display: "contents" }}
+      onMouseEnter={e => ctx.show(label, e.clientX, e.clientY)}
+      onMouseLeave={ctx.hide}>
+      {children}
+    </div>
+  );
+};
 function CtxMenuItem({ icon, label, sub, onClick }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
 
 /** Reusable sliding-pill toggle. options=[{value,label}], value=active key */
@@ -701,12 +714,14 @@ function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
             onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             {tpl.name}
           </div>
-          <button onClick={e => { e.stopPropagation(); onDeleteRequest(tpl); setOpen(false); }} title="Delete template"
+          <Tip label="Delete template">
+          <button onClick={e => { e.stopPropagation(); onDeleteRequest(tpl); setOpen(false); }}
             style={{ flexShrink: 0, padding: "6px 10px", background: "transparent", border: "none", color: T.textDim, cursor: "pointer", lineHeight: 1, borderRadius: "0 4px 4px 0" }}
             onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.background = T.danger + "12"; }}
             onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.background = "transparent"; }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           </button>
+          </Tip>
         </div>
       ))}
     </div>}
@@ -1871,6 +1886,10 @@ Rules:
   const [scheduleConfirmed, setScheduleConfirmed] = useState(false);
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [previewPanelExpanded, setPreviewPanelExpanded] = useState({});
+  const [overrideOpen, setOverrideOpen] = useState({});     // panelId → bool
+  const [overrideDate, setOverrideDate] = useState({});     // panelId → "YYYY-MM-DD"
+  const [overrideLoading, setOverrideLoading] = useState({}); // panelId → bool
+  const [overrideError, setOverrideError] = useState({});   // panelId → string
   const [modalStep, setModalStep] = useState(1);   // 1 | 2 | 3
   const [stepDir, setStepDir] = useState(1);        // 1 = forward, -1 = back
   const [scheduleTeamMode, setScheduleTeamMode] = useState("one"); // "one" | "team"
@@ -1898,6 +1917,12 @@ Rules:
   const ganttRef = useRef(null);
   const ganttContainerRef = useRef(null);
   const barTooltipTimer = useRef(null);
+  const [appTooltip, setAppTooltip] = useState(null); // { label, x, y }
+  const appTooltipTimer = useRef(null);
+  const tipCtx = useMemo(() => ({
+    show: (label, x, y) => { clearTimeout(appTooltipTimer.current); appTooltipTimer.current = setTimeout(() => setAppTooltip({ label, x, y }), 500); },
+    hide: () => { clearTimeout(appTooltipTimer.current); setAppTooltip(null); },
+  }), []); // eslint-disable-line
   const [ganttWidth, setGanttWidth] = useState(0);
   const ganttCWRef = useRef(8);
   const teamCWRef = useRef(8);
@@ -2627,8 +2652,8 @@ Rules:
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
-  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
-  const openEdit = (t, pid = null) => { setModalStep(1); setStepDir(1); const hasAssign = (t.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0); setAvailCheckPassed(hasAssign); setScheduleConfirmed(hasAssign); setPreviewExpanded(false); setPreviewPanelExpanded({}); setAiSuggestion(null); setModal({ type: "edit", data: { ...t }, parentId: pid }); };
+  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
+  const openEdit = (t, pid = null) => { setModalStep(1); setStepDir(1); const hasAssign = (t.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0); setAvailCheckPassed(hasAssign); setScheduleConfirmed(hasAssign); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { ...t }, parentId: pid }); };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
@@ -2981,38 +3006,62 @@ ${jobsCtx || "No jobs found."}`;
     }
   }
 
-  // ── Finish Approval Request (job-level) — component-level so modal + messages can call them ──
-  const requestFinishApproval = async (panelId) => {
-    let parentJob = null, panel = null;
-    for (const job of tasks) {
-      const found = (job.subs || []).find(s => s.id === panelId);
-      if (found) { parentJob = job; panel = found; break; }
-    }
-    if (!panel || !parentJob || !loggedInUser) return;
+  // ── Finish Approval Request — component-level so modal + messages can call them ──
+  const requestFinishApproval = async (itemId) => {
+    // Recursive ancestry lookup — works at any depth (job → panel → sub-op)
+    const findItemWithAncestors = (items, id, ancestors = []) => {
+      for (const item of items) {
+        if (item.id === id) return { item, ancestors };
+        if (item.subs?.length) {
+          const found = findItemWithAncestors(item.subs, id, [...ancestors, item]);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const result = findItemWithAncestors(tasks, itemId);
+    if (!result || !loggedInUser) return;
+    const { item: foundItem, ancestors } = result;
+    const parentJob = ancestors[0];         // always the top-level job
+    const opPanel   = ancestors[1] ?? null; // operation panel (only if sub-op was right-clicked)
+    if (!parentJob) return;
+
     const requestId = uid();
     const now = new Date().toISOString();
     const newReq = { id: requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now, status: "pending" };
-    const newTasks = tasks.map(t => t.id !== parentJob.id ? t : {
-      ...t,
-      subs: (t.subs || []).map(s => s.id !== panelId ? s : {
-        ...s,
+
+    // Recursive state update — writes finishRequest/finishRequests to the found item at any depth
+    const addFinishReq = (items) => items.map(item => {
+      if (item.id === itemId) return {
+        ...item,
         finishRequest: { requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now },
-        finishRequests: [...(s.finishRequests || []), newReq],
-      }),
+        finishRequests: [...(item.finishRequests || []), newReq],
+      };
+      if (item.subs?.length) return { ...item, subs: addFinishReq(item.subs) };
+      return item;
     });
+    const newTasks = addFinishReq(tasks);
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+
     const adminParticipants = people.filter(p => p.userRole === "admin");
     if (adminParticipants.length === 0) {
-      console.warn("No admins found to receive finish request");
       alert("No admins are available to receive this request. Please contact your administrator directly.");
       return;
     }
     const participantIds = adminParticipants.map(p => p.id);
+
+    // Context label: "Panel Title" or "Panel Title › Sub-op Title"
+    const contextLabel = opPanel ? `${opPanel.title} › ${foundItem.title}` : foundItem.title;
+    // panelId = operation level, opId = sub-op level (null if item is itself a panel)
+    const msgPanelId = opPanel ? opPanel.id : foundItem.id;
+    const msgOpId    = opPanel ? foundItem.id : null;
+
     try {
       const msg = await postMessage({
-        threadKey: `job:${parentJob.id}`, scope: "job", jobId: parentJob.id, panelId, opId: null,
-        text: `🏁 Finish approval requested by ${loggedInUser.name} for operation "${panel.title}"`,
+        threadKey: `job:${parentJob.id}`, scope: "job", jobId: parentJob.id,
+        panelId: msgPanelId, opId: msgOpId,
+        text: `Finish approval requested by ${loggedInUser.name} for operation "${contextLabel}"`,
         type: "finish_request", finishRequestId: requestId,
         authorId: loggedInUser.id, authorName: loggedInUser.name,
         authorColor: loggedInUser.color || "#64748b",
@@ -3022,68 +3071,73 @@ ${jobsCtx || "No jobs found."}`;
     } catch(e) { console.warn("Failed to post finish request message:", e); }
   };
 
-  const adminApproveJobFinish = async (jobId, panelId, requestId) => {
+  const adminApproveJobFinish = async (jobId, panelId, opId, requestId) => {
     if (!isAdmin || !loggedInUser) return;
-    let parentJob = null, panel = null;
-    for (const job of tasks) {
-      if (job.id !== jobId) continue;
-      const found = (job.subs || []).find(s => s.id === panelId);
-      if (found) { parentJob = job; panel = found; break; }
-    }
-    if (!parentJob || !panel) return;
+    const job = tasks.find(t => t.id === jobId);
+    if (!job) return;
+    const panel = (job.subs || []).find(s => s.id === panelId);
+    if (!panel) return;
+    const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
+    if (!target) return;
     const now = new Date().toISOString();
-    const newTasks = tasks.map(t => t.id !== jobId ? t : {
-      ...t,
-      subs: (t.subs || []).map(s => s.id !== panelId ? s : {
-        ...s, status: "Finished", finishRequest: undefined,
-        finishRequests: (s.finishRequests || []).map(r => r.id !== requestId ? r : {
+    // Recursive update: mark finishRequests resolved and set status on the target item at any depth
+    const updateItem = (items, targetId) => items.map(item => {
+      if (item.id === targetId) return {
+        ...item, status: "Finished", finishRequest: undefined,
+        finishRequests: (item.finishRequests || []).map(r => r.id !== requestId ? r : {
           ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
         }),
-      }),
+      };
+      if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
+      return item;
     });
+    const newTasks = updateItem(tasks, opId || panelId);
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const finReq = (panel.finishRequests || []).find(r => r.id === requestId);
+    const finReq = (target.finishRequests || []).find(r => r.id === requestId);
     const requesterId = finReq?.by;
     const notifyParticipants = people.filter(p => p.userRole === "admin" || (requesterId && p.id === requesterId));
     const participantIds = [...new Set(notifyParticipants.map(p => p.id))];
+    const label = opId ? `${panel.title} › ${target.title}` : target.title;
     postMessage({
       threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-      text: `✅ Finish request approved by ${loggedInUser.name}. "${panel.title}" has been marked as Finished.`,
+      text: `✅ Finish request approved by ${loggedInUser.name}. "${label}" has been marked as Finished.`,
       authorId: loggedInUser.id, authorName: loggedInUser.name,
       authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
     }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
   };
 
-  const adminDeclineJobFinish = async (jobId, panelId, requestId, reason) => {
+  const adminDeclineJobFinish = async (jobId, panelId, opId, requestId, reason) => {
     if (!isAdmin || !loggedInUser) return;
-    let parentJob = null, panel = null;
-    for (const job of tasks) {
-      if (job.id !== jobId) continue;
-      const found = (job.subs || []).find(s => s.id === panelId);
-      if (found) { parentJob = job; panel = found; break; }
-    }
-    if (!parentJob || !panel) return;
+    const job = tasks.find(t => t.id === jobId);
+    if (!job) return;
+    const panel = (job.subs || []).find(s => s.id === panelId);
+    if (!panel) return;
+    const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
+    if (!target) return;
     const now = new Date().toISOString();
-    const newTasks = tasks.map(t => t.id !== jobId ? t : {
-      ...t,
-      subs: (t.subs || []).map(s => s.id !== panelId ? s : {
-        ...s, finishRequest: undefined,
-        finishRequests: (s.finishRequests || []).map(r => r.id !== requestId ? r : {
+    const updateItem = (items, targetId) => items.map(item => {
+      if (item.id === targetId) return {
+        ...item, finishRequest: undefined,
+        finishRequests: (item.finishRequests || []).map(r => r.id !== requestId ? r : {
           ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
           ...(reason ? { declineReason: reason } : {}),
         }),
-      }),
+      };
+      if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
+      return item;
     });
+    const newTasks = updateItem(tasks, opId || panelId);
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const finReq = (panel.finishRequests || []).find(r => r.id === requestId);
+    const finReq = (target.finishRequests || []).find(r => r.id === requestId);
     const requesterId = finReq?.by;
     const notifyParticipants = people.filter(p => p.userRole === "admin" || (requesterId && p.id === requesterId));
     const participantIds = [...new Set(notifyParticipants.map(p => p.id))];
+    const label = opId ? `${panel.title} › ${target.title}` : target.title;
     postMessage({
       threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-      text: `❌ Finish request for "${panel.title}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
+      text: `❌ Finish request for "${label}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
       authorId: loggedInUser.id, authorName: loggedInUser.name,
       authorColor: loggedInUser.color || "#64748b", participantIds, attachments: [],
     }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
@@ -3813,10 +3867,12 @@ ${jobsCtx || "No jobs found."}`;
             }}>▶</Btn>
           </div>
           <div ref={filterRef} style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => setFilterOpen(p => !p)} title="Filters" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
+            <Tip label="Filters">
+            <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
             </button>
+            </Tip>
             {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
@@ -3857,11 +3913,11 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Right side: Clipboard + Zoom + FAST TRAQS + New Task button */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <input type="range" min="0.5" max="4" step="0.1" value={gZoom} onChange={e => setGZoom(Number(e.target.value))} style={{ width: 80, accentColor: T.accent }} title="Zoom" />
+          <Tip label="Zoom"><input type="range" min="0.5" max="4" step="0.1" value={gZoom} onChange={e => setGZoom(Number(e.target.value))} style={{ width: 80, accentColor: T.accent }} /></Tip>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
-            <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+            <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
           {can("editJobs") && !jobSelectMode && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
@@ -4337,10 +4393,12 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 {/* Dependencies */}
                 <div style={{ animation: "toolDrop 0.16s 165ms both ease-out" }}>
-                  <button onClick={() => { setConditionsOpen(true); setToolbarExpanded(false); }} title="Dependencies" style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${(orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"88" : T.border}`, background: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "all 0.15s" }}>
+                  <Tip label="Dependencies">
+                  <button onClick={() => { setConditionsOpen(true); setToolbarExpanded(false); }} style={{ width: "100%", height: 28, padding: "0 9px", borderRadius: T.radiusXs, border: `1px solid ${(orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"88" : T.border}`, background: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: (orgSettings.conditions || []).some(c => c.enabled) ? T.accent : T.textDim, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "all 0.15s" }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                     Dependencies
                   </button>
+                  </Tip>
                 </div>
                 {/* Alignment */}
                 <div style={{ animation: `toolDrop 0.16s ${isMobile ? "220" : "220"}ms both ease-out` }}>
@@ -4367,9 +4425,11 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
           {taskSubView === "list" && <>
             {/* Export button */}
-            <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} title="Export" style={{ height: 29, width: 29, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
+            <Tip label="Export">
+            <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} style={{ height: 29, width: 29, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
+            </Tip>
             {/* Column picker button */}
             <div ref={colPickerRef} style={{ position: "relative" }}>
               <button onClick={() => { setColPickerOpen(o => !o); setExportOpen(false); }} style={{ height: 29, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: colPickerOpen ? T.accent + "22" : T.bg, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: T.accent, fontSize: 12, fontFamily: T.font, fontWeight: 600 }}>
@@ -4473,7 +4533,7 @@ ${jobsCtx || "No jobs found."}`;
                       <span style={{ fontSize: 13, color: "#10b981", fontWeight: 700 }}>✓</span>
                       <span style={{ fontSize: 13, color: "#10b981", fontWeight: 600, flex: 1 }}>{stepLabel}</span>
                       <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
-                      <button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} title="Undo" style={{ padding: "2px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩ Undo</button>
+                      <Tip label="Undo"><button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "2px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩ Undo</button></Tip>
                     </div>;
                     if (isActive) return <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <button onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ flex: 1, padding: "8px 14px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {stepLabel}</button>
@@ -4518,7 +4578,7 @@ ${jobsCtx || "No jobs found."}`;
                     <span style={{ fontSize: 13, color: "#10b981", fontWeight: 700 }}>✓</span>
                     <span style={{ fontSize: 13, color: "#10b981", fontWeight: 600, flex: 1 }}>{step.label}</span>
                     <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
-                    <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Undo" style={{ padding: "2px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩ Undo</button>
+                    <Tip label="Undo"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ padding: "2px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩ Undo</button></Tip>
                   </div>;
                   if (isActive) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <button onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ flex: 1, padding: "8px 14px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {step.label}</button>
@@ -4543,10 +4603,12 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
               <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
               {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
-              <button onClick={() => setTaskFilterOpen(p => !p)} title="Filter" style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
+              <Tip label="Filter">
+              <button onClick={() => setTaskFilterOpen(p => !p)} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                 {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
+              </Tip>
               {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
@@ -4707,6 +4769,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                       <HealthIcon t={panel} size={14} />
                       <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
+                      {panel.dateOverridden && <span title={`Original start: ${fm(panel.dateOverridden.originalStart)} · Overridden by ${panel.dateOverridden.overriddenBy} on ${fm(panel.dateOverridden.overriddenAt)}`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 8, background: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b33", cursor: "help", flexShrink: 0 }}>Date Overridden</span>}
                       <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
                     </div>
                     {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
@@ -5843,10 +5906,12 @@ ${jobsCtx || "No jobs found."}`;
           {barSelectMode && <Btn size="sm" variant="ghost" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>{selBars.size > 0 ? "None" : "All"}</Btn>}
           {barSelectMode && selBars.size > 0 && <><span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selBars.size} selected</span><Btn size="sm" variant="ghost" style={{ color: "#ef4444", borderColor: "#ef444444" }} onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn><Btn size="sm" variant="ghost" onClick={() => { setBarMoveDays(""); setBarMoveModalOpen(true); }}>Move</Btn></>}
         <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => setFilterOpen(p => !p)} title="Filters" style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
+          <Tip label="Filters">
+          <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
             {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
           </button>
+          </Tip>
           {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
@@ -5914,7 +5979,7 @@ ${jobsCtx || "No jobs found."}`;
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
-            <button onClick={() => setClipboard(null)} title="Clear clipboard" style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+            <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
@@ -6122,7 +6187,7 @@ ${jobsCtx || "No jobs found."}`;
               {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
               <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : T.surface, zIndex: 10, opacity: !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "background 0.15s, opacity 0.2s" }}>
                 {/* Drag handle */}
-                <div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }} title="Drag to reorder">⠿</div>
+                <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
                 <div style={{ width: 28, height: 28, borderRadius: 14, background: p.color + "22", border: `1.5px solid ${p.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: p.color, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</div>
@@ -6455,9 +6520,9 @@ ${jobsCtx || "No jobs found."}`;
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
-                    {inDepGroup && !isBarSelected && <span title="Linked — moves with its dependency group" style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>}
+                    {inDepGroup && !isBarSelected && <Tip label="Linked — moves with its dependency group"><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span></Tip>}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                    {hasMoveLog && <span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} title="Schedule was changed" />}
+                    {hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
                     <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : `${bar.task?.title || bar.title} - ${p.name.split(" ")[0]}`}</span>
                     {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.85)", fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
@@ -8169,7 +8234,7 @@ ${jobsCtx || "No jobs found."}`;
                     {tmpl.steps.map((stepLabel, i) => {
                       const isDone = !!so[String(i)];
                       const isActive = i === activeIdx;
-                      if (isDone) return <span key={i} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {stepLabel}{canApprove && <button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} title="Revert" style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}</span>;
+                      if (isDone) return <span key={i} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {stepLabel}{canApprove && <Tip label="Revert"><button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
                       if (isActive && canApprove) return <button key={i} onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "5px 13px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {stepLabel}</button>;
                       if (isActive) return <span key={i} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {stepLabel}</span>;
                       return <span key={i} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {stepLabel}</span>;
@@ -8199,7 +8264,7 @@ ${jobsCtx || "No jobs found."}`;
                   {approvalSteps.map(step => {
                     const done = !!e[step.key];
                     const isActive = step.key === activeStep;
-                    if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canApprove && <button onClick={() => revertEngineering(job.id, panel.id, step.key)} title="Revert" style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button>}</span>;
+                    if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canApprove && <Tip label="Revert"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
                     if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
                     if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                     return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {step.label}</span>;
@@ -8577,10 +8642,10 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </>}
       {/* Ask TRAQS FAB — always visible on mobile */}
-      {!askOpen && <button onClick={() => setAskOpen(true)} title="Ask TRAQS"
+      {!askOpen && <Tip label="Ask TRAQS"><button onClick={() => setAskOpen(true)}
         style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom, 0px))", right: 20, zIndex: 1500, width: 56, height: 56, borderRadius: 28, background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${T.accent}55, 0 2px 8px rgba(0,0,0,0.3)`, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill={T.accentText}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-      </button>}
+      </button></Tip>}
     </div>;
   };
 
@@ -8656,7 +8721,7 @@ ${jobsCtx || "No jobs found."}`;
         {/* Groups header */}
         <div style={{ padding: "14px 14px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Groups</span>
-          {loggedInUser && <button onClick={() => setNewGroupModal(true)} title="New group" style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button>}
+          {loggedInUser && <Tip label="New group"><button onClick={() => setNewGroupModal(true)} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button></Tip>}
         </div>
         {groups.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No groups yet</div>}
         {groups.slice().sort((a, b) => {
@@ -8747,7 +8812,9 @@ ${jobsCtx || "No jobs found."}`;
                   if (m.type === "finish_request") {
                     const frJob = tasks.find(t => t.id === m.jobId);
                     const frPanel = (frJob?.subs || []).find(s => s.id === m.panelId);
-                    const frReq = (frPanel?.finishRequests || []).find(r => r.id === m.finishRequestId);
+                    const frOp = m.opId ? (frPanel?.subs || []).find(s => s.id === m.opId) : null;
+                    const frTarget = frOp || frPanel; // sub-op if present, otherwise panel
+                    const frReq = (frTarget?.finishRequests || []).find(r => r.id === m.finishRequestId);
                     const frClient = frJob?.clientId ? clients.find(c => c.id === frJob.clientId) : null;
                     const frPM = frJob?.projectManagerId ? people.find(p => p.id === frJob.projectManagerId) : null;
                     const frDecState = finishDeclineState[m.finishRequestId] || {};
@@ -8760,7 +8827,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius, overflow: "hidden", maxWidth: 560 }}>
                         {/* Card header */}
                         <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${T.border}`, background: T.card, display: "flex", alignItems: "flex-start", gap: 12 }}>
-                          <span style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>🏁</span>
+                          <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Finish Approval Request</div>
                             <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Requested by <strong style={{ color: T.text }}>{frReq?.byName || m.authorName}</strong> · {ts}</div>
@@ -8771,6 +8838,12 @@ ${jobsCtx || "No jobs found."}`;
                         </div>
                         {/* Body */}
                         <div style={{ padding: "14px 18px" }}>
+                          {/* Prominent requester + item statement */}
+                          <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 14, lineHeight: 1.4 }}>
+                            <span style={{ color: T.accent }}>{frReq?.byName || m.authorName}</span>
+                            <span style={{ fontWeight: 400, color: T.textSec }}> has requested finish approval for </span>
+                            <span style={{ color: T.text }}>{frTarget?.title || m.text}</span>
+                          </div>
                           {/* Operation + job — always visible */}
                           {frPanel && <div style={{ fontSize: 14, marginBottom: 12 }}>
                             <span style={{ color: T.textDim }}>Operation: </span>
@@ -8847,7 +8920,7 @@ ${jobsCtx || "No jobs found."}`;
                                   <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: false, reason: "" } }))} style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                                   <button
                                     disabled={!hasReason}
-                                    onClick={() => adminDeclineJobFinish(m.jobId, m.panelId, m.finishRequestId, frDecState.reason || "")}
+                                    onClick={() => adminDeclineJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId, frDecState.reason || "")}
                                     style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: "none", background: hasReason ? "#ef4444" : T.border, color: hasReason ? "#fff" : T.textDim, fontSize: 14, fontWeight: 700, cursor: hasReason ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}
                                   >Confirm Decline</button>
                                 </div>
@@ -8855,7 +8928,7 @@ ${jobsCtx || "No jobs found."}`;
                             }
                             return <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
                               <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: true, reason: "" } }))} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✕ Decline</button>
-                              <button onClick={() => adminApproveJobFinish(m.jobId, m.panelId, m.finishRequestId)} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✓ Approve</button>
+                              <button onClick={() => adminApproveJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✓ Approve</button>
                             </div>;
                           })()}
                         </div>
@@ -8910,12 +8983,12 @@ ${jobsCtx || "No jobs found."}`;
                 )}
                 <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                   <input ref={chatFileInputRef} type="file" multiple accept="image/*,.pdf,.txt,.csv,.xlsx,.xls" style={{ display: "none" }} onChange={handleChatFileSelect} />
-                  <button onClick={() => chatFileInputRef.current?.click()} disabled={chatUploading} title="Attach file" style={{ width: 36, height: 36, borderRadius: 8, background: chatUploading ? T.accent + "15" : T.surface, border: `1px solid ${T.border}`, cursor: chatUploading ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", color: chatUploading ? T.accent : T.textDim }}>
+                  <Tip label="Attach file"><button onClick={() => chatFileInputRef.current?.click()} disabled={chatUploading} style={{ width: 36, height: 36, borderRadius: 8, background: chatUploading ? T.accent + "15" : T.surface, border: `1px solid ${T.border}`, cursor: chatUploading ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", color: chatUploading ? T.accent : T.textDim }}>
                     {chatUploading
                       ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
                       : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     }
-                  </button>
+                  </button></Tip>
                   <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={2} style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "11px 14px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.5 }} />
                   <button onClick={sendChatMessage} disabled={(!chatInput.trim() && !chatAttachments.length) || chatSending || chatUploading} style={{ width: 38, height: 38, borderRadius: 10, background: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? T.accent : T.border, border: "none", cursor: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
@@ -9138,6 +9211,125 @@ ${jobsCtx || "No jobs found."}`;
         }, 500);
       };
 
+      // Reschedule a single panel/operation starting from a new date, leaving all others unchanged.
+      const overrideSchedulePanel = (panelId, newStartDate) => {
+        const panel = (ed.subs || []).find(p => p.id === panelId);
+        if (!panel) return;
+        const originalStart = panel.start;
+        setOverrideLoading(prev => ({ ...prev, [panelId]: true }));
+        setOverrideError(prev => ({ ...prev, [panelId]: null }));
+        setTimeout(() => {
+          const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
+          const inSession = [];
+          const isPersonFreeLocal = (pid, s, eDate) => {
+            const pp = people.find(x => x.id === pid);
+            if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
+            for (const job of tasks) {
+              if (ed.id && job.id === ed.id) continue;
+              for (const pnl of (job.subs || [])) {
+                if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= eDate && pnl.end >= s && (pnl.subs || []).length === 0) return false;
+                for (const op of (pnl.subs || [])) {
+                  if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
+                  if (op.start && op.end && op.start <= eDate && op.end >= s) return false;
+                }
+              }
+            }
+            return true;
+          };
+          const isAvailLocal = (pid, s, eDate) => {
+            if (!isPersonFreeLocal(pid, s, eDate)) return false;
+            for (const sess of inSession) { if (sess.pid === pid && sess.start <= eDate && sess.end >= s) return false; }
+            return true;
+          };
+          const personCursors = {};
+          allCrew.forEach(pp => { personCursors[pp.id] = newStartDate; });
+          const jobCountLocal = (pid) => tasks.reduce((n, job) => {
+            if (ed.id && job.id === ed.id) return n;
+            for (const pnl of (job.subs || [])) {
+              if ((pnl.team || []).includes(pid) && pnl.status !== "Finished") n++;
+              for (const op of (pnl.subs || [])) { if ((op.team || []).includes(pid) && op.status !== "Finished") n++; }
+            }
+            return n;
+          }, 0);
+          const pickTeamLocal = (op, minStart = null) => {
+            const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
+            const reqDept = typeof op === "object" ? (op.requiredDepartment || "") : "";
+            const eligible = allCrew.filter(pp => !reqDept || pp.department === reqDept).sort((a, b) => { const diff = jobCountLocal(a.id) - jobCountLocal(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
+            if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
+            const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
+            if (scheduleTeamMode === "one") {
+              let tryStart = minStart || newStartDate;
+              for (let guard = 0; guard < 300; guard++) {
+                const tryEnd = sAddBD(tryStart, Math.max(0, singleDur - 1));
+                for (const candidate of eligible) { if (isAvailLocal(candidate.id, tryStart, tryEnd)) return { team: [candidate], start: tryStart, end: tryEnd }; }
+                tryStart = sAddBD(tryStart, 1);
+              }
+              return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
+            }
+            const teamSize = eligible.length;
+            const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
+            let tryStart = minStart || newStartDate;
+            for (let guard = 0; guard < 300; guard++) {
+              const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
+              let allFree = true;
+              for (const m of eligible) { if (!isAvailLocal(m.id, tryStart, tryEnd)) { allFree = false; break; } }
+              if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
+              tryStart = sAddBD(tryStart, 1);
+            }
+            const fallbackStart = minStart || newStartDate;
+            for (let g2 = 0; g2 < 300; g2++) {
+              const tryS = sAddBD(fallbackStart, g2);
+              const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
+              const freeSubset = eligible.filter(m => isAvailLocal(m.id, tryS, tryE));
+              if (freeSubset.length > 0) { const sz = freeSubset.length; const finalDur = Math.max(1, Math.ceil(totalHours / (sz * orgSettings.hpd))); return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) }; }
+            }
+            return { team: [], start: fallbackStart, end: fallbackStart };
+          };
+          let newPanel;
+          if ((panel.subs || []).length > 0) {
+            const placedSubs = [];
+            let opEarliestStart = newStartDate;
+            for (const sub of (panel.subs || [])) {
+              const { team: subTeam, start: ss, end: se } = pickTeamLocal(sub, opEarliestStart);
+              if (subTeam.length === 0) {
+                setOverrideError(prev => ({ ...prev, [panelId]: `No available workers for "${sub.title}" starting ${newStartDate}. Try a later date.` }));
+                setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
+                return;
+              }
+              placedSubs.push({ ...sub, start: ss, end: se, team: subTeam.map(m => m.id) });
+              subTeam.forEach(m => { inSession.push({ pid: m.id, start: ss, end: se }); personCursors[m.id] = sAddBD(se, 1); });
+              opEarliestStart = sAddBD(se, 1);
+            }
+            const opStart = placedSubs[0]?.start || newStartDate;
+            const opEnd = placedSubs[placedSubs.length - 1]?.end || newStartDate;
+            newPanel = { ...panel, start: opStart, end: opEnd, subs: placedSubs };
+          } else {
+            const { team: panelTeam, start: ps, end: pe } = pickTeamLocal(panel, newStartDate);
+            if (panelTeam.length === 0) {
+              setOverrideError(prev => ({ ...prev, [panelId]: "No available workers found for that date. Try a later date." }));
+              setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
+              return;
+            }
+            newPanel = { ...panel, start: ps, end: pe, team: panelTeam.map(m => m.id) };
+          }
+          const overrideEntry = {
+            fromStart: originalStart, fromEnd: panel.end,
+            toStart: newPanel.start, toEnd: newPanel.end,
+            date: TD, movedBy: loggedInUser?.name || "Unknown",
+            reason: "Date Override", isDateOverride: true,
+          };
+          newPanel = {
+            ...newPanel,
+            moveLog: [...(panel.moveLog || []), overrideEntry],
+            dateOverridden: { originalStart, overriddenAt: TD, overriddenBy: loggedInUser?.name || "Unknown" },
+          };
+          setEd(prev => ({ ...prev, subs: prev.subs.map(p => p.id === panelId ? newPanel : p) }));
+          setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
+          setOverrideOpen(prev => ({ ...prev, [panelId]: false }));
+          setOverrideDate(prev => ({ ...prev, [panelId]: "" }));
+        }, 300);
+      };
+
       const shopCrew = people.filter(p => p.userRole === "user");
 
       const loadTemplate = (tpl) => {
@@ -9244,17 +9436,19 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Panel header row */}
                   <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:3, flexShrink:0 }}>
-                      <input type="number" min="1" max="999" value={panel.qty||1} onChange={e => updatePanel({qty:Math.max(1,parseInt(e.target.value)||1)})} title="Quantity — creates this many copies when saved" style={{ width:54, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${(panel.qty||1)>1?T.accent:T.border}`, background:T.surface, color:(panel.qty||1)>1?T.accent:T.text, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:(panel.qty||1)>1?700:400 }} />
+                      <Tip label="Quantity — creates this many copies when saved"><input type="number" min="1" max="999" value={panel.qty||1} onChange={e => updatePanel({qty:Math.max(1,parseInt(e.target.value)||1)})} style={{ width:54, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${(panel.qty||1)>1?T.accent:T.border}`, background:T.surface, color:(panel.qty||1)>1?T.accent:T.text, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:(panel.qty||1)>1?700:400 }} /></Tip>
                       <span style={{ fontSize:11, color:T.textDim }}>qty</span>
                     </div>
                     <button onClick={e => { e.stopPropagation(); setCollapsedOps(prev => ({...prev,[panel.id]:!prev[panel.id]})); }} style={{ padding:"3px 5px", background:"transparent", border:"none", cursor:"pointer", color:T.textDim, flexShrink:0 }}>
                       <svg style={{ transform:collapsedOps[panel.id]?"rotate(-90deg)":"rotate(0deg)", transition:"transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     </button>
                     <div style={{ position:"relative", flexShrink:0 }}>
-                      <button onClick={e => { e.stopPropagation(); setColorDropId(colorDropId===panel.id?null:panel.id); }} title="Change color" style={{ display:"flex", alignItems:"center", gap:5, padding:"4px 8px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", transition:"background 0.15s", flexShrink:0, fontFamily:T.font }}>
+                      <Tip label="Change color">
+                      <button onClick={e => { e.stopPropagation(); setColorDropId(colorDropId===panel.id?null:panel.id); }} style={{ display:"flex", alignItems:"center", gap:5, padding:"4px 8px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", transition:"background 0.15s", flexShrink:0, fontFamily:T.font }}>
                         <div style={{ width:14, height:14, borderRadius:7, background:panel.color||COLORS[pi%COLORS.length], flexShrink:0, boxShadow:`0 0 0 1.5px ${panel.color||COLORS[pi%COLORS.length]}55` }} />
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color:T.textDim }}><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
+                      </Tip>
                       {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:12, display:"flex", flexWrap:"wrap", gap:8, width:168, animation:"menuIn 0.15s ease-out" }}>
                         {COLORS.map(c => { const isOn=(panel.color||COLORS[pi%COLORS.length])===c; return <div key={c} onClick={() => { updatePanel({color:c}); setColorDropId(null); }} style={{ width:30, height:30, borderRadius:15, background:c, cursor:"pointer", position:"relative", flexShrink:0, transition:"transform 0.12s", boxShadow:isOn?`0 0 0 2.5px rgba(255,255,255,0.9), 0 0 0 4px ${c}88`:"0 0 0 0px transparent", transform:isOn?"scale(1.12)":"scale(1)" }}>{isOn && <svg width="13" height="13" viewBox="0 0 13 13" style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", pointerEvents:"none" }}><polyline points="2,7 5,10 11,3" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>; })}
                       </div>}
@@ -9265,10 +9459,10 @@ ${jobsCtx || "No jobs found."}`;
                     {panel.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
                     <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0, width:110 }}>
                       {hasSubs
-                        ? <div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.accent, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:700 }} title="Sum of sub-op hours">{panelHpdSum}</div>
+                        ? <Tip label="Sum of sub-op hours"><div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.accent, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:700 }}>{panelHpdSum}</div></Tip>
                         : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                       }
-                      <span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }} title="Estimated total hours for this operation">hrs</span>
+                      <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
                       <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${T.danger}33`, background:T.danger+"10", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                     </div>
                   </div>
@@ -9278,13 +9472,13 @@ ${jobsCtx || "No jobs found."}`;
                     const updateSub = (patch) => { const subs=[...(panel.subs||[])]; subs[si]={...subs[si],...patch}; updatePanel({subs}); };
                     return <div key={sub.id} draggable onDragStart={e => { e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx=Number(e.dataTransfer.getData("text/plain")); if(fromIdx===si) return; const newSubs=[...(panel.subs||[])]; const [moved]=newSubs.splice(fromIdx,1); newSubs.splice(si,0,moved); updatePanel({subs:newSubs}); }} style={{ marginBottom:6, animation:"fadeIn 0.18s ease-out backwards" }}>
                       <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, paddingLeft:16 }}>
-                        <div style={{ cursor:"grab", color:T.textDim, fontSize:13, userSelect:"none", flexShrink:0, paddingRight:4 }} title="Drag to reorder">⠿</div>
+                        <Tip label="Drag to reorder"><div style={{ cursor:"grab", color:T.textDim, fontSize:13, userSelect:"none", flexShrink:0, paddingRight:4 }}>⠿</div></Tip>
                         <div style={{ width:2, height:20, background:T.border, borderRadius:2, flexShrink:0 }} />
                         <input value={sub.title} onChange={e => updateSub({title:e.target.value})} placeholder="Sub-operation name" style={{ flex:1, padding:"7px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
                         {sub.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
                         <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
                           <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updateSub({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
-                          <span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }} title="Estimated total hours for this operation">hrs</span>
+                          <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
                           {(orgSettings.roles?.length>0) && <div style={{ position:"relative", flexShrink:0 }}>
                             <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId===sub.id?null:sub.id); }}
                               style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"3px 8px", borderRadius:8, minWidth:76, border:`1px solid ${sub.requiredDepartment?T.accent+"55":T.border}`, background:sub.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s", whiteSpace:"nowrap" }}>
@@ -9454,6 +9648,8 @@ ${jobsCtx || "No jobs found."}`;
                     const pDates=(hasSubs?(panel.subs||[]).flatMap(s=>[s.start,s.end]):[panel.start,panel.end]).filter(Boolean);
                     const pStart=pDates.length?pDates.reduce((a,b)=>a<b?a:b):null;
                     const pEnd=pDates.length?pDates.reduce((a,b)=>a>b?a:b):null;
+                    const isOverrideOpen=!!overrideOpen[panel.id];
+                    const isOverrideSuccess=!!panel.dateOverridden;
                     return <div key={panel.id||pi} style={{ borderRadius:T.radiusSm, border:`1px solid ${T.border}`, overflow:"hidden", background:T.surface }}>
                       {/* Card header */}
                       <div onClick={() => setPreviewPanelExpanded(prev=>({...prev,[panel.id]:!prev[panel.id]}))}
@@ -9463,9 +9659,46 @@ ${jobsCtx || "No jobs found."}`;
                         <svg style={{ flexShrink:0, transition:"transform 0.2s", transform:panelOpen?"rotate(0deg)":"rotate(-90deg)" }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         <div style={{ width:9, height:9, borderRadius:5, background:color, flexShrink:0 }} />
                         <span style={{ fontSize:13, fontWeight:700, color:T.text, flex:1 }}>{panel.title||"Untitled"}</span>
+                        {isOverrideSuccess && <span style={{ fontSize:10, fontWeight:700, color:"#10b981", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Override applied</span>}
                         {pStart && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(pStart)}<span style={{ margin:"0 5px", opacity:0.4 }}>→</span>{fm(pEnd)}</span>}
                         {!hasSubs && (panel.team||[]).map(pid=>{ const person=people.find(x=>x.id===pid); if(!person) return null; return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:6, background:(person.color||color)+"20", color:person.color||color, border:`1px solid ${person.color||color}33` }}>{person.name}</span>; })}
+                        {/* Override start date button */}
+                        <Tip label="Override start date">
+                        <button
+                          onClick={e=>{ e.stopPropagation(); setOverrideOpen(prev=>({...prev,[panel.id]:!prev[panel.id]})); setOverrideError(prev=>({...prev,[panel.id]:null})); }}
+                          style={{ background:"none", border:`1px solid ${isOverrideOpen?T.accent:T.border}`, borderRadius:T.radiusXs, padding:"3px 6px", cursor:"pointer", display:"flex", alignItems:"center", lineHeight:0, flexShrink:0, color:isOverrideOpen?T.accent:T.textDim, transition:"all 0.15s" }}
+                          onMouseEnter={e=>{e.currentTarget.style.borderColor=T.accent;e.currentTarget.style.color=T.accent;}}
+                          onMouseLeave={e=>{e.currentTarget.style.borderColor=isOverrideOpen?T.accent:T.border;e.currentTarget.style.color=isOverrideOpen?T.accent:T.textDim;}}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                        </button>
+                        </Tip>
                       </div>
+                      {/* Override date input */}
+                      {isOverrideOpen && <div style={{ borderTop:`1px solid ${T.border}`, padding:"12px 14px", background:T.bg, animation:"menuIn 0.16s ease-out" }}>
+                        <div style={{ fontSize:12, fontWeight:600, color:T.text, marginBottom:8 }}>Override start date for <strong>{panel.title||"this operation"}</strong></div>
+                        {overrideError[panel.id] && <div style={{ padding:"8px 12px", borderRadius:T.radiusXs, background:T.danger+"10", border:`1px solid ${T.danger}33`, color:T.danger, fontSize:12, marginBottom:8 }}>{overrideError[panel.id]}</div>}
+                        <div style={{ display:"flex", alignItems:"flex-end", gap:10, flexWrap:"wrap" }}>
+                          <div>
+                            <div style={{ fontSize:10, color:T.textDim, marginBottom:4, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>New Start Date</div>
+                            <input type="date" value={overrideDate[panel.id]||""} min={TD}
+                              onChange={e=>{ setOverrideError(prev=>({...prev,[panel.id]:null})); setOverrideDate(prev=>({...prev,[panel.id]:e.target.value})); }}
+                              style={{ padding:"6px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, cursor:"pointer" }}
+                            />
+                          </div>
+                          <button
+                            disabled={!overrideDate[panel.id]||!!overrideLoading[panel.id]}
+                            onClick={()=>{ const d=overrideDate[panel.id]; if(!d) return; if(d<TD){ setOverrideError(prev=>({...prev,[panel.id]:"Override date cannot be in the past."})); return; } overrideSchedulePanel(panel.id,d); }}
+                            style={{ padding:"7px 14px", borderRadius:T.radiusXs, border:"none", background:T.accent, color:T.accentText, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:T.font, opacity:(!overrideDate[panel.id]||overrideLoading[panel.id])?0.5:1 }}
+                          >
+                            {overrideLoading[panel.id]?"Reassigning…":"Reassign and Continue"}
+                          </button>
+                          <button
+                            onClick={()=>{ setOverrideOpen(prev=>({...prev,[panel.id]:false})); setOverrideError(prev=>({...prev,[panel.id]:null})); }}
+                            style={{ background:"none", border:"none", color:T.textDim, fontSize:12, cursor:"pointer", fontFamily:T.font, padding:"7px 0" }}
+                          >Cancel</button>
+                        </div>
+                      </div>}
                       {/* Expanded: sub-op rows */}
                       {hasSubs && panelOpen && <div style={{ borderTop:`1px solid ${T.border}`, animation:"menuIn 0.16s ease-out" }}>
                         {(panel.subs||[]).filter(sub=>(sub.team||[]).length>0).map((sub,si)=>(
@@ -9817,7 +10050,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>{log.reason || "Schedule change"}</span>
                     <span style={{ fontSize: 11, color: T.textDim, marginLeft: "auto" }}>{fm(log.date)}</span>
-                    {can("undoHistory") && <button onClick={() => {
+                    {can("undoHistory") && <Tip label="Undo this change"><button onClick={() => {
                       const opId = opData.id;
                       setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
                         if (op.id !== opId) return op;
@@ -9829,10 +10062,10 @@ ${jobsCtx || "No jobs found."}`;
                         return { ...op, start: entry.fromStart, end: entry.fromEnd, moveLog: [...newLog, revertEntry] };
                       }) })) })));
                       closeModal();
-                    }} title="Undo this change" style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: T.textSec, flexShrink: 0, transition: "all 0.15s" }}
+                    }} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: T.textSec, flexShrink: 0, transition: "all 0.15s" }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = "#f59e0b"; e.currentTarget.style.color = "#f59e0b"; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}
-                    >↩</button>}
+                    >↩</button></Tip>}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
                     <span style={{ color: T.textDim, fontFamily: T.mono }}>{fm(log.fromStart)} – {fm(log.fromEnd)}</span>
@@ -9952,7 +10185,7 @@ ${jobsCtx || "No jobs found."}`;
   // Filter out admin users from the shop crew display (they don't get assigned tasks)
   const shopPeople = people.filter(p => p.userRole === "user");
 
-  return <div className={`traqs-${themeMode}`} style={{ height: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+  return <TooltipCtx.Provider value={tipCtx}><div className={`traqs-${themeMode}`} style={{ height: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
     {/* Slim search bar */}
     {!isMobile && <div style={{ padding: "10px 32px 8px", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, borderBottom: `1px solid ${T.border}22`, gap: 8 }}>
       <div ref={searchRef} style={{ position: "relative", flex: 1, maxWidth: askExpanded ? 360 : 480, transition: "max-width 0.28s cubic-bezier(0.22,1,0.36,1)", minWidth: 0 }}>
@@ -10017,8 +10250,8 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 32, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
         <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-          <button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canUndo ? T.border : "transparent"}`, background: canUndo ? T.bg : "transparent", cursor: canUndo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canUndo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↩</button>
-          <button onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)" style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canRedo ? T.border : "transparent"}`, background: canRedo ? T.bg : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↪</button>
+          <Tip label="Undo (Ctrl+Z)"><button onClick={undo} disabled={!canUndo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canUndo ? T.border : "transparent"}`, background: canUndo ? T.bg : "transparent", cursor: canUndo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canUndo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↩</button></Tip>
+          <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canRedo ? T.border : "transparent"}`, background: canRedo ? T.bg : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↪</button></Tip>
         </div>
       </div>
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, background: T.bg, borderRadius: T.radiusSm, padding: 3, isolation: "isolate" }}>
@@ -10033,14 +10266,14 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div onClick={() => doSave()} title="Click to save now" style={{ marginRight: 2, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none", opacity: 0.85 }}>
+          <Tip label="Click to save now"><div onClick={() => doSave()} style={{ marginRight: 2, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none", opacity: 0.85 }}>
             {saveStatus === "saving"
               ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
               : saveStatus === "saved"
               ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M20 6L9 17l-5-5"/></svg>
               : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
             <span style={{ fontSize: 11, fontWeight: 500, color: saveStatus === "saved" ? "#10b981" : saveStatus === "saving" ? T.accent : T.textSec }}>{saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : "Unsaved"}</span>
-          </div>
+          </div></Tip>
           <div style={{ width: 30, height: 30, borderRadius: 15, background: loggedInUser.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700 }}>{loggedInUser.name[0]}</div>
           <div style={{ lineHeight: 1.2 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{loggedInUser.name}</div>
@@ -10050,10 +10283,10 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ width: 1, height: 28, background: T.border, margin: "0 4px" }} />
         {/* Notification Bell */}
         <div ref={notifRef} style={{ position: "relative" }}>
-          <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} title="Notifications" style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
+          <Tip label="Notifications"><button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{unreadByThread.length > 9 ? "9+" : unreadMessages.length}</span>}
-          </button>
+          </button></Tip>
           {notifOpen && <div onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
             <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Notifications</div>
@@ -10505,7 +10738,12 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Request Finish Approval Confirmation Modal ── */}
     {finishApproval && <div style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setFinishApproval(null)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(440px, calc(100vw - 32px))", padding: "28px 28px 24px", animation: "slideUp 0.22s ease-out" }}>
-        <div style={{ fontSize: 36, textAlign: "center", marginBottom: 12 }}>🏁</div>
+        <div style={{ textAlign: "center", marginBottom: 12, lineHeight: 0 }}>
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+            <line x1="4" y1="22" x2="4" y2="15"/>
+          </svg>
+        </div>
         <div style={{ fontSize: 17, fontWeight: 700, color: T.text, textAlign: "center", marginBottom: 8 }}>Request Finish Approval</div>
         <div style={{ fontSize: 13, color: T.textSec, textAlign: "center", marginBottom: 24, lineHeight: 1.65 }}>
           A detailed notification will be sent to all admins for <strong style={{ color: T.text }}>{finishApproval.title}</strong>. They can approve or decline directly inside TRAQS.
@@ -10650,17 +10888,19 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ flex: 1, fontSize: 14, color: T.text }}>{r}</span>
                 )}
                 {roleEditId !== idx && (
+                  <Tip label="Edit">
                   <button
                     onClick={() => { setRoleEditId(idx); setRoleEditVal(r); }}
-                    title="Edit"
                     style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 13, padding: "0 4px", lineHeight: 1, display: "flex", alignItems: "center" }}
                   >✎</button>
+                  </Tip>
                 )}
+                <Tip label="Delete">
                 <button
                   onClick={() => { setOrgSettings(s => ({ ...s, roles: s.roles.filter((_, i) => i !== idx) })); if (roleEditId === idx) setRoleEditId(null); }}
-                  title="Delete"
                   style={{ background: "none", border: "none", color: T.danger || "#ef4444", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", display: "flex", alignItems: "center" }}
                 >✕</button>
+                </Tip>
               </div>
             ))}
           </div>
@@ -11097,7 +11337,7 @@ ${jobsCtx || "No jobs found."}`;
         <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 620, maxHeight: "88vh", overflow: "auto", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14` }}>
           {/* Header */}
           <div style={{ padding: "18px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-            <button onClick={() => setFastTraqsPhase("intro")} title="Back" style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>←</button>
+            <Tip label="Back"><button onClick={() => setFastTraqsPhase("intro")} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "0.04em" }}>FAST TRAQS</span>
@@ -11217,7 +11457,7 @@ ${jobsCtx || "No jobs found."}`;
               {quickChat.participants.length > 7 && <span style={{ fontSize: 10, color: T.textDim, marginLeft: 2 }}>+{quickChat.participants.length - 7}</span>}
             </div>
           </div>
-          <button onClick={() => { setChatThread(quickChat); setView("messages"); markThreadRead(quickChat.threadKey); setQuickChat(null); }} title="Open in Messages tab" style={{ background: T.accent + "18", border: `1px solid ${T.accent}44`, color: T.accent, borderRadius: 8, padding: "5px 11px", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>Full View →</button>
+          <Tip label="Open in Messages tab"><button onClick={() => { setChatThread(quickChat); setView("messages"); markThreadRead(quickChat.threadKey); setQuickChat(null); }} style={{ background: T.accent + "18", border: `1px solid ${T.accent}44`, color: T.accent, borderRadius: 8, padding: "5px 11px", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>Full View →</button></Tip>
           <button onClick={() => setQuickChat(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}>✕</button>
         </div>
         {/* Messages scroll area */}
@@ -11354,11 +11594,11 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}</div>
         {/* Quick action icon buttons */}
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          {can("editJobs") && <button title="Edit" onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>}
-          {can("editJobs") && <button title="Rename" onClick={() => { setGridCell({ id: it.id, col: "title" }); setCtxMenu(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button>}
-          <button title="Copy" onClick={() => copyItem(it)} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
-          <button title="Open Chat" onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button>
-          {can("editJobs") && <button title="Send Reminder" onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>}
+          {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+          {can("editJobs") && <Tip label="Rename"><button onClick={() => { setGridCell({ id: it.id, col: "title" }); setCtxMenu(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button></Tip>}
+          <Tip label="Copy"><button onClick={() => copyItem(it)} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></Tip>
+          <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
+          {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
         </div>
       </div>
       {/* Quick add panel (job level) */}
@@ -12300,8 +12540,10 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, color: T.textSec, marginBottom: 8, fontWeight: 600 }}>Background highlight</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
-                <button onClick={() => setCondWizard(w => ({ ...w, formatBgColor: "" }))} title="None"
+                <Tip label="None">
+                <button onClick={() => setCondWizard(w => ({ ...w, formatBgColor: "" }))}
                   style={{ width: 28, height: 28, borderRadius: 6, border: `2px solid ${!condWizard.formatBgColor ? T.accent : T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, fontSize: 12, fontWeight: 700 }}>✕</button>
+                </Tip>
                 {COND_FORMAT_COLORS.map(c => (
                   <button key={c.label} title={c.label} onClick={() => setCondWizard(w => ({ ...w, formatBgColor: c.bg }))}
                     style={{ width: 28, height: 28, borderRadius: 6, border: `2px solid ${condWizard.formatBgColor === c.bg ? c.text : "transparent"}`, background: c.bg, cursor: "pointer", outline: condWizard.formatBgColor === c.bg ? `2px solid ${c.text}` : "none", outlineOffset: 2, boxSizing: "border-box" }} />
@@ -12311,8 +12553,10 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, color: T.textSec, marginBottom: 8, fontWeight: 600 }}>Text color</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
-                <button onClick={() => setCondWizard(w => ({ ...w, formatTextColor: "" }))} title="None"
+                <Tip label="None">
+                <button onClick={() => setCondWizard(w => ({ ...w, formatTextColor: "" }))}
                   style={{ width: 28, height: 28, borderRadius: 6, border: `2px solid ${!condWizard.formatTextColor ? T.accent : T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, fontSize: 12, fontWeight: 700 }}>✕</button>
+                </Tip>
                 {COND_FORMAT_COLORS.map(c => (
                   <button key={c.label} title={c.label} onClick={() => setCondWizard(w => ({ ...w, formatTextColor: c.text }))}
                     style={{ width: 28, height: 28, borderRadius: 6, border: `2px solid ${condWizard.formatTextColor === c.text ? c.text : "transparent"}`, background: c.text, cursor: "pointer", outline: condWizard.formatTextColor === c.text ? `2px solid ${c.text}` : "none", outlineOffset: 2, boxSizing: "border-box" }} />
@@ -12350,7 +12594,13 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}
-  </div>;
+  </div>
+  {appTooltip && createPortal((() => {
+    const flipLeft = appTooltip.x > window.innerWidth - 240;
+    const flipUp   = appTooltip.y > window.innerHeight - 56;
+    return <div style={{ position: "fixed", left: flipLeft ? undefined : appTooltip.x + 12, right: flipLeft ? window.innerWidth - appTooltip.x + 12 : undefined, top: flipUp ? undefined : appTooltip.y + 8, bottom: flipUp ? window.innerHeight - appTooltip.y + 8 : undefined, zIndex: 99999, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "5px 10px", fontSize: 12, fontWeight: 500, color: T.text, fontFamily: T.font, pointerEvents: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.25)", animation: "tipIn 0.14s ease-out", whiteSpace: "nowrap", maxWidth: 260, lineHeight: 1.4 }}>{appTooltip.label}</div>;
+  })(), document.body)}
+  </TooltipCtx.Provider>;
 }
 
 function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTask }) {
