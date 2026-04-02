@@ -1816,14 +1816,18 @@ Rules:
   useEffect(() => { dataRef.current.clients = clients; }, [clients]);
 
   // Auto-save system
+  // Step 3: wrap getToken in a ref so doSave never needs getToken as a dependency
+  const getTokenRef = useRef(getToken);
+  useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
+
   const doSave = useCallback(async () => {
     try {
       setSaveStatus("saving");
       const d = dataRef.current;
       await Promise.all([
-        saveTasks(d.tasks, getToken, orgCode),
-        savePeople(d.people, getToken, orgCode),
-        saveClients(d.clients, getToken, orgCode),
+        saveTasks(d.tasks, getTokenRef.current, orgCode),
+        savePeople(d.people, getTokenRef.current, orgCode),
+        saveClients(d.clients, getTokenRef.current, orgCode),
       ]);
       lastSaveTime.current = Date.now();
       setTimeout(() => setSaveStatus("saved"), 600);
@@ -1831,16 +1835,20 @@ Rules:
       console.error("Auto-save failed:", e);
       setSaveStatus("unsaved");
     }
-  }, [getToken]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Step 2: store doSave in a ref so the unsaved useEffect never needs it as a dependency
+  const doSaveRef = useRef(doSave);
+  useEffect(() => { doSaveRef.current = doSave; }, [doSave]);
 
   const isInitialSave = useRef(true);
   useEffect(() => {
     if (isInitialSave.current) { isInitialSave.current = false; return; }
     setSaveStatus("unsaved");
     clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => { doSave(); }, 1000);
+    saveTimerRef.current = setTimeout(() => { doSaveRef.current(); }, 1000);
     return () => clearTimeout(saveTimerRef.current);
-  }, [tasks, people, clients, doSave]);
+  }, [tasks, people, clients]); // Step 1: doSave removed — only real data changes trigger unsaved
 
 
   const [clientModal, setClientModal] = useState(null);
