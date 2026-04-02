@@ -676,7 +676,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     let el = document.querySelector("style[data-traqs-glow]");
     if (!el) { el = document.createElement("style"); el.setAttribute("data-traqs-glow","1"); document.head.appendChild(el); }
     const a = T.accent;
-    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} }`;
+    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } }`;
   }, [T.accent]);
   // Inject date-picker CSS for dynamic custom theme color-scheme
   useEffect(() => {
@@ -1791,6 +1791,8 @@ Rules:
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [availCheckPassed, setAvailCheckPassed] = useState(false);
+  const [modalStep, setModalStep] = useState(1);   // 1 | 2 | 3
+  const [stepDir, setStepDir] = useState(1);        // 1 = forward, -1 = back
   const [scheduleTeamMode, setScheduleTeamMode] = useState("one"); // "one" | "team"
   const [confirmMove, setConfirmMove] = useState(null); // { message, onConfirm }
   const [searchQ, setSearchQ] = useState("");
@@ -2543,8 +2545,9 @@ Rules:
     setClientModal(null);
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
-  const openNew = (pid = null) => setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid });
-  const openEdit = (t, pid = null) => setModal({ type: "edit", data: { ...t }, parentId: pid });
+  const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
+  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
+  const openEdit = (t, pid = null) => { setModalStep(1); setStepDir(1); const hasAssign = (t.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0); setAvailCheckPassed(hasAssign); setAiSuggestion(null); setModal({ type: "edit", data: { ...t }, parentId: pid }); };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
@@ -8859,578 +8862,566 @@ ${jobsCtx || "No jobs found."}`;
         persistTemplates(templates.filter(t => t.id !== tid));
       };
 
-      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>{cls}<div style={{ flex: 1, overflowY: "auto", padding: "0 0 8px 0" }}>        {/* ── Header ── */}
-        <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit" : "New Job"}</h3>
-
-        {/* ── Task fields ── */}
-        <InputField label="Job Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title: v }))} />
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-          <InputField label="Job #" value={ed.jobNumber || ""} onChange={v => setEd(p => ({ ...p, jobNumber: v }))} placeholder="e.g. 2024-001" />
-          <InputField label="PO #" value={ed.poNumber || ""} onChange={v => setEd(p => ({ ...p, poNumber: v }))} placeholder="e.g. PO-8821" />
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-          <InputField label="Due Date (Customer)" value={ed.dueDate || ""} onChange={v => setEd(p => ({ ...p, dueDate: v }))} type="date" />
-          <div>
-            <label style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 6 }}>
-              Project Manager <span style={{ color: "#ef4444", fontSize: 15, lineHeight: 1 }}>*</span>
-            </label>
-            <SearchSelect value={ed.projectManagerId} onChange={v => setEd(p => ({ ...p, projectManagerId: v }))}
-              options={people.map(p => ({ value: p.id, label: p.name, sub: p.department || "" }))}
-              placeholder="Select project manager…"
-              style={{ borderColor: !ed.projectManagerId ? "#ef444455" : T.border }} />
-          </div>
-        </div>
-        <SearchSelect label="Client" value={ed.clientId} onChange={v => setEd(p => ({ ...p, clientId: v }))} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color, sub: c.contact }))} placeholder="Search clients..." />
-
-        {/* ── Custom columns ── */}
-        {customCols.filter(c => !c.fieldKey).length > 0 && <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
-          {customCols.filter(c => !c.fieldKey).map(col => {
-            const key = "_cc_" + col.id;
-            if (col.type === "select" && (col.options || []).length > 0) {
-              const val = ed[key] || "";
-              return <div key={col.id}>
-                <label style={{ display: "block", fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 6 }}>{col.label}</label>
-                <select value={val} onChange={e => setEd(p => ({ ...p, [key]: e.target.value }))} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: val ? T.text : T.textDim, fontSize: 14, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                  {(col.options || []).map(o => <option key={o} value={o === "—" ? "" : o}>{o}</option>)}
-                </select>
-              </div>;
-            }
-            return <InputField key={col.id} label={col.label} type={col.type === "number" ? "number" : col.type === "date" ? "date" : "text"} value={ed[key] || ""} onChange={v => setEd(p => ({ ...p, [key]: v }))} />;
-          })}
-        </div>}
-
-        {aiSuggestion && <div style={{ marginBottom: 20, marginTop: -8 }}>
-            {aiSuggestion.noSubtasks && <div style={{ padding: 14, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
-              No subtasks found. Add sub-operations to your panels before scheduling.
-            </div>}
-            {aiSuggestion.overlapError && <div style={{ padding: 14, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500, marginBottom: 10 }}>
-              Assignment aborted — conflict detected: {aiSuggestion.overlapError}
-            </div>}
-            {aiSuggestion.blockedSubtasks?.length > 0 && (
-              <div style={{ padding: "10px 14px", background: "#f59e0b12", border: "1px solid #f59e0b33", borderRadius: T.radiusSm, marginBottom: 10, fontSize: 12, color: "#f59e0b" }}>
-                {aiSuggestion.blockedSubtasks.map(b => (
-                  <div key={b.title}>⚠ <strong>{b.title}</strong> is blocked — {b.count} unfinished dependenc{b.count > 1 ? "ies" : "y"} must complete first.</div>
-                ))}
-              </div>
-            )}
-            {aiSuggestion.canMeetDue === true && <div style={{ padding: "12px 16px", background: "#10b98112", border: "1px solid #10b98133", borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ lineHeight: 0, color: "#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
-              <div><div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
-              <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>Found {aiSuggestion.slots.length} schedule option{aiSuggestion.slots.length > 1 ? "s" : ""} for {aiSuggestion.numPanels} operation{aiSuggestion.numPanels > 1 ? "s" : ""}</div></div>
-            </div>}
-            {aiSuggestion.canMeetDue === false && <div style={{ padding: "12px 16px", background: "#ef444412", border: "1px solid #ef444433", borderRadius: T.radiusSm, marginBottom: 10 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                <span style={{ lineHeight: 0, color: "#ef4444" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>Cannot meet the {fm(aiSuggestion.dueDate)} deadline</div>
-              </div>
-              <div style={{ fontSize: 12, color: T.textSec }}>Not enough crew available before the due date for {aiSuggestion.numPanels} operation{aiSuggestion.numPanels > 1 ? "s" : ""}.</div>
-              {aiSuggestion.suggestedDueDate && <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 12, color: T.textSec }}>Suggested new due date:</span>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b", fontFamily: T.mono }}>{fm(aiSuggestion.suggestedDueDate)}</span>
-                <button onClick={() => setEd(p => ({ ...p, dueDate: aiSuggestion.suggestedDueDate }))} style={{ padding: "4px 12px", borderRadius: 6, border: "1px solid #f59e0b44", background: "#f59e0b15", color: "#f59e0b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Update Due Date</button>
-              </div>}
-            </div>}
-            {aiSuggestion.canMeetDue === null && <div style={{ padding: "12px 16px", background: T.accent + "12", border: `1px solid ${T.accent}33`, borderRadius: T.radiusSm, marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 20 }}>🤖</span>
-              <div style={{ fontSize: 13, color: T.textSec }}>No due date set. Here are the earliest available windows:</div>
-            </div>}
-            {aiSuggestion.noSlots && <div style={{ padding: 16, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
-              No one is available within the next 200 business days. Consider adding more team members or reducing the panel count.
-            </div>}
-            {!aiSuggestion.noSlots && aiSuggestion.slots.length === 0 && <div style={{ padding: 16, background: T.danger + "10", border: `1px solid ${T.danger}33`, borderRadius: T.radiusSm, color: T.danger, fontSize: 13, fontWeight: 500 }}>
-              No available windows found. Consider adjusting panel count or adding team members.
-            </div>}
-            {aiSuggestion.slots.map((slot, si) => <div key={si} style={{ background: T.surface, border: `1px solid ${slot.meetsDeadline !== false ? T.border : "#f59e0b44"}`, borderRadius: T.radiusSm, padding: 14, marginBottom: 8, transition: "all 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.background = T.accent + "08"; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = slot.meetsDeadline !== false ? T.border : "#f59e0b44"; e.currentTarget.style.background = T.surface; }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{fm(slot.start)}</span>
-                  <span style={{ color: T.textDim }}>→</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{fm(slot.end)}</span>
-                  <span style={{ fontSize: 11, color: T.textDim }}>({slot.totalBD || diffBD(slot.start, slot.end) + 1} days total)</span>
-                  {si === 0 && slot.meetsDeadline !== false && <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98115", padding: "2px 8px", borderRadius: 10, border: "1px solid #10b98133" }}>RECOMMENDED</span>}
-                  {slot.meetsDeadline === false && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b15", padding: "2px 8px", borderRadius: 10, border: "1px solid #f59e0b33" }}>AFTER DUE DATE</span>}
+      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>{cls}
+        {/* ── Scrollable content (title + step indicator + step body) ── */}
+        <div style={{ flex:1, overflowY:"auto", padding:"24px 32px" }}>
+          <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Job" : "New Job"}</h3>
+          <div style={{ display: "flex", alignItems: "flex-start", marginBottom: 20 }}>
+            {[{n:1,label:"Job Details"},{n:2,label:"Operations"},{n:3,label:"Schedule"}].map(({n,label},i) => {
+              const done = modalStep > n; const active = modalStep === n;
+              return <div key={n} style={{ display:"flex", alignItems:"flex-start", flex: i>0 ? 1 : "none" }}>
+                {i > 0 && <div style={{ flex:1, height:2, background:done?T.accent:T.border, transition:"background 0.3s", marginTop:13 }} />}
+                <div onClick={() => done ? goStep(n) : undefined} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:done?"pointer":"default" }}>
+                  <div style={{ width:28, height:28, borderRadius:14, background:(done||active)?T.accent:"transparent", border:`2px solid ${(done||active)?T.accent:T.border}`, display:"flex", alignItems:"center", justifyContent:"center", color:(done||active)?T.accentText:T.textDim, fontSize:12, fontWeight:700, transition:"all 0.3s", flexShrink:0 }}>{done?"✓":n}</div>
+                  <span style={{ fontSize:11, color:active?T.accent:T.textDim, fontWeight:active?700:400, whiteSpace:"nowrap" }}>{label}</span>
                 </div>
-                <button onClick={(e) => {
-                  e.stopPropagation();
-                  setEd(p => {
-                    const updated = { ...p };
-                    const _jobClientName = (clients.find(c => c.id === p.clientId) || {}).name || "";
-                    const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
-
-                    // Overlap-based availability check against existing saved jobs.
-                    const isPersonFreeGlobal = (pid, s, eDate) => {
-                      const pp = people.find(x => x.id === pid);
-                      if (pp) for (const to of (pp.timeOff || [])) {
-                        if (to.start <= eDate && to.end >= s) return false;
-                      }
-                      for (const job of tasks) {
-                        if (ed.id && job.id === ed.id) continue;
-                        for (const pnl of (job.subs || [])) {
-                          if ((pnl.team || []).includes(pid) && pnl.status !== "Finished"
-                              && pnl.start && pnl.end && pnl.start <= eDate && pnl.end >= s
-                              && (pnl.subs || []).length === 0) return false;
-                          for (const op of (pnl.subs || [])) {
-                            if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
-                            if (op.start && op.end && op.start <= eDate && op.end >= s) return false;
-                          }
-                        }
-                      }
-                      return true;
-                    };
-
-                    // Expand ops by qty — strip trailing number from title, renumber cleanly
-                    const expandedOps = (p.subs || []).flatMap(op => {
-                      const qty = Math.max(1, parseInt(op.qty) || 1);
-                      const baseTitle = op.title.replace(/-\d+$/, "").trimEnd();
-                      return Array.from({ length: qty }, (_, i) => ({
-                        ...op,
-                        id: i === 0 ? op.id : uid(),
-                        title: qty > 1 ? `${baseTitle}-${String(i + 1).padStart(3, "0")}` : op.title,
-                        qty: undefined,
-                        subs: (op.subs || []).map(sub => ({ ...sub, id: i === 0 ? sub.id : uid() })),
-                      }));
-                    });
-
-                    // Per-person cursor: tracks what date each person is next free
-                    const personCursors = {};
-                    allCrew.forEach(pp => { personCursors[pp.id] = slot.start; });
-                    // In-session schedule: tracks ops placed so far in this scheduling pass
-                    const inSession = []; // { pid, start, end }
-                    const isAvail = (pid, s, eDate) => {
-                      if (!isPersonFreeGlobal(pid, s, eDate)) return false;
-                      for (const sess of inSession) {
-                        if (sess.pid === pid && sess.start <= eDate && sess.end >= s) return false;
-                      }
-                      return true;
-                    };
-
-                    // Count active (non-Finished) assignments for a person across all existing jobs
-                    const jobCount = (pid) => tasks.reduce((n, job) => {
-                      if (ed.id && job.id === ed.id) return n;
-                      for (const pnl of (job.subs || [])) {
-                        if ((pnl.team || []).includes(pid) && pnl.status !== "Finished") n++;
-                        for (const op of (pnl.subs || [])) {
-                          if ((op.team || []).includes(pid) && op.status !== "Finished") n++;
-                        }
-                      }
-                      return n;
-                    }, 0);
-
-                    // Pick all eligible people for the operation (overlap-based, team scheduling)
-                    const pickTeam = (op, minStart = null) => {
-                      const opTitle = typeof op === "string" ? op : op.title;
-                      const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
-                      const reqDept = typeof op === "object" ? (op.requiredDepartment || "") : "";
-                      const eligible = allCrew
-                        .filter(pp => !reqDept || pp.department === reqDept)
-                        .sort((a, b) => { const diff = jobCount(a.id) - jobCount(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
-                      if (eligible.length === 0) {
-                        const fallback = minStart || slot.start;
-                        return { team: [], start: fallback, end: fallback };
-                      }
-                      const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
-
-                      if (scheduleTeamMode === "one") {
-                        // "1 Person/Op" — pick the earliest-available single person
-                        let tryStart = eligible.reduce((earliest, m) => {
-                          const c = personCursors[m.id] || slot.start;
-                          return c < earliest ? c : earliest;
-                        }, personCursors[eligible[0].id] || slot.start);
-                        if (minStart && tryStart < minStart) tryStart = minStart;
-                        for (let guard = 0; guard < 300; guard++) {
-                          const tryEnd = sAddBD(tryStart, Math.max(0, singleDur - 1));
-                          for (const candidate of eligible) {
-                            if (isAvail(candidate.id, tryStart, tryEnd)) {
-                              return { team: [candidate], start: tryStart, end: tryEnd };
-                            }
-                          }
-                          tryStart = sAddBD(tryStart, 1);
-                        }
-                        const fallback = minStart || slot.start;
-                        return { team: eligible.slice(0, 1), start: fallback, end: sAddBD(fallback, Math.max(0, singleDur - 1)) };
-                      }
-
-                      // "Full Team/Op" — try all eligible simultaneously; fall back to largest free subset
-                      const teamSize = eligible.length;
-                      const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
-                      const hpdEach = totalHours / teamSize;
-                      let tryStart = eligible.reduce((best, m) => {
-                        const c = personCursors[m.id] || slot.start;
-                        return c > best ? c : best;
-                      }, slot.start);
-                      if (minStart && tryStart < minStart) tryStart = minStart;
-                      for (let guard = 0; guard < 300; guard++) {
-                        const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
-                        let allFree = true;
-                        for (const m of eligible) {
-                          if (!isAvail(m.id, tryStart, tryEnd)) { allFree = false; break; }
-                        }
-                        if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
-                        tryStart = sAddBD(tryStart, 1);
-                      }
-                      // Fallback: find earliest slot where any free subset exists
-                      const fallbackStart = minStart || slot.start;
-                      for (let g2 = 0; g2 < 300; g2++) {
-                        const tryS = sAddBD(fallbackStart, g2);
-                        const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
-                        const freeSubset = eligible.filter(m => isAvail(m.id, tryS, tryE));
-                        if (freeSubset.length > 0) {
-                          const sz = freeSubset.length;
-                          const finalDur = Math.max(1, Math.ceil(totalHours / (sz * orgSettings.hpd)));
-                          return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) };
-                        }
-                      }
-                      return { team: eligible.slice(0, 1), start: fallbackStart, end: sAddBD(fallbackStart, Math.max(0, singleDur - 1)) };
-                    };
-
-                    let latestEnd = slot.start;
-
-                    // Priority-queue scheduler: process all ops across all panels sorted by
-                    // earliest possible start. When a person finishes any op, they immediately
-                    // pick up the next ready op from ANY panel — no one sits idle if work is available.
-                    // Intra-panel order (Cut → Wire → Layout) is enforced via dependency tracking.
-
-                    // Build mutable result structures
-                    const resultSubs = expandedOps.map(op => ({
-                      ...op,
-                      placedSubs: (op.subs || []).map(sub => ({ ...sub, _placed: false, start: null, end: null, team: sub.team || [] })),
-                    }));
-
-                    // Seed the queue with the first op of every panel that has sub-ops
-                    // Each entry: { panelIdx, opIdx, earliestStart }
-                    const opQueue = [];
-                    resultSubs.forEach((op, pi) => {
-                      if ((op.subs || []).length > 0) {
-                        opQueue.push({ panelIdx: pi, opIdx: 0, earliestStart: slot.start });
-                      }
-                    });
-
-                    // Process until queue is empty
-                    for (let safety = 0; safety < 10000 && opQueue.length > 0; safety++) {
-                      // Sort by earliestStart so we always schedule the soonest-ready op first
-                      opQueue.sort((a, b) => a.earliestStart.localeCompare(b.earliestStart));
-                      const { panelIdx, opIdx, earliestStart } = opQueue.shift();
-                      const sub = expandedOps[panelIdx].subs[opIdx];
-                      if (checkDeps(sub.deps).length > 0) continue;  // skip blocked subtask
-                      const { team: subTeam, start: ss, end: se } = pickTeam(sub, earliestStart);
-                      resultSubs[panelIdx].placedSubs[opIdx] = { ...sub, _placed: true, start: ss, end: se, team: subTeam.length > 0 ? subTeam.map(m => m.id) : (sub.team || []) };
-                      subTeam.forEach(m => {
-                        inSession.push({ pid: m.id, start: ss, end: se, hpd: (sub.hpd || orgSettings.hpd) / Math.max(1, subTeam.length) });
-                        personCursors[m.id] = sAddBD(se, 1);
-                      });
-                      if (se > latestEnd) latestEnd = se;
-                      // Enqueue next op in this panel (Wire after Cut, Layout after Wire, etc.)
-                      const nextOpIdx = opIdx + 1;
-                      if (nextOpIdx < (expandedOps[panelIdx].subs || []).length) {
-                        opQueue.push({ panelIdx, opIdx: nextOpIdx, earliestStart: sAddBD(se, 1) });
-                      }
-                    }
-
-                    // Schedule panels that have no sub-ops directly at panel level (they are the assignable leaf)
-                    resultSubs.forEach((op, pi) => {
-                      if ((op.subs || []).length === 0) {
-                        const { team: panelTeam, start: ps, end: pe } = pickTeam(op, null);
-                        resultSubs[pi] = { ...op, _panelScheduled: true, _panelStart: ps, _panelEnd: pe, _panelTeam: panelTeam.map(m => m.id) };
-                        panelTeam.forEach(m => {
-                          inSession.push({ pid: m.id, start: ps, end: pe, hpd: (op.hpd || orgSettings.hpd) / Math.max(1, panelTeam.length) });
-                          personCursors[m.id] = sAddBD(pe, 1);
-                        });
-                        if (pe > latestEnd) latestEnd = pe;
-                      }
-                    });
-
-                    // Rebuild newSubs from results
-                    const newSubs = resultSubs.map((op) => {
-                      if (op._panelScheduled) {
-                        const { _panelScheduled, _panelStart, _panelEnd, _panelTeam, placedSubs, ...rest } = op;
-                        return { ...rest, start: _panelStart, end: _panelEnd, team: _panelTeam };
-                      }
-                      const placed = op.placedSubs;
-                      const opStart = placed[0]?.start || slot.start;
-                      const opEnd = placed[placed.length - 1]?.end || slot.start;
-                      return { ...op, start: opStart, end: opEnd, team: placed[0]?.team || [], subs: placed.map(({ _placed, ...rest }) => rest) };
-                    });
-
-                    const overlapErrors = [];
-                    for (const pnl of newSubs) {
-                      for (const sub of (pnl.subs || [])) {
-                        if (!sub.start || !sub.end || !(sub.team?.length)) continue;
-                        for (const pid of sub.team) {
-                          for (const job of tasks) {
-                            if (p.id && job.id === p.id) continue;
-                            for (const ePnl of (job.subs || [])) {
-                              if ((ePnl.team || []).includes(pid) && ePnl.status !== "Finished"
-                                  && ePnl.start && ePnl.end && ePnl.start <= sub.end && ePnl.end >= sub.start
-                                  && !(ePnl.subs || []).length) {
-                                overlapErrors.push(`${(people.find(x => x.id === pid) || {}).name || pid}: "${sub.title}" overlaps "${job.title}"`);
-                              }
-                              for (const eOp of (ePnl.subs || [])) {
-                                if (!(eOp.team || []).includes(pid) || eOp.status === "Finished") continue;
-                                if (eOp.start && eOp.end && eOp.start <= sub.end && eOp.end >= sub.start)
-                                  overlapErrors.push(`${(people.find(x => x.id === pid) || {}).name || pid}: "${sub.title}" overlaps "${eOp.title}" in "${job.title}"`);
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    // Also check panel-level assignments (panels with no sub-ops scheduled directly)
-                    for (const pnl of newSubs) {
-                      if ((pnl.subs || []).length === 0 && pnl.start && pnl.end && (pnl.team || []).length) {
-                        for (const pid of pnl.team) {
-                          for (const job of tasks) {
-                            if (p.id && job.id === p.id) continue;
-                            for (const ePnl of (job.subs || [])) {
-                              if ((ePnl.team || []).includes(pid) && ePnl.status !== "Finished"
-                                  && ePnl.start && ePnl.end && ePnl.start <= pnl.end && ePnl.end >= pnl.start
-                                  && !(ePnl.subs || []).length) {
-                                overlapErrors.push(`${(people.find(x => x.id === pid) || {}).name || pid}: "${pnl.title}" overlaps "${job.title}"`);
-                              }
-                              for (const eOp of (ePnl.subs || [])) {
-                                if (!(eOp.team || []).includes(pid) || eOp.status === "Finished") continue;
-                                if (eOp.start && eOp.end && eOp.start <= pnl.end && eOp.end >= pnl.start)
-                                  overlapErrors.push(`${(people.find(x => x.id === pid) || {}).name || pid}: "${pnl.title}" overlaps "${eOp.title}" in "${job.title}"`);
-                              }
-                            }
-                          }
-                        }
-                      }
-                    }
-                    if (overlapErrors.length > 0) {
-                      setTimeout(() => setAiSuggestion(prev => ({ ...(prev || {}), overlapError: overlapErrors.join(" | ") })), 0);
-                      return p;  // abort — return unchanged state
-                    }
-
-                    updated.subs = newSubs;
-                    updated.start = newSubs.length > 0 ? newSubs[0].start : slot.start;
-                    updated.end = latestEnd;
-                    return updated;
-                  });
-                  setAiSuggestion(null);
-                }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap", flexShrink: 0 }}>
-                  Use This Schedule
-                </button>
-              </div>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: slot.busy.length > 0 ? 6 : 0 }}>
-                <span style={{ fontSize: 11, color: "#10b981", fontWeight: 500, marginRight: 4 }}>✓ Available ({slot.available.length}):</span>
-                {slot.available.map(p => <span key={p.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: p.color + "15", color: p.color, fontWeight: 600, border: `1px solid ${p.color}33` }}>{p.name}</span>)}
-              </div>
-              {slot.busy.length > 0 && <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, color: T.danger, fontWeight: 500, marginRight: 4 }}>✗ Busy ({slot.busy.length}):</span>
-                {slot.busy.map(p => <span key={p.id} style={{ fontSize: 11, padding: "2px 8px", borderRadius: 6, background: T.danger + "10", color: T.danger + "aa", fontWeight: 500, textDecoration: "line-through" }}>{p.name}</span>)}
-              </div>}
-              {slot.staggered && <div style={{ marginTop: 6, padding: "6px 10px", background: T.accent + "08", borderRadius: T.radiusXs, border: `1px solid ${T.accent}22`, fontSize: 11, color: T.textSec }}>
-                📋 <strong style={{ color: T.text }}>{slot.businessDays} day{slot.businessDays > 1 ? "s" : ""}</strong> window — <strong style={{ color: T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels > 1 ? "s" : ""}</strong> scheduled sequentially
-              </div>}
-              {!slot.staggered && <div style={{ marginTop: 6, padding: "6px 10px", background: "#10b98108", borderRadius: T.radiusXs, border: "1px solid #10b98122", fontSize: 11, color: T.textSec }}>
-                📋 Scheduling <strong style={{ color: T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels > 1 ? "s" : ""}</strong> sequentially — one person per operation
-              </div>}
-            </div>)}
-          </div>}
-
-        {/* ── Operations ── */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-            <label style={{ fontSize: 13, color: T.textSec, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase" }}>Operations</label>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <button onClick={() => setScheduleTeamMode(m => m === "one" ? "team" : "one")}
-                title={scheduleTeamMode === "one" ? "Switch to: Full Team per Op" : "Switch to: 1 Person per Op"}
-                style={{ padding: "5px 10px", borderRadius: T.radiusXs, border: `1px solid ${scheduleTeamMode === "team" ? T.accent : T.textDim}55`, background: scheduleTeamMode === "team" ? T.accent + "18" : "transparent", color: scheduleTeamMode === "team" ? T.accent : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                {scheduleTeamMode === "one" ? "👤 1 Person/Op" : "👥 Full Team/Op"}
-              </button>
-              {templates.length > 0 && (
-                <select defaultValue="" onChange={e => { const tpl = templates.find(t => t.id === e.target.value); if (tpl) loadTemplate(tpl); e.target.value = ""; }}
-                  style={{ padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, cursor: "pointer" }}>
-                  <option value="" disabled>Load template…</option>
-                  {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                </select>
-              )}
-              <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(ed.subs || []); }}
-                disabled={!(ed.subs || []).some(p => p.title?.trim())}
-                style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}44`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, opacity: (ed.subs || []).some(p => p.title?.trim()) ? 1 : 0.4, cursor: (ed.subs || []).some(p => p.title?.trim()) ? "pointer" : "not-allowed", fontFamily: T.font }}>
-                Save Template
-              </button>
-            </div>
-          </div>
-          {/* Check for Availability */}
-          <button onClick={suggestSchedule} disabled={aiLoading || (ed.subs || []).length === 0} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, padding: "14px 18px", borderRadius: T.radiusSm, border: "none", background: (ed.subs || []).length === 0 ? T.textDim + "33" : availCheckPassed ? "#16a34a" : T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: aiLoading || (ed.subs || []).length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.2s", width: "100%", marginBottom: 12, opacity: (ed.subs || []).length === 0 ? 0.5 : 1, boxShadow: (ed.subs || []).length > 0 ? `0 4px 14px ${availCheckPassed ? "#16a34a59" : T.accent + "59"}` : "none", letterSpacing: "0.3px" }}>
-            {aiLoading ? "⏳ Checking availability..." : availCheckPassed ? "✓ Ready to Assign!" : "Ready to Assign!"}
-          </button>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-            {(ed.subs || []).map((panel, pi) => {
-              const updatePanel = (patch) => { const subs = [...(ed.subs || [])]; subs[pi] = { ...subs[pi], ...patch }; setEd(p => ({ ...p, subs })); };
-              const hasSubs = (panel.subs || []).length > 0;
-              const panelHpdSum = hasSubs ? Math.round((panel.subs || []).reduce((s, x) => s + (x.hpd ?? 7.5), 0) * 10) / 10 : null;
-              return <div key={pi} style={{ background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 12 }}>
-                {/* Panel header row */}
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                    <input type="number" min="1" max="999" value={panel.qty || 1} onChange={e => updatePanel({ qty: Math.max(1, parseInt(e.target.value) || 1) })} title="Quantity — creates this many copies when saved" style={{ width: 54, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${(panel.qty || 1) > 1 ? T.accent : T.border}`, background: T.surface, color: (panel.qty || 1) > 1 ? T.accent : T.text, fontSize: 13, fontFamily: T.font, textAlign: "center", fontWeight: (panel.qty || 1) > 1 ? 700 : 400 }} />
-                    <span style={{ fontSize: 11, color: T.textDim }}>qty</span>
-                  </div>
-                  <button onClick={e => { e.stopPropagation(); setCollapsedOps(prev => ({ ...prev, [panel.id]: !prev[panel.id] })); }} style={{ padding: "3px 5px", background: "transparent", border: "none", cursor: "pointer", color: T.textDim, flexShrink: 0 }}>
-                    <svg style={{ transform: collapsedOps[panel.id] ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                  </button>
-                  <div style={{ position: "relative", flexShrink: 0 }}>
-                    <button onClick={e => { e.stopPropagation(); setColorDropId(colorDropId === panel.id ? null : panel.id); }} title="Change color" style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", cursor: "pointer", transition: "background 0.15s", flexShrink: 0, fontFamily: T.font }}>
-                      <div style={{ width: 14, height: 14, borderRadius: 7, background: panel.color || COLORS[pi % COLORS.length], flexShrink: 0, boxShadow: `0 0 0 1.5px ${panel.color || COLORS[pi % COLORS.length]}55` }} />
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: T.textDim }}><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    {colorDropId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.22)", padding: 12, display: "flex", flexWrap: "wrap", gap: 8, width: 168, animation: "menuIn 0.15s ease-out" }}>
-                      {COLORS.map(c => { const isOn = (panel.color || COLORS[pi % COLORS.length]) === c; return <div key={c} onClick={() => { updatePanel({ color: c }); setColorDropId(null); }} style={{ width: 30, height: 30, borderRadius: 15, background: c, cursor: "pointer", position: "relative", flexShrink: 0, transition: "transform 0.12s", boxShadow: isOn ? `0 0 0 2.5px rgba(255,255,255,0.9), 0 0 0 4px ${c}88` : "0 0 0 0px transparent", transform: isOn ? "scale(1.12)" : "scale(1)" }}>{isOn && <svg width="13" height="13" viewBox="0 0 13 13" style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}><polyline points="2,7 5,10 11,3" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>; })}
-                    </div>}
-                  </div>
-                  <input value={panel.title} onChange={e => updatePanel({ title: e.target.value })} placeholder="Operation name"
-                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], subs: [], color: (() => { const used = new Set((p.subs || []).map(s => s.color).filter(Boolean)); const free = COLORS.filter(c => !used.has(c)); const pool = free.length ? free : COLORS; return pool[Math.floor(Math.random() * pool.length)]; })() }] })); } }}
-                    style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
-                  {panel.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, width: 110 }}>
-                    {hasSubs
-                      ? <div style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.accent, fontSize: 13, fontFamily: T.font, textAlign: "center", fontWeight: 700 }} title="Sum of sub-op hours">{panelHpdSum}</div>
-                      : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd ?? 7.5} onChange={e => { setAvailCheckPassed(false); updatePanel({ hpd: parseFloat(e.target.value) || 7.5 }); }} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
-                    }
-                    <span style={{ fontSize: 11, color: hasSubs ? T.accent : T.textDim, whiteSpace: "nowrap", width: 24 }} title="Estimated total hours for this operation">hrs</span>
-                    <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs: (p.subs || []).filter((_, j) => j !== pi) })); }} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
-                  </div>
-                </div>
-                {hasSubs && (panel.team || []).length > 0 && <div style={{ margin: "0 0 8px", padding: "8px 12px", background: "#f59e0b15", border: "1px solid #f59e0b44", borderRadius: T.radiusXs, fontSize: 12, color: "#f59e0b", lineHeight: 1.5 }}>⚠ {panel.team.length} worker{panel.team.length > 1 ? "s" : ""} assigned directly to this panel — but sub-operations now exist. Run <strong>Ready to Assign!</strong> to reassign at the sub-operation level.</div>}
-                {!collapsedOps[panel.id] && <>
-                {/* Sub-ops */}
-                {(panel.subs || []).map((sub, si) => {
-                  const updateSub = (patch) => { const subs = [...(panel.subs || [])]; subs[si] = { ...subs[si], ...patch }; updatePanel({ subs }); };
-                  return <div key={si} draggable onDragStart={e => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx = Number(e.dataTransfer.getData("text/plain")); if (fromIdx === si) return; const newSubs = [...(panel.subs || [])]; const [moved] = newSubs.splice(fromIdx, 1); newSubs.splice(si, 0, moved); updatePanel({ subs: newSubs }); }} style={{ marginBottom: 6 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4, paddingLeft: 16 }}>
-                      <div style={{ cursor: "grab", color: T.textDim, fontSize: 13, userSelect: "none", flexShrink: 0, paddingRight: 4 }} title="Drag to reorder">⠿</div>
-                      <div style={{ width: 2, height: 20, background: T.border, borderRadius: 2, flexShrink: 0 }} />
-                      <input value={sub.title} onChange={e => updateSub({ title: e.target.value })} placeholder="Sub-operation name" style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
-                      {sub.start ? <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, whiteSpace: "nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
-                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                        <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd ?? 7.5} onChange={e => { setAvailCheckPassed(false); updateSub({ hpd: parseFloat(e.target.value) || 7.5 }); }} style={{ width: 52, padding: "7px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, textAlign: "center" }} />
-                        <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", width: 24 }} title="Estimated total hours for this operation">hrs</span>
-                        {(orgSettings.roles?.length > 0) && <div style={{ position: "relative", flexShrink: 0 }}>
-                          <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId === sub.id ? null : sub.id); }}
-                            style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "3px 8px", borderRadius: 8, minWidth: 76, border: `1px solid ${sub.requiredDepartment ? T.accent + "55" : T.border}`, background: sub.requiredDepartment ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s", whiteSpace: "nowrap" }}>
-                            <span style={{ fontSize: 11, color: sub.requiredDepartment ? T.accent : T.textDim, fontWeight: 600 }}>{sub.requiredDepartment || "Dept"}</span>
-                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                          </button>
-                          {deptDropId === sub.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 160, padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
-                            {orgSettings.roles.map((r, ri) => {
-                              const isOn = sub.requiredDepartment === r;
-                              const fk = `sub-${sub.id}-${r}`;
-                              return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub({ requiredDepartment: isOn ? "" : r }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${ri * 38}ms both ease-out` }}
-                                onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
-                                <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
-                                  {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                                </div>
-                                <span style={{ fontSize: 12, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{r}</span>
-                              </div>;
-                            })}
-                          </div>}
-                        </div>}
-                        <button onClick={() => { setAvailCheckPassed(false); updatePanel({ subs: (panel.subs || []).filter((_, j) => j !== si) }); }} style={{ padding: "4px 8px", borderRadius: 6, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 13, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
-                      </div>
-                    </div>
-                  </div>;
-                })}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: (panel.subs || []).length ? 4 : 0, gap: 8, flexWrap: "wrap" }}>
-                  {/* Left: Sign-Off first, then Dept (Dept hidden when sub-ops exist) */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  {/* Sign-Off multi-select dropdown */}
-                  <div style={{ position: "relative" }}>
-                    <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId === panel.id ? null : panel.id); }}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 8, border: `1px solid ${Object.keys(panel.signOffs || {}).length ? T.accent + "55" : T.border}`, background: Object.keys(panel.signOffs || {}).length ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={Object.keys(panel.signOffs || {}).length ? T.accent : T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-                      <span style={{ fontSize: 11, color: Object.keys(panel.signOffs || {}).length ? T.accent : T.textDim, fontWeight: 600 }}>
-                        {Object.keys(panel.signOffs || {}).length ? signOffTemplates.filter(t => panel.signOffs?.[t.id] !== undefined).map(t => t.name).join(", ") : "Sign-Off"}
-                      </span>
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    {soDropPanelId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 200, padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
-                      {signOffTemplates.length === 0 && <div style={{ padding: "8px 14px", fontSize: 12, color: T.textDim }}>No templates yet</div>}
-                      {signOffTemplates.map((tmpl, ti) => {
-                        const isOn = (panel.signOffs || {})[tmpl.id] !== undefined;
-                        const fk = `so-${panel.id}-${tmpl.id}`;
-                        return <div key={tmpl.id} onClick={() => {
-                          setDropFlashKey(fk);
-                          setTimeout(() => {
-                            if (isOn) {
-                              const { [tmpl.id]: _, ...rest } = panel.signOffs || {};
-                              updatePanel({ signOffs: Object.keys(rest).length ? rest : undefined });
-                            } else {
-                              const stepsObj = Object.fromEntries(tmpl.steps.map((_, i) => [String(i), null]));
-                              updatePanel({ signOffs: { ...(panel.signOffs || {}), [tmpl.id]: stepsObj } });
-                            }
-                            setDropFlashKey(null);
-                          }, 150);
-                        }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
-                          onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
-                          <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
-                            {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
-                            <div style={{ fontSize: 10, color: T.textDim }}>{tmpl.steps.length} step{tmpl.steps.length !== 1 ? "s" : ""}</div>
-                          </div>
-                        </div>;
-                      })}
-                      <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
-                        <div onClick={() => { setSoDropPanelId(null); setSignOffSettingsOpen(true); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", fontSize: 12, color: T.accent, fontWeight: 600, transition: "background 0.12s" }}
-                          onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                          <span style={{ fontSize: 14 }}>+</span> Create new template
-                        </div>
-                      </div>
-                    </div>}
-                  </div>
-                  {/* Dept dropdown — only show at panel level when no sub-ops exist */}
-                  {(orgSettings.roles?.length > 0) && !hasSubs && <div style={{ position: "relative" }}>
-                    <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId === panel.id ? null : panel.id); }}
-                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 8px", borderRadius: 8, border: `1px solid ${panel.requiredDepartment ? T.accent + "55" : T.border}`, background: panel.requiredDepartment ? T.accent + "10" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-                      <span style={{ fontSize: 11, color: panel.requiredDepartment ? T.accent : T.textDim, fontWeight: 600 }}>{panel.requiredDepartment || "Dept"}</span>
-                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    {deptDropId === panel.id && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", minWidth: 160, padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
-                      {orgSettings.roles.map((r, ri) => {
-                        const isOn = panel.requiredDepartment === r;
-                        const fk = `panel-${panel.id}-${r}`;
-                        return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel({ requiredDepartment: isOn ? "" : r }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${ri * 38}ms both ease-out` }}
-                          onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
-                          <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
-                            {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                          </div>
-                          <span style={{ fontSize: 12, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{r}</span>
-                        </div>;
-                      })}
-                    </div>}
-                  </div>}
-                  </div>
-                  {/* Right: Add Sub-operation */}
-                  <button onClick={() => { setAvailCheckPassed(false); updatePanel({ subs: [...(panel.subs || []), { id: uid(), title: "", hpd: 7.5, team: [], subs: [], status: "Not Started", pri: "High", start: "", end: "", notes: "", deps: [], requiredDepartment: "" }] }); }} style={{ padding: "3px 10px", borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Sub-operation</button>
-                </div>
-                </>}
               </div>;
             })}
           </div>
-          <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs: [...(p.subs || []), { id: uid(), title: "Op-" + String((p.subs || []).length + 1).padStart(3, "0"), start: "", end: "", pri: "High", status: "Not Started", team: [], hpd: 7.5, notes: "", deps: [], requiredDepartment: "", subs: [], color: (() => { const used = new Set((p.subs || []).map(s => s.color).filter(Boolean)); const free = COLORS.filter(c => !used.has(c)); const pool = free.length ? free : COLORS; return pool[Math.floor(Math.random() * pool.length)]; })() }] })); }}
-            style={{ display: "block", width: "100%", padding: "18px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
-            onMouseEnter={e => { e.currentTarget.style.background = T.accent + "18"; e.currentTarget.style.borderColor = T.accent; }}
-            onMouseLeave={e => { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
-            + Add Operation
-          </button>
+
+          {/* STEP 1 — Job Details */}
+          {modalStep === 1 && <div key="step1" style={{ animation:"stepIn 0.22s ease-out", "--sd":stepDir }}>
+            <InputField label="Job Name" value={ed.title} onChange={v => setEd(p => ({ ...p, title:v }))} style={{ borderColor:!ed.title.trim()?"#ef444455":T.border }} />
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
+              <InputField label="Job #" value={ed.jobNumber||""} onChange={v => setEd(p => ({ ...p, jobNumber:v }))} placeholder="e.g. 2024-001" />
+              <InputField label="PO #" value={ed.poNumber||""} onChange={v => setEd(p => ({ ...p, poNumber:v }))} placeholder="e.g. PO-8821" />
+            </div>
+            <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
+              <InputField label="Due Date (Customer)" value={ed.dueDate||""} onChange={v => setEd(p => ({ ...p, dueDate:v }))} type="date" />
+              <div>
+                <label style={{ display:"flex", alignItems:"center", gap:4, fontSize:13, color:T.textSec, fontWeight:600, letterSpacing:"0.04em", textTransform:"uppercase", marginBottom:6 }}>
+                  Project Manager <span style={{ color:"#ef4444", fontSize:15, lineHeight:1 }}>*</span>
+                </label>
+                <SearchSelect value={ed.projectManagerId} onChange={v => setEd(p => ({ ...p, projectManagerId:v }))}
+                  options={people.map(p => ({ value:p.id, label:p.name, sub:p.department||"" }))}
+                  placeholder="Select project manager…"
+                  style={{ borderColor:!ed.projectManagerId?"#ef444455":T.border }} />
+              </div>
+            </div>
+            <SearchSelect label="Client" value={ed.clientId} onChange={v => setEd(p => ({ ...p, clientId:v }))} options={clients.map(c => ({ value:c.id, label:c.name, color:c.color, sub:c.contact }))} placeholder="Search clients..." />
+            {customCols.filter(c => !c.fieldKey).length > 0 && <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
+              {customCols.filter(c => !c.fieldKey).map(col => {
+                const key = "_cc_"+col.id;
+                if (col.type==="select" && (col.options||[]).length>0) {
+                  const val = ed[key]||"";
+                  return <div key={col.id}>
+                    <label style={{ display:"block", fontSize:13, color:T.textSec, fontWeight:600, letterSpacing:"0.04em", textTransform:"uppercase", marginBottom:6 }}>{col.label}</label>
+                    <select value={val} onChange={e => setEd(p => ({ ...p, [key]:e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:T.radiusSm, border:`1px solid ${T.border}`, background:T.surface, color:val?T.text:T.textDim, fontSize:14, fontFamily:T.font, outline:"none", cursor:"pointer" }}>
+                      {(col.options||[]).map(o => <option key={o} value={o==="—"?"":o}>{o}</option>)}
+                    </select>
+                  </div>;
+                }
+                return <InputField key={col.id} label={col.label} type={col.type==="number"?"number":col.type==="date"?"date":"text"} value={ed[key]||""} onChange={v => setEd(p => ({ ...p, [key]:v }))} />;
+              })}
+            </div>}
+            <div style={{ marginBottom:20, marginTop:8 }}>
+              <label style={{ display:"block", fontSize:13, color:T.textSec, marginBottom:6, fontWeight:500 }}>Notes</label>
+              <textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes:e.target.value }))} rows={3} style={{ width:"100%", padding:"12px 16px", borderRadius:T.radiusSm, border:`1px solid ${T.glassBorder}`, background:T.glass, color:T.text, fontSize:14, fontFamily:T.font, resize:"vertical", boxSizing:"border-box", outline:"none", transition:"border 0.2s, box-shadow 0.2s", colorScheme:T.colorScheme }} onFocus={e => { e.target.style.borderColor=T.accent+"55"; e.target.style.boxShadow=`0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor=T.glassBorder; e.target.style.boxShadow="none"; }} />
+            </div>
+          </div>}
+
+          {/* STEP 2 — Operations */}
+          {modalStep === 2 && <div key="step2" style={{ animation:"stepIn 0.22s ease-out", "--sd":stepDir }}>
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+              <label style={{ fontSize:13, color:T.textSec, fontWeight:600, letterSpacing:"0.04em", textTransform:"uppercase" }}>Operations</label>
+              <div style={{ display:"flex", gap:6, alignItems:"center" }}>
+                <button onClick={() => setScheduleTeamMode(m => m==="one"?"team":"one")}
+                  title={scheduleTeamMode==="one"?"Switch to: Full Team per Op":"Switch to: 1 Person per Op"}
+                  style={{ padding:"5px 10px", borderRadius:T.radiusXs, border:`1px solid ${scheduleTeamMode==="team"?T.accent:T.textDim}55`, background:scheduleTeamMode==="team"?T.accent+"18":"transparent", color:scheduleTeamMode==="team"?T.accent:T.textDim, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, whiteSpace:"nowrap" }}>
+                  {scheduleTeamMode==="one"?"👤 1 Person/Op":"👥 Full Team/Op"}
+                </button>
+                {templates.length > 0 && (
+                  <select defaultValue="" onChange={e => { const tpl=templates.find(t => t.id===e.target.value); if(tpl) loadTemplate(tpl); e.target.value=""; }}
+                    style={{ padding:"5px 8px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, fontFamily:T.font, cursor:"pointer" }}>
+                    <option value="" disabled>Load template…</option>
+                    {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  </select>
+                )}
+                <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(ed.subs||[]); }}
+                  disabled={!(ed.subs||[]).some(p => p.title?.trim())}
+                  style={{ padding:"5px 12px", borderRadius:T.radiusXs, border:`1px solid ${T.accent}44`, background:T.accent+"10", color:T.accent, fontSize:12, fontWeight:700, opacity:(ed.subs||[]).some(p => p.title?.trim())?1:0.4, cursor:(ed.subs||[]).some(p => p.title?.trim())?"pointer":"not-allowed", fontFamily:T.font }}>
+                  Save Template
+                </button>
+              </div>
+            </div>
+            <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:12 }}>
+              {(ed.subs||[]).map((panel,pi) => {
+                const updatePanel = (patch) => { const subs=[...(ed.subs||[])]; subs[pi]={...subs[pi],...patch}; setEd(p => ({ ...p, subs })); };
+                const hasSubs = (panel.subs||[]).length>0;
+                const panelHpdSum = hasSubs ? Math.round((panel.subs||[]).reduce((s,x) => s+(x.hpd??7.5),0)*10)/10 : null;
+                return <div key={pi} style={{ background:T.bg, borderRadius:T.radiusSm, border:`1px solid ${T.border}`, padding:12 }}>
+                  {/* Panel header row */}
+                  <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:3, flexShrink:0 }}>
+                      <input type="number" min="1" max="999" value={panel.qty||1} onChange={e => updatePanel({qty:Math.max(1,parseInt(e.target.value)||1)})} title="Quantity — creates this many copies when saved" style={{ width:54, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${(panel.qty||1)>1?T.accent:T.border}`, background:T.surface, color:(panel.qty||1)>1?T.accent:T.text, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:(panel.qty||1)>1?700:400 }} />
+                      <span style={{ fontSize:11, color:T.textDim }}>qty</span>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); setCollapsedOps(prev => ({...prev,[panel.id]:!prev[panel.id]})); }} style={{ padding:"3px 5px", background:"transparent", border:"none", cursor:"pointer", color:T.textDim, flexShrink:0 }}>
+                      <svg style={{ transform:collapsedOps[panel.id]?"rotate(-90deg)":"rotate(0deg)", transition:"transform 0.2s" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div style={{ position:"relative", flexShrink:0 }}>
+                      <button onClick={e => { e.stopPropagation(); setColorDropId(colorDropId===panel.id?null:panel.id); }} title="Change color" style={{ display:"flex", alignItems:"center", gap:5, padding:"4px 8px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:"transparent", cursor:"pointer", transition:"background 0.15s", flexShrink:0, fontFamily:T.font }}>
+                        <div style={{ width:14, height:14, borderRadius:7, background:panel.color||COLORS[pi%COLORS.length], flexShrink:0, boxShadow:`0 0 0 1.5px ${panel.color||COLORS[pi%COLORS.length]}55` }} />
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color:T.textDim }}><polyline points="6 9 12 15 18 9"/></svg>
+                      </button>
+                      {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:12, display:"flex", flexWrap:"wrap", gap:8, width:168, animation:"menuIn 0.15s ease-out" }}>
+                        {COLORS.map(c => { const isOn=(panel.color||COLORS[pi%COLORS.length])===c; return <div key={c} onClick={() => { updatePanel({color:c}); setColorDropId(null); }} style={{ width:30, height:30, borderRadius:15, background:c, cursor:"pointer", position:"relative", flexShrink:0, transition:"transform 0.12s", boxShadow:isOn?`0 0 0 2.5px rgba(255,255,255,0.9), 0 0 0 4px ${c}88`:"0 0 0 0px transparent", transform:isOn?"scale(1.12)":"scale(1)" }}>{isOn && <svg width="13" height="13" viewBox="0 0 13 13" style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", pointerEvents:"none" }}><polyline points="2,7 5,10 11,3" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>; })}
+                      </div>}
+                    </div>
+                    <input value={panel.title} onChange={e => updatePanel({title:e.target.value})} placeholder="Operation name"
+                      onKeyDown={e => { if(e.key==="Enter") { e.preventDefault(); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],subs:[],color:(()=>{ const used=new Set((p.subs||[]).map(s=>s.color).filter(Boolean)); const free=COLORS.filter(c=>!used.has(c)); const pool=free.length?free:COLORS; return pool[Math.floor(Math.random()*pool.length)]; })()}] })); } }}
+                      style={{ flex:1, padding:"7px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
+                    {panel.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
+                    <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0, width:110 }}>
+                      {hasSubs
+                        ? <div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.accent, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:700 }} title="Sum of sub-op hours">{panelHpdSum}</div>
+                        : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
+                      }
+                      <span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }} title="Estimated total hours for this operation">hrs</span>
+                      <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${T.danger}33`, background:T.danger+"10", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
+                    </div>
+                  </div>
+                  {hasSubs && (panel.team||[]).length>0 && <div style={{ margin:"0 0 8px", padding:"8px 12px", background:"#f59e0b15", border:"1px solid #f59e0b44", borderRadius:T.radiusXs, fontSize:12, color:"#f59e0b", lineHeight:1.5 }}>⚠ {panel.team.length} worker{panel.team.length>1?"s":""} assigned directly to this panel — but sub-operations now exist. Run <strong>Schedule & Assign</strong> to reassign at the sub-operation level.</div>}
+                  {!collapsedOps[panel.id] && <>
+                  {(panel.subs||[]).map((sub,si) => {
+                    const updateSub = (patch) => { const subs=[...(panel.subs||[])]; subs[si]={...subs[si],...patch}; updatePanel({subs}); };
+                    return <div key={si} draggable onDragStart={e => { e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx=Number(e.dataTransfer.getData("text/plain")); if(fromIdx===si) return; const newSubs=[...(panel.subs||[])]; const [moved]=newSubs.splice(fromIdx,1); newSubs.splice(si,0,moved); updatePanel({subs:newSubs}); }} style={{ marginBottom:6 }}>
+                      <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, paddingLeft:16 }}>
+                        <div style={{ cursor:"grab", color:T.textDim, fontSize:13, userSelect:"none", flexShrink:0, paddingRight:4 }} title="Drag to reorder">⠿</div>
+                        <div style={{ width:2, height:20, background:T.border, borderRadius:2, flexShrink:0 }} />
+                        <input value={sub.title} onChange={e => updateSub({title:e.target.value})} placeholder="Sub-operation name" style={{ flex:1, padding:"7px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
+                        {sub.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
+                        <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
+                          <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updateSub({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
+                          <span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }} title="Estimated total hours for this operation">hrs</span>
+                          {(orgSettings.roles?.length>0) && <div style={{ position:"relative", flexShrink:0 }}>
+                            <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId===sub.id?null:sub.id); }}
+                              style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"3px 8px", borderRadius:8, minWidth:76, border:`1px solid ${sub.requiredDepartment?T.accent+"55":T.border}`, background:sub.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s", whiteSpace:"nowrap" }}>
+                              <span style={{ fontSize:11, color:sub.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{sub.requiredDepartment||"Dept"}</span>
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:160, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                              {orgSettings.roles.map((r,ri) => {
+                                const isOn=sub.requiredDepartment===r;
+                                const fk=`sub-${sub.id}-${r}`;
+                                return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub({requiredDepartment:isOn?"":r}); setDeptDropId(null); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
+                                  onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
+                                  <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
+                                    {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                                  </div>
+                                  <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{r}</span>
+                                </div>;
+                              })}
+                            </div>}
+                          </div>}
+                          <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:(panel.subs||[]).filter((_,j) => j!==si)}); }} style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${T.danger}33`, background:T.danger+"10", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
+                        </div>
+                      </div>
+                    </div>;
+                  })}
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:(panel.subs||[]).length?4:0, gap:8, flexWrap:"wrap" }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <div style={{ position:"relative" }}>
+                      <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId===panel.id?null:panel.id); }}
+                        style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${Object.keys(panel.signOffs||{}).length?T.accent+"55":T.border}`, background:Object.keys(panel.signOffs||{}).length?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={Object.keys(panel.signOffs||{}).length?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+                        <span style={{ fontSize:11, color:Object.keys(panel.signOffs||{}).length?T.accent:T.textDim, fontWeight:600 }}>
+                          {Object.keys(panel.signOffs||{}).length ? signOffTemplates.filter(t => panel.signOffs?.[t.id]!==undefined).map(t => t.name).join(", ") : "Sign-Off"}
+                        </span>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      </button>
+                      {soDropPanelId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:200, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        {signOffTemplates.length===0 && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No templates yet</div>}
+                        {signOffTemplates.map((tmpl,ti) => {
+                          const isOn=(panel.signOffs||{})[tmpl.id]!==undefined;
+                          const fk=`so-${panel.id}-${tmpl.id}`;
+                          return <div key={tmpl.id} onClick={() => {
+                            setDropFlashKey(fk);
+                            setTimeout(() => {
+                              if(isOn) { const {[tmpl.id]:_,...rest}=panel.signOffs||{}; updatePanel({signOffs:Object.keys(rest).length?rest:undefined}); }
+                              else { const stepsObj=Object.fromEntries(tmpl.steps.map((_,i) => [String(i),null])); updatePanel({signOffs:{...(panel.signOffs||{}),[tmpl.id]:stepsObj}}); }
+                              setDropFlashKey(null);
+                            },150);
+                          }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ti*38}ms both ease-out` }}
+                            onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
+                            <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
+                              {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                            </div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div style={{ fontSize:12, fontWeight:600, color:T.text }}>{tmpl.name}</div>
+                              <div style={{ fontSize:10, color:T.textDim }}>{tmpl.steps.length} step{tmpl.steps.length!==1?"s":""}</div>
+                            </div>
+                          </div>;
+                        })}
+                        <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
+                          <div onClick={() => { setSoDropPanelId(null); setSignOffSettingsOpen(true); }} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
+                            onMouseEnter={e => e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e => e.currentTarget.style.background="transparent"}>
+                            <span style={{ fontSize:14 }}>+</span> Create new template
+                          </div>
+                        </div>
+                      </div>}
+                    </div>
+                    {(orgSettings.roles?.length>0) && !hasSubs && <div style={{ position:"relative" }}>
+                      <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId===panel.id?null:panel.id); }}
+                        style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
+                        <span style={{ fontSize:11, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
+                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      </button>
+                      {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:160, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        {orgSettings.roles.map((r,ri) => {
+                          const isOn=panel.requiredDepartment===r;
+                          const fk=`panel-${panel.id}-${r}`;
+                          return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel({requiredDepartment:isOn?"":r}); setDeptDropId(null); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
+                            onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
+                            <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
+                              {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                            </div>
+                            <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{r}</span>
+                          </div>;
+                        })}
+                      </div>}
+                    </div>}
+                    </div>
+                    <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:[...(panel.subs||[]),{id:uid(),title:"",hpd:7.5,team:[],subs:[],status:"Not Started",pri:"High",start:"",end:"",notes:"",deps:[],requiredDepartment:""}]}); }} style={{ padding:"3px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.textDim, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:T.font }}>+ Add Sub-operation</button>
+                  </div>
+                  </>}
+                </div>;
+              })}
+            </div>
+            <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],requiredDepartment:"",subs:[],color:(()=>{ const used=new Set((p.subs||[]).map(s=>s.color).filter(Boolean)); const free=COLORS.filter(c=>!used.has(c)); const pool=free.length?free:COLORS; return pool[Math.floor(Math.random()*pool.length)]; })()}] })); }}
+              style={{ display:"block", width:"100%", padding:"18px 0", borderRadius:T.radiusSm, border:`2px dashed ${T.accent}55`, background:T.accent+"08", color:T.accent, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}
+              onMouseEnter={e => { e.currentTarget.style.background=T.accent+"18"; e.currentTarget.style.borderColor=T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.background=T.accent+"08"; e.currentTarget.style.borderColor=T.accent+"55"; }}>
+              + Add Operation
+            </button>
+          </div>}
+
+          {/* STEP 3 — Schedule & Assign */}
+          {modalStep === 3 && <div key="step3" style={{ animation:"stepIn 0.22s ease-out", "--sd":stepDir }}>
+            {aiLoading && <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 0", gap:16 }}>
+              <div style={{ width:36, height:36, border:`3px solid ${T.border}`, borderTopColor:T.accent, borderRadius:18, animation:"spin 0.8s linear infinite" }} />
+              <div style={{ fontSize:14, color:T.textSec }}>Checking availability…</div>
+            </div>}
+            {!aiLoading && !aiSuggestion && (() => {
+              const hasAnyAssignment = (ed.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0);
+              if (!hasAnyAssignment) return <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 0", gap:12 }}>
+                <div style={{ fontSize:14, color:T.textSec }}>Finding available windows…</div>
+              </div>;
+              return <div>
+                {/* Success banner */}
+                <div style={{ display:"flex", alignItems:"center", gap:12, padding:"12px 16px", background:"#10b98112", border:"1px solid #10b98133", borderRadius:T.radiusSm, marginBottom:16 }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  <div>
+                    <div style={{ fontSize:14, fontWeight:700, color:"#10b981" }}>Schedule Applied</div>
+                    <div style={{ fontSize:12, color:T.textSec }}>Review the assignments below, then click <strong style={{ color:T.text }}>Save Job</strong>.</div>
+                  </div>
+                </div>
+                {/* Per-operation overview */}
+                <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+                  {(ed.subs||[]).filter(panel => (panel.subs||[]).some(sub=>(sub.team||[]).length>0) || (panel.team||[]).length>0).map((panel, pi) => {
+                    const color = panel.color || COLORS[pi % COLORS.length];
+                    const hasSubs = (panel.subs||[]).length > 0;
+                    return <div key={panel.id||pi} style={{ borderRadius:T.radiusSm, border:`1px solid ${T.border}`, overflow:"hidden" }}>
+                      {/* Panel header */}
+                      <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:color+"12", borderBottom: hasSubs ? `1px solid ${T.border}` : "none" }}>
+                        <div style={{ width:10, height:10, borderRadius:5, background:color, flexShrink:0 }} />
+                        <span style={{ fontSize:13, fontWeight:700, color:T.text, flex:1 }}>{panel.title||"Untitled"}</span>
+                        {!hasSubs && panel.start && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span>}
+                        {!hasSubs && (panel.team||[]).map(pid => {
+                          const person = people.find(x=>x.id===pid);
+                          if (!person) return null;
+                          return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:6, background:(person.color||color)+"20", color:person.color||color, border:`1px solid ${person.color||color}33` }}>{person.name}</span>;
+                        })}
+                      </div>
+                      {/* Sub-ops */}
+                      {hasSubs && <div>
+                        {(panel.subs||[]).filter(sub=>(sub.team||[]).length>0).map((sub, si) => {
+                          return <div key={sub.id||si} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px 8px 28px", borderBottom: si < (panel.subs||[]).filter(s=>(s.team||[]).length>0).length-1 ? `1px solid ${T.border}` : "none", background: si%2===0 ? "transparent" : T.bg+"80" }}>
+                            <div style={{ width:2, height:16, background:color+"66", borderRadius:1, flexShrink:0 }} />
+                            <span style={{ fontSize:12, color:T.text, flex:1 }}>{sub.title||"Untitled"}</span>
+                            {sub.start && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span>}
+                            <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                              {(sub.team||[]).map(pid => {
+                                const person = people.find(x=>x.id===pid);
+                                if (!person) return null;
+                                return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 8px", borderRadius:6, background:(person.color||T.accent)+"20", color:person.color||T.accent, border:`1px solid ${person.color||T.accent}33` }}>{person.name}</span>;
+                              })}
+                            </div>
+                          </div>;
+                        })}
+                      </div>}
+                    </div>;
+                  })}
+                </div>
+              </div>;
+            })()}
+            {aiSuggestion && <div style={{ marginBottom:20 }}>
+              {aiSuggestion.noSubtasks && <div style={{ padding:14, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
+                No subtasks found. Add sub-operations to your panels before scheduling.
+              </div>}
+              {aiSuggestion.overlapError && <div style={{ padding:14, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500, marginBottom:10 }}>
+                Assignment aborted — conflict detected: {aiSuggestion.overlapError}
+              </div>}
+              {aiSuggestion.blockedSubtasks?.length>0 && (
+                <div style={{ padding:"10px 14px", background:"#f59e0b12", border:"1px solid #f59e0b33", borderRadius:T.radiusSm, marginBottom:10, fontSize:12, color:"#f59e0b" }}>
+                  {aiSuggestion.blockedSubtasks.map(b => (
+                    <div key={b.title}>⚠ <strong>{b.title}</strong> is blocked — {b.count} unfinished dependenc{b.count>1?"ies":"y"} must complete first.</div>
+                  ))}
+                </div>
+              )}
+              {aiSuggestion.canMeetDue===true && <div style={{ padding:"12px 16px", background:"#10b98112", border:"1px solid #10b98133", borderRadius:T.radiusSm, marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ lineHeight:0, color:"#10b981" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
+                <div><div style={{ fontSize:14, fontWeight:700, color:"#10b981" }}>Yes! We can meet the {fm(aiSuggestion.dueDate)} deadline</div>
+                <div style={{ fontSize:12, color:T.textSec, marginTop:2 }}>Found {aiSuggestion.slots.length} schedule option{aiSuggestion.slots.length>1?"s":""} for {aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}</div></div>
+              </div>}
+              {aiSuggestion.canMeetDue===false && <div style={{ padding:"12px 16px", background:"#ef444412", border:"1px solid #ef444433", borderRadius:T.radiusSm, marginBottom:10 }}>
+                <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:6 }}>
+                  <span style={{ lineHeight:0, color:"#ef4444" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></span>
+                  <div style={{ fontSize:14, fontWeight:700, color:"#ef4444" }}>Cannot meet the {fm(aiSuggestion.dueDate)} deadline</div>
+                </div>
+                <div style={{ fontSize:12, color:T.textSec }}>Not enough crew available before the due date for {aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}.</div>
+                {aiSuggestion.suggestedDueDate && <div style={{ marginTop:8, display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:12, color:T.textSec }}>Suggested new due date:</span>
+                  <span style={{ fontSize:14, fontWeight:700, color:"#f59e0b", fontFamily:T.mono }}>{fm(aiSuggestion.suggestedDueDate)}</span>
+                  <button onClick={() => setEd(p => ({ ...p, dueDate:aiSuggestion.suggestedDueDate }))} style={{ padding:"4px 12px", borderRadius:6, border:"1px solid #f59e0b44", background:"#f59e0b15", color:"#f59e0b", fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font }}>Update Due Date</button>
+                </div>}
+              </div>}
+              {aiSuggestion.canMeetDue===null && <div style={{ padding:"12px 16px", background:T.accent+"12", border:`1px solid ${T.accent}33`, borderRadius:T.radiusSm, marginBottom:10, display:"flex", alignItems:"center", gap:10 }}>
+                <span style={{ fontSize:20 }}>🤖</span>
+                <div style={{ fontSize:13, color:T.textSec }}>No due date set. Here are the earliest available windows:</div>
+              </div>}
+              {aiSuggestion.noSlots && <div style={{ padding:16, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
+                No one is available within the next 200 business days. Consider adding more team members or reducing the panel count.
+              </div>}
+              {!aiSuggestion.noSlots && aiSuggestion.slots.length===0 && <div style={{ padding:16, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
+                No available windows found. Consider adjusting panel count or adding team members.
+              </div>}
+              {aiSuggestion.slots.map((slot,si) => <div key={si} style={{ background:T.surface, border:`1px solid ${slot.meetsDeadline!==false?T.border:"#f59e0b44"}`, borderRadius:T.radiusSm, padding:14, marginBottom:8, transition:"all 0.15s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor=T.accent; e.currentTarget.style.background=T.accent+"08"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor=slot.meetsDeadline!==false?T.border:"#f59e0b44"; e.currentTarget.style.background=T.surface; }}>
+                <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                    <span style={{ fontSize:13, fontWeight:700, color:T.text, fontFamily:T.mono }}>{fm(slot.start)}</span>
+                    <span style={{ color:T.textDim }}>→</span>
+                    <span style={{ fontSize:13, fontWeight:700, color:T.text, fontFamily:T.mono }}>{fm(slot.end)}</span>
+                    <span style={{ fontSize:11, color:T.textDim }}>({slot.totalBD||diffBD(slot.start,slot.end)+1} days total)</span>
+                    {si===0 && slot.meetsDeadline!==false && <span style={{ fontSize:10, fontWeight:700, color:"#10b981", background:"#10b98115", padding:"2px 8px", borderRadius:10, border:"1px solid #10b98133" }}>RECOMMENDED</span>}
+                    {slot.meetsDeadline===false && <span style={{ fontSize:10, fontWeight:700, color:"#f59e0b", background:"#f59e0b15", padding:"2px 8px", borderRadius:10, border:"1px solid #f59e0b33" }}>AFTER DUE DATE</span>}
+                  </div>
+                  <button onClick={(e) => {
+                    e.stopPropagation();
+                    setEd(p => {
+                      const updated={...p};
+                      const allCrew=people.filter(pp => pp.userRole==="user" && !pp.noAutoSchedule);
+                      const isPersonFreeGlobal=(pid,s,eDate) => {
+                        const pp=people.find(x => x.id===pid);
+                        if(pp) for(const to of (pp.timeOff||[])) { if(to.start<=eDate && to.end>=s) return false; }
+                        for(const job of tasks) {
+                          if(ed.id && job.id===ed.id) continue;
+                          for(const pnl of (job.subs||[])) {
+                            if((pnl.team||[]).includes(pid) && pnl.status!=="Finished" && pnl.start && pnl.end && pnl.start<=eDate && pnl.end>=s && (pnl.subs||[]).length===0) return false;
+                            for(const op of (pnl.subs||[])) {
+                              if(!(op.team||[]).includes(pid)||op.status==="Finished") continue;
+                              if(op.start && op.end && op.start<=eDate && op.end>=s) return false;
+                            }
+                          }
+                        }
+                        return true;
+                      };
+                      const expandedOps=(p.subs||[]).flatMap(op => {
+                        const qty=Math.max(1,parseInt(op.qty)||1);
+                        const baseTitle=op.title.replace(/-d+$/,"").trimEnd();
+                        return Array.from({length:qty},(_,i) => ({
+                          ...op, id:i===0?op.id:uid(),
+                          title:qty>1?`${baseTitle}-${String(i+1).padStart(3,"0")}`:op.title,
+                          qty:undefined,
+                          subs:(op.subs||[]).map(sub => ({...sub,id:i===0?sub.id:uid()})),
+                        }));
+                      });
+                      const personCursors={};
+                      allCrew.forEach(pp => { personCursors[pp.id]=slot.start; });
+                      const inSession=[];
+                      const isAvail=(pid,s,eDate) => {
+                        if(!isPersonFreeGlobal(pid,s,eDate)) return false;
+                        for(const sess of inSession) { if(sess.pid===pid && sess.start<=eDate && sess.end>=s) return false; }
+                        return true;
+                      };
+                      const jobCount=(pid) => tasks.reduce((n,job) => {
+                        if(ed.id && job.id===ed.id) return n;
+                        for(const pnl of (job.subs||[])) {
+                          if((pnl.team||[]).includes(pid) && pnl.status!=="Finished") n++;
+                          for(const op of (pnl.subs||[])) { if((op.team||[]).includes(pid) && op.status!=="Finished") n++; }
+                        }
+                        return n;
+                      },0);
+                      const pickTeam=(op,minStart=null) => {
+                        const totalHours=(typeof op==="object" && op?.hpd)?op.hpd:orgSettings.hpd;
+                        const reqDept=typeof op==="object"?(op.requiredDepartment||""):"";
+                        const eligible=allCrew.filter(pp => !reqDept||pp.department===reqDept).sort((a,b) => { const diff=jobCount(a.id)-jobCount(b.id); if(diff!==0) return diff; return a.name.localeCompare(b.name); });
+                        if(eligible.length===0) { const fallback=minStart||slot.start; return {team:[],start:fallback,end:fallback}; }
+                        const singleDur=Math.max(1,Math.ceil(totalHours/orgSettings.hpd));
+                        if(scheduleTeamMode==="one") {
+                          let tryStart=eligible.reduce((earliest,m) => { const c=personCursors[m.id]||slot.start; return c<earliest?c:earliest; },personCursors[eligible[0].id]||slot.start);
+                          if(minStart && tryStart<minStart) tryStart=minStart;
+                          for(let guard=0;guard<300;guard++) {
+                            const tryEnd=sAddBD(tryStart,Math.max(0,singleDur-1));
+                            for(const candidate of eligible) { if(isAvail(candidate.id,tryStart,tryEnd)) return {team:[candidate],start:tryStart,end:tryEnd}; }
+                            tryStart=sAddBD(tryStart,1);
+                          }
+                          const fallback=minStart||slot.start;
+                          return {team:eligible.slice(0,1),start:fallback,end:sAddBD(fallback,Math.max(0,singleDur-1))};
+                        }
+                        const teamSize=eligible.length;
+                        const durBD=Math.max(1,Math.ceil(totalHours/(teamSize*orgSettings.hpd)));
+                        let tryStart=eligible.reduce((best,m) => { const c=personCursors[m.id]||slot.start; return c>best?c:best; },slot.start);
+                        if(minStart && tryStart<minStart) tryStart=minStart;
+                        for(let guard=0;guard<300;guard++) {
+                          const tryEnd=sAddBD(tryStart,Math.max(0,durBD-1));
+                          let allFree=true;
+                          for(const m of eligible) { if(!isAvail(m.id,tryStart,tryEnd)) { allFree=false; break; } }
+                          if(allFree) return {team:eligible,start:tryStart,end:tryEnd};
+                          tryStart=sAddBD(tryStart,1);
+                        }
+                        const fallbackStart=minStart||slot.start;
+                        for(let g2=0;g2<300;g2++) {
+                          const tryS=sAddBD(fallbackStart,g2);
+                          const tryE=sAddBD(tryS,Math.max(0,singleDur-1));
+                          const freeSubset=eligible.filter(m => isAvail(m.id,tryS,tryE));
+                          if(freeSubset.length>0) { const sz=freeSubset.length; const finalDur=Math.max(1,Math.ceil(totalHours/(sz*orgSettings.hpd))); return {team:freeSubset,start:tryS,end:sAddBD(tryS,Math.max(0,finalDur-1))}; }
+                        }
+                        return {team:eligible.slice(0,1),start:fallbackStart,end:sAddBD(fallbackStart,Math.max(0,singleDur-1))};
+                      };
+                      let latestEnd=slot.start;
+                      const resultSubs=expandedOps.map(op => ({
+                        ...op,
+                        placedSubs:(op.subs||[]).map(sub => ({...sub,_placed:false,start:null,end:null,team:sub.team||[]})),
+                      }));
+                      const opQueue=[];
+                      resultSubs.forEach((op,pi) => { if((op.subs||[]).length>0) opQueue.push({panelIdx:pi,opIdx:0,earliestStart:slot.start}); });
+                      for(let safety=0;safety<10000 && opQueue.length>0;safety++) {
+                        opQueue.sort((a,b) => a.earliestStart.localeCompare(b.earliestStart));
+                        const {panelIdx,opIdx,earliestStart}=opQueue.shift();
+                        const sub=expandedOps[panelIdx].subs[opIdx];
+                        if(checkDeps(sub.deps).length>0) continue;
+                        const {team:subTeam,start:ss,end:se}=pickTeam(sub,earliestStart);
+                        resultSubs[panelIdx].placedSubs[opIdx]={...sub,_placed:true,start:ss,end:se,team:subTeam.length>0?subTeam.map(m => m.id):(sub.team||[])};
+                        subTeam.forEach(m => { inSession.push({pid:m.id,start:ss,end:se,hpd:(sub.hpd||orgSettings.hpd)/Math.max(1,subTeam.length)}); personCursors[m.id]=sAddBD(se,1); });
+                        if(se>latestEnd) latestEnd=se;
+                        const nextOpIdx=opIdx+1;
+                        if(nextOpIdx<(expandedOps[panelIdx].subs||[]).length) opQueue.push({panelIdx,opIdx:nextOpIdx,earliestStart:sAddBD(se,1)});
+                      }
+                      resultSubs.forEach((op,pi) => {
+                        if((op.subs||[]).length===0) {
+                          const {team:panelTeam,start:ps,end:pe}=pickTeam(op,null);
+                          resultSubs[pi]={...op,_panelScheduled:true,_panelStart:ps,_panelEnd:pe,_panelTeam:panelTeam.map(m => m.id)};
+                          panelTeam.forEach(m => { inSession.push({pid:m.id,start:ps,end:pe,hpd:(op.hpd||orgSettings.hpd)/Math.max(1,panelTeam.length)}); personCursors[m.id]=sAddBD(pe,1); });
+                          if(pe>latestEnd) latestEnd=pe;
+                        }
+                      });
+                      const newSubs=resultSubs.map((op) => {
+                        if(op._panelScheduled) {
+                          const {_panelScheduled,_panelStart,_panelEnd,_panelTeam,placedSubs,...rest}=op;
+                          return {...rest,start:_panelStart,end:_panelEnd,team:_panelTeam};
+                        }
+                        const placed=op.placedSubs;
+                        const opStart=placed[0]?.start||slot.start;
+                        const opEnd=placed[placed.length-1]?.end||slot.start;
+                        return {...op,start:opStart,end:opEnd,team:placed[0]?.team||[],subs:placed.map(({_placed,...rest}) => rest)};
+                      });
+                      const overlapErrors=[];
+                      for(const pnl of newSubs) {
+                        for(const sub of (pnl.subs||[])) {
+                          if(!sub.start||!sub.end||!(sub.team?.length)) continue;
+                          for(const pid of sub.team) {
+                            for(const job of tasks) {
+                              if(p.id && job.id===p.id) continue;
+                              for(const ePnl of (job.subs||[])) {
+                                if((ePnl.team||[]).includes(pid) && ePnl.status!=="Finished" && ePnl.start && ePnl.end && ePnl.start<=sub.end && ePnl.end>=sub.start && !(ePnl.subs||[]).length)
+                                  overlapErrors.push(`${(people.find(x => x.id===pid)||{}).name||pid}: "${sub.title}" overlaps "${job.title}"`);
+                                for(const eOp of (ePnl.subs||[])) {
+                                  if(!(eOp.team||[]).includes(pid)||eOp.status==="Finished") continue;
+                                  if(eOp.start && eOp.end && eOp.start<=sub.end && eOp.end>=sub.start)
+                                    overlapErrors.push(`${(people.find(x => x.id===pid)||{}).name||pid}: "${sub.title}" overlaps "${eOp.title}" in "${job.title}"`);
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                      for(const pnl of newSubs) {
+                        if((pnl.subs||[]).length===0 && pnl.start && pnl.end && (pnl.team||[]).length) {
+                          for(const pid of pnl.team) {
+                            for(const job of tasks) {
+                              if(p.id && job.id===p.id) continue;
+                              for(const ePnl of (job.subs||[])) {
+                                if((ePnl.team||[]).includes(pid) && ePnl.status!=="Finished" && ePnl.start && ePnl.end && ePnl.start<=pnl.end && ePnl.end>=pnl.start && !(ePnl.subs||[]).length)
+                                  overlapErrors.push(`${(people.find(x => x.id===pid)||{}).name||pid}: "${pnl.title}" overlaps "${job.title}"`);
+                                for(const eOp of (ePnl.subs||[])) {
+                                  if(!(eOp.team||[]).includes(pid)||eOp.status==="Finished") continue;
+                                  if(eOp.start && eOp.end && eOp.start<=pnl.end && eOp.end>=pnl.start)
+                                    overlapErrors.push(`${(people.find(x => x.id===pid)||{}).name||pid}: "${pnl.title}" overlaps "${eOp.title}" in "${job.title}"`);
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                      if(overlapErrors.length>0) {
+                        setTimeout(() => setAiSuggestion(prev => ({...(prev||{}),overlapError:overlapErrors.join(" | ")})),0);
+                        return p;
+                      }
+                      updated.subs=newSubs;
+                      updated.start=newSubs.length>0?newSubs[0].start:slot.start;
+                      updated.end=latestEnd;
+                      return updated;
+                    });
+                    setAiSuggestion(null);
+                  }} style={{ padding:"6px 14px", borderRadius:8, border:"none", background:T.accent, color:T.accentText, fontSize:12, fontWeight:700, cursor:"pointer", fontFamily:T.font, whiteSpace:"nowrap", flexShrink:0 }}>
+                    Use This Schedule
+                  </button>
+                </div>
+                <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:slot.busy.length>0?6:0 }}>
+                  <span style={{ fontSize:11, color:"#10b981", fontWeight:500, marginRight:4 }}>✓ Available ({slot.available.length}):</span>
+                  {slot.available.map(p => <span key={p.id} style={{ fontSize:11, padding:"2px 8px", borderRadius:6, background:p.color+"15", color:p.color, fontWeight:600, border:`1px solid ${p.color}33` }}>{p.name}</span>)}
+                </div>
+                {slot.busy.length>0 && <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
+                  <span style={{ fontSize:11, color:T.danger, fontWeight:500, marginRight:4 }}>✗ Busy ({slot.busy.length}):</span>
+                  {slot.busy.map(p => <span key={p.id} style={{ fontSize:11, padding:"2px 8px", borderRadius:6, background:T.danger+"10", color:T.danger+"aa", fontWeight:500, textDecoration:"line-through" }}>{p.name}</span>)}
+                </div>}
+                {slot.staggered && <div style={{ marginTop:6, padding:"6px 10px", background:T.accent+"08", borderRadius:T.radiusXs, border:`1px solid ${T.accent}22`, fontSize:11, color:T.textSec }}>
+                  📋 <strong style={{ color:T.text }}>{slot.businessDays} day{slot.businessDays>1?"s":""}</strong> window — <strong style={{ color:T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}</strong> scheduled sequentially
+                </div>}
+                {!slot.staggered && <div style={{ marginTop:6, padding:"6px 10px", background:"#10b98108", borderRadius:T.radiusXs, border:"1px solid #10b98122", fontSize:11, color:T.textSec }}>
+                  📋 Scheduling <strong style={{ color:T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}</strong> sequentially — one person per operation
+                </div>}
+              </div>)}
+            </div>}
+          </div>}
 
         </div>
 
-        <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setEd(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>
-      </div>
-      <div style={{ padding: "16px 32px", borderTop: `1px solid ${T.border}`, background: T.card, flexShrink: 0, display: "flex", gap: 12, justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          {can("editJobs") && ed.id && <Btn variant="danger" onClick={() => setConfirmDelete({ title: ed.title, id: ed.id, pid: modal.parentId, extra: closeModal })}>Delete Task</Btn>}
-          <Btn variant="ghost" onClick={closeModal}>Cancel</Btn>
+        {/* ── Footer ── */}
+        <div style={{ padding:"16px 32px", borderTop:`1px solid ${T.border}`, background:T.card, flexShrink:0, display:"flex", gap:12, justifyContent:"space-between", alignItems:"center" }}>
+          {modalStep === 1 && <>
+            <Btn variant="ghost" onClick={closeModal}>Cancel</Btn>
+            <Btn disabled={!ed.title.trim()||!ed.projectManagerId} onClick={() => { if(ed.title.trim()&&ed.projectManagerId) goStep(2); }} style={{ opacity:(!ed.title.trim()||!ed.projectManagerId)?0.4:1, cursor:(!ed.title.trim()||!ed.projectManagerId)?"not-allowed":"pointer" }}>Next: Operations →</Btn>
+          </>}
+          {modalStep === 2 && <>
+            <Btn variant="ghost" onClick={() => goStep(1)}>← Back</Btn>
+            <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length>0) { goStep(3); suggestSchedule(); } }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer" }}>Schedule & Assign →</Btn>
+          </>}
+          {modalStep === 3 && <>
+            <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+              <Btn variant="ghost" onClick={() => goStep(2)}>← Back</Btn>
+              {can("editJobs") && ed.id && <Btn variant="danger" onClick={() => setConfirmDelete({title:ed.title,id:ed.id,pid:modal.parentId,extra:closeModal})}>Delete</Btn>}
+            </div>
+            {(() => {
+              const hasAnyAssignment=(ed.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub => (sub.team||[]).length>0):(panel.team||[]).length>0);
+              const saveOk=availCheckPassed && hasAnyAssignment;
+              return <Btn disabled={!saveOk} onClick={saveOk?() => { const expanded={...ed,subs:(ed.subs||[]).flatMap(op => { const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-d+$/,"").trimEnd(); if(qty===1) { const {qty:_q,...rest}=op; return [rest]; } return Array.from({length:qty},(_,i) => { const {qty:_q,...rest}=op; return {...rest,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`,subs:(op.subs||[]).map(sub => ({...sub,id:i===0?sub.id:uid()}))}; }); })}; saveTask(expanded,modal.parentId); }:undefined} style={{ opacity:saveOk?1:0.4, cursor:saveOk?"pointer":"not-allowed" }}>Save Job</Btn>;
+            })()}
+          </>}
         </div>
-        {(() => { const hasAnyAssignment = (ed.subs || []).some(panel => (panel.subs || []).length > 0 ? (panel.subs || []).some(sub => (sub.team || []).length > 0) : (panel.team || []).length > 0); const saveOk = availCheckPassed && hasAnyAssignment; return <Btn disabled={!saveOk} onClick={saveOk ? () => { const expanded = { ...ed, subs: (ed.subs || []).flatMap(op => { const qty = Math.max(1, Math.min(999, parseInt(op.qty) || 1)); const baseTitle = op.title.replace(/-\d+$/, "").trimEnd(); if (qty === 1) { const { qty: _q, ...rest } = op; return [rest]; } return Array.from({ length: qty }, (_, i) => { const { qty: _q, ...rest } = op; return { ...rest, id: i === 0 ? op.id : uid(), title: `${baseTitle}-${String(i + 1).padStart(3, "0")}`, subs: (op.subs || []).map(sub => ({ ...sub, id: i === 0 ? sub.id : uid() })) }; }); }) }; saveTask(expanded, modal.parentId); } : undefined} style={{ opacity: saveOk ? 1 : 0.4, cursor: saveOk ? "pointer" : "not-allowed" }}>Save Job</Btn>; })()}
-      </div>
       </div></div>; }
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
       // If this is an operation (level 2), show focused operation popup
