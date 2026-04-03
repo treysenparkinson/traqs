@@ -1701,6 +1701,7 @@ Rules:
   const [tsPeriodDays, setTsPeriodDays] = useState(0);
   const [tsSettingsOpen, setTsSettingsOpen] = useState(false);
   const [tsSettingsDraft, setTsSettingsDraft] = useState(null); // local people copy for editing
+  const [showPinIds, setShowPinIds] = useState(new Set()); // person IDs with PIN visible as plaintext
   const [tsSettingsSaving, setTsSettingsSaving] = useState(false);
   const [tsEditEntry, setTsEditEntry] = useState(null); // { id, clockIn, clockOut, personId } | null
   const [tsCtxMenu, setTsCtxMenu] = useState(null); // { x, y, person } | null
@@ -1765,7 +1766,13 @@ Rules:
           const match = resolvedPeople.find(
             person => person.email && person.email.toLowerCase() === auth0User.email.toLowerCase()
           );
-          setLoggedInUser(match || resolvedPeople[0] || null);
+          const resolvedUser = match || resolvedPeople[0] || null;
+          console.log("=== CLOCK STATUS LOAD ===", {
+            currentUserId: resolvedUser?.id,
+            clockData: resolvedUser?.activeClockIn,
+            isClocked: !!resolvedUser?.activeClockIn?.clockIn,
+          });
+          setLoggedInUser(resolvedUser);
         } else {
           setLoggedInUser(resolvedPeople[0] || null);
         }
@@ -6966,7 +6973,7 @@ ${jobsCtx || "No jobs found."}`;
     const renderSettingsPanel = () => {
       if (!tsSettingsOpen || !tsSettingsDraft) return null;
       return (
-        <div className="anim-drop" style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 999, minWidth: 460, maxWidth: "min(560px, 96vw)", maxHeight: "80vh", overflowY: "auto", background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
+        <div className="anim-drop" style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 999, minWidth: 640, maxWidth: "min(800px, 96vw)", maxHeight: "80vh", overflowY: "auto", background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
           {/* Header row */}
           <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>Time Stamp Settings</span>
@@ -7032,13 +7039,13 @@ ${jobsCtx || "No jobs found."}`;
             {isAdmin && (
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Team</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
                   {["Name","Pay Type","PIN"].map(h => <span key={h} style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</span>)}
                 </div>
-                {tsSettingsDraft.map(p => {
+                {tsSettingsDraft.map((p, pi) => {
                   const payType = p.payType || "hourly";
                   return (
-                    <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18` }}>
+                    <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18`, animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                         <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
@@ -7050,9 +7057,18 @@ ${jobsCtx || "No jobs found."}`;
                           >{pt}</button>
                         ))}
                       </div>
-                      <input type="password" maxLength={4} value={p.pin || ""} onChange={e => { const v = e.target.value.replace(/\D/g,"").slice(0,4); draftSet(p.id, "pin", v); }} placeholder="––––"
-                        style={{ width: "100%", padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.mono, letterSpacing: "0.2em", outline: "none", boxSizing: "border-box" }}
-                      />
+                      <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
+                        <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder="PIN"
+                          style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.15em", outline: "none", minWidth: 0 }}
+                        />
+                        <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
+                          style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
+                          {showPinIds.has(p.id)
+                            ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                          }
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -7099,15 +7115,16 @@ ${jobsCtx || "No jobs found."}`;
     const closePin = () => { setPinState("closed"); setPinInput(""); setPinError(false); setPinSelectedOps([]); };
 
     const appendPin = digit => {
-      if (pinInput.length >= 4) return;
-      const next = pinInput + digit;
-      setPinInput(next);
-      if (next.length === 4) {
-        setPinInput("");
-        if (pinState === "clockIn_pin") handleClockInPin(next);
-        else if (pinState === "clockOut_pin") handleClockOutPin(next);
-        else if (pinState === "switchJob_pin") handleSwitchJobPin(next);
-      }
+      setPinInput(prev => prev + digit);
+    };
+
+    const submitPin = () => {
+      const pin = pinInput;
+      if (!pin) return;
+      setPinInput("");
+      if (pinState === "clockIn_pin") handleClockInPin(pin);
+      else if (pinState === "clockOut_pin") handleClockOutPin(pin);
+      else if (pinState === "switchJob_pin") handleSwitchJobPin(pin);
     };
 
     const handleClockInPin = async pin => {
@@ -7382,20 +7399,29 @@ ${jobsCtx || "No jobs found."}`;
             ) : (
               /* PIN entry step */
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <div style={{ animation: pinError ? "shake 0.4s ease" : "none", marginBottom: 24 }}>
-                  <div style={{ display: "flex", gap: 14, justifyContent: "center" }}>
-                    {[0,1,2,3].map(i => (
-                      <div key={i} style={{ width: 16, height: 16, borderRadius: 8, background: pinInput.length > i ? pinModalColor : T.border, transition: "background 0.1s" }} />
-                    ))}
-                  </div>
+                <div style={{ animation: pinError ? "shake 0.4s ease" : "none", marginBottom: 24, minHeight: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  {pinInput.length === 0
+                    ? <span style={{ fontSize: 13, color: T.textDim }}>Enter PIN</span>
+                    : <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", maxWidth: 240 }}>
+                        {Array.from({ length: pinInput.length }, (_, i) => (
+                          <div key={i} style={{ width: 14, height: 14, borderRadius: 7, background: pinModalColor, flexShrink: 0 }} />
+                        ))}
+                      </div>
+                  }
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 76px)", gap: 10, marginBottom: 16 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 76px)", gap: 10, marginBottom: 12 }}>
                   {[1,2,3,4,5,6,7,8,9].map(d => <NumKey key={d} d={d} />)}
                   <div />
                   <NumKey d={0} />
                   <button onClick={() => setPinInput(p => p.slice(0, -1))} style={{ width: 76, height: 76, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.textDim, fontSize: 22, cursor: "pointer" }}>⌫</button>
                 </div>
-                {pinLoading && <div style={{ fontSize: 13, color: T.textDim }}>Confirming…</div>}
+                <button
+                  onClick={submitPin}
+                  disabled={pinLoading || !pinInput}
+                  style={{ width: "100%", maxWidth: 248, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: pinInput ? pinModalColor : T.border, color: pinInput ? "#fff" : T.textDim, fontSize: 15, fontWeight: 700, cursor: pinInput ? "pointer" : "default", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1, transition: "background 0.15s" }}
+                >
+                  {pinLoading ? "Confirming…" : "Submit"}
+                </button>
                 {pinError && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 4 }}>Incorrect PIN</div>}
               </div>
             )}
@@ -7590,7 +7616,18 @@ ${jobsCtx || "No jobs found."}`;
                           </div>
                           <div>
                             <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>PIN</div>
-                            <input type="password" maxLength={4} value={p.pin || ""} onChange={e => { const v = e.target.value.replace(/\D/g,"").slice(0,4); draftSet(p.id, "pin", v); }} placeholder="––––" style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 18, fontFamily: T.mono, letterSpacing: "0.3em", outline: "none", boxSizing: "border-box" }} />
+                            <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
+                              <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder="PIN"
+                                style={{ flex: 1, padding: "8px 10px", border: "none", background: "transparent", color: T.text, fontSize: 18, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.25em", outline: "none", minWidth: 0 }}
+                              />
+                              <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
+                                style={{ flexShrink: 0, padding: "0 10px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center" }}>
+                                {showPinIds.has(p.id)
+                                  ? <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                  : <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                }
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -11431,7 +11468,7 @@ ${jobsCtx || "No jobs found."}`;
                       const draft = pinDrafts[person.id] ?? "";
                       const saving = !!pinSaving[person.id];
                       const savePin = async () => {
-                        if (draft.length !== 4) return;
+                        if (draft.length === 0) return;
                         setPinSaving(p => ({ ...p, [person.id]: true }));
                         try {
                           const updated = people.map(p => p.id === person.id ? { ...p, pin: draft } : p);
@@ -11447,25 +11484,22 @@ ${jobsCtx || "No jobs found."}`;
                             <span style={{ lineHeight: 0, color: T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
                             <div style={{ flex: 1 }}>
                               <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Clock-In PIN</div>
-                              <div style={{ fontSize: 11, color: T.textDim }}>4-digit PIN used to clock in and out</div>
+                              <div style={{ fontSize: 11, color: T.textDim }}>PIN used to clock in and out</div>
                             </div>
                           </div>
                           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                             <input
                               type="password"
-                              inputMode="numeric"
-                              maxLength={4}
                               value={draft}
-                              onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 4); setPinDrafts(p => ({ ...p, [person.id]: v })); }}
+                              onChange={e => { setPinDrafts(p => ({ ...p, [person.id]: e.target.value })); }}
                               placeholder="New PIN"
-                              style={{ width: 90, padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${draft.length === 4 ? T.accent : T.border}`, background: T.bg, color: T.text, fontSize: 18, fontFamily: T.mono, letterSpacing: "0.3em", outline: "none", textAlign: "center", boxSizing: "border-box", transition: "border-color 0.15s" }}
+                              style={{ width: 120, padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${draft.length > 0 ? T.accent : T.border}`, background: T.bg, color: T.text, fontSize: 18, fontFamily: T.mono, letterSpacing: "0.3em", outline: "none", textAlign: "center", boxSizing: "border-box", transition: "border-color 0.15s" }}
                             />
                             <button
                               onClick={savePin}
-                              disabled={draft.length !== 4 || saving}
-                              style={{ padding: "6px 14px", borderRadius: T.radiusXs, border: "none", background: draft.length === 4 ? T.accent : T.border, color: draft.length === 4 ? "#fff" : T.textDim, fontSize: 12, fontWeight: 700, cursor: draft.length === 4 ? "pointer" : "default", fontFamily: T.font, transition: "all 0.15s", opacity: saving ? 0.7 : 1 }}
+                              disabled={draft.length === 0 || saving}
+                              style={{ padding: "6px 14px", borderRadius: T.radiusXs, border: "none", background: draft.length > 0 ? T.accent : T.border, color: draft.length > 0 ? "#fff" : T.textDim, fontSize: 12, fontWeight: 700, cursor: draft.length > 0 ? "pointer" : "default", fontFamily: T.font, transition: "all 0.15s", opacity: saving ? 0.7 : 1 }}
                             >{saving ? "Saving…" : "Save PIN"}</button>
-                            {draft.length > 0 && draft.length < 4 && <span style={{ fontSize: 11, color: T.textDim }}>{4 - draft.length} more digit{4 - draft.length !== 1 ? "s" : ""}</span>}
                           </div>
                         </div>
                       );

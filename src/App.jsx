@@ -447,6 +447,79 @@ function DomainError({ userEmail, orgDomain, onLogout }) {
 
 // ─── Team roster step ─────────────────────────────────────────────────────────
 function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdminLogin, onSwitch }) {
+  const [clockMode, setClockMode] = useState(null); // null | "clockIn" | "clockOut"
+  const [pinValue, setPinValue] = useState("");
+  const [pinError, setPinError] = useState("");
+  const [pinLoading, setPinLoading] = useState(false);
+  const [confirmedPerson, setConfirmedPerson] = useState(null);
+  const [clockDone, setClockDone] = useState(false);
+
+  function openClock(mode) {
+    setClockMode(mode);
+    setPinValue("");
+    setPinError("");
+    setConfirmedPerson(null);
+    setClockDone(false);
+  }
+
+  function closeClockModal() {
+    setClockMode(null);
+    setPinValue("");
+    setPinError("");
+    setConfirmedPerson(null);
+    setClockDone(false);
+  }
+
+  async function handlePinConfirm() {
+    if (!pinValue.trim()) { setPinError("Please enter your PIN."); return; }
+    setPinLoading(true);
+    setPinError("");
+    try {
+      const res = await fetch("/.netlify/functions/timeclock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Org-Code": orgCode },
+        body: JSON.stringify({ action: "identify", pin: pinValue }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setPinError("PIN not recognized. Please try again.");
+        setPinValue("");
+      } else {
+        setConfirmedPerson({ name: data.name, personId: data.personId });
+      }
+    } catch {
+      setPinError("Connection error. Please try again.");
+    } finally {
+      setPinLoading(false);
+    }
+  }
+
+  async function handleClockYes() {
+    setPinLoading(true);
+    setPinError("");
+    try {
+      const action = clockMode === "clockIn" ? "clockIn" : "clockOut";
+      const body = action === "clockIn"
+        ? { action, personId: confirmedPerson.personId, pin: pinValue, jobRefs: [] }
+        : { action, personId: confirmedPerson.personId, pin: pinValue };
+      const res = await fetch("/.netlify/functions/timeclock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Org-Code": orgCode },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setPinError(data.error || "Clock action failed. Please try again.");
+      } else {
+        setClockDone(true);
+      }
+    } catch {
+      setPinError("Connection error. Please try again.");
+    } finally {
+      setPinLoading(false);
+    }
+  }
+
   function getInitials(name) {
     const parts = (name || "?").trim().split(/\s+/);
     if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
@@ -454,109 +527,191 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
   }
 
   return (
-    <div style={PAGE}>
-      <div style={{ ...CARD, maxWidth: 520 }}>
-        <LogoHeader subtitle="Who are you?" />
-        <div style={CARD_BODY}>
-          <div style={{ textAlign: "center", marginBottom: 20 }}>
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              padding: "6px 16px", background: "rgba(65,105,225,0.12)",
-              borderRadius: 20, border: "1px solid rgba(65,105,225,0.22)",
-            }}>
-              <div style={{ width: 8, height: 8, borderRadius: 4, background: "#10b981", boxShadow: "0 0 6px #10b98155" }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#4169e1" }}>{orgConfig.name}</span>
+    <>
+      <div style={PAGE}>
+        <div style={{ ...CARD, maxWidth: 520 }}>
+          <LogoHeader subtitle="Who are you?" />
+          <div style={CARD_BODY}>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{
+                display: "inline-flex", alignItems: "center", gap: 8,
+                padding: "6px 16px", background: "rgba(65,105,225,0.12)",
+                borderRadius: 20, border: "1px solid rgba(65,105,225,0.22)",
+              }}>
+                <div style={{ width: 8, height: 8, borderRadius: 4, background: "#10b981", boxShadow: "0 0 6px #10b98155" }} />
+                <span style={{ fontSize: 13, fontWeight: 600, color: "#4169e1" }}>{orgConfig.name}</span>
+              </div>
             </div>
-          </div>
 
-          {teamPeople.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "24px 0" }}>
-              <div style={{ fontSize: 14, color: "#64748b", marginBottom: 16 }}>No team members yet.</div>
-              <BtnPrimary type="button" onClick={onAdminLogin}>Admin Login</BtnPrimary>
-            </div>
-          ) : (() => {
-            const admins = teamPeople.filter(p => p.userRole === "admin");
-            const employees = teamPeople.filter(p => p.userRole !== "admin");
+            {teamPeople.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "24px 0" }}>
+                <div style={{ fontSize: 14, color: "#64748b", marginBottom: 16 }}>No team members yet.</div>
+                <BtnPrimary type="button" onClick={onAdminLogin}>Admin Login</BtnPrimary>
+              </div>
+            ) : (() => {
+              const admins = teamPeople.filter(p => p.userRole === "admin");
+              const employees = teamPeople.filter(p => p.userRole !== "admin");
 
-            const PersonBtn = ({ person }) => (
+              const PersonBtn = ({ person }) => (
+                <button
+                  type="button"
+                  onClick={() => onSelectPerson(person)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "14px 16px",
+                    background: "#0f172a",
+                    border: "1px solid #334155",
+                    borderRadius: 12,
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontFamily: "inherit",
+                    transition: "background 0.15s, border-color 0.15s",
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#1a2744"; e.currentTarget.style.borderColor = "#4169e1"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#0f172a"; e.currentTarget.style.borderColor = "#334155"; }}
+                >
+                  <div style={{
+                    width: 40, height: 40, borderRadius: "50%",
+                    background: person.color || "#4169e1",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    flexShrink: 0,
+                    fontSize: 14, fontWeight: 700, color: "#fff",
+                    boxShadow: `0 0 12px ${person.color || "#4169e1"}55`,
+                  }}>
+                    {getInitials(person.name)}
+                  </div>
+                  <div style={{ overflow: "hidden" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {person.name}
+                    </div>
+                    <div style={{ fontSize: 12, color: person.userRole === "admin" ? "#64748b" : (person.department ? "#64748b" : "#334155"), marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {person.userRole === "admin" ? "Admin" : (person.department || "No department")}
+                    </div>
+                  </div>
+                </button>
+              );
+
+              const SectionLabel = ({ label }) => (
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+                  {label}
+                </div>
+              );
+
+              const Divider = () => (
+                <div style={{ borderTop: "1px solid #1e293b", margin: "16px 0" }} />
+              );
+
+              return (
+                <div style={{ marginBottom: 4 }}>
+                  {admins.length > 0 && (
+                    <div>
+                      <SectionLabel label="Admins" />
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        {admins.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
+                      </div>
+                    </div>
+                  )}
+                  {admins.length > 0 && employees.length > 0 && <Divider />}
+                  {employees.length > 0 && (
+                    <div>
+                      <SectionLabel label="Employees" />
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        {employees.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div style={{ marginTop: 24, display: "flex", gap: 10 }}>
               <button
                 type="button"
-                onClick={() => onSelectPerson(person)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 12,
-                  padding: "14px 16px",
-                  background: "#0f172a",
-                  border: "1px solid #334155",
-                  borderRadius: 12,
-                  cursor: "pointer",
-                  textAlign: "left",
-                  fontFamily: "inherit",
-                  transition: "background 0.15s, border-color 0.15s",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.background = "#1a2744"; e.currentTarget.style.borderColor = "#4169e1"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "#0f172a"; e.currentTarget.style.borderColor = "#334155"; }}
-              >
-                <div style={{
-                  width: 40, height: 40, borderRadius: "50%",
-                  background: person.color || "#4169e1",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  flexShrink: 0,
-                  fontSize: 14, fontWeight: 700, color: "#fff",
-                  boxShadow: `0 0 12px ${person.color || "#4169e1"}55`,
-                }}>
-                  {getInitials(person.name)}
+                onClick={() => openClock("clockIn")}
+                style={{ flex: 1, padding: "12px 0", background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 4px 16px rgba(16,185,129,0.3)", transition: "all 0.2s" }}
+                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(16,185,129,0.45)"; }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(16,185,129,0.3)"; }}
+              >Clock In</button>
+              <button
+                type="button"
+                onClick={() => openClock("clockOut")}
+                style={{ flex: 1, padding: "12px 0", background: "#0f172a", border: "1.5px solid rgba(239,68,68,0.4)", borderRadius: 10, color: "#ef4444", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.8)"; e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)"; e.currentTarget.style.background = "#0f172a"; }}
+              >Clock Out</button>
+            </div>
+
+            <div style={{ textAlign: "center", marginTop: 16 }}>
+              <button style={LINK_BTN} onClick={onSwitch}>Switch organization</button>
+            </div>
+          </div>
+          <div style={CARD_FOOTER}>Org code: {orgCode} · Secured by Auth0</div>
+        </div>
+      </div>
+
+      {clockMode && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'DM Sans', system-ui, sans-serif" }}
+          onClick={closeClockModal}
+        >
+          <div style={{ ...CARD, maxWidth: 360 }} onClick={e => e.stopPropagation()}>
+            <LogoHeader subtitle={clockMode === "clockIn" ? "Clock In" : "Clock Out"} />
+            <div style={CARD_BODY}>
+              {clockDone ? (
+                <div style={{ textAlign: "center" }}>
+                  <div style={SUCCESS_BOX}>
+                    {clockMode === "clockIn" ? "✓ Clocked in successfully!" : "✓ Clocked out successfully!"}
+                  </div>
+                  <BtnPrimary type="button" onClick={closeClockModal}>Done</BtnPrimary>
                 </div>
-                <div style={{ overflow: "hidden" }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {person.name}
-                  </div>
-                  <div style={{ fontSize: 12, color: person.userRole === "admin" ? "#64748b" : (person.department ? "#64748b" : "#334155"), marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {person.userRole === "admin" ? "Admin" : (person.department || "No department")}
+              ) : confirmedPerson ? (
+                <div>
+                  {pinError && <div style={ERR_BOX}>{pinError}</div>}
+                  <p style={{ fontSize: 14, color: "#94a3b8", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
+                    Is <strong style={{ color: "#f1f5f9", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong> clocking <strong style={{ color: clockMode === "clockIn" ? "#10b981" : "#ef4444" }}>{clockMode === "clockIn" ? "IN" : "OUT"}</strong> for the day?
+                  </p>
+                  <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}
+                      style={{ flex: 1, padding: "13px 0", background: "#0f172a", border: "1px solid #334155", borderRadius: 10, color: "#94a3b8", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+                    >No</button>
+                    <BtnPrimary
+                      type="button"
+                      loading={pinLoading}
+                      loadingLabel="Saving…"
+                      onClick={handleClockYes}
+                      style={{ flex: 1, background: clockMode === "clockIn" ? "linear-gradient(135deg, #10b981, #059669)" : "linear-gradient(135deg, #ef4444, #dc2626)", boxShadow: clockMode === "clockIn" ? "0 4px 20px rgba(16,185,129,0.33)" : "0 4px 20px rgba(239,68,68,0.33)" }}
+                    >Yes</BtnPrimary>
                   </div>
                 </div>
-              </button>
-            );
-
-            const SectionLabel = ({ label }) => (
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
-                {label}
-              </div>
-            );
-
-            const Divider = () => (
-              <div style={{ borderTop: "1px solid #1e293b", margin: "16px 0" }} />
-            );
-
-            return (
-              <div style={{ marginBottom: 4 }}>
-                {admins.length > 0 && (
-                  <div>
-                    <SectionLabel label="Admins" />
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      {admins.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
-                    </div>
+              ) : (
+                <>
+                  {pinError && <div style={ERR_BOX}>{pinError}</div>}
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={LABEL}>Enter your PIN</label>
+                    <input
+                      type="password"
+                      value={pinValue}
+                      onChange={e => { setPinValue(e.target.value); setPinError(""); }}
+                      onKeyDown={e => e.key === "Enter" && handlePinConfirm()}
+                      placeholder="PIN"
+                      autoFocus
+                      autoComplete="off"
+                      style={{ ...INPUT_STYLE, letterSpacing: "0.25em", fontSize: 18 }}
+                    />
                   </div>
-                )}
-                {admins.length > 0 && employees.length > 0 && <Divider />}
-                {employees.length > 0 && (
-                  <div>
-                    <SectionLabel label="Employees" />
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      {employees.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
-                    </div>
+                  <BtnPrimary type="button" loading={pinLoading} loadingLabel="Checking…" onClick={handlePinConfirm}>Confirm</BtnPrimary>
+                  <div style={{ textAlign: "center", marginTop: 12 }}>
+                    <button type="button" style={LINK_BTN} onClick={closeClockModal}>Cancel</button>
                   </div>
-                )}
-              </div>
-            );
-          })()}
-
-          <div style={{ textAlign: "center", marginTop: 16 }}>
-            <button style={LINK_BTN} onClick={onSwitch}>Switch organization</button>
+                </>
+              )}
+            </div>
           </div>
         </div>
-        <div style={CARD_FOOTER}>Org code: {orgCode} · Secured by Auth0</div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }
 
