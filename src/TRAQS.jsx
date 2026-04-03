@@ -9656,12 +9656,32 @@ ${jobsCtx || "No jobs found."}`;
                       onKeyDown={e => { if(e.key==="Enter") { e.preventDefault(); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],subs:[],color:randomJobColor()}] })); } }}
                       style={{ flex:1, padding:"7px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
                     {panel.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
-                    <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0, width:110 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
                       {hasSubs
                         ? <Tip label="Sum of sub-op hours"><div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.accent, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:700 }}>{panelHpdSum}</div></Tip>
                         : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                       }
                       <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
+                      {(orgSettings.roles?.length>0) && !hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
+                        <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId===panel.id?null:panel.id); }}
+                          style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
+                          <span style={{ fontSize:11, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:160, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                          {orgSettings.roles.map((r,ri) => {
+                            const isOn=panel.requiredDepartment===r;
+                            const fk=`panel-${panel.id}-${r}`;
+                            return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel({requiredDepartment:isOn?"":r}); setDeptDropId(null); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
+                              onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
+                              <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
+                                {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                              </div>
+                              <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{r}</span>
+                            </div>;
+                          })}
+                        </div>}
+                      </div>}
                       <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${T.danger}33`, background:T.danger+"10", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                     </div>
                   </div>
@@ -9785,26 +9805,6 @@ ${jobsCtx || "No jobs found."}`;
                         </div>}
                       </div>;
                     })()}
-                    {(orgSettings.roles?.length>0) && !hasSubs && <div style={{ position:"relative" }}>
-                      <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId===panel.id?null:panel.id); }}
-                        style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
-                        <span style={{ fontSize:11, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
-                        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                      </button>
-                      {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:160, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
-                        {orgSettings.roles.map((r,ri) => {
-                          const isOn=panel.requiredDepartment===r;
-                          const fk=`panel-${panel.id}-${r}`;
-                          return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel({requiredDepartment:isOn?"":r}); setDeptDropId(null); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
-                            onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
-                            <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
-                              {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                            </div>
-                            <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{r}</span>
-                          </div>;
-                        })}
-                      </div>}
-                    </div>}
                     </div>
                     <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:[...(panel.subs||[]),{id:uid(),title:"",hpd:7.5,team:[],subs:[],status:"Not Started",pri:"High",start:"",end:"",notes:"",deps:[],requiredDepartment:""}]}); }} style={{ padding:"3px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.textDim, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:T.font }}>+ Add Sub-operation</button>
                   </div>
