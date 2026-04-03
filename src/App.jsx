@@ -475,15 +475,8 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               <BtnPrimary type="button" onClick={onAdminLogin}>Admin Login</BtnPrimary>
             </div>
           ) : (() => {
-            // Group everyone by their role field — admin permissions don't change which section a person appears in
-            const roleGroups = [];
-            teamPeople.forEach(p => {
-              const label = (p.role || "Team").trim();
-              const existing = roleGroups.find(g => g.label === label);
-              if (existing) existing.people.push(p);
-              else roleGroups.push({ label, people: [p] });
-            });
-            roleGroups.sort((a, b) => a.label.localeCompare(b.label));
+            const admins = teamPeople.filter(p => p.userRole === "admin");
+            const employees = teamPeople.filter(p => p.userRole !== "admin");
 
             const PersonBtn = ({ person }) => (
               <button
@@ -517,8 +510,8 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                   <div style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {person.name}
                   </div>
-                  <div style={{ fontSize: 12, color: "#64748b", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {person.role}
+                  <div style={{ fontSize: 12, color: person.userRole === "admin" ? "#64748b" : (person.department ? "#64748b" : "#334155"), marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {person.userRole === "admin" ? "Admin" : (person.department || "No department")}
                   </div>
                 </div>
               </button>
@@ -536,15 +529,23 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
 
             return (
               <div style={{ marginBottom: 4 }}>
-                {roleGroups.map((group, i) => (
-                  <div key={group.label}>
-                    {i > 0 && <Divider />}
-                    <SectionLabel label={group.label} />
+                {admins.length > 0 && (
+                  <div>
+                    <SectionLabel label="Admins" />
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      {group.people.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
+                      {admins.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
                     </div>
                   </div>
-                ))}
+                )}
+                {admins.length > 0 && employees.length > 0 && <Divider />}
+                {employees.length > 0 && (
+                  <div>
+                    <SectionLabel label="Employees" />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      {employees.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
