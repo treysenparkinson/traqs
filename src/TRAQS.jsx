@@ -3,8 +3,26 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
+import { HexColorPicker } from "react-colorful";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
+
+// Golden-angle hue cycling — consecutive calls produce visually distinct saturated colors
+let _jobHue = Math.floor(Math.random() * 360);
+function randomJobColor() {
+  _jobHue = (_jobHue + 137) % 360;
+  const h = _jobHue, s = 0.65 + Math.random() * 0.15, l = 0.50 + Math.random() * 0.10;
+  const c = (1 - Math.abs(2*l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+  let r=0, g=0, b=0;
+  if      (h < 60)  { r=c; g=x; }
+  else if (h < 120) { r=x; g=c; }
+  else if (h < 180) {      g=c; b=x; }
+  else if (h < 240) {      g=x; b=c; }
+  else if (h < 300) { r=x;      b=c; }
+  else              { r=c;      b=x; }
+  const hex = n => Math.round((n + m) * 255).toString(16).padStart(2, '0');
+  return `#${hex(r)}${hex(g)}${hex(b)}`;
+}
 const COL_TEMPLATES = [
   { label: "Status",    type: "select",   width: 130, options: ["—", "Not Started", "In Progress", "On Hold", "Done", "Blocked"] },
   { label: "Priority",  type: "select",   width: 110, options: ["—", "Low", "Medium", "High", "Critical"] },
@@ -758,6 +776,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const a = T.accent;
     el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }`;
   }, [T.accent]);
+  // Inject react-colorful overrides once — compact size + TRAQS border-radius
+  useEffect(() => {
+    if (document.querySelector("style[data-traqs-colorpicker]")) return;
+    const el = document.createElement("style");
+    el.setAttribute("data-traqs-colorpicker", "1");
+    el.textContent = `.react-colorful{width:100%;gap:0}.react-colorful__saturation{border-radius:7px 7px 0 0;flex:1}.react-colorful__hue{height:14px;border-radius:0 0 7px 7px;margin:0}.react-colorful__saturation-pointer,.react-colorful__hue-pointer{width:18px;height:18px;border-width:2.5px}`;
+    document.head.appendChild(el);
+  }, []);
   // Inject date-picker CSS for dynamic custom theme color-scheme
   useEffect(() => {
     if (themeMode !== "custom") return;
@@ -1328,6 +1354,12 @@ Rules:
   // Keep ref in sync for save functions
   useEffect(() => { dataRef.current.tasks = tasks; }, [tasks]);
   useEffect(() => { dataRef.current.people = people; }, [people]);
+  useEffect(() => {
+    console.log("=== TASKS UPDATED ===", tasks.flatMap(t =>
+      [t, ...(t.subs || []).flatMap(s => [s, ...(s.subs || [])])]
+    ).filter(item => ['t22isapb4', 'ttq9o7pyl', 't76tc6gah'].includes(item.id))
+    .map(item => ({ id: item.id, start: item.start, end: item.end })));
+  }, [tasks]);
 
   // Global undo/redo history
   const undoStack = useRef([]);
@@ -1464,6 +1496,7 @@ Rules:
   const [selBarId, setSelBarId] = useState(null);
   const [ctxMenu, setCtxMenu] = useState(null);
   const [reassignModal, setReassignModal] = useState(null); // { item }
+  const [depsModal, setDepsModal] = useState(null); // { item, panelSubs, panelId, jobId, panelTitle }
   const [quickAddSub, setQuickAddSub] = useState(null); // { type:"panel"|"op", parentId, grandParentId, title, start, end, x, y }
   const [clipboard, setClipboard] = useState(null); // { level, item }
   const [pasteConfirm, setPasteConfirm] = useState(null); // { x, y, startDate, endDate }
@@ -1508,6 +1541,7 @@ Rules:
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
   const [soDropPanelId, setSoDropPanelId] = useState(null); // panel id with sign-off dropdown open in new job modal
   const [deptDropId, setDeptDropId] = useState(null); // id of panel or sub-op with dept dropdown open
+  const [depsDropId, setDepsDropId] = useState(null); // id of sub-op with deps dropdown open
   const [colorDropId, setColorDropId] = useState(null); // id of panel with color picker open
   const [dropFlashKey, setDropFlashKey] = useState(null); // key of option currently playing selection flash animation
   const [hoveredBarPid, setHoveredBarPid] = useState(null); // pid of hovered bar (for sibling highlight on schedule tab)
@@ -1645,8 +1679,7 @@ Rules:
   const [teamSelectMode, setTeamSelectMode] = useState(false);
   const [barSelectMode, setBarSelectMode] = useState(false);
   const [selBars, setSelBars] = useState(new Set()); // Set of bar IDs selected on schedule tab
-  const [barMoveModalOpen, setBarMoveModalOpen] = useState(false);
-  const [barMoveDays, setBarMoveDays] = useState(""); // days to shift selected bars
+  const [selectedSchedulePerson, setSelectedSchedulePerson] = useState(null);
   const [barDeleteConfirmOpen, setBarDeleteConfirmOpen] = useState(false);
   const [reminderNote, setReminderNote] = useState("");
   const [reminderSending, setReminderSending] = useState(false);
@@ -1980,6 +2013,7 @@ Rules:
   useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
+
 
   const allItems = useMemo(() => { let r = []; tasks.forEach(t => { r.push({ ...t, color: "#94a3b8", isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { const pc = s.color || "#94a3b8"; r.push({ ...s, color: pc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: pc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
   const taskColor = useCallback(t => t.color || T.accent, []);
@@ -4051,7 +4085,7 @@ ${jobsCtx || "No jobs found."}`;
                 return segs.map((seg, si) => {
                   const x = dToX(seg.start), xE = dToX(seg.end) + cW, w = Math.max(xE - x, cW);
                   const isFirst = si === 0, isLast = si === segs.length - 1;
-                  const label = r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (() => { const base = r.panelTitle && r.title.startsWith(r.panelTitle + " ") ? r.title.slice(r.panelTitle.length + 1).trim() : r.title; const owner = taskOwner(r); return owner ? `${base} — ${owner}` : base; })() : r.title;
+                  const label = r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (r.panelTitle ? `${r.panelTitle}  ·  ${r.title}` : r.title) : r.title;
                   return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
                     {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
@@ -4424,9 +4458,8 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Center: view toggle — always truly centered via CSS Grid 1fr auto 1fr */}
         <SlidingPill size="sm" options={[{value:"list",label:"List"},{value:"cards",label:"Cards"},{value:"gantt",label:"Gantt"}]} value={taskSubView} onChange={setTaskSubView} />
-        {/* Right: actions (New Job always visible; list-only tools gated below) */}
+        {/* Right: actions (list-only tools first, New Job always rightmost) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
-          {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
           {taskSubView === "list" && <>
             {/* Export button */}
             <Tip label="Export">
@@ -4504,6 +4537,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>}
             </div>
           </>}
+          {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
       {/* ── Sign-Off Queue (cards view) — one section per template ── */}
@@ -4717,9 +4751,8 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Job detail panel */}
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-          {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexShrink: 0 }}>
-            {fresh && <Btn variant="ghost" onClick={() => openEdit(fresh)}>Edit</Btn>}
-            <Btn onClick={() => openNew()}>+ New Job</Btn>
+          {can("editJobs") && fresh && <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 12, flexShrink: 0 }}>
+            <Btn variant="ghost" onClick={() => openEdit(fresh)}>Edit</Btn>
           </div>}
           <div style={{ flex: 1, overflow: "auto" }}>
           {!fresh ? (
@@ -5924,7 +5957,7 @@ ${jobsCtx || "No jobs found."}`;
           <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Member</Btn>
           <Btn size="sm" variant={barSelectMode ? "primary" : "ghost"} style={!barSelectMode ? { background: "transparent" } : {}} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
           {barSelectMode && <Btn size="sm" variant="ghost" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>{selBars.size > 0 ? "None" : "All"}</Btn>}
-          {barSelectMode && selBars.size > 0 && <><span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selBars.size} selected</span><Btn size="sm" variant="ghost" style={{ color: "#ef4444", borderColor: "#ef444444" }} onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn><Btn size="sm" variant="ghost" onClick={() => { setBarMoveDays(""); setBarMoveModalOpen(true); }}>Move</Btn></>}
+          {barSelectMode && selBars.size > 0 && <><span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selBars.size} selected</span><Btn size="sm" variant="ghost" style={{ color: "#ef4444", borderColor: "#ef444444" }} onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn></>}
         <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
           <Tip label="Filters">
           <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
@@ -6205,12 +6238,12 @@ ${jobsCtx || "No jobs found."}`;
               {/* Insertion line indicators */}
               {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
               {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
-              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : T.surface, zIndex: 10, opacity: !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "background 0.15s, opacity 0.2s" }}>
+              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, opacity: barSelectMode || !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "background 0.15s, opacity 0.2s" }}>
                 {/* Drag handle */}
                 <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
                 <div style={{ width: 28, height: 28, borderRadius: 14, background: p.color + "22", border: `1.5px solid ${p.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: p.color, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</div>
+                  <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
                   <div style={{ fontSize: 11, color: T.textDim }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
                 </div>
                 <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono, flexShrink: 0 }}>{row.util}%</span>
@@ -6310,8 +6343,26 @@ ${jobsCtx || "No jobs found."}`;
                       });
                       return members;
                     })() : [];
+                    // Multi-select drag — collect all other selected bars
+                    const isMultiDrag = barSelectMode && selBars.has(bar.id) && selBars.size > 1;
+                    const multiDragMembers = isMultiDrag ? (() => {
+                      const members = [];
+                      const otherIds = [...selBars].filter(id => id !== bar.task.id);
+                      for (const bid of otherIds) {
+                        for (const job of tasks) {
+                          let found = false;
+                          for (const panel of (job.subs || [])) {
+                            const op = (panel.subs || []).find(o => o.id === bid);
+                            if (op) { members.push({ id: bid, origStart: op.start, origEnd: op.end, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [], origPerson: (op.team || [])[0] ?? origPerson }); found = true; break; }
+                            if (panel.id === bid) { members.push({ id: bid, origStart: panel.start, origEnd: panel.end, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [], origPerson: (panel.team || [])[0] ?? origPerson }); found = true; break; }
+                          }
+                          if (found) break;
+                        }
+                      }
+                      return members;
+                    })() : [];
                     // All IDs being moved — used to exclude them from conflict detection
-                    const movingIds = new Set([bar.task.id, ...groupMembers.map(m => m.id)]);
+                    const movingIds = new Set([bar.task.id, ...groupMembers.map(m => m.id), ...multiDragMembers.map(m => m.id)]);
                     let moved = false, lastDropPid = null;
                     const gridEl = teamRef.current;
                     // Measure actual rendered column width from the grid area div so drop
@@ -6338,10 +6389,12 @@ ${jobsCtx || "No jobs found."}`;
                       const snapS = nextBD(addD(os, dx));
                       const snapE = countWorkingDays(snapS, wdDuration);
                       // Group member ghost positions (same delta applied to each member's original start)
-                      const groupSnaps = isGroupDrag ? groupMembers.map(m => {
+                      const groupSnaps = [
+                        ...(isGroupDrag ? groupMembers : []),
+                      ].map(m => {
                         const mSnap = nextBD(addD(m.origStart, dx));
                         return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: countWorkingDays(mSnap, m.wdDur), color: bar.color };
-                      }) : [];
+                      });
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
                       const newHpd = (bar.task?.hpd || 7.5) / Math.max(1, (bar.task?.team || []).length);
@@ -6363,13 +6416,13 @@ ${jobsCtx || "No jobs found."}`;
                         if (dayH + newHpd > personCap) { hasOverlap = true; break; }
                         chk = addD(chk, 1);
                       }
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null });
                     };
                     const onU = me => {
                       document.removeEventListener("mousemove", onM);
                       document.removeEventListener("mouseup", onU);
                       setDropTarget(null); setTeamDragInfo(null);
-                      if (!moved) { if (bar.task) openDetail(bar.task); return; }
+                      if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openDetail(bar.task); } return; }
                       const finalDx = Math.round((me.clientX - sx) / liveCW);
                       const newStart = nextBD(addD(os, finalDx));
                       const newEnd = countWorkingDays(newStart, wdDuration);
@@ -6386,11 +6439,19 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
-                      // Compute final positions for all group members (same delta)
-                      const groupFinalMoves = groupMembers.map(m => {
-                        const mStart = nextBD(addD(m.origStart, finalDx));
-                        return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
-                      });
+                      // Compute final positions for all group members + multi-selected bars (same delta)
+                      const wdDelta = newStart > os ? diffBD(os, newStart) : -diffBD(newStart, os);
+                      const groupFinalMoves = [
+                        ...groupMembers.map(m => {
+                          const mStart = nextBD(addD(m.origStart, finalDx));
+                          return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
+                        }),
+                        ...multiDragMembers.map(m => {
+                          const mStart = addBD(m.origStart, wdDelta);
+                          const mEnd   = addBD(m.origEnd,   wdDelta);
+                          return { ...m, newStart: mStart, newEnd: mEnd };
+                        }),
+                      ];
                       // Conflict detection — exclude all moving IDs as obstacles for each other
                       const { pushes: mainPushes, blocked: mainBlocked, lockedOps: mainLocked } = previewPush(tasks, bar.task.id, dropPerson, newStart, newEnd, movingIds);
                       if (mainBlocked) { showLockedError(mainLocked); return; }
@@ -6405,7 +6466,6 @@ ${jobsCtx || "No jobs found."}`;
                         if (anyBlocked) break;
                       }
                       if (anyBlocked) { showLockedError(allLocked); return; }
-                      // Build snapshot with all bars in the group moved simultaneously
                       const logBase = { date: TD, movedBy: movedByName, reason: "Moved in schedule" };
                       const allMoves = [
                         { id: bar.task.id, newStart, newEnd, logEntry: { ...logBase, fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd } },
@@ -6415,11 +6475,85 @@ ${jobsCtx || "No jobs found."}`;
                       // Expand viewport to include all newly placed bars
                       const allNewStarts = [newStart, ...groupFinalMoves.map(m => m.newStart)];
                       const minNewStart = allNewStarts.reduce((a, b) => a < b ? a : b, newStart);
+                      const applyReassign = (snapshot) => {
+                        const allReassignments = [
+                          { taskId: bar.task.id, pid: taskPid, fromPerson: origPerson },
+                          ...multiDragMembers.map(m => ({ taskId: m.id, pid: m.pid, fromPerson: m.origPerson }))
+                        ];
+                        return snapshot.map(t => {
+                          let updated = { ...t };
+                          allReassignments.forEach(({ taskId, pid, fromPerson }) => {
+                            if (pid) {
+                              const panelIdx = (updated.subs || []).findIndex(s => s.id === pid);
+                              if (panelIdx >= 0) {
+                                const newSubs = [...(updated.subs || [])];
+                                newSubs[panelIdx] = {
+                                  ...newSubs[panelIdx],
+                                  subs: (newSubs[panelIdx].subs || []).map(op =>
+                                    op.id === taskId
+                                      ? { ...op, team: (op.team || []).map(x => x === fromPerson ? lastDropPid : x) }
+                                      : op
+                                  )
+                                };
+                                updated = { ...updated, subs: newSubs };
+                              }
+                              if (updated.id === pid) {
+                                updated = {
+                                  ...updated,
+                                  subs: (updated.subs || []).map(s =>
+                                    s.id === taskId
+                                      ? { ...s, team: (s.team || []).map(x => x === fromPerson ? lastDropPid : x) }
+                                      : s
+                                  )
+                                };
+                              }
+                            } else if (updated.id === taskId) {
+                              updated = {
+                                ...updated,
+                                team: (updated.team || []).map(x => x === fromPerson ? lastDropPid : x)
+                              };
+                            }
+                          });
+                          return updated;
+                        });
+                      };
+                      const effectiveReassign = isReassign && multiDragMembers.length === 0;
                       const commit = (snapshot) => {
-                        setTasks(snapshot);
                         setTStart(p => minNewStart < p ? minNewStart : p);
                         setTEnd(p => newEnd > p ? newEnd : p);
-                        if (isReassign) reassignTask(bar.task.id, origPerson, lastDropPid, taskPid);
+                        // Apply member date updates directly from groupFinalMoves so they are
+                        // guaranteed correct regardless of whether buildGroupMove found them
+                        let base = snapshot;
+                        if (multiDragMembers.length > 0) {
+                          const mm = new Map(
+                            groupFinalMoves
+                              .filter(gm => multiDragMembers.some(m => m.id === gm.id))
+                              .map(gm => [gm.id, gm])
+                          );
+                          if (mm.size > 0) {
+                            base = snapshot.map(job => {
+                              let jobChanged = false;
+                              const newSubs = (job.subs || []).map(panel => {
+                                let panelChanged = false;
+                                let p = panel;
+                                if (mm.has(panel.id)) {
+                                  const mv = mm.get(panel.id);
+                                  p = { ...p, start: mv.newStart, end: mv.newEnd };
+                                  panelChanged = true;
+                                }
+                                const newOps = (p.subs || []).map(op => {
+                                  if (!mm.has(op.id)) return op;
+                                  panelChanged = true;
+                                  return { ...op, start: mm.get(op.id).newStart, end: mm.get(op.id).newEnd };
+                                });
+                                if (panelChanged) { jobChanged = true; return { ...p, subs: newOps }; }
+                                return panel;
+                              });
+                              return jobChanged ? { ...job, subs: newSubs } : job;
+                            });
+                          }
+                        }
+                        setTasks(effectiveReassign && multiDragMembers.length === 0 ? applyReassign(base) : base);
                       };
                       if (allPushes.length > 0) {
                         const withPushes = applyPushes(withMove, allPushes, movedByName);
@@ -6526,16 +6660,19 @@ ${jobsCtx || "No jobs found."}`;
                   const bc = bar.color;
                   const isHighlighted = !isPto && bar.task?.id === scheduleHighlightId;
                   const isDraggingThis = teamDragInfo?.barId === bar.id;
-                  const dragTx = isDraggingThis ? (teamDragInfo.translateX || 0) : 0;
-                  const dragTy = isDraggingThis ? (teamDragInfo.translateY || 0) : 0;
+                  const isMultiDragging = !isDraggingThis && !!(teamDragInfo?.multiDragIds?.has(bar.id));
+                  const dragTx = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateX || 0) : 0;
+                  const dragTy = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateY || 0) : 0;
                   const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
-                  const barOpacity = !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
+                  const barOpacity = barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
-                  return [<div key={bar.id + "_0"}
-                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); return; } handleTeamDrag(e); } }}
+                  const barKey = bar.id + "_0_" + bar.start;
+                  if (['t22isapb4','ttq9o7pyl','t76tc6gah'].includes(bar.id)) console.log("=== BAR KEY ===", bar.id, "key:", barKey, "start:", bar.start);
+                  return [<div key={barKey}
+                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : isDraggingThis ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -6543,7 +6680,7 @@ ${jobsCtx || "No jobs found."}`;
                     {inDepGroup && !isBarSelected && <Tip label="Linked — moves with its dependency group"><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span></Tip>}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
                     {hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
-                    <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : `${bar.task?.title || bar.title} - ${p.name.split(" ")[0]}`}</span>
+                    <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
                     {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.85)", fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
                   ...barSegs.slice(1).map((seg, si) => {
@@ -6552,10 +6689,10 @@ ${jobsCtx || "No jobs found."}`;
                     const isPto2 = bar.type === "pto";
                     const bc2 = bar.color;
                     const isLastSeg = si === barSegs.length - 2;
-                    return <div key={bar.id + "_t" + si}
-                      onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleTeamDrag(e); } }}
+                    return <div key={bar.id + "_t" + si + "_" + seg.start}
+                      onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, cursor: "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: isBarSelected ? `2px solid #fff` : `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto2) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc2, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
                       {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
@@ -9469,12 +9606,17 @@ ${jobsCtx || "No jobs found."}`;
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color:T.textDim }}><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
                       </Tip>
-                      {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:12, display:"flex", flexWrap:"wrap", gap:8, width:168, animation:"menuIn 0.15s ease-out" }}>
-                        {COLORS.map(c => { const isOn=(panel.color||COLORS[pi%COLORS.length])===c; return <div key={c} onClick={() => { updatePanel({color:c}); setColorDropId(null); }} style={{ width:30, height:30, borderRadius:15, background:c, cursor:"pointer", position:"relative", flexShrink:0, transition:"transform 0.12s", boxShadow:isOn?`0 0 0 2.5px rgba(255,255,255,0.9), 0 0 0 4px ${c}88`:"0 0 0 0px transparent", transform:isOn?"scale(1.12)":"scale(1)" }}>{isOn && <svg width="13" height="13" viewBox="0 0 13 13" style={{ position:"absolute", top:"50%", left:"50%", transform:"translate(-50%,-50%)", pointerEvents:"none" }}><polyline points="2,7 5,10 11,3" stroke="#fff" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>; })}
+                      {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:10, width:208, display:"flex", flexDirection:"column", gap:8, animation:"menuIn 0.15s ease-out" }}>
+                        <HexColorPicker color={panel.color||COLORS[pi%COLORS.length]} onChange={c => updatePanel({color:c})} style={{ width:"100%", height:160 }} />
+                        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                          <div style={{ width:22, height:22, borderRadius:6, background:panel.color||COLORS[pi%COLORS.length], flexShrink:0, border:`1px solid ${T.border}` }} />
+                          <span style={{ fontSize:11, fontFamily:T.mono, color:T.textDim, flex:1, letterSpacing:"0.03em" }}>{panel.color||COLORS[pi%COLORS.length]}</span>
+                          <button onClick={() => setColorDropId(null)} style={{ padding:"3px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Done</button>
+                        </div>
                       </div>}
                     </div>
                     <input value={panel.title} onChange={e => updatePanel({title:e.target.value})} placeholder="Operation name"
-                      onKeyDown={e => { if(e.key==="Enter") { e.preventDefault(); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],subs:[],color:(()=>{ const used=new Set((p.subs||[]).map(s=>s.color).filter(Boolean)); const free=COLORS.filter(c=>!used.has(c)); const pool=free.length?free:COLORS; return pool[Math.floor(Math.random()*pool.length)]; })()}] })); } }}
+                      onKeyDown={e => { if(e.key==="Enter") { e.preventDefault(); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],subs:[],color:randomJobColor()}] })); } }}
                       style={{ flex:1, padding:"7px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
                     {panel.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
                     <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0, width:110 }}>
@@ -9566,6 +9708,46 @@ ${jobsCtx || "No jobs found."}`;
                         </div>
                       </div>}
                     </div>
+                    {(panel.subs||[]).length>=2 && (() => {
+                      const allSubs=panel.subs||[];
+                      const isLinked=s=>(s.deps||[]).length>0||allSubs.some(o=>o.id!==s.id&&(o.deps||[]).includes(s.id));
+                      const linkedCount=allSubs.filter(isLinked).length;
+                      const hasAny=linkedCount>0;
+                      return <div style={{ position:"relative" }}>
+                        <button onClick={e=>{ e.stopPropagation(); setDepsDropId(depsDropId===panel.id?null:panel.id); }}
+                          style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${hasAny?T.accent+"55":T.border}`, background:hasAny?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={hasAny?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                          <span style={{ fontSize:11, color:hasAny?T.accent:T.textDim, fontWeight:600 }}>{hasAny?`${linkedCount} linked`:"Dependencies"}</span>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                        {depsDropId===panel.id && <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:220, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                          <div style={{ padding:"6px 14px 4px", fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em" }}>Link sub-operations</div>
+                          {allSubs.map((sub,di) => {
+                            const on=isLinked(sub);
+                            return <div key={sub.id} onClick={() => {
+                              let ns;
+                              if(on){
+                                ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:[]}; const newDeps=(s.deps||[]).filter(d=>d!==sub.id&&d!=='__pending__'); const wasConnected=(s.deps||[]).includes(sub.id); return {...s,deps:(wasConnected&&newDeps.length===0)?['__pending__']:newDeps}; });
+                              } else {
+                                const gIds=allSubs.filter(s=>s.id!==sub.id&&isLinked(s)).map(s=>s.id);
+                                if(gIds.length===0){
+                                  ns=allSubs.map(s=>s.id===sub.id?{...s,deps:['__pending__']}:s);
+                                } else {
+                                  ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:gIds}; if(gIds.includes(s.id)) return {...s,deps:[...new Set([...(s.deps||[]).filter(d=>d!=='__pending__'),sub.id])]}; return s; });
+                                }
+                              }
+                              updatePanel({subs:ns});
+                            }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, userSelect:"none", animation:`toolDrop 0.14s ${di*38}ms both ease-out` }}
+                              onMouseEnter={e=>{ e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
+                              <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${on?T.accent:T.border}`, background:on?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
+                                {on && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                              </div>
+                              <span style={{ fontSize:12, color:T.text, userSelect:"none" }}>{sub.title||<em style={{color:T.textDim}}>Unnamed</em>}</span>
+                            </div>;
+                          })}
+                        </div>}
+                      </div>;
+                    })()}
                     {(orgSettings.roles?.length>0) && !hasSubs && <div style={{ position:"relative" }}>
                       <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId===panel.id?null:panel.id); }}
                         style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
@@ -9593,7 +9775,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>;
               })}
             </div>
-            <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],requiredDepartment:"",subs:[],color:(()=>{ const used=new Set((p.subs||[]).map(s=>s.color).filter(Boolean)); const free=COLORS.filter(c=>!used.has(c)); const pool=free.length?free:COLORS; return pool[Math.floor(Math.random()*pool.length)]; })()}] })); }}
+            <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],requiredDepartment:"",subs:[],color:randomJobColor()}] })); }}
               style={{ display:"block", width:"100%", padding:"18px 0", borderRadius:T.radiusSm, border:`2px dashed ${T.accent}55`, background:T.accent+"08", color:T.accent, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.background=T.accent+"18"; e.currentTarget.style.borderColor=T.accent; }}
               onMouseLeave={e => { e.currentTarget.style.background=T.accent+"08"; e.currentTarget.style.borderColor=T.accent+"55"; }}>
@@ -11627,6 +11809,7 @@ ${jobsCtx || "No jobs found."}`;
       {can("editJobs") && isPanel && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>} label="Add Operation" sub="Add a new operation to this panel" onClick={() => { let grandParentId = null; for (const job of tasks) { if ((job.subs||[]).find(p => p.id === it.id)) { grandParentId = job.id; break; } } setCtxMenu(null); setQuickAddSub({ type: "op", parentId: it.id, grandParentId, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y }); }} />}
       {/* Reassign Operation — opens modal */}
       {can("reassign") && isOp && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Reassign Operation" sub="Choose from available people" onClick={() => { setReassignModal({ item: it }); setCtxMenu(null); }} />}
+      {can("editJobs") && isOp && (() => { let siblingOps=[],panelId=null,jobId=null,panelTitle=""; for(const job of tasks){for(const panel of(job.subs||[])){if((panel.subs||[]).find(o=>o.id===it.id)){siblingOps=panel.subs;panelId=panel.id;jobId=job.id;panelTitle=panel.title;break;}}if(panelId)break;} if(siblingOps.length<2)return null; return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>} label="Add/Edit Dependencies" sub="Link sub-operations to move together" onClick={()=>{ setDepsModal({ item:it, panelSubs:siblingOps.map(s=>({...s,deps:[...(s.deps||[])]})), panelId, jobId, panelTitle }); setCtxMenu(null); }} />; })()}
       {ctxMenu.source === "team" && (() => { const parentJob = (() => { if (it.grandPid) return tasks.find(j => j.id === it.grandPid); if (it.pid) { const j = tasks.find(j => j.id === it.pid); if (j) return j; for (const job of tasks) { if ((job.subs||[]).find(s => s.id === it.pid)) return job; } } return tasks.find(j => j.id === it.id); })(); if (!parentJob) return null; return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>} label="Go to Project" sub={parentJob.title || it.jobTitle || ""} onClick={() => { setCtxMenu(null); setView("tasks"); setTaskSubView("gantt"); setGMode("month"); const sd = new Date(parentJob.start + "T12:00:00"); const first = new Date(sd.getFullYear(), sd.getMonth(), 1); const last = new Date(sd.getFullYear(), sd.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); setExp(p => ({ ...p, [parentJob.id]: true })); }} />; })()}
       {/* Jump to Schedule */}
       {it.start && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} label="Jump to Schedule" sub={`Show week of ${fm(it.start)}`} onClick={() => { const d = new Date(it.start + "T12:00:00"); const dow = d.getDay(); const daysToMon = dow === 0 ? -6 : 1 - dow; const ws = toDS(new Date(d.getFullYear(), d.getMonth(), d.getDate() + daysToMon)); setTStart(ws); setTEnd(addD(ws, 13)); setView("schedule"); setScheduleHighlightId(it.id); setTimeout(() => setScheduleHighlightId(null), 2500); setCtxMenu(null); }} />}
@@ -11696,6 +11879,43 @@ ${jobsCtx || "No jobs found."}`;
             {shopCrew.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "20px 0" }}>No team members available</div>}
           </div>
           <button onClick={() => setReassignModal(null)} style={{ width: "100%", marginTop: 16, padding: "9px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
+        </div>
+      </div>;
+    })()}
+    {/* Add/Edit Dependencies Modal */}
+    {depsModal && (() => {
+      const it=depsModal.item;
+      const ps=depsModal.panelSubs;
+      const isLinked=sid=>{ const s=ps.find(x=>x.id===sid); return (s?.deps||[]).length>0||ps.some(o=>o.id!==sid&&(o.deps||[]).includes(sid)); };
+      const toggle=sibId=>{ const linked=isLinked(sibId); let ns; if(linked){ns=ps.map(s=>s.id===sibId?{...s,deps:[]}:{...s,deps:(s.deps||[]).filter(d=>d!==sibId)});}else{const gIds=ps.filter(s=>s.id!==sibId&&isLinked(s.id)).map(s=>s.id);ns=ps.map(s=>{ if(s.id===sibId)return{...s,deps:gIds}; if(gIds.includes(s.id))return{...s,deps:[...new Set([...(s.deps||[]),sibId])]}; return s; });} setDepsModal(p=>({...p,panelSubs:ns})); };
+      const save=()=>{ const next=tasks.map(job=>({...job,subs:(job.subs||[]).map(panel=>panel.id!==depsModal.panelId?panel:{...panel,subs:ps})})); setTasks(next); saveTasks(next,getToken,orgCode).catch(console.warn); setDepsModal(null); };
+      return <div onClick={()=>setDepsModal(null)} style={{ position:"fixed",inset:0,zIndex:10005,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:T.font }}>
+        <div onClick={e=>e.stopPropagation()} style={{ background:T.card,border:`1px solid ${T.borderLight}`,borderRadius:T.radiusSm,boxShadow:"0 24px 64px rgba(0,0,0,0.6)",width:"min(440px, calc(100vw - 32px))",padding:"24px 24px 20px",animation:"slideUp 0.22s ease-out" }}>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6 }}>
+            <div style={{ fontSize:16,fontWeight:700,color:T.text }}>Add/Edit Dependencies</div>
+            <button onClick={()=>setDepsModal(null)} style={{ background:"none",border:"none",cursor:"pointer",color:T.textDim,fontSize:20,lineHeight:1,padding:"0 2px" }}>✕</button>
+          </div>
+          <div style={{ fontSize:12,color:T.textDim,marginBottom:16,lineHeight:1.6 }}>Sub-operations under <strong style={{color:T.text}}>{depsModal.panelTitle}</strong> · Linked sub-ops move together on the schedule.</div>
+          <div style={{ display:"flex",flexDirection:"column",gap:6,marginBottom:16 }}>
+            {ps.map((sub,di) => {
+              const on=isLinked(sub.id);
+              const isSelf=sub.id===it.id;
+              return <button key={sub.id} onClick={()=>toggle(sub.id)} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:T.radiusSm,border:`1.5px solid ${on?T.accent:T.border}`,background:on?T.accent+"10":T.surface,cursor:"pointer",textAlign:"left",transition:"all 0.12s",animation:`toolDrop 0.14s ${di*38}ms both ease-out`,fontFamily:T.font }}
+                onMouseEnter={e=>{ e.currentTarget.style.borderColor=T.accent; }} onMouseLeave={e=>{ e.currentTarget.style.borderColor=on?T.accent:T.border; }}>
+                <div style={{ width:18,height:18,borderRadius:4,border:`2px solid ${on?T.accent:T.border}`,background:on?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.12s" }}>
+                  {on && <svg width="9" height="9" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </div>
+                <div style={{ flex:1,minWidth:0 }}>
+                  <div style={{ fontSize:13,fontWeight:on?600:400,color:on?T.accent:T.text }}>{sub.title||<em style={{color:T.textDim}}>Unnamed</em>}</div>
+                  {isSelf && <div style={{ fontSize:11,color:T.textDim }}>Currently selected operation</div>}
+                </div>
+              </button>;
+            })}
+          </div>
+          <div style={{ display:"flex",gap:8 }}>
+            <button onClick={()=>setDepsModal(null)} style={{ flex:1,padding:"9px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:"transparent",color:T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:T.font }}>Cancel</button>
+            <button onClick={save} style={{ flex:2,padding:"9px",borderRadius:T.radiusSm,border:"none",background:T.accent,color:T.accentText,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:T.font }}>Save</button>
+          </div>
         </div>
       </div>;
     })()}
@@ -12299,26 +12519,6 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}
 
-    {/* Bar Move Modal */}
-    {barMoveModalOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarMoveModalOpen(false)}>
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 380, width: "100%", border: `1px solid ${T.border}`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)` }} onClick={e => e.stopPropagation()}>
-        <h3 style={{ margin: "0 0 6px", color: T.text, fontSize: 19, fontWeight: 700 }}>Move {selBars.size} {selBars.size === 1 ? "item" : "items"}</h3>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textSec, lineHeight: 1.55 }}>Shift selected bars by working days. Use a negative number to move backward.</p>
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Working Days</label>
-        <input autoFocus type="number" value={barMoveDays} onChange={e => setBarMoveDays(e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.currentTarget.form?.requestSubmit?.() || document.getElementById("barMoveSubmit")?.click(); }} placeholder="e.g. 3 or -2" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 15, fontFamily: T.mono, outline: "none", boxSizing: "border-box", marginBottom: 20 }} />
-        <div style={{ display: "flex", gap: 10 }}>
-          <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setBarMoveModalOpen(false)}>Cancel</Btn>
-          <Btn id="barMoveSubmit" style={{ flex: 1 }} onClick={() => {
-            const n = parseInt(barMoveDays, 10);
-            if (!n || isNaN(n)) return;
-            const ids = selBars;
-            const shift = ds => { if (!ds) return ds; let d = new Date(ds + "T12:00:00"); let count = 0; const dir = n > 0 ? 1 : -1; const target = Math.abs(n); while (count < target) { d.setDate(d.getDate() + dir); const dow = d.getDay(); if (dow !== 0 && dow !== 6) count++; } return toDS(d); };
-            setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, ...(ids.has(panel.id) ? { start: shift(panel.start), end: shift(panel.end) } : {}), subs: (panel.subs || []).map(op => ids.has(op.id) ? { ...op, start: shift(op.start), end: shift(op.end) } : op) })) })));
-            setSelBars(new Set()); setBarSelectMode(false); setBarMoveModalOpen(false); setBarMoveDays("");
-          }}>Move</Btn>
-        </div>
-      </div>
-    </div>}
 
     {/* ── New Group Modal ───────────────────────────────────────────────────── */}
     {newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
