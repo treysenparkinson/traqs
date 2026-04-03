@@ -1317,6 +1317,7 @@ Rules:
   }, []);
   const [view, setView] = useState("tasks");
   const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
+  const [collapsedSections, setCollapsedSections] = useState({});
   const [tasks, _setTasks] = useState([]);
   const [people, setPeople] = useState([]);
   const [saveStatus, setSaveStatus] = useState("saved");
@@ -4423,8 +4424,9 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Center: view toggle — always truly centered via CSS Grid 1fr auto 1fr */}
         <SlidingPill size="sm" options={[{value:"list",label:"List"},{value:"cards",label:"Cards"},{value:"gantt",label:"Gantt"}]} value={taskSubView} onChange={setTaskSubView} />
-        {/* Right: list-view actions */}
+        {/* Right: actions (New Job always visible; list-only tools gated below) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+          {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
           {taskSubView === "list" && <>
             {/* Export button */}
             <Tip label="Export">
@@ -4501,100 +4503,114 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>}
             </div>
-            {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
           </>}
         </div>
       </div>
       {/* ── Sign-Off Queue (cards view) — one section per template ── */}
-      {taskSubView === "cards" && canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => (
-        (pending.length > 0 || finished.length > 0) && <div key={tmpl.id} style={{ marginBottom: 28 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-            <span style={{ lineHeight: 0, color: T.accent }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.accent }}>{tmpl.name}</h3>
-            {pending.length > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "2px 10px" }}>{pending.length}</span>}
-            {finished.length > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓ {finished.length}</span>}
+      {taskSubView === "cards" && canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => {
+        if (!(pending.length > 0 || finished.length > 0)) return null;
+        const userDept = (loggedInUser?.department || "").toLowerCase();
+        if (!isAdmin && userDept !== tmpl.name.toLowerCase()) return null;
+        const sKey = tmpl.id;
+        const isCollapsed = !!collapsedSections[sKey];
+        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: !p[sKey] }));
+        return <div key={tmpl.id} style={{ marginBottom: 20 }}>
+          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.2s cubic-bezier(0.34,1.56,0.64,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+            <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.accent }}>{tmpl.name}</h3>
+            {pending.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{pending.length}</span>}
+            {finished.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>✓ {finished.length}</span>}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
+          {!isCollapsed && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
             {[...pending.map(x => ({ ...x, done: false })), ...finished.map(x => ({ ...x, done: true }))].map(({ job, panel, done }) => {
               const so = (panel.signOffs || {})[tmpl.id] || {};
               const activeIdx = tmpl.steps.findIndex((_, i) => !so[String(i)]);
               const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-              return <div key={panel.id + tmpl.id} style={{ background: T.card, border: `2px solid ${done ? "#10b98133" : T.accent + "33"}`, borderRadius: T.radius, padding: "18px 20px", boxShadow: `0 2px 12px ${done ? "#10b98108" : T.accent + "0f"}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "flex", gap: 6, alignItems: "center" }}>
-                  {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 6px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
+              return <div key={panel.id + tmpl.id} style={{ background: T.card, border: `2px solid ${done ? "#10b98133" : T.accent + "33"}`, borderRadius: T.radius, padding: "12px 14px", boxShadow: `0 2px 8px ${done ? "#10b98108" : T.accent + "0f"}` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2, display: "flex", gap: 5, alignItems: "center" }}>
+                  {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
                   {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4, lineHeight: 1.3 }}>{job.title}</div>
-                <div style={{ fontSize: 13, color: T.textSec, marginBottom: 14, fontFamily: T.mono }}>{panel.title}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2, lineHeight: 1.3 }}>{job.title}</div>
+                <div style={{ fontSize: 11, color: T.textSec, marginBottom: 8, fontFamily: T.mono }}>{panel.title}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   {tmpl.steps.map((stepLabel, i) => {
                     const rec = so[String(i)];
                     const isDone = !!rec;
                     const isActive = !done && i === activeIdx;
-                    if (isDone) return <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
-                      <span style={{ fontSize: 13, color: "#10b981", fontWeight: 700 }}>✓</span>
-                      <span style={{ fontSize: 13, color: "#10b981", fontWeight: 600, flex: 1 }}>{stepLabel}</span>
+                    if (isDone) return <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
+                      <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
+                      <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{stepLabel}</span>
                       <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
-                      <Tip label="Undo"><button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "2px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩ Undo</button></Tip>
+                      <Tip label="Undo"><button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "2px 6px", borderRadius: 5, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩</button></Tip>
                     </div>;
-                    if (isActive) return <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <button onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ flex: 1, padding: "8px 14px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {stepLabel}</button>
+                    if (isActive) return <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ flex: 1, padding: "5px 12px", borderRadius: 10, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {stepLabel}</button>
                     </div>;
-                    return <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: T.radiusSm, opacity: 0.4 }}>
-                      <span style={{ fontSize: 13, color: T.textDim }}>○</span>
-                      <span style={{ fontSize: 13, color: T.textDim }}>{stepLabel}</span>
+                    return <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, opacity: 0.4 }}>
+                      <span style={{ fontSize: 12, color: T.textDim }}>○</span>
+                      <span style={{ fontSize: 12, color: T.textDim }}>{stepLabel}</span>
                     </div>;
                   })}
                 </div>
               </div>;
             })}
-          </div>
-        </div>
-      ))}
+          </div>}
+        </div>;
+      })}
       {/* ── Legacy Engineering Queue (cards view only) ── */}
-      {taskSubView === "cards" && canApprove && (engQueueItems.length > 0 || engFinishedItems.length > 0) && <div style={{ marginBottom: 28 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <span style={{ lineHeight: 0, color: T.accent }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.accent }}>{queueLabel}</h3>
-          {engQueueItems.length > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "2px 10px" }}>{engQueueItems.length}</span>}
-          {engFinishedItems.length > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓ {engFinishedItems.length}</span>}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14 }}>
-          {[...engQueueItems.map(x => ({ ...x, done: false })), ...engFinishedItems.map(x => ({ ...x, done: true }))].map(({ job, panel, done }) => {
-            const e = panel.engineering || {};
-            const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
-            const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-            return <div key={panel.id} style={{ background: T.card, border: `2px solid ${done ? "#10b98133" : T.accent + "33"}`, borderRadius: T.radius, padding: "18px 20px" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4, display: "flex", gap: 6, alignItems: "center" }}>
-                {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 6px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
-                {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
-              </div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4, lineHeight: 1.3 }}>{job.title}</div>
-              <div style={{ fontSize: 13, color: T.textSec, marginBottom: 14, fontFamily: T.mono }}>{panel.title}</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {approvalSteps.map(step => {
-                  const rec = e[step.key];
-                  const isDone = !!rec;
-                  const isActive = !done && step.key === activeStep;
-                  if (isDone) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
-                    <span style={{ fontSize: 13, color: "#10b981", fontWeight: 700 }}>✓</span>
-                    <span style={{ fontSize: 13, color: "#10b981", fontWeight: 600, flex: 1 }}>{step.label}</span>
-                    <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
-                    <Tip label="Undo"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ padding: "2px 7px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩ Undo</button></Tip>
-                  </div>;
-                  if (isActive) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ flex: 1, padding: "8px 14px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {step.label}</button>
-                  </div>;
-                  return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: T.radiusSm, opacity: 0.4 }}>
-                    <span style={{ fontSize: 13, color: T.textDim }}>○</span>
-                    <span style={{ fontSize: 13, color: T.textDim }}>{step.label}</span>
-                  </div>;
-                })}
-              </div>
-            </div>;
-          })}
-        </div>
-      </div>}
+      {taskSubView === "cards" && canApprove && (engQueueItems.length > 0 || engFinishedItems.length > 0) && (() => {
+        const userDept = (loggedInUser?.department || "").toLowerCase();
+        if (!isAdmin && userDept !== queueLabel.toLowerCase()) return null;
+        const sKey = "__legacy_eng__";
+        const isCollapsed = !!collapsedSections[sKey];
+        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: !p[sKey] }));
+        return <div style={{ marginBottom: 20 }}>
+          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.2s cubic-bezier(0.34,1.56,0.64,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+            <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.accent }}>{queueLabel}</h3>
+            {engQueueItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>}
+            {engFinishedItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>✓ {engFinishedItems.length}</span>}
+          </div>
+          {!isCollapsed && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+            {[...engQueueItems.map(x => ({ ...x, done: false })), ...engFinishedItems.map(x => ({ ...x, done: true }))].map(({ job, panel, done }) => {
+              const e = panel.engineering || {};
+              const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
+              const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
+              return <div key={panel.id} style={{ background: T.card, border: `2px solid ${done ? "#10b98133" : T.accent + "33"}`, borderRadius: T.radius, padding: "12px 14px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2, display: "flex", gap: 5, alignItems: "center" }}>
+                  {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
+                  {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2, lineHeight: 1.3 }}>{job.title}</div>
+                <div style={{ fontSize: 11, color: T.textSec, marginBottom: 8, fontFamily: T.mono }}>{panel.title}</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {approvalSteps.map(step => {
+                    const rec = e[step.key];
+                    const isDone = !!rec;
+                    const isActive = !done && step.key === activeStep;
+                    if (isDone) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
+                      <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
+                      <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{step.label}</span>
+                      <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
+                      <Tip label="Undo"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ padding: "2px 6px", borderRadius: 5, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩</button></Tip>
+                    </div>;
+                    if (isActive) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <button onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ flex: 1, padding: "5px 12px", borderRadius: 10, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {step.label}</button>
+                    </div>;
+                    return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, opacity: 0.4 }}>
+                      <span style={{ fontSize: 12, color: T.textDim }}>○</span>
+                      <span style={{ fontSize: 12, color: T.textDim }}>{step.label}</span>
+                    </div>;
+                  })}
+                </div>
+              </div>;
+            })}
+          </div>}
+        </div>;
+      })()}
 
       {/* ── Cards View ── */}
       {taskSubView === "cards" && <div style={{ display: "flex", gap: 24, flex: 1, minHeight: 0 }}>
