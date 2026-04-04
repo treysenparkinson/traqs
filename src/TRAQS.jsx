@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
@@ -252,17 +252,16 @@ animStyle.textContent = `
   to   { opacity: 1; }
 }
 @keyframes modalBoxIn {
-  0%   { opacity: 0; transform: scale(0.88) translateY(32px); filter: blur(6px); }
-  55%  { opacity: 1; transform: scale(1.02) translateY(-4px); filter: blur(0);   }
-  75%  { transform: scale(0.99) translateY(1px); }
-  100% { opacity: 1; transform: scale(1)    translateY(0);    filter: blur(0);   }
+  0%   { transform: scale(0.93) translateY(24px); }
+  55%  { transform: scale(1.01) translateY(-3px); }
+  75%  { transform: scale(0.995) translateY(0.5px); }
+  100% { transform: scale(1)    translateY(0); }
 }
 @keyframes deleteShake {
-  0%   { transform: scale(0.88) translateY(32px); opacity: 0; filter: blur(6px); }
-  50%  { opacity: 1; filter: blur(0); }
+  0%   { transform: scale(0.88) translateY(32px); }
   65%  { transform: scale(1.03) translateY(-3px); }
   80%  { transform: scale(0.99) rotate(-0.4deg); }
-  100% { transform: scale(1)    rotate(0deg); opacity: 1; }
+  100% { transform: scale(1)    rotate(0deg); }
 }
 @keyframes ctxMenuIn {
   0%   { opacity: 0; transform: scale(0.90) translateY(-10px); filter: blur(3px); }
@@ -361,7 +360,7 @@ animStyle.textContent = `
 /* ── Animation classes ─────────────────────────────────────────────── */
 .anim-view-enter  { animation: viewEnter   0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-card        { animation: cardPop     0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.anim-modal-overlay { animation: modalOverlayIn 0.25s ease both; }
+.anim-modal-overlay { opacity: 1; }
 .anim-modal-box   { animation: modalBoxIn  0.48s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-delete-box  { animation: deleteShake 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-ctx         { animation: ctxMenuIn   0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -1350,6 +1349,8 @@ Rules:
   const lastSaveTime = useRef(Date.now());
   const saveTimerRef = useRef(null);
   const dataRef = useRef({ tasks: null, people: null, clients: null });
+  const pollUpdateRef = useRef(false);
+  const saveStatusRef = useRef("saved");
 
   // Keep ref in sync for save functions
   useEffect(() => { dataRef.current.tasks = tasks; }, [tasks]);
@@ -1541,6 +1542,8 @@ Rules:
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
   const [soDropPanelId, setSoDropPanelId] = useState(null); // panel id with sign-off dropdown open in new job modal
   const [deptDropId, setDeptDropId] = useState(null); // id of panel or sub-op with dept dropdown open
+  const [deptAddInput, setDeptAddInput] = useState(""); // text in the inline "add department" field
+  const [deptAddMode, setDeptAddMode] = useState(false); // whether the add-dept input row is visible
   const [depsDropId, setDepsDropId] = useState(null); // id of sub-op with deps dropdown open
   const [colorDropId, setColorDropId] = useState(null); // id of panel with color picker open
   const [dropFlashKey, setDropFlashKey] = useState(null); // key of option currently playing selection flash animation
@@ -1551,6 +1554,7 @@ Rules:
   const [orgSettingsOpen, setOrgSettingsOpen] = useState(false);
   const [holidayInput, setHolidayInput] = useState("");
   useEffect(() => { localStorage.setItem("tq_org_settings", JSON.stringify(orgSettings)); }, [orgSettings]);
+  useEffect(() => { saveStatusRef.current = saveStatus; }, [saveStatus]);
   const [editingColHeader, setEditingColHeader] = useState(null); // colId being renamed
   const [colOrder, setColOrder] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tq_col_order") || "null") || STD_COL_DEFS.map(c => c.id); }
@@ -1789,6 +1793,30 @@ Rules:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load orgSettings from server on mount — server is source of truth
+  const skipNextOrgSave = useRef(false);
+  useEffect(() => {
+    if (!orgCode) return;
+    fetchOrgSettings(orgCode)
+      .then(server => {
+        if (!server || Object.keys(server).length === 0) return;
+        skipNextOrgSave.current = true;
+        setOrgSettings(() => {
+          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD };
+          const merged = { ...base, ...server };
+          if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
+          if (server.workStart && server.workEnd) {
+            const [sh, sm] = server.workStart.split(":").map(Number);
+            const [eh, em] = server.workEnd.split(":").map(Number);
+            merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2)));
+          }
+          return merged;
+        });
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Keep loggedInUser in sync with the live people array (e.g. after toggling isEngineer, role changes, etc.)
   useEffect(() => {
     if (!loggedInUser || people.length === 0) return;
@@ -1844,6 +1872,42 @@ Rules:
     const id = setInterval(() => fetchMessages(orgCode).then(setMessages).catch(() => {}), 15000);
     return () => clearInterval(id);
   }, [view, orgCode]);
+
+  // 30s polling + focus/visibility re-fetch for multi-user sync
+  useEffect(() => {
+    if (!orgCode) return;
+    const refetch = async () => {
+      if (document.hidden) return;
+      if (saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved") return;
+      try {
+        const [newTasks, newPeople, newClients] = await Promise.all([
+          fetchTasks(orgCode),
+          fetchPeople(orgCode),
+          fetchClients(orgCode),
+        ]);
+        pollUpdateRef.current = true;
+        setTasks(prev => JSON.stringify(prev) === JSON.stringify(newTasks) ? prev : normalizeTasks(newTasks));
+        pollUpdateRef.current = true;
+        setPeople(prev => JSON.stringify(prev) === JSON.stringify(newPeople) ? prev : normalizePeople(newPeople));
+        pollUpdateRef.current = true;
+        setClients(prev => JSON.stringify(prev) === JSON.stringify(newClients) ? prev : newClients);
+      } catch (e) {
+        console.warn("Poll re-fetch failed:", e);
+      }
+    };
+    const id = setInterval(refetch, 30000);
+    const onFocus = () => refetch();
+    const onVisibility = () => { if (!document.hidden) refetch(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgCode]);
+
   // Close notification dropdown on outside click
   useEffect(() => {
     if (!notifOpen) return;
@@ -1898,9 +1962,19 @@ Rules:
   const doSaveRef = useRef(doSave);
   useEffect(() => { doSaveRef.current = doSave; }, [doSave]);
 
+  // Save orgSettings to server whenever they change (skips initial mount and poll-loaded updates)
+  const isFirstOrgSave = useRef(true);
+  useEffect(() => {
+    if (isFirstOrgSave.current) { isFirstOrgSave.current = false; return; }
+    if (skipNextOrgSave.current) { skipNextOrgSave.current = false; return; }
+    if (!orgCode) return;
+    saveOrgSettings(orgSettings, getTokenRef.current, orgCode).catch(e => console.warn("saveOrgSettings failed:", e));
+  }, [orgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const isInitialSave = useRef(true);
   useEffect(() => {
     if (isInitialSave.current) { isInitialSave.current = false; return; }
+    if (pollUpdateRef.current) { pollUpdateRef.current = false; return; }
     setSaveStatus("unsaved");
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => { doSaveRef.current(); }, 1000);
@@ -7787,9 +7861,7 @@ ${jobsCtx || "No jobs found."}`;
                                 {recentEntries.slice(0, 10).map(e => (
                                   <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
                                     <span style={{ color: T.textDim, fontSize: 11, minWidth: 38 }}>{e.date.slice(5)}</span>
-                                    <span style={{ fontFamily: T.mono, color: T.text }}>{fmtTime(e.clockIn)}</span>
-                                    <span style={{ color: T.textDim }}>→</span>
-                                    <span style={{ fontFamily: T.mono, color: e.clockOut ? T.text : "#f59e0b" }}>{e.clockOut ? fmtTime(e.clockOut) : "In"}</span>
+                                    <span style={{ fontFamily: T.mono }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
                                     <span style={{ flex: 1 }} />
                                     <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
                                   </div>
@@ -7828,9 +7900,7 @@ ${jobsCtx || "No jobs found."}`;
                                 {pEntries.length === 0 ? <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No entries this period.</div> : pEntries.map(e => (
                                   <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
                                     <span style={{ color: T.textDim, minWidth: 40 }}>{e.date.slice(5)}</span>
-                                    <span style={{ fontFamily: T.mono, color: T.text }}>{fmtTime(e.clockIn)}</span>
-                                    <span style={{ color: T.textDim }}>–</span>
-                                    <span style={{ fontFamily: T.mono, color: T.text }}>{e.clockOut ? fmtTime(e.clockOut) : "In"}</span>
+                                    <span style={{ fontFamily: T.mono }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
                                     <span style={{ flex: 1 }} />
                                     <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
                                   </div>
@@ -7883,9 +7953,7 @@ ${jobsCtx || "No jobs found."}`;
                       {entries.map(e => (
                         <div key={e.id} style={{ background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.borderLight}`, padding: "10px 14px", marginBottom: 5 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: (e.jobRefs||[]).length > 0 ? 5 : 0 }}>
-                            <span style={{ fontFamily: T.mono, fontSize: 13, color: T.text }}>{fmtTime(e.clockIn)}</span>
-                            <span style={{ color: T.textDim, fontSize: 11 }}>→</span>
-                            <span style={{ fontFamily: T.mono, fontSize: 13, color: e.clockOut ? T.text : "#f59e0b" }}>{e.clockOut ? fmtTime(e.clockOut) : "Still in"}</span>
+                            <span style={{ fontFamily: T.mono, fontSize: 13 }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
                             <span style={{ flex: 1 }} />
                             <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono, fontSize: 13 }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
                           </div>
@@ -8131,9 +8199,7 @@ ${jobsCtx || "No jobs found."}`;
                                             </div>
                                             {dayEnts.map(e => (
                                               <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 10px", background: T.surface, borderRadius: T.radiusXs, marginBottom: 3, fontSize: 12 }}>
-                                                <span style={{ color: T.text, fontFamily: T.mono }}>{fmtTime(e.clockIn)}</span>
-                                                <span style={{ color: T.textDim }}>→</span>
-                                                <span style={{ color: e.clockOut ? T.text : "#f59e0b", fontFamily: T.mono }}>{e.clockOut ? fmtTime(e.clockOut) : "Still in"}</span>
+                                                <span style={{ fontFamily: T.mono }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
                                                 <span style={{ flex: 1 }} />
                                                 <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours || 0).toFixed(2) + "h" : "—"}</span>
                                                 <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
@@ -8212,9 +8278,7 @@ ${jobsCtx || "No jobs found."}`;
                                 }
                                 return (
                                   <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 16px 7px 28px", borderTop: `1px solid ${T.border}15`, fontSize: 12 }}>
-                                    <span style={{ color: T.text, fontFamily: T.mono }}>{fmtTime(e.clockIn)}</span>
-                                    <span style={{ color: T.textDim }}>→</span>
-                                    <span style={{ color: T.text, fontFamily: T.mono }}>{fmtTime(e.clockOut)}</span>
+                                    <span style={{ fontFamily: T.mono }}><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></span>
                                     <span style={{ flex: 1 }} />
                                     <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
                                     <button onClick={() => setTsEditEntry({ id: e.id, clockIn: e.clockIn, clockOut: e.clockOut, personId: e.personId })} style={{ padding: "2px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font, marginLeft: 4 }}>Edit</button>
@@ -8318,11 +8382,7 @@ ${jobsCtx || "No jobs found."}`;
                     {entries.map((e, i) => (
                       <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < entries.length - 1 ? `1px solid ${T.border}` : "none", fontSize: 13 }}>
                         <div style={{ width: 7, height: 7, borderRadius: 4, background: T.accent, flexShrink: 0 }} />
-                        <span style={{ color: T.text, fontFamily: T.mono, minWidth: 80 }}>{fmtTime(e.clockIn)}</span>
-                        <span style={{ color: T.textDim, fontSize: 11 }}>→</span>
-                        <span style={{ color: e.clockOut ? T.text : "#f59e0b", fontFamily: T.mono, minWidth: 80 }}>
-                          {e.clockOut ? fmtTime(e.clockOut) : "Still in"}
-                        </span>
+                        <span style={{ fontFamily: T.mono }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
                         <span style={{ flex: 1 }} />
                         <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2) + "h" : "—"}</span>
                       </div>
@@ -9203,7 +9263,7 @@ ${jobsCtx || "No jobs found."}`;
   // ═══════════════════ MODALS ═══════════════════
   const renderModal = () => {
     if (!modal) return null;
-    const ov = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px" : "40px 24px", overflow: "auto" };
+    const ov = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px" : "40px 24px", overflow: "auto" };
     const bx = (wide) => ({ background: T.card, borderRadius: isMobile ? 14 : 16, padding: isMobile ? 18 : 32, maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" });
     const cls = <button onClick={closeModal} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
     if (modal.type === "edit") { const [ed, setEd] = [modal.data, d => setModal(p => ({ ...p, data: typeof d === "function" ? d(p.data) : d }))];
@@ -9662,13 +9722,14 @@ ${jobsCtx || "No jobs found."}`;
                         : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                       }
                       <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
-                      {(orgSettings.roles?.length>0) && !hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
-                        <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId===panel.id?null:panel.id); }}
+                      {!hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
+                        <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==panel.id; setDeptDropId(opening?panel.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
                           style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
                           <span style={{ fontSize:11, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
-                        {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:160, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                          {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                           {orgSettings.roles.map((r,ri) => {
                             const isOn=panel.requiredDepartment===r;
                             const fk=`panel-${panel.id}-${r}`;
@@ -9680,6 +9741,18 @@ ${jobsCtx || "No jobs found."}`;
                               <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{r}</span>
                             </div>;
                           })}
+                          <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
+                            {deptAddMode
+                              ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
+                                  <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
+                                  <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:6, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
+                                </div>
+                              : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
+                                  onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                                  <span style={{ fontSize:14 }}>+</span> Create new Department
+                                </div>
+                            }
+                          </div>
                         </div>}
                       </div>}
                       <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${T.danger}33`, background:T.danger+"10", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
@@ -9698,13 +9771,14 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
                           <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updateSub({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                           <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
-                          {(orgSettings.roles?.length>0) && <div style={{ position:"relative", flexShrink:0 }}>
-                            <button onClick={e => { e.stopPropagation(); setDeptDropId(deptDropId===sub.id?null:sub.id); }}
+                          <div style={{ position:"relative", flexShrink:0 }}>
+                            <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==sub.id; setDeptDropId(opening?sub.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
                               style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"3px 8px", borderRadius:8, minWidth:76, border:`1px solid ${sub.requiredDepartment?T.accent+"55":T.border}`, background:sub.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s", whiteSpace:"nowrap" }}>
                               <span style={{ fontSize:11, color:sub.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{sub.requiredDepartment||"Dept"}</span>
                               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
-                            {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:160, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                            {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                              {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                               {orgSettings.roles.map((r,ri) => {
                                 const isOn=sub.requiredDepartment===r;
                                 const fk=`sub-${sub.id}-${r}`;
@@ -9716,8 +9790,20 @@ ${jobsCtx || "No jobs found."}`;
                                   <span style={{ fontSize:12, fontWeight:isOn?600:400, color:isOn?T.accent:T.text }}>{r}</span>
                                 </div>;
                               })}
+                              <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
+                                {deptAddMode
+                                  ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
+                                      <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius:6, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
+                                      <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:6, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
+                                    </div>
+                                  : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
+                                      onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                                      <span style={{ fontSize:14 }}>+</span> Create new Department
+                                    </div>
+                                }
+                              </div>
                             </div>}
-                          </div>}
+                          </div>
                           <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:(panel.subs||[]).filter((_,j) => j!==si)}); }} style={{ padding:"4px 8px", borderRadius:6, border:`1px solid ${T.danger}33`, background:T.danger+"10", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                         </div>
                       </div>
@@ -9760,7 +9846,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
                           <div onClick={() => { setSoDropPanelId(null); setSignOffSettingsOpen(true); }} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
                             onMouseEnter={e => e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e => e.currentTarget.style.background="transparent"}>
-                            <span style={{ fontSize:14 }}>+</span> Create new template
+                            <span style={{ fontSize:14 }}>+</span> Create new sign off
                           </div>
                         </div>
                       </div>}

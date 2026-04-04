@@ -71,6 +71,24 @@ export async function saveClients(clients, getToken, orgCode) {
   return res.json();
 }
 
+// ─── Org Settings ────────────────────────────────────────────────────────────
+export async function fetchOrgSettings(orgCode) {
+  const res = await fetch(`${BASE}/settings`, { headers: orgHeader(orgCode) });
+  if (!res.ok) throw new Error(`fetchOrgSettings failed: ${res.status}`);
+  return res.json(); // returns {} if not found
+}
+
+export async function saveOrgSettings(settings, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/settings`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error(`saveOrgSettings failed: ${res.status}`);
+  return res.json();
+}
+
 // ─── Org ─────────────────────────────────────────────────────────────────────
 export async function fetchOrgConfig(code) {
   const res = await fetch(`${BASE}/org?code=${encodeURIComponent(code)}`);
