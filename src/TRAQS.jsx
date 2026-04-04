@@ -10700,22 +10700,6 @@ ${jobsCtx || "No jobs found."}`;
               : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
             <span style={{ fontSize: 11, fontWeight: 500, color: saveStatus === "saved" ? "#10b981" : saveStatus === "saving" ? T.accent : T.textSec }}>{saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : "Unsaved"}</span>
           </div></Tip>
-          {/* Clock indicator — hourly workers only */}
-          {loggedInUser.payType !== "salary" && (() => {
-            const _pp = getCurrentPayPeriod(orgSettings.payPeriodStart || TD, orgSettings.payPeriodType || "biweekly", TD);
-            const _periodH = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= _pp.start && e.date <= _pp.end && !e.eventType).reduce((s, e) => s + (e.hours||0), 0);
-            const _clocked = !!loggedInUser.activeClockIn?.clockIn;
-            return (
-              <Tip label={`Period: ${fmtDate(_pp.start)} – ${fmtDate(_pp.end)}`}>
-                <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: _clocked ? T.accent + "15" : T.surface, border: `1px solid ${_clocked ? T.accent + "44" : T.border}`, cursor: "default", userSelect: "none" }}>
-                  <div style={{ width: 6, height: 6, borderRadius: 3, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
-                  {_clocked && tsElapsed && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{tsElapsed}</span>}
-                  <span style={{ fontSize: 11, fontWeight: 600, color: T.text, fontFamily: T.mono }}>{_periodH.toFixed(1)}h</span>
-                  <span style={{ fontSize: 9, color: T.textDim, fontWeight: 500 }}>period</span>
-                </div>
-              </Tip>
-            );
-          })()}
           <div style={{ width: 30, height: 30, borderRadius: 15, background: loggedInUser.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700 }}>{loggedInUser.name[0]}</div>
           <div style={{ lineHeight: 1.2 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{loggedInUser.name}</div>
