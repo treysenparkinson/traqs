@@ -154,6 +154,7 @@ const nextBD = (ds, { weekends = false, holidays = [] } = {}) => { let d = new D
 const diffBD = (a, b, { weekends = false, holidays = [] } = {}) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); const dow = c.getDay(); const ds2 = toDS(c); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) count++; } return count; };
 const diffD = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5);
 const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
 const uid = () => "t" + Math.random().toString(36).substr(2, 8);
 
 // Health: compare progress vs timeline
@@ -7217,10 +7218,6 @@ ${jobsCtx || "No jobs found."}`;
       const isYesterday = dateStr === (() => { const y = new Date(TD + "T00:00:00"); y.setDate(y.getDate() - 1); return `${y.getFullYear()}-${String(y.getMonth()+1).padStart(2,"0")}-${String(y.getDate()).padStart(2,"0")}`; })();
       const label = d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
       return isToday ? `Today · ${label}` : isYesterday ? `Yesterday · ${label}` : label;
-    };
-    const fmtDate = dateStr => {
-      if (!dateStr) return "—";
-      return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
     };
 
     // ── PIN modal helpers ─────────────────────────────────────────────────────
