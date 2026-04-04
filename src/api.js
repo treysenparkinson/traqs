@@ -238,6 +238,13 @@ export const clockOutAction = (payload, orgCode) =>
     body: JSON.stringify(payload),
   }).then(r => r.json());
 
+export const timeclockEventAction = (payload, orgCode) =>
+  fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify(payload),
+  }).then(r => r.json());
+
 export const finishRequestAction = (payload, orgCode) =>
   fetch(`${BASE}/timeclock`, {
     method: "POST",

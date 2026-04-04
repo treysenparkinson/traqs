@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
@@ -1527,8 +1527,8 @@ Rules:
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [orgSettings, setOrgSettings] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
-    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD }; }
+    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
+    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false }; }
   });
   const [roleInput, setRoleInput] = useState("");
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
@@ -1802,7 +1802,7 @@ Rules:
         if (!server || Object.keys(server).length === 0) return;
         skipNextOrgSave.current = true;
         setOrgSettings(() => {
-          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD };
+          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false };
           const merged = { ...base, ...server };
           if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
           if (server.workStart && server.workEnd) {
@@ -7109,6 +7109,24 @@ ${jobsCtx || "No jobs found."}`;
               )}
             </div>
 
+            {/* Clock Events */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Clock Events</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button type="button" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                      <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
+                    </button>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
+                      <div style={{ fontSize: 11, color: T.textDim }}>{desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* Team */}
             {isAdmin && (
               <div>
@@ -7161,7 +7179,40 @@ ${jobsCtx || "No jobs found."}`;
       );
     };
 
+    // ── Day timeline builder — used for event log display ─────────────────────
+    // allDayEntries: all timeclock records for a person+date (clock entries + event entries)
+    // Returns array of { kind:"single"|"range", label, color, ts?, start?, end? }
+    const buildDayTimeline = (allDayEntries) => {
+      const clockEntry = allDayEntries.find(e => e.clockIn && !e.eventType);
+      const evts = allDayEntries.filter(e => e.eventType).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      if (!clockEntry && evts.length === 0) return [];
+      const ordered = [];
+      if (clockEntry?.clockIn) ordered.push({ type: "clockIn", ts: clockEntry.clockIn });
+      evts.forEach(e => ordered.push({ type: e.eventType, ts: e.timestamp }));
+      if (clockEntry?.clockOut) ordered.push({ type: "clockOut", ts: clockEntry.clockOut });
+      const lines = [];
+      let lunchStart = null, breakStart = null;
+      for (const ev of ordered) {
+        if (ev.type === "clockIn") lines.push({ kind: "single", label: "IN", ts: ev.ts, color: "#10b981" });
+        else if (ev.type === "lunchStart") lunchStart = ev.ts;
+        else if (ev.type === "lunchEnd") { lines.push({ kind: "range", label: "LUNCH", start: lunchStart, end: ev.ts, color: "#f59e0b" }); lunchStart = null; }
+        else if (ev.type === "breakStart") breakStart = ev.ts;
+        else if (ev.type === "breakEnd") { lines.push({ kind: "range", label: "BREAK", start: breakStart, end: ev.ts, color: "#f59e0b" }); breakStart = null; }
+        else if (ev.type === "clockOut") lines.push({ kind: "single", label: "OUT", ts: ev.ts, color: "#ef4444" });
+      }
+      if (lunchStart) lines.push({ kind: "range", label: "LUNCH", start: lunchStart, end: null, color: "#f59e0b" });
+      if (breakStart) lines.push({ kind: "range", label: "BREAK", start: breakStart, end: null, color: "#f59e0b" });
+      return lines;
+    };
+
     const isClockedIn = !!loggedInUser.activeClockIn?.clockIn;
+
+    // Derive lunch/break state from active session events
+    const activeSessionEvents = loggedInUser?.activeClockIn?.events || [];
+    const lastLunchEvt = [...activeSessionEvents].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+    const isOnLunch = lastLunchEvt?.type === "lunchStart";
+    const lastBreakEvt = [...activeSessionEvents].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+    const isOnBreak = lastBreakEvt?.type === "breakStart";
 
     const fmtTime = iso => {
       if (!iso) return "—";
@@ -7186,6 +7237,8 @@ ${jobsCtx || "No jobs found."}`;
     const openClockIn = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("clockIn_pin"); };
     const openClockOut = () => { setPinInput(""); setPinError(false); setPinState("clockOut_pin"); };
     const openSwitchJob = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("switchJob_pin"); };
+    const openLunch = () => { setPinInput(""); setPinError(false); setPinState(isOnLunch ? "lunchEnd_pin" : "lunchStart_pin"); };
+    const openBreak = () => { setPinInput(""); setPinError(false); setPinState(isOnBreak ? "breakEnd_pin" : "breakStart_pin"); };
     const closePin = () => { setPinState("closed"); setPinInput(""); setPinError(false); setPinSelectedOps([]); };
 
     const appendPin = digit => {
@@ -7199,6 +7252,7 @@ ${jobsCtx || "No jobs found."}`;
       if (pinState === "clockIn_pin") handleClockInPin(pin);
       else if (pinState === "clockOut_pin") handleClockOutPin(pin);
       else if (pinState === "switchJob_pin") handleSwitchJobPin(pin);
+      else if (pinState === "lunchStart_pin" || pinState === "lunchEnd_pin" || pinState === "breakStart_pin" || pinState === "breakEnd_pin") handleLunchBreakPin(pin);
     };
 
     const handleClockInPin = async pin => {
@@ -7306,6 +7360,26 @@ ${jobsCtx || "No jobs found."}`;
       } catch { alert("Network error"); } finally { setPinLoading(false); }
     };
 
+    const handleLunchBreakPin = async pin => {
+      setPinLoading(true);
+      try {
+        const action = pinState.replace("_pin", ""); // "lunchStart"|"lunchEnd"|"breakStart"|"breakEnd"
+        const res = await timeclockEventAction({ action, personId: loggedInUser.id, pin }, orgCode);
+        if (res.ok) {
+          const evtType = action;
+          setPeople(pp => pp.map(p => {
+            if (p.id !== loggedInUser.id) return p;
+            const evts = [...(p.activeClockIn?.events || []), { type: evtType, ts: res.event.timestamp }];
+            return { ...p, activeClockIn: { ...p.activeClockIn, events: evts } };
+          }));
+          setTimeclock(tc => [...tc, res.event]);
+          closePin();
+        } else {
+          setPinError(true); setTimeout(() => setPinError(false), 600);
+        }
+      } catch { alert("Network error"); } finally { setPinLoading(false); }
+    };
+
     // ── Today's ops for loggedInUser ──────────────────────────────────────────
     const myTodayOps = tasks.flatMap(job =>
       (job.subs || []).flatMap(panel =>
@@ -7318,7 +7392,7 @@ ${jobsCtx || "No jobs found."}`;
     // ── My time log — last 30 days, grouped by date, newest first ────────────
     const thirtyDaysAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
     const myEntries = timeclock
-      .filter(e => e.personId === loggedInUser.id && e.date >= thirtyDaysAgo)
+      .filter(e => e.personId === loggedInUser.id && e.date >= thirtyDaysAgo && !e.eventType)
       .sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
 
     const byDate = [];
@@ -7367,7 +7441,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const exportCSV = () => {
       const rows = [["Date","Person","Clock In","Clock Out","Hours"]];
-      periodEntries.forEach(e => {
+      periodEntries.filter(e => !e.eventType).forEach(e => {
         const p = people.find(x => x.id === e.personId);
         rows.push([e.date, p?.name || e.personId, fmtTime(e.clockIn), fmtTime(e.clockOut), (e.hours||0).toFixed(2)]);
       });
@@ -7420,8 +7494,8 @@ ${jobsCtx || "No jobs found."}`;
       >{d}</button>
     );
 
-    const pinModalTitle = (pinState === "clockIn_pin" || pinState === "clockIn_jobs") ? "Clock In" : (pinState === "clockOut_pin") ? "Clock Out" : "Switch Job";
-    const pinModalColor = pinState === "clockOut_pin" ? "#ef4444" : pinState === "switchJob_pin" || pinState === "switchJob_jobs" ? "#f59e0b" : T.accent;
+    const pinModalTitle = (pinState === "clockIn_pin" || pinState === "clockIn_jobs") ? "Clock In" : pinState === "clockOut_pin" ? "Clock Out" : pinState === "lunchStart_pin" ? "Start Lunch" : pinState === "lunchEnd_pin" ? "End Lunch" : pinState === "breakStart_pin" ? "Start Break" : pinState === "breakEnd_pin" ? "End Break" : "Switch Job";
+    const pinModalColor = pinState === "clockOut_pin" ? "#ef4444" : (pinState === "switchJob_pin" || pinState === "switchJob_jobs" || pinState.startsWith("lunch") || pinState.startsWith("break")) ? "#f59e0b" : T.accent;
 
     // ── PIN Modal ─────────────────────────────────────────────────────────────
     const renderPinModal = () => {
@@ -7507,7 +7581,7 @@ ${jobsCtx || "No jobs found."}`;
     const openPersonEditModal = (person) => {
       const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
       const entries = timeclock
-        .filter(e => e.personId === person.id && e.date >= thirtyAgo)
+        .filter(e => e.personId === person.id && e.date >= thirtyAgo && !e.eventType)
         .sort((a, b) => b.clockIn.localeCompare(a.clockIn))
         .map(e => ({ ...e })); // shallow clone for draft
       setTsPersonEditModal({ person, draftEntries: entries, saving: false });
@@ -7668,6 +7742,22 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 )}
               </div>
+              <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Clock Events</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
+                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                      <button type="button" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 46, height: 26, borderRadius: 13, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                        <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 23 : 3, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.2s" }} />
+                      </button>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{label}</div>
+                        <div style={{ fontSize: 12, color: T.textDim }}>{desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               {isAdmin && (
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Team</div>
@@ -7785,6 +7875,8 @@ ${jobsCtx || "No jobs found."}`;
                   ) : (
                     <>
                       <button onClick={openSwitchJob} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid #f59e0b60`, background: "#f59e0b12", color: "#f59e0b", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Switch Job</button>
+                      {orgSettings.trackLunch && <button onClick={openLunch} disabled={isOnBreak} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: isOnLunch ? "#f59e0b22" : "#f59e0b12", color: "#f59e0b", fontSize: 16, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1 }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>}
+                      {orgSettings.trackBreaks && <button onClick={openBreak} disabled={isOnLunch} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnBreak ? "#f59e0b" : "#f59e0b60"}`, background: isOnBreak ? "#f59e0b22" : "#f59e0b12", color: "#f59e0b", fontSize: 16, fontWeight: 700, cursor: isOnLunch ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnLunch ? 0.45 : 1 }}>{isOnBreak ? "End Break" : "Start Break"}</button>}
                       <button onClick={openClockOut} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid #ef444460`, background: "#ef444412", color: "#ef4444", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
                     </>
                   )}
@@ -7818,7 +7910,7 @@ ${jobsCtx || "No jobs found."}`;
                         const periodH = timeclock.filter(e => e.personId === p.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
                         const isExp = !!tsExpandedPersons[p.id];
                         const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
-                        const recentEntries = timeclock.filter(e => e.personId === p.id && e.date >= thirtyAgo).sort((a, b) => b.clockIn.localeCompare(a.clockIn));
+                        const recentEntries = timeclock.filter(e => e.personId === p.id && e.date >= thirtyAgo && !e.eventType).sort((a, b) => b.clockIn.localeCompare(a.clockIn));
                         return (
                           <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? "#22c55e30" : T.borderLight}`, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ padding: "14px 16px", cursor: "pointer" }}>
@@ -7858,14 +7950,18 @@ ${jobsCtx || "No jobs found."}`;
                             </div>
                             {isExp && recentEntries.length > 0 && (
                               <div style={{ padding: "8px 14px 14px", borderTop: `1px solid ${T.border}20` }}>
-                                {recentEntries.slice(0, 10).map(e => (
-                                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
-                                    <span style={{ color: T.textDim, fontSize: 11, minWidth: 38 }}>{e.date.slice(5)}</span>
-                                    <span style={{ fontFamily: T.mono }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
-                                    <span style={{ flex: 1 }} />
-                                    <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
-                                  </div>
-                                ))}
+                                {recentEntries.slice(0, 10).map(e => {
+                                  const tl = buildDayTimeline(timeclock.filter(x => x.personId === p.id && x.date === e.date));
+                                  return (
+                                    <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
+                                      <span style={{ color: T.textDim, fontSize: 11, minWidth: 38, paddingTop: 1 }}>{e.date.slice(5)}</span>
+                                      <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+                                        {tl.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
+                                      </div>
+                                      <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -7884,7 +7980,7 @@ ${jobsCtx || "No jobs found."}`;
                         <button onClick={() => setTsPeriodDays(0)} style={{ padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Now</button>
                       </div>
                       {people.filter(p => p.payType !== "salary").map(person => {
-                        const pEntries = periodEntries.filter(e => e.personId === person.id).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
+                        const pEntries = periodEntries.filter(e => e.personId === person.id && !e.eventType).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
                         const pTotal = pEntries.reduce((s, e) => s + (e.hours||0), 0);
                         const isExpTS = !!tsExpandedPersons["ts_" + person.id];
                         return (
@@ -7897,14 +7993,18 @@ ${jobsCtx || "No jobs found."}`;
                             </div>
                             {isExpTS && (
                               <div style={{ padding: "0 16px 14px", borderTop: `1px solid ${T.border}` }}>
-                                {pEntries.length === 0 ? <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No entries this period.</div> : pEntries.map(e => (
-                                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
-                                    <span style={{ color: T.textDim, minWidth: 40 }}>{e.date.slice(5)}</span>
-                                    <span style={{ fontFamily: T.mono }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
-                                    <span style={{ flex: 1 }} />
-                                    <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
-                                  </div>
-                                ))}
+                                {pEntries.length === 0 ? <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No entries this period.</div> : pEntries.map(e => {
+                                  const tl = buildDayTimeline(timeclock.filter(x => x.personId === person.id && x.date === e.date));
+                                  return (
+                                    <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
+                                      <span style={{ color: T.textDim, minWidth: 40, paddingTop: 1 }}>{e.date.slice(5)}</span>
+                                      <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+                                        {tl.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
+                                      </div>
+                                      <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -7950,19 +8050,23 @@ ${jobsCtx || "No jobs found."}`;
                         <span style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{fmtDayHeader(date)}</span>
                         <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{dayTotal.toFixed(2)}h</span>
                       </div>
-                      {entries.map(e => (
-                        <div key={e.id} style={{ background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.borderLight}`, padding: "10px 14px", marginBottom: 5 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: (e.jobRefs||[]).length > 0 ? 5 : 0 }}>
-                            <span style={{ fontFamily: T.mono, fontSize: 13 }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
-                            <span style={{ flex: 1 }} />
-                            <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono, fontSize: 13 }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
+                      {entries.map(e => {
+                        const tl = buildDayTimeline(timeclock.filter(x => x.personId === loggedInUser.id && x.date === e.date));
+                        return (
+                          <div key={e.id} style={{ background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.borderLight}`, padding: "10px 14px", marginBottom: 5 }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: (e.jobRefs||[]).length > 0 ? 5 : 0 }}>
+                              <div style={{ fontFamily: T.mono, fontSize: 13, display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+                                {tl.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
+                              </div>
+                              <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono, fontSize: 13 }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
+                            </div>
+                            {(e.jobRefs || []).map(r => {
+                              const job = tasks.find(j => j.id === r.jobId);
+                              return job ? <div key={r.opId} style={{ fontSize: 11, color: T.textDim }}>↳ {job.title}</div> : null;
+                            })}
                           </div>
-                          {(e.jobRefs || []).map(r => {
-                            const job = tasks.find(j => j.id === r.jobId);
-                            return job ? <div key={r.opId} style={{ fontSize: 11, color: T.textDim }}>↳ {job.title}</div> : null;
-                          })}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   );
                 })}
@@ -8029,7 +8133,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 44, fontWeight: 700, color: T.accent, fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1 }}>{tsElapsed || "0h 0m"}</div>
           )}
 
-          {/* Clock In / Clock Out / Switch Job buttons */}
+          {/* Clock In / Clock Out / Switch Job / Lunch / Break buttons */}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center" }}>
             <button
               onClick={openClockIn}
@@ -8041,6 +8145,20 @@ ${jobsCtx || "No jobs found."}`;
                 onClick={openSwitchJob}
                 style={{ padding: "14px 28px", borderRadius: T.radiusSm, border: `1.5px solid #f59e0b60`, background: "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s", letterSpacing: "0.01em" }}
               >Switch Job</button>
+            )}
+            {isClockedIn && orgSettings.trackLunch && (
+              <button
+                onClick={openLunch}
+                disabled={isOnBreak}
+                style={{ padding: "14px 28px", borderRadius: T.radiusSm, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: isOnLunch ? "#f59e0b22" : "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
+              >{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
+            )}
+            {isClockedIn && orgSettings.trackBreaks && (
+              <button
+                onClick={openBreak}
+                disabled={isOnLunch}
+                style={{ padding: "14px 28px", borderRadius: T.radiusSm, border: `1.5px solid ${isOnBreak ? "#f59e0b" : "#f59e0b60"}`, background: isOnBreak ? "#f59e0b22" : "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnLunch ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnLunch ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
+              >{isOnBreak ? "End Break" : "Start Break"}</button>
             )}
             <button
               onClick={openClockOut}
@@ -8106,7 +8224,7 @@ ${jobsCtx || "No jobs found."}`;
 
                         const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
                         const personEntries = timeclock
-                          .filter(e => e.personId === p.id && e.date >= thirtyAgo)
+                          .filter(e => e.personId === p.id && e.date >= thirtyAgo && !e.eventType)
                           .sort((a, b) => b.clockIn.localeCompare(a.clockIn));
                         const entryByDate = [];
                         personEntries.forEach(e => {
@@ -8197,14 +8315,18 @@ ${jobsCtx || "No jobs found."}`;
                                               <span>{fmtDayHeader(date)}</span>
                                               <span style={{ fontFamily: T.mono, color: T.accent }}>{dayTotal.toFixed(2)}h</span>
                                             </div>
-                                            {dayEnts.map(e => (
-                                              <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 10px", background: T.surface, borderRadius: T.radiusXs, marginBottom: 3, fontSize: 12 }}>
-                                                <span style={{ fontFamily: T.mono }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
-                                                <span style={{ flex: 1 }} />
-                                                <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours || 0).toFixed(2) + "h" : "—"}</span>
-                                                <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
-                                              </div>
-                                            ))}
+                                            {dayEnts.map(e => {
+                                              const tl = buildDayTimeline(timeclock.filter(x => x.personId === p.id && x.date === e.date));
+                                              return (
+                                                <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "5px 10px", background: T.surface, borderRadius: T.radiusXs, marginBottom: 3, fontSize: 12 }}>
+                                                  <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+                                                    {tl.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
+                                                  </div>
+                                                  <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours || 0).toFixed(2) + "h" : "—"}</span>
+                                                  <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
+                                                </div>
+                                              );
+                                            })}
                                           </div>
                                         );
                                       })}
@@ -8233,7 +8355,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   {periodEntries.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>No entries for this period.</div>}
                   {people.map(person => {
-                    const pEntries = periodEntries.filter(e => e.personId === person.id).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
+                    const pEntries = periodEntries.filter(e => e.personId === person.id && !e.eventType).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
                     if (pEntries.length === 0) return null;
                     // Group by date
                     const pByDate = [];
@@ -8276,10 +8398,12 @@ ${jobsCtx || "No jobs found."}`;
                                     </div>
                                   );
                                 }
+                                const tl5 = buildDayTimeline(timeclock.filter(x => x.personId === e.personId && x.date === e.date));
                                 return (
-                                  <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 16px 7px 28px", borderTop: `1px solid ${T.border}15`, fontSize: 12 }}>
-                                    <span style={{ fontFamily: T.mono }}><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></span>
-                                    <span style={{ flex: 1 }} />
+                                  <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "7px 16px 7px 28px", borderTop: `1px solid ${T.border}15`, fontSize: 12 }}>
+                                    <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+                                      {tl5.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
+                                    </div>
                                     <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
                                     <button onClick={() => setTsEditEntry({ id: e.id, clockIn: e.clockIn, clockOut: e.clockOut, personId: e.personId })} style={{ padding: "2px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font, marginLeft: 4 }}>Edit</button>
                                   </div>
@@ -8379,14 +8503,18 @@ ${jobsCtx || "No jobs found."}`;
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{dayTotal.toFixed(2)} hrs</span>
                   </div>
                   <div style={{ padding: "0 16px" }}>
-                    {entries.map((e, i) => (
-                      <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: i < entries.length - 1 ? `1px solid ${T.border}` : "none", fontSize: 13 }}>
-                        <div style={{ width: 7, height: 7, borderRadius: 4, background: T.accent, flexShrink: 0 }} />
-                        <span style={{ fontFamily: T.mono }}>{e.clockOut ? <><span style={{ color:"#10b981",fontWeight:700 }}>IN</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)} - </span><span style={{ color:"#ef4444",fontWeight:700 }}>OUT</span><span style={{ color:T.text }}>: {fmtTime(e.clockOut)}</span></> : <><span style={{ color:"#f59e0b",fontWeight:700 }}>SWTCH</span><span style={{ color:T.text }}>: {fmtTime(e.clockIn)}</span></>}</span>
-                        <span style={{ flex: 1 }} />
-                        <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2) + "h" : "—"}</span>
-                      </div>
-                    ))}
+                    {entries.map((e, i) => {
+                      const tl6 = buildDayTimeline(timeclock.filter(x => x.personId === loggedInUser.id && x.date === e.date));
+                      return (
+                        <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0", borderBottom: i < entries.length - 1 ? `1px solid ${T.border}` : "none", fontSize: 13 }}>
+                          <div style={{ width: 7, height: 7, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 4 }} />
+                          <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+                            {tl6.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
+                          </div>
+                          <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2) + "h" : "—"}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               );

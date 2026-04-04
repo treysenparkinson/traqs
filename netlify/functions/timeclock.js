@@ -185,6 +185,66 @@ export async function handler(event) {
       return json(200, { ok: true, entry });
     }
 
+    // ── Lunch Start ──────────────────────────────────────────────────────────
+    if (action === "lunchStart") {
+      if (!person.activeClockIn) return err(409, "Not currently clocked in");
+      const events = person.activeClockIn.events || [];
+      const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+      if (lastLunch?.type === "lunchStart") return err(409, "Already on lunch");
+      const timestamp = new Date().toISOString();
+      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchStart", ts: timestamp }] } };
+      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchStart", timestamp };
+      let log1; try { log1 = await readJson(clockKey) ?? []; } catch { log1 = []; }
+      log1.push(evt); try { await writeJson(clockKey, log1); } catch { }
+      return json(200, { ok: true, event: evt });
+    }
+
+    // ── Lunch End ────────────────────────────────────────────────────────────
+    if (action === "lunchEnd") {
+      if (!person.activeClockIn) return err(409, "Not currently clocked in");
+      const events = person.activeClockIn.events || [];
+      const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+      if (!lastLunch || lastLunch.type !== "lunchStart") return err(409, "Not on lunch");
+      const timestamp = new Date().toISOString();
+      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchEnd", ts: timestamp }] } };
+      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchEnd", timestamp };
+      let log2; try { log2 = await readJson(clockKey) ?? []; } catch { log2 = []; }
+      log2.push(evt); try { await writeJson(clockKey, log2); } catch { }
+      return json(200, { ok: true, event: evt });
+    }
+
+    // ── Break Start ──────────────────────────────────────────────────────────
+    if (action === "breakStart") {
+      if (!person.activeClockIn) return err(409, "Not currently clocked in");
+      const events = person.activeClockIn.events || [];
+      const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+      if (lastBreak?.type === "breakStart") return err(409, "Already on break");
+      const timestamp = new Date().toISOString();
+      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } };
+      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakStart", timestamp };
+      let log3; try { log3 = await readJson(clockKey) ?? []; } catch { log3 = []; }
+      log3.push(evt); try { await writeJson(clockKey, log3); } catch { }
+      return json(200, { ok: true, event: evt });
+    }
+
+    // ── Break End ────────────────────────────────────────────────────────────
+    if (action === "breakEnd") {
+      if (!person.activeClockIn) return err(409, "Not currently clocked in");
+      const events = person.activeClockIn.events || [];
+      const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+      if (!lastBreak || lastBreak.type !== "breakStart") return err(409, "Not on break");
+      const timestamp = new Date().toISOString();
+      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } };
+      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakEnd", timestamp };
+      let log4; try { log4 = await readJson(clockKey) ?? []; } catch { log4 = []; }
+      log4.push(evt); try { await writeJson(clockKey, log4); } catch { }
+      return json(200, { ok: true, event: evt });
+    }
+
     // ── Finish Request ────────────────────────────────────────────────────────
     if (action === "finishRequest") {
       const { jobId, panelId, opId } = body;
