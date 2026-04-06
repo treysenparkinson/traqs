@@ -1629,6 +1629,37 @@ Rules:
     const end = new Date(start.getTime() + 13 * 86400000);
     return { start: toDS(start), end: toDS(end), periodNumber: Math.max(1, periodsSince + 1) };
   };
+  // getPayPeriodFromDates([d1, d2], today) — semi-monthly by explicit day-of-month pair
+  // e.g. [5, 20] → periods are 5th–19th and 20th–4th each month
+  const getPayPeriodFromDates = (payDates, today) => {
+    const dates = [...(payDates||[5,20])].map(Number).sort((a,b)=>a-b);
+    const [d1, d2] = dates;
+    const _today = today || TD;
+    const t = new Date(_today + "T00:00:00");
+    const y = t.getFullYear(), m = t.getMonth(), day = t.getDate();
+    const toDS = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+    let start, end;
+    if (day >= d1 && day < d2) {
+      start = new Date(y, m, d1); end = new Date(y, m, d2 - 1);
+    } else if (day >= d2) {
+      start = new Date(y, m, d2); end = new Date(y, m + 1, d1 - 1);
+    } else {
+      start = new Date(y, m - 1, d2); end = new Date(y, m, d1 - 1);
+    }
+    const periodNumber = (y - 2020) * 24 + m * 2 + (day >= d2 ? 1 : day >= d1 ? 0 : -1) + 1;
+    return { start: toDS(start), end: toDS(end), periodNumber: Math.max(1, periodNumber) };
+  };
+  const getPayPeriodAtOffsetFromDates = (payDates, today, offset) => {
+    const toDS = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,"0")}-${String(dt.getDate()).padStart(2,"0")}`;
+    let period = getPayPeriodFromDates(payDates, today);
+    for (let i = 0; i < Math.abs(offset); i++) {
+      const ref = new Date((offset < 0 ? period.start : period.end) + "T00:00:00");
+      ref.setDate(ref.getDate() + (offset < 0 ? -1 : 1));
+      period = getPayPeriodFromDates(payDates, toDS(ref));
+    }
+    return period;
+  };
+
   const getPayPeriodAtOffset = (startDate, periodType, today, offset) => {
     const toDS = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     let period = getCurrentPayPeriod(startDate, periodType, today);
@@ -7083,23 +7114,18 @@ ${jobsCtx || "No jobs found."}`;
             {/* Pay Period */}
             {isAdmin && <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Pay Period</div>
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Period type</div>
-                <div style={{ display: "flex", borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden", width: "fit-content" }}>
-                  {[{ v: "weekly", label: "Weekly" }, { v: "biweekly", label: "Bi-Weekly" }, { v: "semi-monthly", label: "Semi-Monthly" }, { v: "monthly", label: "Monthly" }].map(opt => (
-                    <button key={opt.v} type="button" onClick={() => setOrgSettings(s => ({ ...s, payPeriodType: opt.v }))}
-                      style={{ padding: "7px 16px", border: "none", background: (orgSettings.payPeriodType || "biweekly") === opt.v ? T.accent : T.surface, color: (orgSettings.payPeriodType || "biweekly") === opt.v ? "#fff" : T.textDim, fontSize: 12, fontWeight: (orgSettings.payPeriodType || "biweekly") === opt.v ? 700 : 500, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}
-                    >{opt.label}</button>
-                  ))}
-                </div>
+              <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Pay period dates (day of month)</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                <span style={{ fontSize: 13, color: T.text }}>From the</span>
+                <input type="number" min="1" max="31" value={(orgSettings.payDates||[5,20])[0]} onChange={e => { const v=Math.min(31,Math.max(1,parseInt(e.target.value)||1)); const d2=(orgSettings.payDates||[5,20])[1]; setOrgSettings(s=>({...s,payDates:[v,d2]})); }}
+                  style={{ width: 54, padding: "5px 8px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                <span style={{ fontSize: 13, color: T.text }}>to the</span>
+                <input type="number" min="1" max="31" value={(orgSettings.payDates||[5,20])[1]} onChange={e => { const v=Math.min(31,Math.max(1,parseInt(e.target.value)||1)); const d1=(orgSettings.payDates||[5,20])[0]; setOrgSettings(s=>({...s,payDates:[d1,v]})); }}
+                  style={{ width: 54, padding: "5px 8px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                <span style={{ fontSize: 13, color: T.text }}>of each month</span>
               </div>
-              <div>
-                <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>First period start date</div>
-                <input type="date" value={orgSettings.payPeriodStart || TD} onChange={e => setOrgSettings(s => ({ ...s, payPeriodStart: e.target.value }))}
-                  style={{ colorScheme: T.colorScheme, padding: "6px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
-                <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>
-                  {(() => { const pp = getCurrentPayPeriod(orgSettings.payPeriodStart || TD, orgSettings.payPeriodType || "biweekly", TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)} (period #${pp.periodNumber})`; })()}
-                </div>
+              <div style={{ fontSize: 11, color: T.textDim }}>
+                {(() => { const pp = getPayPeriodFromDates(orgSettings.payDates||[5,20], TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
               </div>
             </div>}
 
@@ -7131,39 +7157,29 @@ ${jobsCtx || "No jobs found."}`;
                 {tsSettingsDraft.map((p, pi) => {
                   const payType = p.payType || "hourly";
                   return (
-                    <div key={p.id} style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}18`, animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, alignItems: "center", marginBottom: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
-                          <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                        </div>
-                        <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                          {["hourly","salary"].map(pt => (
-                            <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)}
-                              style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? "#fff" : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}
-                            >{pt}</button>
-                          ))}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
-                          <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder="PIN"
-                            style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.15em", outline: "none", minWidth: 0 }}
-                          />
-                          <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
-                            style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
-                            {showPinIds.has(p.id)
-                              ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                              : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                            }
-                          </button>
-                        </div>
+                    <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18`, animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 16 }}>
-                        <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap" }}>Pay period start:</span>
-                        <input type="date" value={p.payPeriodStart || ""} onChange={e => draftSet(p.id, "payPeriodStart", e.target.value || null)}
-                          placeholder={orgSettings.payPeriodStart || TD}
-                          title="Override pay period start date for this person (leave blank to use org default)"
-                          style={{ colorScheme: T.colorScheme, padding: "3px 8px", borderRadius: 5, border: `1px solid ${p.payPeriodStart ? T.accent+"66" : T.border}`, background: T.surface, color: T.text, fontSize: 11, fontFamily: T.font, outline: "none" }} />
-                        {p.payPeriodStart && <button type="button" onClick={() => draftSet(p.id, "payPeriodStart", null)} style={{ fontSize: 10, color: T.textDim, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", padding: 0 }}>clear</button>}
+                      <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                        {["hourly","salary"].map(pt => (
+                          <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)}
+                            style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? "#fff" : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}
+                          >{pt}</button>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
+                        <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder="PIN"
+                          style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.15em", outline: "none", minWidth: 0 }}
+                        />
+                        <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
+                          style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
+                          {showPinIds.has(p.id)
+                            ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                            : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                          }
+                        </button>
                       </div>
                     </div>
                   );
@@ -7403,10 +7419,9 @@ ${jobsCtx || "No jobs found."}`;
     });
 
     // ── Pay period helpers ────────────────────────────────────────────────────
-    const _payPeriodType = orgSettings.payPeriodType || "biweekly";
-    const _payPeriodStart = orgSettings.payPeriodStart || TD;
-    const getActivePeriod = (today) => getCurrentPayPeriod(_payPeriodStart, _payPeriodType, today);
-    const getActivePeriodAtOffset = (today, offset) => getPayPeriodAtOffset(_payPeriodStart, _payPeriodType, today, offset);
+    const _payDates = orgSettings.payDates || [5, 20];
+    const getActivePeriod = (today) => getPayPeriodFromDates(_payDates, today);
+    const getActivePeriodAtOffset = (today, offset) => getPayPeriodAtOffsetFromDates(_payDates, today, offset);
 
     // ── Admin: period data ────────────────────────────────────────────────────
     const viewPeriod = getActivePeriodAtOffset(TD, tsPeriodDays);
@@ -7692,16 +7707,18 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
               {isAdmin && <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Pay Period</div>
-                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 8 }}>Period type</div>
-                <div style={{ display: "flex", borderRadius: 8, border: `1px solid ${T.border}`, overflow: "hidden", marginBottom: 16 }}>
-                  {[{ v: "weekly", label: "Weekly" }, { v: "biweekly", label: "Bi-Weekly" }, { v: "semi-monthly", label: "Semi-Mo." }, { v: "monthly", label: "Monthly" }].map(opt => (
-                    <button key={opt.v} type="button" onClick={() => setOrgSettings(s => ({ ...s, payPeriodType: opt.v }))} style={{ flex: 1, padding: "11px 0", border: "none", background: (orgSettings.payPeriodType || "biweekly") === opt.v ? T.accent : T.surface, color: (orgSettings.payPeriodType || "biweekly") === opt.v ? "#fff" : T.textDim, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{opt.label}</button>
-                  ))}
+                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 10 }}>Pay period dates (day of month)</div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                  <span style={{ fontSize: 14, color: T.text }}>From the</span>
+                  <input type="number" min="1" max="31" value={(orgSettings.payDates||[5,20])[0]} onChange={e => { const v=Math.min(31,Math.max(1,parseInt(e.target.value)||1)); const d2=(orgSettings.payDates||[5,20])[1]; setOrgSettings(s=>({...s,payDates:[v,d2]})); }}
+                    style={{ width: 60, padding: "9px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                  <span style={{ fontSize: 14, color: T.text }}>to the</span>
+                  <input type="number" min="1" max="31" value={(orgSettings.payDates||[5,20])[1]} onChange={e => { const v=Math.min(31,Math.max(1,parseInt(e.target.value)||1)); const d1=(orgSettings.payDates||[5,20])[0]; setOrgSettings(s=>({...s,payDates:[d1,v]})); }}
+                    style={{ width: 60, padding: "9px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                  <span style={{ fontSize: 14, color: T.text }}>of each month</span>
                 </div>
-                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 8 }}>First period start date</div>
-                <input type="date" value={orgSettings.payPeriodStart || TD} onChange={e => setOrgSettings(s => ({ ...s, payPeriodStart: e.target.value }))} style={{ colorScheme: T.colorScheme, padding: "11px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", width: "100%", boxSizing: "border-box" }} />
-                <div style={{ fontSize: 12, color: T.textDim, marginTop: 8 }}>
-                  {(() => { const pp = getCurrentPayPeriod(orgSettings.payPeriodStart || TD, orgSettings.payPeriodType || "biweekly", TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)} (period #${pp.periodNumber})`; })()}
+                <div style={{ fontSize: 12, color: T.textDim }}>
+                  {(() => { const pp = getPayPeriodFromDates(orgSettings.payDates||[5,20], TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
                 </div>
               </div>}
               <div style={{ marginBottom: 24 }}>
@@ -7731,7 +7748,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div style={{ width: 10, height: 10, borderRadius: 5, background: p.color || T.accent }} />
                           <span style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</span>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                           <div>
                             <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>Pay Type</div>
                             <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
@@ -7754,15 +7771,6 @@ ${jobsCtx || "No jobs found."}`;
                                 }
                               </button>
                             </div>
-                          </div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>Pay Period Start Date <span style={{ opacity: 0.6 }}>(leave blank to use org default)</span></div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <input type="date" value={p.payPeriodStart || ""} onChange={e => draftSet(p.id, "payPeriodStart", e.target.value || null)}
-                              placeholder={orgSettings.payPeriodStart || TD}
-                              style={{ colorScheme: T.colorScheme, flex: 1, padding: "9px 12px", borderRadius: T.radiusSm, border: `1px solid ${p.payPeriodStart ? T.accent+"66" : T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
-                            {p.payPeriodStart && <button type="button" onClick={() => draftSet(p.id, "payPeriodStart", null)} style={{ fontSize: 12, color: T.textDim, background: "none", border: "none", cursor: "pointer", textDecoration: "underline", whiteSpace: "nowrap" }}>Clear</button>}
                           </div>
                         </div>
                       </div>
@@ -8816,15 +8824,9 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Clock indicator — hourly workers only */}
         {loggedInUser.payType !== "salary" && (() => {
-          const _pp = getCurrentPayPeriod(loggedInUser.payPeriodStart || orgSettings.payPeriodStart || TD, orgSettings.payPeriodType || "biweekly", TD);
-          const _periodH = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= _pp.start && e.date <= _pp.end && !e.eventType).reduce((s, e) => s + (e.hours||0), 0);
           const _clocked = !!loggedInUser.activeClockIn?.clockIn;
           return (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 16, background: _clocked ? T.accent + "15" : T.bg, border: `1px solid ${_clocked ? T.accent + "44" : T.border}`, flexShrink: 0 }}>
-              <div style={{ width: 5, height: 5, borderRadius: 3, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
-              {_clocked && tsElapsed && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{tsElapsed}</span>}
-              <span style={{ fontSize: 10, fontWeight: 600, color: T.text, fontFamily: T.mono }}>{_periodH.toFixed(1)}h</span>
-            </div>
+            <div style={{ width: 8, height: 8, borderRadius: 4, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
           );
         })()}
         <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? T.accent + "15" : T.bg, border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
@@ -10712,17 +10714,6 @@ ${jobsCtx || "No jobs found."}`;
         ))}
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        {loggedInUser.payType !== "salary" && (() => {
-          const _pp = getCurrentPayPeriod(loggedInUser.payPeriodStart || orgSettings.payPeriodStart || TD, orgSettings.payPeriodType || "biweekly", TD);
-          const _periodH = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= _pp.start && e.date <= _pp.end && !e.eventType).reduce((s, e) => s + (e.hours||0), 0);
-          const _clocked = !!loggedInUser.activeClockIn?.clockIn;
-          return (
-            <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 16, background: _clocked ? T.accent + "15" : T.bg, border: `1px solid ${_clocked ? T.accent + "44" : T.border}`, flexShrink: 0 }}>
-              <div style={{ width: 5, height: 5, borderRadius: 3, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
-              <span style={{ fontSize: 11, fontWeight: 600, color: T.text, fontFamily: T.mono }}>{_periodH.toFixed(1)}h</span>
-            </div>
-          );
-        })()}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Tip label="Click to save now"><div onClick={() => doSave()} style={{ marginRight: 2, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none", opacity: 0.85 }}>
             {saveStatus === "saving"
