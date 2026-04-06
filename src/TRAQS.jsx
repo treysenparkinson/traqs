@@ -435,6 +435,14 @@ function blendHex(hex, f) {
   const t=f>0?255:0, a=Math.abs(f), c=v=>Math.min(255,Math.max(0,Math.round(v+(t-v)*a))).toString(16).padStart(2,"0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
+function isLight(hex) {
+  try {
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
+  } catch { return false; }
+}
 function accentText(accent) {
   // Returns black or white depending on which contrasts better against the accent color
   try { return hexLum(accent) > 0.35 ? "#0f172a" : "#ffffff"; } catch { return "#ffffff"; }
@@ -1422,6 +1430,7 @@ Rules:
   const [fRole, setFRole] = useState("All");  // filter by assigned person's role
   const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
   const [fOverloaded, setFOverloaded] = useState(false); // show only tasks with overbooked team
+  const [fTimePeriod, setFTimePeriod] = useState(['current', 'future', 'finished']); // time-based visibility
   const [jobSort, setJobSort] = useState("date"); // "date" | "project" | "client"
   const [colSort, setColSort] = useState({ id: null, dir: "asc" }); // column header sort
   const [filterOpen, setFilterOpen] = useState(false);
@@ -1766,6 +1775,23 @@ Rules:
   const [tsPersonEditModal, setTsPersonEditModal] = useState(null); // { person, draftEntries } | null
   const [tsExpandedPersons, setTsExpandedPersons] = useState({}); // { [personId]: bool }
   const [tsPayDateInput, setTsPayDateInput] = useState("");
+  const _pinKbRef = useRef(null); // holds { submitPin, closePin } — set each render inside renderTimeStamp
+
+  // PIN keyboard handler — must live at component level (hooks rules)
+  useEffect(() => {
+    if (!pinState.endsWith("_pin")) return;
+    const onKey = e => {
+      const digit = (e.key >= "0" && e.key <= "9") ? e.key
+        : (e.code >= "Numpad0" && e.code <= "Numpad9") ? e.code.slice(-1)
+        : null;
+      if (digit !== null) { e.preventDefault(); setPinInput(p => p + digit); return; }
+      if (e.key === "Backspace") { e.preventDefault(); setPinInput(p => p.slice(0, -1)); return; }
+      if (e.key === "Enter") { e.preventDefault(); _pinKbRef.current?.submitPin(); return; }
+      if (e.key === "Escape") { e.preventDefault(); _pinKbRef.current?.closePin(); return; }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pinState, pinInput]);
 
   // Live timer — update elapsed string when logged-in person is clocked in
   useEffect(() => {
@@ -2174,6 +2200,14 @@ Rules:
       if (!hasHpd) return false;
     }
     if (fJobNum && !String(t.jobNumber || "").toLowerCase().includes(fJobNum.toLowerCase())) return false;
+    if (fTimePeriod.length < 3) {
+      const isFinished = t.status === "Finished" || (t.end && t.end < TD);
+      const isFuture = !isFinished && (t.start && t.start > TD);
+      const isCurrent = !isFinished && !isFuture;
+      if (isFinished && !fTimePeriod.includes('finished')) return false;
+      if (isFuture && !fTimePeriod.includes('future')) return false;
+      if (isCurrent && !fTimePeriod.includes('current')) return false;
+    }
     if (fOverloaded) {
       // Inline booked-hours check (avoids referencing bookedHrs before it's defined)
       const todayStr = new Date().toISOString().slice(0, 10);
@@ -2186,7 +2220,7 @@ Rules:
       if (!overloaded) return false;
     }
     return true;
-  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, people]);
+  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, fTimePeriod, people]);
   const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if ((op.team || []).includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, (op.team || []).length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if ((t.team || []).includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, (t.team || []).length); (t.subs || []).forEach(s => { if ((s.team || []).includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, (s.team || []).length); }); } }); return h; }, [tasks, isOff]);
@@ -2198,7 +2232,7 @@ Rules:
     tasks.forEach(t => { if (t.hpd) vals.add(t.hpd); (t.subs || []).forEach(p => { if (p.hpd) vals.add(p.hpd); (p.subs || []).forEach(op => { if (op.hpd) vals.add(op.hpd); }); }); });
     return [...vals].sort((a, b) => a - b);
   }, [tasks]);
-  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0);
+  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0);
 
   // Check overlaps for a set of operations against a given task list
   // opsToCheck: [{ personId, start, end, opTitle, panelTitle, excludeOpId }]
@@ -4050,6 +4084,10 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fStat === s || (s === "All" && fStat === "All") ? T.accent : T.border}`, background: fStat === s || (s === "All" && fStat === "All") ? T.accent + "22" : "transparent", color: fStat === s || (s === "All" && fStat === "All") ? T.accent : T.text, fontSize: 11, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>)}
               </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Time Period</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
+              </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Client</div>
               <select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer", marginBottom: 14 }}>
                 <option value="All">All Clients</option>
@@ -4079,7 +4117,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
                 <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
               </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
         </div>
@@ -4216,7 +4254,7 @@ ${jobsCtx || "No jobs found."}`;
                 const isDragging = ganttDragInfo?.itemId === r.id;
                 const barColor = r.color || T.accent;
                 const barBg = r.level === 1 ? barColor + "cc" : barColor;
-                const barTextColor = accentText(barColor);
+                const barTextColor = isLight(barColor) ? '#000000' : '#ffffff';
                 return segs.map((seg, si) => {
                   const x = dToX(seg.start), xE = dToX(seg.end) + cW, w = Math.max(xE - x, cW);
                   const isFirst = si === 0, isLast = si === segs.length - 1;
@@ -4422,7 +4460,7 @@ ${jobsCtx || "No jobs found."}`;
                         {isFirst && itemTeam.length > 0 && (
                           <div style={{ display: "flex", alignItems: "center", gap: 2, paddingRight: 5, flexShrink: 0 }}>
                             {itemTeam.slice(0, 3).map(p => (
-                              <div key={p.id} title={p.name} style={{ width: level === 0 ? 17 : 14, height: level === 0 ? 17 : 14, borderRadius: "50%", background: p.color || T.accent, border: "1.5px solid rgba(255,255,255,0.5)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", flexShrink: 0, overflow: "hidden" }}>
+                              <div key={p.id} title={p.name} style={{ width: level === 0 ? 17 : 14, height: level === 0 ? 17 : 14, borderRadius: "50%", background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: T.text, flexShrink: 0, overflow: "hidden" }}>
                                 {p.avatar ? <img src={p.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : (p.name || "?").charAt(0).toUpperCase()}
                               </div>
                             ))}
@@ -4557,6 +4595,7 @@ ${jobsCtx || "No jobs found."}`;
                   </button>
                   {taskFilterOpen && <div style={{ position: "absolute", top: 0, left: "calc(100% + 4px)", width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
+                    <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}><option value="All">All Clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
@@ -4801,6 +4840,12 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
                   </div>
                 </div>
                 <div>
@@ -5899,7 +5944,7 @@ ${jobsCtx || "No jobs found."}`;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
               const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
-              bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+              bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
             // Panel with no sub-ops: render the panel itself so it appears on the schedule
             if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
@@ -5908,7 +5953,7 @@ ${jobsCtx || "No jobs found."}`;
                 const e = panel.end > tEnd ? tEnd : panel.end;
                 const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
                 const tc = panel.color || "#94a3b8";
-                bars.push({ type: "task", id: panel.id, start: s, end: e, title: `${job.title} · ${panel.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+                bars.push({ type: "task", id: panel.id, start: s, end: e, title: `${job.title} · ${panel.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
               }
             }
           });
@@ -5922,7 +5967,7 @@ ${jobsCtx || "No jobs found."}`;
             const e = sub.end > tEnd ? tEnd : sub.end;
             const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
             const tc = sub.color || "#94a3b8";
-            bars.push({ type: "task", id: sub.id, start: s, end: e, title: `${job.title} · ${sub.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+            bars.push({ type: "task", id: sub.id, start: s, end: e, title: `${job.title} · ${sub.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
           });
         }
       });
@@ -6111,6 +6156,10 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 11, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>)}
               </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Time Period</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
+              </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
@@ -6125,7 +6174,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 11, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
               </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div>}
           </div>
         </div>}
@@ -6237,7 +6286,7 @@ ${jobsCtx || "No jobs found."}`;
                   const isDropTarget = dayDragTarget === p.id;
                   return <div key={p.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",transition:"background 0.1s"}}>
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
-                      <div style={{width:28,height:28,borderRadius:14,background:T.accent+"22",border:`1.5px solid ${T.accent}55`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.accent,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
+                      <div style={{width:28,height:28,borderRadius:14,background:T.surface,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.text,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
                         <div style={{fontSize:11,color:T.textDim}}>{p.department} · {p.cap}h</div>
@@ -6257,11 +6306,11 @@ ${jobsCtx || "No jobs found."}`;
                           onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
                           style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2),transition:"box-shadow 0.1s,opacity 0.2s"}}
-                          onMouseEnter={e=>{ if(!dayDragInfo){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); setBarTooltip({ x: e.clientX, y: e.clientY, color: bar.color, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: bar.task?.locked || false, hasMoveLog: (bar.task?.moveLog||[]).length > 0 }); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); setBarTooltip(null); }}>
+                          onMouseEnter={e=>{ if(!dayDragInfo){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); setBarTooltip({ x: e.clientX, y: e.clientY, color: bar.color, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: bar.task?.locked || false, hasMoveLog: (bar.task?.moveLog||[]).length > 0 }); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); setBarTooltip(null); }}>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
-                          <span style={{fontSize:10,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"center"}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
+                          <span style={{fontSize:10,color:isLight(bar.color)?'#000000':'#ffffff',fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"center"}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
@@ -6376,7 +6425,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, opacity: barSelectMode || !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "background 0.15s, opacity 0.2s" }}>
                 {/* Drag handle */}
                 <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
-                <div style={{ width: 28, height: 28, borderRadius: 14, background: p.color + "22", border: `1.5px solid ${p.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: p.color, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
+                <div style={{ width: 28, height: 28, borderRadius: 14, background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.text, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
                   <div style={{ fontSize: 11, color: T.textDim }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
@@ -6455,7 +6504,7 @@ ${jobsCtx || "No jobs found."}`;
                     if (!bar.task) return;
                     e.preventDefault();
                     e.stopPropagation();
-                    const sx = e.clientX, sy = e.clientY;
+                    let sx = e.clientX; const sy = e.clientY;
                     const os = bar.task.start, oe = bar.task.end;
                     const wdDuration = getWorkingDayDuration(os, oe);
                     const taskPid = bar.task.pid || null;
@@ -6504,7 +6553,42 @@ ${jobsCtx || "No jobs found."}`;
                     // snaps to exactly where the bar visually is, regardless of cW state lag.
                     const gridAreaEl = e.currentTarget?.parentElement;
                     const liveCW = gridAreaEl ? gridAreaEl.getBoundingClientRect().width / days.length : cW;
+                    // ── Edge auto-scroll during drag ──────────────────────────
+                    let autoScrollAccum = 0, autoScrollRaf = null;
+                    let lastCX = e.clientX, lastCY = e.clientY;
+                    const autoScrollStep = () => {
+                      const containerEl = teamRef.current;
+                      if (!containerEl) { autoScrollRaf = null; return; }
+                      const rect = containerEl.getBoundingClientRect();
+                      const THRESHOLD = 80, MIN_SPD = 3, MAX_SPD = 12;
+                      const distL = lastCX - rect.left;
+                      const distR = rect.right - lastCX;
+                      let speed = 0, dir = 0;
+                      if (distL >= 0 && distL < THRESHOLD) { dir = -1; speed = MIN_SPD + (MAX_SPD - MIN_SPD) * (1 - distL / THRESHOLD); }
+                      else if (distR >= 0 && distR < THRESHOLD) { dir = 1; speed = MIN_SPD + (MAX_SPD - MIN_SPD) * (1 - distR / THRESHOLD); }
+                      if (speed > 0) {
+                        autoScrollAccum += speed * dir;
+                        const wholeDays = Math.trunc(autoScrollAccum / liveCW);
+                        if (wholeDays !== 0) {
+                          autoScrollAccum -= wholeDays * liveCW;
+                          setTStart(prev => addD(prev, wholeDays));
+                          setTEnd(prev => addD(prev, wholeDays));
+                          // Shift sx so bar stays under cursor as the timeline moves
+                          sx -= wholeDays * liveCW;
+                          // Push a fresh drag state update so the bar visually follows
+                          const pxDx2 = lastCX - sx;
+                          const pxDy2 = lastCY - sy;
+                          const dx2 = Math.round(pxDx2 / liveCW);
+                          const snapS2 = nextBD(addD(os, dx2));
+                          const snapE2 = countWorkingDays(snapS2, wdDuration);
+                          setTeamDragInfo(prev => prev ? { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2 } : prev);
+                        }
+                      }
+                      autoScrollRaf = requestAnimationFrame(autoScrollStep);
+                    };
+                    // ─────────────────────────────────────────────────────────
                     const onM = me => {
+                      lastCX = me.clientX; lastCY = me.clientY;
                       const pxDx = me.clientX - sx;
                       const pxDy = me.clientY - sy;
                       if (Math.abs(pxDx) > 2 || Math.abs(pxDy) > 8) moved = true;
@@ -6554,6 +6638,7 @@ ${jobsCtx || "No jobs found."}`;
                       setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null });
                     };
                     const onU = me => {
+                      cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
                       document.removeEventListener("mousemove", onM);
                       document.removeEventListener("mouseup", onU);
                       setDropTarget(null); setTeamDragInfo(null);
@@ -6705,6 +6790,7 @@ ${jobsCtx || "No jobs found."}`;
                     };
                     document.addEventListener("mousemove", onM);
                     document.addEventListener("mouseup", onU);
+                    autoScrollRaf = requestAnimationFrame(autoScrollStep);
                   };
                   const handleTeamResize = (e, side) => {
                     if (!can("moveJobs")) return;
@@ -6809,15 +6895,15 @@ ${jobsCtx || "No jobs found."}`;
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
-                    onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
+                    onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && <Tip label="Linked — moves with its dependency group"><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span></Tip>}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
                     {hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
-                    <span style={{ fontSize: 11, color: isPto ? bar.color : "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
-                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.85)", fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
+                    <span style={{ fontSize: 11, color: isPto ? bar.color : (isLight(bc) ? '#000000' : '#ffffff'), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
+                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
@@ -6898,7 +6984,8 @@ ${jobsCtx || "No jobs found."}`;
           <span style={{ fontSize: 13, fontWeight: 700, color: T.text, lineHeight: 1.3, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{barTooltip.jobTitle}</span>
         </div>
         {barTooltip.subTitle && <div style={{ fontSize: 11, color: T.textSec, marginBottom: 6, paddingLeft: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{barTooltip.subTitle}</div>}
-        <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginBottom: hasMeta || barTooltip.status || hasFlags ? 7 : 0 }}>{fm(barTooltip.start)} → {fm(barTooltip.end)}</div>
+        <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginBottom: barTooltip.dueDate || hasMeta || barTooltip.status || hasFlags ? 4 : 0 }}>{fm(barTooltip.start)} → {fm(barTooltip.end)}</div>
+        {barTooltip.dueDate && <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginBottom: hasMeta || barTooltip.status || hasFlags ? 7 : 0 }}>Due {fm(barTooltip.dueDate)}</div>}
         {hasMeta && <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: barTooltip.status || hasFlags ? 6 : 0 }}>
           {barTooltip.clientName && <span style={{ fontSize: 10, fontWeight: 600, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 8px" }}>{barTooltip.clientName}</span>}
           {barTooltip.jobNumber && <span style={{ fontSize: 10, fontWeight: 600, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 8px" }}>#{barTooltip.jobNumber}</span>}
@@ -7270,6 +7357,9 @@ ${jobsCtx || "No jobs found."}`;
       else if (pinState === "switchJob_pin") handleSwitchJobPin(pin);
       else if (pinState === "lunchStart_pin" || pinState === "lunchEnd_pin" || pinState === "breakStart_pin" || pinState === "breakEnd_pin") handleLunchBreakPin(pin);
     };
+
+    // Keep ref current so the component-level keyboard useEffect can call these
+    _pinKbRef.current = { submitPin, closePin };
 
     const handleClockInPin = async pin => {
       setPinLoading(true);
@@ -12140,7 +12230,8 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize:16,fontWeight:700,color:T.text }}>Add/Edit Dependencies</div>
             <button onClick={()=>setDepsModal(null)} style={{ background:"none",border:"none",cursor:"pointer",color:T.textDim,fontSize:20,lineHeight:1,padding:"0 2px" }}>✕</button>
           </div>
-          <div style={{ fontSize:12,color:T.textDim,marginBottom:16,lineHeight:1.6 }}>Sub-operations under <strong style={{color:T.text}}>{depsModal.panelTitle}</strong> · Check a sub-op to create a dependency with <strong style={{color:T.text}}>{it.title||"this operation"}</strong>.</div>
+          <div style={{ fontSize:12,color:T.textDim,marginBottom:it.dueDate || tasks.find(j=>j.id===depsModal.jobId)?.dueDate ? 6 : 16,lineHeight:1.6 }}>Sub-operations under <strong style={{color:T.text}}>{depsModal.panelTitle}</strong> · Check a sub-op to create a dependency with <strong style={{color:T.text}}>{it.title||"this operation"}</strong>.</div>
+          {(() => { const due = it.dueDate || tasks.find(j=>j.id===depsModal.jobId)?.dueDate; return due ? <div style={{ fontSize:11,color:T.textDim,marginBottom:16 }}>Due: {fm(due)}</div> : null; })()}
           <div style={{ display:"flex",flexDirection:"column",gap:6,marginBottom:16 }}>
             {ps.map((sub,di) => {
               const on=isLinked(sub.id);
@@ -12151,7 +12242,10 @@ ${jobsCtx || "No jobs found."}`;
                   {on && <svg width="9" height="9" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                 </div>
                 <div style={{ flex:1,minWidth:0 }}>
-                  <div style={{ fontSize:13,fontWeight:on?600:400,color:on?T.accent:T.text }}>{sub.title||<em style={{color:T.textDim}}>Unnamed</em>}</div>
+                  <div style={{ fontSize:13,fontWeight:on?600:400,color:on?T.accent:T.text,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap" }}>
+                    <span>{sub.title||<em style={{color:T.textDim}}>Unnamed</em>}</span>
+                    {sub.start && sub.end && <span style={{ fontSize:11,color:T.textDim,fontWeight:400 }}>{fm(sub.start)} → {fm(sub.end)}</span>}
+                  </div>
                   {isSelf && <div style={{ fontSize:11,color:T.textDim }}>Currently selected operation</div>}
                 </div>
               </button>;
@@ -12478,7 +12572,7 @@ ${jobsCtx || "No jobs found."}`;
       return <div style={{ position: "fixed", left: cursorX + 14, top: cursorY - 36, pointerEvents: "none", zIndex: 9999, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 4 }}>
         {/* Name badge */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, background: T.card, border: `1.5px solid ${gc}`, borderRadius: 20, padding: "4px 10px 4px 6px", boxShadow: `0 0 18px ${gc}88, 0 4px 16px rgba(0,0,0,0.4)`, backdropFilter: "blur(8px)" }}>
-          <div style={{ width: 20, height: 20, borderRadius: 10, background: tgt.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{tgt.name.charAt(0)}</div>
+          <div style={{ width: 20, height: 20, borderRadius: 10, background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.text, flexShrink: 0 }}>{tgt.name.charAt(0)}</div>
           <span style={{ fontSize: 12, fontWeight: 700, color: gc, whiteSpace: "nowrap" }}>{tgt.name}</span>
         </div>
         {/* Job title tiny label */}
