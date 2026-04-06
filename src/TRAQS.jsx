@@ -6546,10 +6546,11 @@ ${jobsCtx || "No jobs found."}`;
                       // Compute final positions for all group members + multi-selected bars (same delta)
                       const wdDelta = newStart > os ? diffBD(os, newStart) : -diffBD(newStart, os);
                       const groupFinalMoves = [
-                        ...groupMembers.map(m => {
+                        // Dep-group members only follow forward drags; backward drags leave them in place (gaps OK)
+                        ...(wdDelta > 0 ? groupMembers.map(m => {
                           const mStart = nextBD(addD(m.origStart, finalDx));
                           return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
-                        }),
+                        }) : []),
                         ...multiDragMembers.map(m => {
                           const mStart = addBD(m.origStart, wdDelta);
                           const mEnd   = addBD(m.origEnd,   wdDelta);
@@ -9968,16 +9969,16 @@ ${jobsCtx || "No jobs found."}`;
                           <div style={{ padding:"6px 14px 4px", fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em" }}>Link sub-operations</div>
                           {allSubs.map((sub,di) => {
                             const on=isLinked(sub);
+                            const groupIds=allSubs.filter(s=>s.id!==sub.id&&isLinked(s)).map(s=>s.id);
                             return <div key={sub.id} onClick={() => {
                               let ns;
                               if(on){
-                                ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:[]}; const newDeps=(s.deps||[]).filter(d=>d!==sub.id&&d!=='__pending__'); const wasConnected=(s.deps||[]).includes(sub.id); return {...s,deps:(wasConnected&&newDeps.length===0)?['__pending__']:newDeps}; });
+                                ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:[]}; return {...s,deps:(s.deps||[]).filter(d=>d!==sub.id)}; });
                               } else {
-                                const gIds=allSubs.filter(s=>s.id!==sub.id&&isLinked(s)).map(s=>s.id);
-                                if(gIds.length===0){
+                                if(groupIds.length===0){
                                   ns=allSubs.map(s=>s.id===sub.id?{...s,deps:['__pending__']}:s);
                                 } else {
-                                  ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:gIds}; if(gIds.includes(s.id)) return {...s,deps:[...new Set([...(s.deps||[]).filter(d=>d!=='__pending__'),sub.id])]}; return s; });
+                                  ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:groupIds}; if(groupIds.includes(s.id)) return {...s,deps:[...new Set([...(s.deps||[]).filter(d=>d!=='__pending__'),sub.id])]}; return s; });
                                 }
                               }
                               updatePanel({subs:ns});
@@ -10385,7 +10386,8 @@ ${jobsCtx || "No jobs found."}`;
             {(() => {
               const hasAnyAssignment=(ed.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub => (sub.team||[]).length>0):(panel.team||[]).length>0);
               const saveOk=scheduleConfirmed && hasAnyAssignment;
-              return <Btn disabled={!saveOk} onClick={saveOk?() => { const expanded={...ed,subs:(ed.subs||[]).flatMap(op => { const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-\d+$/,"").trimEnd(); if(qty===1) { const {qty:_q,...rest}=op; return [rest]; } return Array.from({length:qty},(_,i) => { const {qty:_q,...rest}=op; return {...rest,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`,subs:(op.subs||[]).map(sub => ({...sub,id:i===0?sub.id:uid()}))}; }); })}; saveTask(expanded,modal.parentId); }:undefined} style={{ opacity:saveOk?1:0.4, cursor:saveOk?"pointer":"not-allowed", pointerEvents:saveOk?"auto":"none" }}>Save Job</Btn>;
+              const cleanDeps=deps=>(deps||[]).filter(d=>d!=='__pending__');
+              return <Btn disabled={!saveOk} onClick={saveOk?() => { const expanded={...ed,subs:(ed.subs||[]).flatMap(op => { const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-\d+$/,"").trimEnd(); if(qty===1) { const {qty:_q,...rest}=op; return [{...rest,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub=>({...sub,deps:cleanDeps(sub.deps)}))}]; } return Array.from({length:qty},(_,i) => { const {qty:_q,...rest}=op; return {...rest,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub => ({...sub,id:i===0?sub.id:uid(),deps:cleanDeps(sub.deps)}))}; }); })}; saveTask(expanded,modal.parentId); }:undefined} style={{ opacity:saveOk?1:0.4, cursor:saveOk?"pointer":"not-allowed", pointerEvents:saveOk?"auto":"none" }}>Save Job</Btn>;
             })()}
           </>}
         </div>
@@ -10698,7 +10700,6 @@ ${jobsCtx || "No jobs found."}`;
           return (
             <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 16, background: _clocked ? T.accent + "15" : T.bg, border: `1px solid ${_clocked ? T.accent + "44" : T.border}`, flexShrink: 0 }}>
               <div style={{ width: 5, height: 5, borderRadius: 3, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
-              {_clocked && tsElapsed && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{tsElapsed}</span>}
               <span style={{ fontSize: 11, fontWeight: 600, color: T.text, fontFamily: T.mono }}>{_periodH.toFixed(1)}h</span>
             </div>
           );
@@ -12119,8 +12120,9 @@ ${jobsCtx || "No jobs found."}`;
     {depsModal && (() => {
       const it=depsModal.item;
       const ps=depsModal.panelSubs;
-      const isLinked=sid=>{ const s=ps.find(x=>x.id===sid); return (s?.deps||[]).length>0||ps.some(o=>o.id!==sid&&(o.deps||[]).includes(sid)); };
-      const toggle=sibId=>{ const linked=isLinked(sibId); let ns; if(linked){ns=ps.map(s=>s.id===sibId?{...s,deps:[]}:{...s,deps:(s.deps||[]).filter(d=>d!==sibId)});}else{const gIds=ps.filter(s=>s.id!==sibId&&isLinked(s.id)).map(s=>s.id);ns=ps.map(s=>{ if(s.id===sibId)return{...s,deps:gIds}; if(gIds.includes(s.id))return{...s,deps:[...new Set([...(s.deps||[]),sibId])]}; return s; });} setDepsModal(p=>({...p,panelSubs:ns})); };
+      const self=ps.find(x=>x.id===it.id)||it;
+      const isLinked=sid=>sid!==it.id&&((self.deps||[]).includes(sid)||(ps.find(x=>x.id===sid)?.deps||[]).includes(it.id));
+      const toggle=sibId=>{ if(sibId===it.id) return; const linked=isLinked(sibId); const ns=ps.map(s=>{ if(s.id===it.id){const d=s.deps||[];return{...s,deps:linked?d.filter(x=>x!==sibId):[...d,sibId]};} if(s.id===sibId){const d=s.deps||[];return{...s,deps:linked?d.filter(x=>x!==it.id):[...d,it.id]};} return s; }); setDepsModal(p=>({...p,panelSubs:ns})); };
       const save=()=>{ const next=tasks.map(job=>({...job,subs:(job.subs||[]).map(panel=>panel.id!==depsModal.panelId?panel:{...panel,subs:ps})})); setTasks(next); saveTasks(next,getToken,orgCode).catch(console.warn); setDepsModal(null); };
       return <div onClick={()=>setDepsModal(null)} style={{ position:"fixed",inset:0,zIndex:10005,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:T.font }}>
         <div onClick={e=>e.stopPropagation()} style={{ background:T.card,border:`1px solid ${T.borderLight}`,borderRadius:T.radiusSm,boxShadow:"0 24px 64px rgba(0,0,0,0.6)",width:"min(440px, calc(100vw - 32px))",padding:"24px 24px 20px",animation:"slideUp 0.22s ease-out" }}>
@@ -12128,12 +12130,12 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize:16,fontWeight:700,color:T.text }}>Add/Edit Dependencies</div>
             <button onClick={()=>setDepsModal(null)} style={{ background:"none",border:"none",cursor:"pointer",color:T.textDim,fontSize:20,lineHeight:1,padding:"0 2px" }}>✕</button>
           </div>
-          <div style={{ fontSize:12,color:T.textDim,marginBottom:16,lineHeight:1.6 }}>Sub-operations under <strong style={{color:T.text}}>{depsModal.panelTitle}</strong> · Linked sub-ops move together on the schedule.</div>
+          <div style={{ fontSize:12,color:T.textDim,marginBottom:16,lineHeight:1.6 }}>Sub-operations under <strong style={{color:T.text}}>{depsModal.panelTitle}</strong> · Check a sub-op to create a dependency with <strong style={{color:T.text}}>{it.title||"this operation"}</strong>.</div>
           <div style={{ display:"flex",flexDirection:"column",gap:6,marginBottom:16 }}>
             {ps.map((sub,di) => {
               const on=isLinked(sub.id);
               const isSelf=sub.id===it.id;
-              return <button key={sub.id} onClick={()=>toggle(sub.id)} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:T.radiusSm,border:`1.5px solid ${on?T.accent:T.border}`,background:on?T.accent+"10":T.surface,cursor:"pointer",textAlign:"left",transition:"all 0.12s",animation:`toolDrop 0.14s ${di*38}ms both ease-out`,fontFamily:T.font }}
+              return <button key={sub.id} onClick={()=>!isSelf&&toggle(sub.id)} disabled={isSelf} style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",borderRadius:T.radiusSm,border:`1.5px solid ${isSelf?T.border:on?T.accent:T.border}`,background:isSelf?T.bg:on?T.accent+"10":T.surface,cursor:isSelf?"default":"pointer",textAlign:"left",transition:"all 0.12s",animation:`toolDrop 0.14s ${di*38}ms both ease-out`,fontFamily:T.font,opacity:isSelf?0.45:1 }}
                 onMouseEnter={e=>{ e.currentTarget.style.borderColor=T.accent; }} onMouseLeave={e=>{ e.currentTarget.style.borderColor=on?T.accent:T.border; }}>
                 <div style={{ width:18,height:18,borderRadius:4,border:`2px solid ${on?T.accent:T.border}`,background:on?T.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.12s" }}>
                   {on && <svg width="9" height="9" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
