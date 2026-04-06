@@ -10691,6 +10691,18 @@ ${jobsCtx || "No jobs found."}`;
         ))}
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        {loggedInUser.payType !== "salary" && (() => {
+          const _pp = getCurrentPayPeriod(orgSettings.payPeriodStart || TD, orgSettings.payPeriodType || "biweekly", TD);
+          const _periodH = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= _pp.start && e.date <= _pp.end && !e.eventType).reduce((s, e) => s + (e.hours||0), 0);
+          const _clocked = !!loggedInUser.activeClockIn?.clockIn;
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 16, background: _clocked ? T.accent + "15" : T.bg, border: `1px solid ${_clocked ? T.accent + "44" : T.border}`, flexShrink: 0 }}>
+              <div style={{ width: 5, height: 5, borderRadius: 3, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
+              {_clocked && tsElapsed && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{tsElapsed}</span>}
+              <span style={{ fontSize: 11, fontWeight: 600, color: T.text, fontFamily: T.mono }}>{_periodH.toFixed(1)}h</span>
+            </div>
+          );
+        })()}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Tip label="Click to save now"><div onClick={() => doSave()} style={{ marginRight: 2, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none", opacity: 0.85 }}>
             {saveStatus === "saving"
