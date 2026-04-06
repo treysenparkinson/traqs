@@ -102,10 +102,11 @@ struct APIService {
         return try decoder.decode([Message].self, from: data)
     }
 
-    func sendMessage(_ message: Message) async throws {
+    func sendMessage(_ message: Message) async throws -> Message {
         let body = try JSONEncoder().encode(message)
         let req = try request("messages", method: "POST", body: body)
-        _ = try await perform(req)
+        let data = try await perform(req)
+        return try decoder.decode(Message.self, from: data)
     }
 
     func deleteThread(threadKey: String) async throws {
@@ -163,6 +164,87 @@ struct APIService {
         let data = try await perform(req)
         let response = try decoder.decode(AIResponse.self, from: data)
         return response.content.compactMap { $0.text }.joined()
+    }
+
+    // MARK: - Time Clock
+
+    private struct TimeclockIdentifyPayload: Encodable {
+        let action = "identify"
+        let pin: String
+    }
+
+    struct TimeclockIdentifyResponse: Decodable {
+        var personId: String
+        var name: String
+        var activeClockIn: ActiveClockIn?
+
+        enum CodingKeys: String, CodingKey { case personId, name, activeClockIn }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            personId     = (try? c.decodeFlexID(forKey: .personId)) ?? ""
+            name         = (try? c.decode(String.self, forKey: .name)) ?? ""
+            activeClockIn = try? c.decodeIfPresent(ActiveClockIn.self, forKey: .activeClockIn)
+        }
+    }
+
+    private struct TimeclockClockInPayload: Encodable {
+        let action = "clockIn"
+        let personId: String
+        let pin: String
+        let jobRefs: [JobRef]
+    }
+
+    private struct TimeclockClockInResponse: Decodable {
+        var clockIn: String
+    }
+
+    private struct TimeclockSimplePayload: Encodable {
+        let action: String
+        let personId: String
+        let pin: String
+    }
+
+    private struct TimeclockFinishPayload: Encodable {
+        let action = "finishRequest"
+        let personId: String
+        let pin: String
+        let jobId: String
+        let panelId: String
+        let opId: String
+    }
+
+    func timeclockIdentify(pin: String) async throws -> TimeclockIdentifyResponse {
+        let body = try JSONEncoder().encode(TimeclockIdentifyPayload(pin: pin))
+        let req = try request("timeclock", method: "POST", body: body)
+        let data = try await perform(req)
+        return try decoder.decode(TimeclockIdentifyResponse.self, from: data)
+    }
+
+    func timeclockClockIn(personId: String, pin: String, jobRefs: [JobRef]) async throws -> String {
+        let body = try JSONEncoder().encode(TimeclockClockInPayload(personId: personId, pin: pin, jobRefs: jobRefs))
+        let req = try request("timeclock", method: "POST", body: body)
+        let data = try await perform(req)
+        let resp = try decoder.decode(TimeclockClockInResponse.self, from: data)
+        return resp.clockIn
+    }
+
+    func timeclockClockOut(personId: String, pin: String) async throws {
+        let body = try JSONEncoder().encode(TimeclockSimplePayload(action: "clockOut", personId: personId, pin: pin))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    func timeclockEvent(action: String, personId: String, pin: String) async throws {
+        let body = try JSONEncoder().encode(TimeclockSimplePayload(action: action, personId: personId, pin: pin))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    func timeclockFinishRequest(personId: String, pin: String, jobId: String, panelId: String, opId: String) async throws {
+        let body = try JSONEncoder().encode(TimeclockFinishPayload(personId: personId, pin: pin, jobId: jobId, panelId: panelId, opId: opId))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
     }
 
     // MARK: - Org Lookup

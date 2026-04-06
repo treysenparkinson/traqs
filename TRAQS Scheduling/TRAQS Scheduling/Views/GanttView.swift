@@ -350,6 +350,7 @@ struct JobDayRow: View {
     @Environment(AppState.self) private var appState
     let group: DayJobGroup
     @State private var isExpanded = false
+    @State private var showClockInSheet = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -429,7 +430,7 @@ struct JobDayRow: View {
                                 Text(item.op.title)
                                     .font(.subheadline)
                                     .foregroundColor(Color(hex: T.text))
-                                Text("›")
+                                Text("·")
                                     .foregroundColor(Color(hex: T.muted))
                                     .font(.caption)
                                 Text(item.panel.title)
@@ -479,12 +480,77 @@ struct JobDayRow: View {
                         .padding(.horizontal, 14)
                         .padding(.vertical, 9)
                     }
+
+                    // ── Clock Into Job ──
+                    if appState.currentPersonId != nil && group.job.status != .finished {
+                        let isOnThisJob = appState.currentPerson?.activeClockIn?.jobRefs
+                            .contains(where: { $0.jobId == group.job.id }) == true
+                        Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+                        Button {
+                            showClockInSheet = true
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: isOnThisJob ? "checkmark.circle.fill" : "clock.badge.plus")
+                                    .font(.subheadline)
+                                Text(isOnThisJob ? "Clocked Into This Job" : "Clock Into Job")
+                                    .font(.subheadline.bold())
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .foregroundColor(isOnThisJob ? Color(hex: T.statusFinished) : Color(hex: T.accent))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isOnThisJob)
+                    }
                 }
             }
         }
         .background(Color(hex: T.card))
         .cornerRadius(10)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+        .sheet(isPresented: $showClockInSheet) {
+            ClockIntoJobSheet(job: group.job)
+        }
+    }
+}
+
+// MARK: - Clock Into Job Sheet
+
+private struct ClockIntoJobSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    let job: Job
+
+    @State private var pinDigits = ""
+
+    var body: some View {
+        NavigationStack {
+            PINEntryView(
+                title: "Clock Into: \(job.title)",
+                pinDigits: $pinDigits,
+                onIdentified: handleIdentified
+            )
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        appState.clockError = nil
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func handleIdentified() {
+        if appState.activeClockIn != nil {
+            // Already clocked in — session restored, just dismiss
+            dismiss()
+            return
+        }
+        Task {
+            await appState.timeclockClockIn(jobRefs: [JobRef(jobId: job.id, jobName: job.title)])
+            dismiss()
+        }
     }
 }
 

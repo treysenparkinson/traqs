@@ -11,8 +11,8 @@ struct MainTabView: View {
             TasksView()
                 .tabItem { Label("Jobs", systemImage: "checklist") }
 
-            ClientsView()
-                .tabItem { Label("Clients", systemImage: "building.2") }
+            TimeClockView()
+                .tabItem { Label("Time Clock", systemImage: "clock") }
 
             MessagesView()
                 .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right") }

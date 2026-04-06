@@ -195,7 +195,7 @@ struct PanelCard: View {
                     .frame(height: 1)
                 // Operations
                 ForEach(panel.subs) { op in
-                    OperationRow(op: op)
+                    OperationRow(op: op, job: job, panel: panel)
                 }
                 // Engineering sign-offs
                 if appState.currentPerson?.isEngineer == true || appState.currentPerson?.isAdmin == true {
@@ -220,26 +220,83 @@ struct PanelCard: View {
 struct OperationRow: View {
     @Environment(AppState.self) private var appState
     let op: Operation
+    let job: Job
+    let panel: Panel
+
+    private var allOps: [Operation] { job.subs.flatMap { $0.subs } }
+
+    private var depsBlocked: Bool {
+        guard !op.deps.isEmpty else { return false }
+        return op.deps.contains { depId in
+            allOps.first(where: { $0.id == depId })?.status != .finished
+        }
+    }
+
+    private var depTitles: [String] {
+        op.deps.compactMap { depId in allOps.first(where: { $0.id == depId })?.title }
+    }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(op.status.color)
-                .frame(width: 8, height: 8)
-                .padding(.leading, 16)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(op.title).font(.subheadline).foregroundColor(Color(hex: T.text))
-                Text(op.start.shortDate + " → " + op.end.shortDate)
-                    .font(.caption).foregroundColor(Color(hex: T.muted))
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(op.status.color)
+                    .frame(width: 8, height: 8)
+                    .padding(.leading, 16)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(op.title).font(.subheadline).foregroundColor(Color(hex: T.text))
+                        if depsBlocked {
+                            Image(systemName: "lock.fill")
+                                .font(.caption2)
+                                .foregroundColor(Color(hex: T.muted))
+                        }
+                        if op.pendingFinish == true {
+                            Text("Finish Requested")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Color.yellow.opacity(0.18))
+                                .foregroundColor(.orange)
+                                .cornerRadius(6)
+                        }
+                    }
+                    Text(op.start.shortDate + " → " + op.end.shortDate)
+                        .font(.caption).foregroundColor(Color(hex: T.muted))
+                    if !depTitles.isEmpty {
+                        Text("After: " + depTitles.joined(separator: ", "))
+                            .font(.caption2)
+                            .foregroundColor(Color(hex: T.muted))
+                    }
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
+                        .font(.caption).foregroundColor(Color(hex: T.muted))
+                        .lineLimit(1)
+                    if appState.clockedInPersonId != nil && op.pendingFinish != true {
+                        Button {
+                            Task {
+                                await appState.timeclockFinishRequest(
+                                    jobId: job.id, panelId: panel.id, opId: op.id)
+                            }
+                        } label: {
+                            Text("Request Finish")
+                                .font(.caption2.bold())
+                                .padding(.horizontal, 8).padding(.vertical, 4)
+                                .background(Color(hex: T.accent).opacity(0.12))
+                                .foregroundColor(Color(hex: T.accent))
+                                .cornerRadius(6)
+                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.trailing, 12)
             }
-            Spacer()
-            Text(op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
-                .font(.caption).foregroundColor(Color(hex: T.muted))
-                .lineLimit(1)
+            .padding(.vertical, 8)
         }
-        .padding(.vertical, 8)
-        .padding(.trailing, 12)
         .background(Color(hex: T.card))
+        .opacity(depsBlocked ? 0.55 : 1.0)
     }
 }
 

@@ -46,6 +46,14 @@ struct MoreView: View {
 
                         Section {
                             NavigationLink {
+                                ClientsView()
+                            } label: {
+                                Label("Clients", systemImage: "building.2")
+                                    .foregroundColor(Color(hex: T.text))
+                            }
+                            .listRowBackground(Color(hex: T.card))
+
+                            NavigationLink {
                                 AnalyticsView()
                             } label: {
                                 Label("Analytics", systemImage: "chart.pie")

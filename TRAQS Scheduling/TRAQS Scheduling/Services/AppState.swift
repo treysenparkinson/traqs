@@ -17,6 +17,14 @@ class AppState {
     var saveStatus: SaveStatus = .idle
     var errorMessage: String?
 
+    // MARK: - Time Clock State
+    var clockedInPersonId: String?
+    var clockedInPersonName: String?
+    var clockedInPin: String?          // RAM only — never persisted
+    var activeClockIn: ActiveClockIn?
+    var isClockingIn = false
+    var clockError: String?
+
     // MARK: - Auth / Org
     var currentPersonId: String?
     var orgCode: String = KeychainHelper.load(forKey: KeychainHelper.orgCodeKey) ?? ""
@@ -49,7 +57,7 @@ class AppState {
         refreshTask?.cancel()
         refreshTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard !Task.isCancelled, !isLoading else { continue }
                 await loadAll()
             }
@@ -180,14 +188,20 @@ class AppState {
 
     func updatePeople(_ newPeople: [Person]) {
         people = newPeople
-        Task { try? await api?.savePeople(newPeople) }
+        Task {
+            try? await api?.savePeople(newPeople)
+            await loadAll()
+        }
     }
 
     // MARK: - Clients
 
     func updateClients(_ newClients: [Client]) {
         clients = newClients
-        Task { try? await api?.saveClients(newClients) }
+        Task {
+            try? await api?.saveClients(newClients)
+            await loadAll()
+        }
     }
 
     // MARK: - Messages
@@ -197,9 +211,16 @@ class AppState {
         try? await api?.sendMessage(message)
     }
 
-    func sendMessageThrowing(_ message: Message) async throws {
+    // Returns the server-assigned message ID so callers can track ownership.
+    func sendMessageThrowing(_ message: Message) async throws -> String {
         messages.append(message)
-        try await api?.sendMessage(message)
+        guard let api else { return message.id }
+        let serverMsg = try await api.sendMessage(message)
+        // Swap the optimistic local message for the canonical server message
+        if let i = messages.firstIndex(where: { $0.id == message.id }) {
+            messages[i] = serverMsg
+        }
+        return serverMsg.id
     }
 
     func refreshMessages() async {
@@ -247,6 +268,7 @@ class AppState {
             saveStatus = .saved
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             if case .saved = saveStatus { saveStatus = .idle }
+            await loadAll()
         } catch {
             saveStatus = .error(error.localizedDescription)
         }
@@ -261,6 +283,103 @@ class AppState {
         }
     }
 
+    // MARK: - Time Clock Methods
+
+    func timeclockIdentify(pin: String) async {
+        guard let api else { return }
+        isClockingIn = true
+        clockError = nil
+        defer { isClockingIn = false }
+        do {
+            let result = try await api.timeclockIdentify(pin: pin)
+            clockedInPersonId = result.personId
+            clockedInPersonName = result.name
+            clockedInPin = pin
+            activeClockIn = result.activeClockIn
+        } catch {
+            clockError = error.localizedDescription
+        }
+    }
+
+    func timeclockClockIn(jobRefs: [JobRef]) async {
+        guard let api, let personId = clockedInPersonId, let pin = clockedInPin else { return }
+        do {
+            let clockIn = try await api.timeclockClockIn(personId: personId, pin: pin, jobRefs: jobRefs)
+            activeClockIn = ActiveClockIn(clockIn: clockIn, jobRefs: jobRefs, events: [])
+            Task { await loadAll() }
+        } catch {
+            clockError = error.localizedDescription
+        }
+    }
+
+    func timeclockClockOut() async {
+        guard let api, let personId = clockedInPersonId, let pin = clockedInPin else { return }
+        do {
+            try await api.timeclockClockOut(personId: personId, pin: pin)
+            clearClockSession()
+            Task { await loadAll() }
+        } catch {
+            clockError = error.localizedDescription
+        }
+    }
+
+    func timeclockSendEvent(action: String) async {
+        guard let api, let personId = clockedInPersonId, let pin = clockedInPin else { return }
+        let event = ClockEvent(type: action, ts: ISO8601DateFormatter().string(from: Date()))
+        activeClockIn?.events.append(event)
+        try? await api.timeclockEvent(action: action, personId: personId, pin: pin)
+        Task { await loadAll() }  // sync server state so currentPerson?.activeClockIn updates
+    }
+
+    func timeclockFinishRequest(jobId: String, panelId: String, opId: String) async {
+        guard let api, let personId = clockedInPersonId, let pin = clockedInPin else { return }
+        // Optimistic update
+        if let ji = jobs.firstIndex(where: { $0.id == jobId }),
+           let pi = jobs[ji].subs.firstIndex(where: { $0.id == panelId }),
+           let oi = jobs[ji].subs[pi].subs.firstIndex(where: { $0.id == opId }) {
+            jobs[ji].subs[pi].subs[oi].pendingFinish = true
+        }
+        try? await api.timeclockFinishRequest(personId: personId, pin: pin, jobId: jobId, panelId: panelId, opId: opId)
+    }
+
+    func clearClockSession() {
+        clockedInPersonId = nil
+        clockedInPersonName = nil
+        clockedInPin = nil
+        activeClockIn = nil
+        clockError = nil
+    }
+
+    // MARK: - Color Helpers
+
+    func nextAutoColor() -> String {
+        let key = "traqs_lastHue"
+        var hue = UserDefaults.standard.integer(forKey: key)
+        hue = (hue + 137) % 360
+        UserDefaults.standard.set(hue, forKey: key)
+        return hslToHex(h: hue, s: 0.70, l: 0.55)
+    }
+
+    private func hslToHex(h: Int, s: Double, l: Double) -> String {
+        let hf = Double(h) / 360.0
+        let c = (1 - abs(2 * l - 1)) * s
+        let x = c * (1 - abs(fmod(hf * 6, 2) - 1))
+        let m = l - c / 2
+        var r, g, b: Double
+        switch Int(hf * 6) {
+        case 0: (r, g, b) = (c, x, 0)
+        case 1: (r, g, b) = (x, c, 0)
+        case 2: (r, g, b) = (0, c, x)
+        case 3: (r, g, b) = (0, x, c)
+        case 4: (r, g, b) = (x, 0, c)
+        default: (r, g, b) = (c, 0, x)
+        }
+        let ri = Int((r + m) * 255)
+        let gi = Int((g + m) * 255)
+        let bi = Int((b + m) * 255)
+        return String(format: "#%02X%02X%02X", ri, gi, bi)
+    }
+
     // MARK: - Computed
 
     var currentPerson: Person? {
@@ -270,6 +389,13 @@ class AppState {
 
     var isAdmin: Bool     { currentPerson?.isAdmin ?? false }
     var isEngineer: Bool  { isAdmin || (currentPerson?.isEngineer ?? false) }
+
+    var isClocked: Bool { activeClockIn != nil }
+
+    var currentClockEvent: String? {
+        guard let lastEvent = activeClockIn?.events.last else { return nil }
+        return ["lunchStart", "breakStart"].contains(lastEvent.type) ? lastEvent.type : nil
+    }
 
     var engineeringQueue: [(job: Job, panel: Panel)] {
         jobs.flatMap { job in

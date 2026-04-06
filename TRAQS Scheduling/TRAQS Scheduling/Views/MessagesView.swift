@@ -229,6 +229,7 @@ struct ThreadDetailView: View {
     @State private var newText = ""
     @State private var isSending = false
     @State private var sendError: String? = nil
+    @State private var myMessageIds: Set<String> = []
 
     // Always live — recomputes whenever appState.messages changes
     var liveMessages: [Message] {
@@ -266,7 +267,7 @@ struct ThreadDetailView: View {
                                     .padding(.top, 40)
                             }
                             ForEach(liveMessages) { msg in
-                                MessageBubble(message: msg, isMe: msg.authorId == appState.currentPersonId)
+                                MessageBubble(message: msg, isMe: isMyMessage(msg))
                                     .id(msg.id)
                             }
                         }
@@ -329,36 +330,72 @@ struct ThreadDetailView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
     }
 
+    private func isMyMessage(_ msg: Message) -> Bool {
+        if myMessageIds.contains(msg.id) { return true }
+        let id = msg.authorId
+        if let pid = appState.currentPersonId, !pid.isEmpty, id == pid { return true }
+        if let email = appState.currentPerson?.email, !email.isEmpty, id.lowercased() == email.lowercased() { return true }
+        if let email = appState.matchEmail, !email.isEmpty, id.lowercased() == email.lowercased() { return true }
+        if let name = appState.currentPerson?.name, !name.isEmpty, msg.authorName == name { return true }
+        return false
+    }
+
     private func sendMessage() async {
         let text = newText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty else { return }
         isSending = true
         sendError = nil
 
-        // Use matched person if available, fall back to email/id so send is never blocked
-        let authorId    = appState.currentPerson?.id    ?? appState.currentPersonId ?? appState.matchEmail ?? UUID().uuidString
+        let authorId    = appState.currentPerson?.id    ?? appState.currentPersonId ?? UUID().uuidString
         let authorName  = appState.currentPerson?.name  ?? appState.matchEmail ?? "Me"
         let authorColor = appState.currentPerson?.color ?? "#7c3aed"
 
+        // Parse threadKey into scope + ID fields the backend expects
+        let colonIdx   = threadKey.firstIndex(of: ":") ?? threadKey.endIndex
+        let scopeKey   = String(threadKey[threadKey.startIndex..<colonIdx])
+        let idValue    = colonIdx < threadKey.endIndex ? String(threadKey[threadKey.index(after: colonIdx)...]) : ""
+
+        var jobId: String?   = nil
+        var panelId: String? = nil
+        var opId: String?    = nil
+        switch scopeKey {
+        case "job":   jobId   = idValue
+        case "panel": panelId = idValue
+        case "op":    opId    = idValue
+        default: break
+        }
+
+        let participantIds: [String]
+        if scopeKey == "dm" {
+            participantIds = idValue.components(separatedBy: "_")
+        } else {
+            participantIds = [authorId]
+        }
+
+        let msgId = UUID().uuidString
+        myMessageIds.insert(msgId)
+
         let msg = Message(
-            id: UUID().uuidString,
+            id: msgId,
             threadKey: threadKey,
-            scope: threadKey.components(separatedBy: ":").first ?? "group",
-            jobId: nil, panelId: nil, opId: nil,
+            scope: scopeKey,
+            jobId: jobId, panelId: panelId, opId: opId,
             text: text,
             authorId: authorId,
             authorName: authorName,
             authorColor: authorColor,
-            participantIds: [authorId],
+            participantIds: participantIds,
             attachments: [],
             timestamp: ISO8601DateFormatter().string(from: Date())
         )
         newText = ""
         do {
-            try await appState.sendMessageThrowing(msg)
+            let serverId = try await appState.sendMessageThrowing(msg)
+            myMessageIds.insert(serverId)   // track server-assigned id too
         } catch {
             sendError = "Failed to send: \(error.localizedDescription)"
-            newText = text  // restore text so user can retry
+            newText = text
+            myMessageIds.remove(msgId)      // clean up on failure
         }
         isSending = false
     }
@@ -389,7 +426,7 @@ struct MessageBubble: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(isMe ? Color(hex: T.accent) : Color(hex: T.card))
-                    .foregroundColor(Color(hex: T.text))
+                    .foregroundColor(isMe ? .white : Color(hex: T.text))
                     .cornerRadius(18)
                     .overlay(
                         RoundedRectangle(cornerRadius: 18)

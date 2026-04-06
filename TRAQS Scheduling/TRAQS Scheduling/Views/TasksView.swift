@@ -1,5 +1,7 @@
 import SwiftUI
 
+enum TasksViewMode { case list, cards }
+
 struct TasksView: View {
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
@@ -8,6 +10,7 @@ struct TasksView: View {
     @State private var expandedJobIds: Set<String> = []
     @State private var showAddJob = false
     @State private var showFastTRAQS = false
+    @State private var viewMode: TasksViewMode = .list
 
     var filteredJobs: [Job] {
         appState.jobs.filter { job in
@@ -75,13 +78,25 @@ struct TasksView: View {
 
                     Rectangle().fill(Color(hex: T.border)).frame(height: 1)
 
-                    // ── Sub-header: Ask TRAQS | Undo | Add ──
+                    // ── Sub-header: Ask TRAQS | View Toggle | Undo | Add ──
                     HStack(spacing: 10) {
                         if appState.isAdmin {
                             Button { showFastTRAQS = true } label: {
                                 FastTRAQSPillButton()
                             }
                             .buttonStyle(.plain)
+                        }
+
+                        Button {
+                            viewMode = viewMode == .list ? .cards : .list
+                        } label: {
+                            Image(systemName: viewMode == .cards ? "list.bullet" : "square.grid.2x2")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(Color(hex: T.accent))
+                                .frame(width: 32, height: 32)
+                                .background(Color(hex: T.accent).opacity(0.12))
+                                .clipShape(Circle())
+                                .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
                         }
 
                         Spacer()
@@ -159,28 +174,32 @@ struct TasksView: View {
                     }
                     .padding(.bottom, 8)
 
-                    // Job list
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            ForEach(jobGroups) { group in
-                                GroupedJobRow(
-                                    group: group,
-                                    isExpanded: expandedJobIds.contains(group.id)
-                                ) {
-                                    withAnimation(.easeInOut(duration: 0.22)) {
-                                        if expandedJobIds.contains(group.id) {
-                                            expandedJobIds.remove(group.id)
-                                        } else {
-                                            expandedJobIds.insert(group.id)
+                    // Job list or Cards view
+                    if viewMode == .cards {
+                        CardsView()
+                    } else {
+                        ScrollView {
+                            LazyVStack(spacing: 8) {
+                                ForEach(jobGroups) { group in
+                                    GroupedJobRow(
+                                        group: group,
+                                        isExpanded: expandedJobIds.contains(group.id)
+                                    ) {
+                                        withAnimation(.easeInOut(duration: 0.22)) {
+                                            if expandedJobIds.contains(group.id) {
+                                                expandedJobIds.remove(group.id)
+                                            } else {
+                                                expandedJobIds.insert(group.id)
+                                            }
                                         }
                                     }
                                 }
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
+                        .refreshable { await appState.loadAll() }
                     }
-                    .refreshable { await appState.loadAll() }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -601,6 +620,130 @@ struct JobRow: View {
         .background(Color(hex: T.card))
         .cornerRadius(10)
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+    }
+}
+
+// MARK: - Cards View
+
+struct CardsView: View {
+    @Environment(AppState.self) private var appState
+    @State private var selectedDeptFilter: String? = nil
+    @State private var collapsedJobs: Set<String> = []
+
+    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    private var deptOptions: [String] {
+        Array(Set(appState.jobs.compactMap { $0.jobType })).sorted()
+    }
+
+    private var filteredQueue: [(job: Job, panel: Panel)] {
+        let queue = appState.engineeringQueue
+        guard let dept = selectedDeptFilter else { return queue }
+        return queue.filter { $0.job.jobType == dept }
+    }
+
+    private var groupedByJob: [(job: Job, panels: [Panel])] {
+        var byJob: [String: (Job, [Panel])] = [:]
+        var order: [String] = []
+        for item in filteredQueue {
+            if byJob[item.job.id] == nil {
+                order.append(item.job.id)
+                byJob[item.job.id] = (item.job, [])
+            }
+            byJob[item.job.id]!.1.append(item.panel)
+        }
+        return order.compactMap { id in byJob[id].map { ($0.0, $0.1) } }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                // Dept filter chips
+                if !deptOptions.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            FilterChip(label: "All", isSelected: selectedDeptFilter == nil) {
+                                selectedDeptFilter = nil
+                            }
+                            ForEach(deptOptions, id: \.self) { dept in
+                                FilterChip(label: dept, isSelected: selectedDeptFilter == dept) {
+                                    selectedDeptFilter = selectedDeptFilter == dept ? nil : dept
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                }
+
+                if groupedByJob.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "wrench.and.screwdriver")
+                            .font(.system(size: 44))
+                            .foregroundColor(Color(hex: T.border))
+                        Text("No panels in the engineering queue")
+                            .foregroundColor(Color(hex: T.muted))
+                            .font(.subheadline)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
+                    .padding(.top, 60)
+                } else {
+                    ForEach(groupedByJob, id: \.job.id) { item in
+                        VStack(alignment: .leading, spacing: 0) {
+                            // Section header
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    if collapsedJobs.contains(item.job.id) {
+                                        collapsedJobs.remove(item.job.id)
+                                    } else {
+                                        collapsedJobs.insert(item.job.id)
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(Color(hex: item.job.color))
+                                        .frame(width: 4, height: 30)
+                                    Text(item.job.title)
+                                        .font(.subheadline.bold())
+                                        .foregroundColor(Color(hex: T.text))
+                                        .lineLimit(1)
+                                    Spacer()
+                                    Text("\(item.panels.count)")
+                                        .font(.caption2.bold())
+                                        .padding(.horizontal, 6).padding(.vertical, 2)
+                                        .background(Color(hex: item.job.color).opacity(0.15))
+                                        .foregroundColor(Color(hex: item.job.color))
+                                        .cornerRadius(6)
+                                    Image(systemName: collapsedJobs.contains(item.job.id) ? "chevron.down" : "chevron.up")
+                                        .font(.caption2)
+                                        .foregroundColor(Color(hex: T.muted))
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                            }
+                            .buttonStyle(.plain)
+
+                            if !collapsedJobs.contains(item.job.id) {
+                                LazyVGrid(columns: columns, spacing: 12) {
+                                    ForEach(item.panels) { panel in
+                                        EngineeringCard(job: item.job, panel: panel)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 12)
+                            }
+                        }
+                        .background(Color(hex: T.surface))
+                        .cornerRadius(10)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+                        .padding(.horizontal, 16)
+                    }
+                }
+            }
+            .padding(.vertical, 8)
+        }
+        .refreshable { await appState.loadAll() }
     }
 }
 

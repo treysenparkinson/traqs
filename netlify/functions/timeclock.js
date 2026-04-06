@@ -89,6 +89,19 @@ export async function handler(event) {
         people[personIdx] = { ...person, activeClockIn: null };
         try { await writeJson(peopleKey, people); } catch { /* non-fatal */ }
 
+        // Update loggedHours on each job in tasks.json
+        if (jobRefs.length > 0 && hours > 0) {
+          try {
+            let tasks = await readJson(tasksKey) ?? [];
+            tasks = tasks.map(job => {
+              const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
+              if (!ref) return job;
+              return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
+            });
+            await writeJson(tasksKey, tasks);
+          } catch { /* non-fatal */ }
+        }
+
         return json(200, { ok: true, entry });
       }
 
@@ -181,6 +194,19 @@ export async function handler(event) {
 
       people[personIdx] = { ...person, activeClockIn: null };
       try { await writeJson(peopleKey, people); } catch { /* non-fatal */ }
+
+      // Update loggedHours on each job in tasks.json
+      if (jobRefs.length > 0 && hours > 0) {
+        try {
+          let tasks = await readJson(tasksKey) ?? [];
+          tasks = tasks.map(job => {
+            const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
+            if (!ref) return job;
+            return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
+          });
+          await writeJson(tasksKey, tasks);
+        } catch { /* non-fatal */ }
+      }
 
       return json(200, { ok: true, entry });
     }

@@ -29,13 +29,8 @@ export async function handler(event) {
     }
   }
 
-  // POST — append a new message (requires auth)
+  // POST — append a new message (org code gates access; auth is attempted but not required)
   if (event.httpMethod === "POST") {
-    try {
-      await validateToken(event);
-    } catch (e) {
-      return err(401, e.message);
-    }
     let body;
     try {
       body = JSON.parse(event.body);

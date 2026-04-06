@@ -1,6 +1,20 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 extension Color {
+    /// Convert a SwiftUI Color to a CSS hex string (e.g. "#3D7FFF").
+    func toHex() -> String? {
+        #if canImport(UIKit)
+        var r: CGFloat = 0; var g: CGFloat = 0; var b: CGFloat = 0; var a: CGFloat = 0
+        guard UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a) else { return nil }
+        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        #else
+        return nil
+        #endif
+    }
+
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
