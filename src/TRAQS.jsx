@@ -7130,30 +7130,49 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 {tsSettingsDraft.map((p, pi) => {
                   const payType = p.payType || "hourly";
+                  const ppType = p.payPeriodType || orgSettings.payPeriodType || "biweekly";
+                  const hasOverride = !!(p.payPeriodStart || p.payPeriodType);
                   return (
-                    <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18`, animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
-                        <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                    <div key={p.id} style={{ padding: "8px 0", borderBottom: `1px solid ${T.border}18`, animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
+                          <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                        </div>
+                        <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                          {["hourly","salary"].map(pt => (
+                            <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)}
+                              style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? "#fff" : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}
+                            >{pt}</button>
+                          ))}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
+                          <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder="PIN"
+                            style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.15em", outline: "none", minWidth: 0 }}
+                          />
+                          <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
+                            style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
+                            {showPinIds.has(p.id)
+                              ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                              : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                            }
+                          </button>
+                        </div>
                       </div>
-                      <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                        {["hourly","salary"].map(pt => (
-                          <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)}
-                            style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? "#fff" : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}
-                          >{pt}</button>
-                        ))}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
-                        <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder="PIN"
-                          style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.15em", outline: "none", minWidth: 0 }}
-                        />
-                        <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
-                          style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
-                          {showPinIds.has(p.id)
-                            ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                            : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                          }
-                        </button>
+                      {/* Per-person pay period override */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 16 }}>
+                        <span style={{ fontSize: 11, color: T.textDim, whiteSpace: "nowrap", minWidth: 76 }}>Pay period{hasOverride ? <span style={{ color: T.accent, marginLeft: 3 }}>●</span> : ""}:</span>
+                        <div style={{ display: "flex", borderRadius: 5, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                          {[{v:"weekly",l:"Wk"},{v:"biweekly",l:"Bi-Wk"},{v:"semi-monthly",l:"Semi"},{v:"monthly",l:"Mo"}].map(opt => (
+                            <button key={opt.v} type="button" onClick={() => draftSet(p.id, "payPeriodType", opt.v)}
+                              style={{ padding: "3px 7px", border: "none", background: ppType === opt.v ? (p.payPeriodType ? T.accent : T.accent+"88") : T.surface, color: ppType === opt.v ? "#fff" : T.textDim, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{opt.l}</button>
+                          ))}
+                        </div>
+                        <input type="date" value={p.payPeriodStart || ""} onChange={e => draftSet(p.id, "payPeriodStart", e.target.value || null)}
+                          placeholder={orgSettings.payPeriodStart || TD}
+                          title="Override pay period start date for this person"
+                          style={{ colorScheme: T.colorScheme, padding: "3px 8px", borderRadius: 5, border: `1px solid ${p.payPeriodStart ? T.accent+"66" : T.border}`, background: T.surface, color: p.payPeriodStart ? T.text : T.textDim, fontSize: 11, fontFamily: T.font, outline: "none" }} />
+                        {hasOverride && <button type="button" onClick={() => { draftSet(p.id, "payPeriodStart", null); draftSet(p.id, "payPeriodType", null); }} style={{ fontSize: 10, color: T.textDim, background: "none", border: "none", cursor: "pointer", padding: "1px 4px", textDecoration: "underline" }}>reset</button>}
                       </div>
                     </div>
                   );
@@ -7715,13 +7734,15 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Team</div>
                   {tsSettingsDraft.map(p => {
                     const payType = p.payType || "hourly";
+                    const ppType = p.payPeriodType || orgSettings.payPeriodType || "biweekly";
+                    const hasOverride = !!(p.payPeriodStart || p.payPeriodType);
                     return (
                       <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "14px 16px", marginBottom: 10 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
                           <div style={{ width: 10, height: 10, borderRadius: 5, background: p.color || T.accent }} />
                           <span style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</span>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
                           <div>
                             <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>Pay Type</div>
                             <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
@@ -7745,6 +7766,24 @@ ${jobsCtx || "No jobs found."}`;
                               </button>
                             </div>
                           </div>
+                        </div>
+                        {/* Per-person pay period override */}
+                        <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                            <div style={{ fontSize: 11, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Pay Period Override{hasOverride && <span style={{ color: T.accent, marginLeft: 4 }}>●</span>}</div>
+                            {hasOverride && <button type="button" onClick={() => { draftSet(p.id, "payPeriodStart", null); draftSet(p.id, "payPeriodType", null); }} style={{ fontSize: 11, color: T.textDim, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Reset to org default</button>}
+                          </div>
+                          <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden", marginBottom: 10 }}>
+                            {[{v:"weekly",l:"Weekly"},{v:"biweekly",l:"Bi-Weekly"},{v:"semi-monthly",l:"Semi-Mo."},{v:"monthly",l:"Monthly"}].map(opt => (
+                              <button key={opt.v} type="button" onClick={() => draftSet(p.id, "payPeriodType", opt.v)}
+                                style={{ flex: 1, padding: "8px 0", border: "none", background: ppType === opt.v ? (p.payPeriodType ? T.accent : T.accent+"88") : T.surface, color: ppType === opt.v ? "#fff" : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{opt.l}</button>
+                            ))}
+                          </div>
+                          <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>Period start date{!hasOverride && <span style={{ marginLeft: 4, opacity: 0.6 }}>(org default shown)</span>}</div>
+                          <input type="date" value={p.payPeriodStart || ""} onChange={e => draftSet(p.id, "payPeriodStart", e.target.value || null)}
+                            placeholder={orgSettings.payPeriodStart || TD}
+                            style={{ colorScheme: T.colorScheme, padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${p.payPeriodStart ? T.accent+"66" : T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", width: "100%", boxSizing: "border-box" }} />
+                          {(() => { const _s = p.payPeriodStart || orgSettings.payPeriodStart || TD; const _t = p.payPeriodType || orgSettings.payPeriodType || "biweekly"; const pp = getCurrentPayPeriod(_s, _t, TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return <div style={{ fontSize: 11, color: T.textDim, marginTop: 6 }}>Current period: {fmtD(pp.start)} – {fmtD(pp.end)}</div>; })()}
                         </div>
                       </div>
                     );
@@ -8797,7 +8836,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Clock indicator — hourly workers only */}
         {loggedInUser.payType !== "salary" && (() => {
-          const _pp = getCurrentPayPeriod(orgSettings.payPeriodStart || TD, orgSettings.payPeriodType || "biweekly", TD);
+          const _pp = getCurrentPayPeriod(loggedInUser.payPeriodStart || orgSettings.payPeriodStart || TD, loggedInUser.payPeriodType || orgSettings.payPeriodType || "biweekly", TD);
           const _periodH = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= _pp.start && e.date <= _pp.end && !e.eventType).reduce((s, e) => s + (e.hours||0), 0);
           const _clocked = !!loggedInUser.activeClockIn?.clockIn;
           return (
@@ -10694,7 +10733,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         {loggedInUser.payType !== "salary" && (() => {
-          const _pp = getCurrentPayPeriod(orgSettings.payPeriodStart || TD, orgSettings.payPeriodType || "biweekly", TD);
+          const _pp = getCurrentPayPeriod(loggedInUser.payPeriodStart || orgSettings.payPeriodStart || TD, loggedInUser.payPeriodType || orgSettings.payPeriodType || "biweekly", TD);
           const _periodH = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= _pp.start && e.date <= _pp.end && !e.eventType).reduce((s, e) => s + (e.hours||0), 0);
           const _clocked = !!loggedInUser.activeClockIn?.clockIn;
           return (
