@@ -1,5 +1,6 @@
-import { readJson, writeJson } from "./_utils/s3.js";
+import { readJson, writeJson, copyPrefix } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
+import { validateToken } from "./_utils/auth.js";
 
 function isValidCode(code) {
   return typeof code === "string" && /^[a-zA-Z0-9]{3,20}$/.test(code);
@@ -75,6 +76,34 @@ export async function handler(event) {
     } catch (e) {
       console.error("org POST error:", e);
       return err(500, "Failed to create organization");
+    }
+  }
+
+  // PATCH — rename org code (admin only, migrates all S3 data)
+  if (event.httpMethod === "PATCH") {
+    try { await validateToken(event); } catch (e) { return err(401, e.message); }
+
+    const currentCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"];
+    if (!isValidCode(currentCode)) return err(400, "Missing or invalid X-Org-Code header");
+
+    let body;
+    try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON body"); }
+
+    const { newCode } = body ?? {};
+    if (!isValidCode(newCode)) return err(400, "Invalid new code — must be 3–20 alphanumeric characters");
+    if (newCode.toUpperCase() === currentCode.toUpperCase()) return err(400, "New code is the same as current code");
+
+    try {
+      const taken = await readJson(`orgs/${newCode}/config.json`);
+      if (taken) return err(409, "That org code is already taken");
+    } catch {}
+
+    try {
+      await copyPrefix(`orgs/${currentCode}/`, `orgs/${newCode}/`);
+      return json(200, { ok: true, newCode });
+    } catch (e) {
+      console.error("org PATCH error:", e);
+      return err(500, "Failed to rename organization");
     }
   }
 

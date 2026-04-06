@@ -114,6 +114,20 @@ export async function forgotOrgCode(email) {
   return res.json();
 }
 
+export async function updateOrgCode(newCode, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/org`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ newCode }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `updateOrgCode failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function createOrg(payload) {
   const res = await fetch(`${BASE}/org`, {
     method: "POST",
@@ -267,6 +281,25 @@ export const adminEditEntryAction = async (payload, getToken, orgCode) => {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
     body: JSON.stringify({ action: "adminEditEntry", ...payload }),
+  }).then(r => r.json());
+};
+
+// ─── Job Clock (Auth token, no PIN — tracks hours on job, not pay) ────────────
+export const jobClockInAction = async (payload, getToken, orgCode) => {
+  const headers = await authHeaders(getToken, orgCode);
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "jobClockIn", ...payload }),
+  }).then(r => r.json());
+};
+
+export const jobClockOutAction = async (payload, getToken, orgCode) => {
+  const headers = await authHeaders(getToken, orgCode);
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "jobClockOut", ...payload }),
   }).then(r => r.json());
 };
 

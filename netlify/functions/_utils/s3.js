@@ -1,4 +1,4 @@
-import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import { S3Client, GetObjectCommand, PutObjectCommand, CopyObjectCommand, DeleteObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 
 const client = new S3Client({
   region: process.env.MY_AWS_REGION,
@@ -84,6 +84,34 @@ export async function readBinaryWithMeta(key) {
   const res = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
   const data = await streamToBuffer(res.Body);
   return { data, contentType: res.ContentType || "application/octet-stream" };
+}
+
+/**
+ * Copy all objects under sourcePrefix to destPrefix, then delete the originals.
+ * Used for renaming an org code.
+ */
+export async function copyPrefix(sourcePrefix, destPrefix) {
+  const keys = [];
+  let token;
+  do {
+    const res = await client.send(new ListObjectsV2Command({
+      Bucket: BUCKET,
+      Prefix: sourcePrefix,
+      ContinuationToken: token,
+    }));
+    for (const obj of res.Contents ?? []) keys.push(obj.Key);
+    token = res.NextContinuationToken;
+  } while (token);
+
+  for (const key of keys) {
+    const destKey = destPrefix + key.slice(sourcePrefix.length);
+    await client.send(new CopyObjectCommand({
+      Bucket: BUCKET,
+      CopySource: encodeURIComponent(`${BUCKET}/${key}`),
+      Key: destKey,
+    }));
+    await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+  }
 }
 
 function streamToString(stream) {

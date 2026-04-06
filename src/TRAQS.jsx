@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, fetchOrgConfig, updateOrgCode } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
@@ -416,6 +416,15 @@ html { scroll-behavior: smooth; }
 .traqs-light input[type="date"]::-webkit-calendar-picker-indicator { filter: none; cursor: pointer; }
 .traqs-frost input[type="date"],
 .traqs-light input[type="date"] { color-scheme: light; }
+
+@keyframes bcPageIn {
+  from { opacity: 0; transform: scale(0.97); filter: blur(6px); }
+  to   { opacity: 1; transform: scale(1);    filter: blur(0); }
+}
+@keyframes bcPageOut {
+  from { opacity: 1; transform: scale(1);    filter: blur(0); }
+  to   { opacity: 0; transform: scale(0.97); filter: blur(6px); }
+}
 
 @media (max-width: 767px) {
   .anim-card-wrap:hover  { transform: none; box-shadow: none; }
@@ -1528,6 +1537,7 @@ Rules:
   const [colPickerOpen, setColPickerOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportSelOpen, setExportSelOpen] = useState(false);
+  const [bcModalState, setBcModalState] = useState("closed"); // "closed" | "open" | "closing"
   const [exportSelRows, setExportSelRows] = useState(new Set());
   const [exportSelSearch, setExportSelSearch] = useState("");
   const [customColLabel, setCustomColLabel] = useState("");
@@ -1562,6 +1572,11 @@ Rules:
   const [roleEditId, setRoleEditId] = useState(null); // index being edited
   const [roleEditVal, setRoleEditVal] = useState("");
   const [orgSettingsOpen, setOrgSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("main"); // "main" | "org"
+  const [orgCodePanelOpen, setOrgCodePanelOpen] = useState(false);
+  const [orgCodeInput, setOrgCodeInput] = useState("");
+  const [orgCodeSaving, setOrgCodeSaving] = useState(false);
+  const [orgCodeError, setOrgCodeError] = useState("");
   const [holidayInput, setHolidayInput] = useState("");
   useEffect(() => { localStorage.setItem("tq_org_settings", JSON.stringify(orgSettings)); }, [orgSettings]);
   useEffect(() => { saveStatusRef.current = saveStatus; }, [saveStatus]);
@@ -1764,6 +1779,9 @@ Rules:
   const [pinLoading, setPinLoading] = useState(false);
   const [pinSummary, setPinSummary] = useState(null);
   const [tsElapsed, setTsElapsed] = useState("");
+  const [tsJobElapsed, setTsJobElapsed] = useState("");
+  const [jobClockLoading, setJobClockLoading] = useState(false);
+  const [jobOpSelections, setJobOpSelections] = useState({}); // { [jobId]: opId }
   const [tsAdminTab, setTsAdminTab] = useState("live");
   const [tsPeriodDays, setTsPeriodDays] = useState(0);
   const [tsSettingsOpen, setTsSettingsOpen] = useState(false);
@@ -1807,6 +1825,21 @@ Rules:
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loggedInUser?.activeClockIn?.clockIn]);
+
+  // Job clock timer
+  useEffect(() => {
+    const ci = loggedInUser?.activeJobClock?.clockIn;
+    if (!ci) { setTsJobElapsed(""); return; }
+    const update = () => {
+      const ms = Date.now() - new Date(ci).getTime();
+      const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+      setTsJobElapsed(`${h}h ${m}m`);
+    };
+    update();
+    const iv = setInterval(update, 60000);
+    return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loggedInUser?.activeJobClock?.clockIn]);
 
   // Admin live refresh every 60s
   useEffect(() => {
@@ -4711,9 +4744,36 @@ ${jobsCtx || "No jobs found."}`;
               </div>}
             </div>
           </>}
+          <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
+          <Btn size="sm" onClick={() => setBcModalState("open")}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            BC Jobs
+          </Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
+      {/* ── BuilderTrend Modal ── */}
+      {bcModalState !== "closed" && (
+        <div
+          onAnimationEnd={() => { if (bcModalState === "closing") setBcModalState("closed"); }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 10020, background: T.bg,
+            display: "flex", flexDirection: "column", fontFamily: T.font,
+            animation: bcModalState === "closing"
+              ? "bcPageOut 0.22s cubic-bezier(0.4, 0, 1, 1) both"
+              : "bcPageIn  0.30s cubic-bezier(0.22, 1, 0.36, 1) both",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+            <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>BuilderTrend</span>
+            <button onClick={() => setBcModalState("closing")} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>✕</button>
+          </div>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {/* BuilderTrend API integration — coming soon */}
+          </div>
+        </div>
+      )}
       {/* ── Sign-Off Queue (cards view) — one section per template ── */}
       {taskSubView === "cards" && canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => {
         if (!(pending.length > 0 || finished.length > 0)) return null;
@@ -7783,6 +7843,54 @@ ${jobsCtx || "No jobs found."}`;
     const myPeriodHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0);
     const myTodayHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0);
 
+    // ── Job clock helpers ─────────────────────────────────────────────────────
+    // All jobs where the logged-in user has at least one non-finished op assigned
+    const myAssignedJobs = tasks.reduce((acc, job) => {
+      const assignedOps = (job.subs || []).flatMap(panel =>
+        (panel.subs || [])
+          .filter(op => op.team?.includes(loggedInUser.id) && op.status !== "Finished")
+          .map(op => ({ panelId: panel.id, panelTitle: panel.title, opId: op.id, opTitle: op.title }))
+      );
+      if (assignedOps.length > 0) acc.push({ jobId: job.id, jobTitle: job.title, color: job.color, ops: assignedOps });
+      return acc;
+    }, []);
+
+    const handleJobClockIn = async ({ jobId, jobTitle, panelId, panelTitle, opId, opTitle }) => {
+      setJobClockLoading(true);
+      try {
+        const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle }, getToken, orgCode);
+        if (res.ok) {
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle } } : p));
+        } else {
+          alert(res.error || "Clock-in failed");
+        }
+      } catch { alert("Network error"); } finally { setJobClockLoading(false); }
+    };
+
+    const handleJobClockOut = async () => {
+      const jc = loggedInUser.activeJobClock;
+      setJobClockLoading(true);
+      try {
+        const res = await jobClockOutAction({ personId: loggedInUser.id }, getToken, orgCode);
+        if (res.ok) {
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: null } : p));
+          if (res.hours > 0 && jc) {
+            setTasks(prev => prev.map(job => {
+              if (job.id !== jc.jobId) return job;
+              const newJobHours = Math.round(((job.loggedHours || 0) + res.hours) * 100) / 100;
+              const newSubs = jc.opId ? (job.subs || []).map(panel => {
+                if (panel.id !== jc.panelId) return panel;
+                return { ...panel, subs: (panel.subs || []).map(op => op.id !== jc.opId ? op : { ...op, loggedHours: Math.round(((op.loggedHours || 0) + res.hours) * 100) / 100 }) };
+              }) : job.subs;
+              return { ...job, loggedHours: newJobHours, subs: newSubs };
+            }));
+          }
+        } else {
+          alert(res.error || "Clock-out failed");
+        }
+      } catch { alert("Network error"); } finally { setJobClockLoading(false); }
+    };
+
     // ── Mobile layout ─────────────────────────────────────────────────────────
     if (isMobile) {
       const mobileSettingsPanel = () => {
@@ -7892,66 +8000,91 @@ ${jobsCtx || "No jobs found."}`;
           {/* Scrollable body */}
           <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px 100px" }}>
 
-            {/* Personal clock card */}
-            {loggedInUser.payType === "salary" ? (
-              <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "28px 20px", textAlign: "center", marginBottom: 16 }}>
-                <div style={{ fontSize: 14, color: T.textDim }}>Time tracking is not required for salaried employees.</div>
-              </div>
-            ) : (
-              <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "20px 16px", marginBottom: 16, display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 5, background: isClockedIn ? "#22c55e" : T.border, boxShadow: isClockedIn ? "0 0 10px #22c55e" : "none", transition: "all 0.3s" }} />
-                  <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{loggedInUser.name}</span>
-                  <span style={{ fontSize: 12, color: T.textDim }}>{isClockedIn ? `· in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}` : "· not clocked in"}</span>
-                </div>
-                {isClockedIn && (() => {
-                  const refs = loggedInUser.activeClockIn?.jobRefs || [];
-                  if (refs.length === 0) return <div style={{ fontSize: 12, color: T.textDim }}>No job selected</div>;
-                  return (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "stretch", gap: 5, width: "100%" }}>
-                      {refs.map(r => {
-                        const job = tasks.find(j => j.id === r.jobId);
-                        const panel = job?.subs?.find(p => p.id === r.panelId);
-                        const op = panel?.subs?.find(o => o.id === r.opId);
-                        return (
-                          <div key={r.opId} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", background: T.accent + "15", borderRadius: T.radiusSm, border: `1px solid ${T.accent}30` }}>
-                            <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, flexShrink: 0 }} />
-                            <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1 }}>{job?.title || "Unknown job"}</span>
-                            {panel && <span style={{ fontSize: 11, color: T.textDim }}>{panel.title}{op ? ` · ${op.title}` : ""}</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-                {isClockedIn && <div style={{ fontSize: 54, fontWeight: 700, color: T.accent, fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1 }}>{tsElapsed || "0h 0m"}</div>}
-                <div style={{ display: "flex", gap: 10, width: "100%" }}>
+            {/* Pay period hours — read-only, all users see their own */}
+            {loggedInUser.payType !== "salary" && (
+              <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>My Pay Hours</div>
+                <div style={{ display: "flex", gap: 10 }}>
                   <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusSm, padding: "12px 0", textAlign: "center" }}>
                     <div style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Today</div>
                     <div style={{ fontSize: 28, fontWeight: 700, color: T.accent, fontFamily: T.mono, lineHeight: 1 }}>{myTodayHrs.toFixed(1)}</div>
                     <div style={{ fontSize: 10, color: T.textDim, marginTop: 2 }}>hrs</div>
                   </div>
                   <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusSm, padding: "12px 0", textAlign: "center" }}>
-                    <div style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Period</div>
+                    <div style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>This Period</div>
                     <div style={{ fontSize: 28, fontWeight: 700, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{myPeriodHrs.toFixed(1)}</div>
                     <div style={{ fontSize: 10, color: T.textDim, marginTop: 2 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
                   </div>
                 </div>
-                {!loggedInUser.pin && <div style={{ fontSize: 11, color: T.textDim, textAlign: "center" }}>No PIN set — ask admin to assign one in Settings</div>}
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%" }}>
-                  {!isClockedIn ? (
-                    <button onClick={openClockIn} style={{ width: "100%", padding: "17px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 17, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
-                  ) : (
-                    <>
-                      <button onClick={openSwitchJob} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid #f59e0b60`, background: "#f59e0b12", color: "#f59e0b", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Switch Job</button>
-                      {orgSettings.trackLunch && <button onClick={openLunch} disabled={isOnBreak} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: isOnLunch ? "#f59e0b22" : "#f59e0b12", color: "#f59e0b", fontSize: 16, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1 }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>}
-                      {orgSettings.trackBreaks && <button onClick={openBreak} disabled={isOnLunch} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnBreak ? "#f59e0b" : "#f59e0b60"}`, background: isOnBreak ? "#f59e0b22" : "#f59e0b12", color: "#f59e0b", fontSize: 16, fontWeight: 700, cursor: isOnLunch ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnLunch ? 0.45 : 1 }}>{isOnBreak ? "End Break" : "Start Break"}</button>}
-                      <button onClick={openClockOut} style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: `1.5px solid #ef444460`, background: "#ef444412", color: "#ef4444", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
-                    </>
-                  )}
-                </div>
               </div>
             )}
+
+            {/* Job Clock — clock into specific assigned jobs, tracks job hours (not pay) */}
+            <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>Job Clock</div>
+
+              {/* Active job clock */}
+              {loggedInUser.activeJobClock && (() => {
+                const { jobTitle, panelTitle, opTitle, clockIn: jcIn } = loggedInUser.activeJobClock;
+                return (
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <div style={{ width: 8, height: 8, borderRadius: 4, background: "#22c55e", boxShadow: "0 0 8px #22c55e", flexShrink: 0 }} />
+                      <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{jobTitle}</span>
+                    </div>
+                    {(panelTitle || opTitle) && (
+                      <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8, paddingLeft: 16 }}>{panelTitle}{opTitle ? ` · ${opTitle}` : ""}</div>
+                    )}
+                    <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>Clocked in at {fmtTime(jcIn)}</div>
+                    <div style={{ fontSize: 48, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 16, textAlign: "center" }}>{tsJobElapsed || "0h 0m"}</div>
+                    <button
+                      onClick={handleJobClockOut}
+                      disabled={jobClockLoading}
+                      style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
+                    >{jobClockLoading ? "Clocking Out…" : "Clock Out of Job"}</button>
+                  </div>
+                );
+              })()}
+
+              {/* Job selection */}
+              {!loggedInUser.activeJobClock && (
+                <div>
+                  {myAssignedJobs.length === 0 && (
+                    <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "16px 0" }}>No jobs currently assigned to you.</div>
+                  )}
+                  {myAssignedJobs.map(({ jobId, jobTitle, color, ops }) => {
+                    const selOpId = jobOpSelections[jobId] || ops[0]?.opId;
+                    const selOp = ops.find(o => o.opId === selOpId) || ops[0];
+                    return (
+                      <div key={jobId} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "12px 14px", marginBottom: 10 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: ops.length > 1 ? 10 : 8 }}>
+                          <div style={{ width: 9, height: 9, borderRadius: 5, background: color || T.accent, flexShrink: 0 }} />
+                          <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{jobTitle}</span>
+                        </div>
+                        {ops.length > 1 ? (
+                          <select
+                            value={selOpId}
+                            onChange={e => setJobOpSelections(prev => ({ ...prev, [jobId]: e.target.value }))}
+                            style={{ width: "100%", padding: "9px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontFamily: T.font, marginBottom: 10, outline: "none" }}
+                          >
+                            {ops.map(op => (
+                              <option key={op.opId} value={op.opId}>{op.panelTitle} · {op.opTitle}</option>
+                            ))}
+                          </select>
+                        ) : (
+                          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>{ops[0].panelTitle} · {ops[0].opTitle}</div>
+                        )}
+                        <button
+                          onClick={() => handleJobClockIn({ jobId, jobTitle, panelId: selOp.panelId, panelTitle: selOp.panelTitle, opId: selOp.opId, opTitle: selOp.opTitle })}
+                          disabled={jobClockLoading}
+                          style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
+                        >{jobClockLoading ? "Clocking In…" : "Clock into Job"}</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Admin section */}
             {isAdmin && (
@@ -9005,6 +9138,15 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={() => prefOpen ? setPrefOpen(false) : setSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
           <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>{prefOpen ? "Preferences" : "Settings"}</span>
         </div>
+        {!prefOpen && isAdmin && (
+          <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
+            {[{ id: "main", label: "General" }, { id: "org", label: "Organization" }].map(tab => (
+              <button key={tab.id} onClick={() => setSettingsTab(tab.id)} style={{ flex: 1, padding: "11px 0", background: "none", border: "none", borderBottom: `2.5px solid ${settingsTab === tab.id ? T.accent : "transparent"}`, color: settingsTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: settingsTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
           {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "15px 16px", marginBottom: 14, borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, fontFamily: T.font }}>
             <div style={{ width: 36, height: 36, borderRadius: 10, background: T.accent + "22", border: `1px solid ${T.accent}55`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
@@ -9068,6 +9210,14 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
+          {isAdmin && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgCodePanelOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Organization</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Org code: <span style={{ fontFamily: T.mono, fontWeight: 700 }}>{orgCode || "—"}</span></div>
+            </div>
+            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+          </button>}
           <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.danger}22`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left" }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.danger }}>Log Out</div>
@@ -9075,6 +9225,51 @@ ${jobsCtx || "No jobs found."}`;
           </>}
         </div>
       </div>}
+      {/* Org Code Panel */}
+      {orgCodePanelOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
+            <button onClick={() => setOrgCodePanelOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
+            <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Organization</span>
+          </div>
+          <div style={{ flex: 1, overflow: "auto", padding: "28px 20px" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 16 }}>Organization Code</div>
+            <div style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "14px 16px", marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: T.textDim, marginBottom: 4 }}>Current</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "0.08em" }}>{orgCode || "—"}</div>
+            </div>
+            <div style={{ fontSize: 13, color: T.textDim, marginBottom: 12 }}>Enter a new org code to switch organizations. You'll be redirected after validation.</div>
+            <input
+              value={orgCodeInput}
+              onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }}
+              placeholder="Enter org code"
+              maxLength={20}
+              style={{ width: "100%", padding: "13px 14px", borderRadius: T.radiusSm, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.surface, color: T.text, fontSize: 16, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 8, textTransform: "uppercase" }}
+            />
+            {orgCodeError && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 12 }}>{orgCodeError}</div>}
+            <button
+              disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode}
+              onClick={async () => {
+                const newCode = orgCodeInput.trim();
+                if (!newCode) return;
+                setOrgCodeSaving(true);
+                setOrgCodeError("");
+                try {
+                  const config = await fetchOrgConfig(newCode);
+                  localStorage.setItem("tq_org_code", newCode);
+                  localStorage.setItem("tq_org_config", JSON.stringify(config));
+                  window.location.reload();
+                } catch (e) {
+                  setOrgCodeError(e.message || "Org code not found");
+                } finally {
+                  setOrgCodeSaving(false);
+                }
+              }}
+              style={{ width: "100%", padding: "14px 0", borderRadius: T.radiusSm, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 15, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}
+            >{orgCodeSaving ? "Validating…" : "Switch Organization"}</button>
+          </div>
+        </div>
+      )}
       {/* Mobile Notifications Dropdown */}
       {notifOpen && <>
         <div onClick={() => setNotifOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
@@ -10861,10 +11056,10 @@ ${jobsCtx || "No jobs found."}`;
           </button>
           {settingsOpen && <div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 32, top: 60, width: 520, maxHeight: "85vh", overflowY: settingsScrollable ? "auto" : "hidden", overflowX: "hidden", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, fontFamily: T.font }}>
             <div style={{ padding: "12px 16px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
-              {prefOpen && <button onClick={() => setPrefOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 18, lineHeight: 1, padding: "0 4px 0 0" }}>←</button>}
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>{prefOpen ? "Preferences" : "Settings"}</div>
+              {(prefOpen || settingsTab === "org") && <button onClick={() => { setPrefOpen(false); setSettingsTab("main"); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 18, lineHeight: 1, padding: "0 4px 0 0" }}>←</button>}
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>{prefOpen ? "Preferences" : settingsTab === "org" ? "Organization" : "Settings"}</div>
             </div>
-            {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "11px 16px", background: `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`, border: "none", borderBottom: `1px solid ${T.accent}22`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: T.font, transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "30ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "22"} onMouseLeave={e => e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`}>
+            {!prefOpen && settingsTab !== "org" && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "11px 16px", background: `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`, border: "none", borderBottom: `1px solid ${T.accent}22`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: T.font, transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "30ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "22"} onMouseLeave={e => e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`}>
               <div style={{ width: 28, height: 28, borderRadius: 8, background: T.accent + "22", border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
               <div style={{ flex: 1, textAlign: "left" }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: T.accent, letterSpacing: "0.03em" }}>Fast TRAQS</div>
@@ -10890,7 +11085,16 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <span style={{ fontSize: 16, color: T.textDim }}>›</span>
               </button>
-            </> : <>
+            </> : settingsTab === "org" && isAdmin ? (<>
+              <div style={{ padding: "16px 16px 8px" }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Organization Code</div>
+                <div style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "10px 12px", marginBottom: 14 }}><div style={{ fontSize: 11, color: T.textDim, marginBottom: 2 }}>Current code</div><div style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{orgCode || "—"}</div></div>
+                <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>Change the code people use to access this organization.</div>
+                <input value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
+                {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>{orgCodeError}</div>}
+                <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); localStorage.setItem("tq_org_code", newCode); localStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ width: "100%", padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 13, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Updating…" : "Update Org Code"}</button>
+              </div>
+            </>) : <>
             {/* ── Customization ── */}
             <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "30ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
@@ -10937,6 +11141,15 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <span style={{ fontSize: 16, color: T.textDim }}>›</span>
             </button>
+            {/* ── Organization ── */}
+            {isAdmin && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setSettingsTab("org"); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "165ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Organization</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Code: <span style={{ fontFamily: T.mono, fontWeight: 700 }}>{orgCode || "—"}</span></div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>}
             <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
             <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "180ms" }} onMouseEnter={e => e.currentTarget.style.background = "#ef444411"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
