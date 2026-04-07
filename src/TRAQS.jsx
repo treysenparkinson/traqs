@@ -505,7 +505,8 @@ const Tip = ({ label, children }) => {
   return (
     <div style={{ display: "contents" }}
       onMouseEnter={e => ctx.show(label, e.clientX, e.clientY)}
-      onMouseLeave={ctx.hide}>
+      onMouseLeave={ctx.hide}
+      onMouseDown={ctx.hide}>
       {children}
     </div>
   );
@@ -638,7 +639,7 @@ const HealthIcon = ({ t, size = 14 }) => { const h = getHealth(t); const c = HEA
 function StatusDrop({ value, onChange, size = "sm" }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
-  useEffect(() => { if (!open) return; const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [open]);
+  useEffect(() => { if (!open) return; const hm = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; const hk = e => { if (e.key === "Escape") setOpen(false); }; document.addEventListener("mousedown", hm); document.addEventListener("keydown", hk); return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); }; }, [open]);
   const c = STA_C[value] || T.textDim;
   const sz = size === "sm" ? { fontSize: 12, padding: "3px 10px" } : { fontSize: 13, padding: "5px 12px" };
   return <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
@@ -658,7 +659,7 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef(null);
-  useEffect(() => { if (!open) return; const h = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQ(""); } }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [open]);
+  useEffect(() => { if (!open) return; const hm = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQ(""); } }; const hk = e => { if (e.key === "Escape") { setOpen(false); setQ(""); } }; document.addEventListener("mousedown", hm); document.addEventListener("keydown", hk); return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); }; }, [open]);
   const filtered = options.filter(o => o.label.toLowerCase().includes(q.toLowerCase()));
   const selected = options.find(o => o.value === value);
   return <div ref={ref} style={{ position: "relative", marginBottom: 16 }}>
@@ -702,9 +703,11 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…" }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return;
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
+    const hm = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const hk = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", hm);
+    document.addEventListener("keydown", hk);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
   }, [open]);
   return <div ref={ref} style={{ position: "relative" }}>
     <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.surface, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
@@ -731,9 +734,11 @@ function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return;
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
+    const hm = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const hk = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", hm);
+    document.addEventListener("keydown", hk);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
   }, [open]);
   if (!templates.length) return null;
   return <div ref={ref} style={{ position: "relative" }}>
@@ -1962,6 +1967,7 @@ Rules:
   const [newGroupPeople, setNewGroupPeople] = useState([]);
   const [newGroupSaving, setNewGroupSaving] = useState(false);
   const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, name, memberIds }
+  const [editJobModal, setEditJobModal] = useState(null); // { id, title, jobNumber, poNumber, clientId, projectManagerId, dueDate, notes, requiredDepartment } — simple field-only edit
   const [quickChat, setQuickChat] = useState(null);
   const [quickChatInput, setQuickChatInput] = useState("");
   const [quickChatSending, setQuickChatSending] = useState(false);
@@ -2204,8 +2210,8 @@ Rules:
     setShowGanttSplit(v => !v);
   };
 
-  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
-  useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
+  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
+  useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
 
 
@@ -2892,7 +2898,7 @@ Rules:
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
   const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
-  const openEdit = (t, pid = null) => { setModalStep(1); setStepDir(1); const hasAssign = (t.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub=>(sub.team||[]).length>0):(panel.team||[]).length>0); setAvailCheckPassed(hasAssign); setScheduleConfirmed(hasAssign); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { ...t }, parentId: pid }); };
+  const openEdit = (t) => { setEditJobModal({ id: t.id, title: t.title || "", jobNumber: t.jobNumber || "", poNumber: t.poNumber || "", clientId: t.clientId || null, projectManagerId: t.projectManagerId || null, dueDate: t.dueDate || "", notes: t.notes || "", requiredDepartment: t.requiredDepartment || "" }); };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
@@ -4128,7 +4134,7 @@ ${jobsCtx || "No jobs found."}`;
               </select>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
                 {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Task #</div>
@@ -4622,11 +4628,11 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 {/* Filter */}
                 <div style={{ animation: "toolDrop 0.16s 110ms both ease-out", position: "relative" }}>
-                  <button onClick={() => setTaskFilterOpen(p => !p)} style={{ width: "100%", height: 30, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 12, fontFamily: T.font }}>
+                  <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: "100%", height: 30, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 12, fontFamily: T.font }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                     Filter {activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
                   </button>
-                  {taskFilterOpen && <div style={{ position: "absolute", top: 0, left: "calc(100% + 4px)", width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+                  {taskFilterOpen && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 0, left: "calc(100% + 4px)", width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
                     <div><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}><option value="All">All Clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
@@ -4890,12 +4896,12 @@ ${jobsCtx || "No jobs found."}`;
               <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
               {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
               <Tip label="Filter">
-              <button onClick={() => setTaskFilterOpen(p => !p)} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
+              <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                 {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               </Tip>
-              {taskFilterOpen && <div style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+              {taskFilterOpen && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -4918,7 +4924,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                    {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
                     {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
                   </div>
                 </div>
@@ -5010,7 +5016,7 @@ ${jobsCtx || "No jobs found."}`;
                     {(fresh.jobNumber || fresh.poNumber || fresh.projectManagerId) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                       {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
                       {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
-                      {fresh.projectManagerId && (() => { const pm = people.find(p => p.id === fresh.projectManagerId); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: pm.color, background: pm.color + "18", border: `1px solid ${pm.color}44`, borderRadius: 6, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 14, height: 14, borderRadius: 4, background: pm.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>PM: {pm.name}</span> : null; })()}
+                      {fresh.projectManagerId && (() => { const pm = people.find(p => p.id === fresh.projectManagerId); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 14, height: 14, borderRadius: 4, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>PM: {pm.name}</span> : null; })()}
                     </div>}
                   </div>
                 </div>
@@ -5087,7 +5093,7 @@ ${jobsCtx || "No jobs found."}`;
                           <HealthIcon t={op} size={12} />
                           <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
                           <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
-                          {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
+                          {person && <span style={{ marginLeft: "auto", fontSize: 12, color: T.textSec, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
                           {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
                         </div>; })}
                     </div>}
@@ -5667,7 +5673,7 @@ ${jobsCtx || "No jobs found."}`;
                 if (!pmJobs.length) return null;
                 const isCollapsed = !!pmSectionsCollapsed[pmId];
                 const pmLabel = pm ? pm.name : "Unassigned";
-                const pmColor = pm ? pm.color : T.textDim;
+                const pmColor = T.textDim;
                 return <div key={pmId} style={{ marginBottom: 20 }}>
                   {/* Section header */}
                   <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [pmId]: !p[pmId] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer" }}>
@@ -6222,7 +6228,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? p.color : T.border}`, background: active ? (p.color + "28") : "transparent", color: active ? p.color : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
                 {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Task #</div>
@@ -6722,11 +6728,11 @@ ${jobsCtx || "No jobs found."}`;
                       // Compute final positions for all group members + multi-selected bars (same delta)
                       const wdDelta = newStart > os ? diffBD(os, newStart) : -diffBD(newStart, os);
                       const groupFinalMoves = [
-                        // Dep-group members only follow forward drags; backward drags leave them in place (gaps OK)
-                        ...(wdDelta > 0 ? groupMembers.map(m => {
+                        // Dep-group members always move by the same delta in both directions
+                        ...groupMembers.map(m => {
                           const mStart = nextBD(addD(m.origStart, finalDx));
                           return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
-                        }) : []),
+                        }),
                         ...multiDragMembers.map(m => {
                           const mStart = addBD(m.origStart, wdDelta);
                           const mEnd   = addBD(m.origEnd,   wdDelta);
@@ -7306,7 +7312,7 @@ ${jobsCtx || "No jobs found."}`;
                   return (
                     <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18`, animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
+                        <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                       </div>
                       <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
@@ -7779,7 +7785,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ background: T.card, borderRadius: 16, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out" }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 5, background: person.color || T.accent, flexShrink: 0 }} />
+              <div style={{ width: 10, height: 10, borderRadius: 5, background: T.textDim, flexShrink: 0 }} />
               <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>{person.name} — Timestamps</span>
               <span style={{ fontSize: 11, color: T.textDim }}>Last 30 days</span>
               <button onClick={() => setTsPersonEditModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px", marginLeft: 8 }}>✕</button>
@@ -7943,7 +7949,7 @@ ${jobsCtx || "No jobs found."}`;
                     return (
                       <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "14px 16px", marginBottom: 10 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                          <div style={{ width: 10, height: 10, borderRadius: 5, background: p.color || T.accent }} />
+                          <div style={{ width: 10, height: 10, borderRadius: 5, background: T.textDim }} />
                           <span style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</span>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -8117,7 +8123,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? "#22c55e30" : T.borderLight}`, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ padding: "14px 16px", cursor: "pointer" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                                <div style={{ width: 9, height: 9, borderRadius: 5, background: p.color || T.accent, flexShrink: 0 }} />
+                                <div style={{ width: 9, height: 9, borderRadius: 5, background: T.textDim, flexShrink: 0 }} />
                                 <span style={{ fontSize: 15, fontWeight: 700, color: T.text, flex: 1 }}>{p.name}</span>
                                 <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}` }}>
                                   <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? "#22c55e" : T.textDim }} />
@@ -8188,7 +8194,7 @@ ${jobsCtx || "No jobs found."}`;
                         return (
                           <div key={person.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, marginBottom: 10, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, ["ts_" + person.id]: !prev["ts_" + person.id] }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" }}>
-                              <div style={{ width: 8, height: 8, borderRadius: 4, background: person.color || T.accent }} />
+                              <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim }} />
                               <span style={{ fontSize: 14, fontWeight: 600, color: T.text, flex: 1 }}>{person.name}</span>
                               <span style={{ fontSize: 20, fontWeight: 700, color: pTotal > 0 ? T.accent : T.textDim, fontFamily: T.mono }}>{pTotal.toFixed(1)}h</span>
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExpTS ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0, marginLeft: 4 }}><polyline points="9 18 15 12 9 6"/></svg>
@@ -8444,7 +8450,7 @@ ${jobsCtx || "No jobs found."}`;
                               </td>
                               <td style={{ padding: "10px 10px" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ width: 8, height: 8, borderRadius: 4, background: p.color || T.accent, flexShrink: 0 }} />
+                                  <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim, flexShrink: 0 }} />
                                   <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
                                 </div>
                               </td>
@@ -8573,7 +8579,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div key={person.id} style={{ marginBottom: 20, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                         <div style={{ padding: "10px 16px", background: T.card, borderBottom: `1px solid ${T.border}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isCurrPeriod ? 0 : 6 }}>
-                            <div style={{ width: 9, height: 9, borderRadius: 5, background: person.color || T.accent }} />
+                            <div style={{ width: 9, height: 9, borderRadius: 5, background: T.textDim }} />
                             <span style={{ fontWeight: 700, color: T.text, flex: 1, fontSize: 14 }}>{person.name}</span>
                             {(() => { const isSalary = person.payType === "salary"; return <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 8, background: isSalary ? "#6366f118" : "#f59e0b18", color: isSalary ? "#6366f1" : "#f59e0b", border: `1px solid ${isSalary ? "#6366f130" : "#f59e0b30"}`, marginRight: 6 }}>{isSalary ? "Salary" : "Hourly"}</span>; })()}
                             <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{totalH.toFixed(2)} hrs</span>
@@ -8939,7 +8945,7 @@ ${jobsCtx || "No jobs found."}`;
         const pctLoad = p.cap > 0 ? Math.min(bookedH / p.cap * 100, 100) : 0;
         return <div key={p.id} style={{ marginBottom: 6 }}>
           <div onClick={() => setMobileExp(prev => ({ ...prev, ["p_" + p.id]: !prev["p_" + p.id] }))} style={{ display: "flex", gap: 12, padding: "12px 14px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : undefined, cursor: "pointer", alignItems: "center" }}>
-            <div style={{ width: 38, height: 38, borderRadius: 19, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
+            <div style={{ width: 38, height: 38, borderRadius: 19, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{p.department}{p.cap ? ` · ${p.cap}h/day` : ""}</div>
@@ -8972,7 +8978,7 @@ ${jobsCtx || "No jobs found."}`;
             {currentTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Working On</div>
               {currentTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}` }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = T.card}>
-                <div style={{ width: 6, height: 6, borderRadius: 3, background: p.color, flexShrink: 0 }} />
+                <div style={{ width: 6, height: 6, borderRadius: 3, background: T.textDim, flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>
               </div>)}
@@ -9077,7 +9083,7 @@ ${jobsCtx || "No jobs found."}`;
             return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.glass, border: `1px solid ${T.glassBorder}`, borderRadius: T.radiusSm, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", maxHeight: 300, overflow: "auto" }}>
               {!hasResults && <div style={{ padding: "20px 12px", textAlign: "center", color: T.textDim, fontSize: 13 }}>No results</div>}
               {personResults.slice(0, 4).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
-                <div style={{ width: 22, height: 22, borderRadius: 11, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+                <div style={{ width: 22, height: 22, borderRadius: 11, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
                 <span style={{ fontWeight: 500 }}>{p.name}</span>
               </div>)}
               {clientResults.slice(0, 4).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("clients"); setMobileExp(p => ({ ...p, ["c_" + c.id]: true })); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
@@ -9442,7 +9448,7 @@ ${jobsCtx || "No jobs found."}`;
                   {chatThread.scope === "group" ? "Members:" : "Participants:"}
                 </span>
                 {chatThread.participants.slice(0, 8).map(p => (
-                  <div key={p.id} title={p.name} style={{ width: 20, height: 20, borderRadius: 10, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+                  <div key={p.id} title={p.name} style={{ width: 20, height: 20, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
                 ))}
                 {chatThread.participants.length > 8 && <span style={{ fontSize: 11, color: T.textDim }}>+{chatThread.participants.length - 8}</span>}
               </div>
@@ -10394,7 +10400,7 @@ ${jobsCtx || "No jobs found."}`;
                         <span style={{ fontSize:13, fontWeight:700, color:T.text, flex:1 }}>{panel.title||"Untitled"}</span>
                         {isOverrideSuccess && <span style={{ fontSize:10, fontWeight:700, color:"#10b981", display:"flex", alignItems:"center", gap:4, flexShrink:0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Override applied</span>}
                         {pStart && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(pStart)}<span style={{ margin:"0 5px", opacity:0.4 }}>→</span>{fm(pEnd)}</span>}
-                        {!hasSubs && (panel.team||[]).map(pid=>{ const person=people.find(x=>x.id===pid); if(!person) return null; return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:6, background:(person.color||color)+"20", color:person.color||color, border:`1px solid ${person.color||color}33` }}>{person.name}</span>; })}
+                        {!hasSubs && (panel.team||[]).map(pid=>{ const person=people.find(x=>x.id===pid); if(!person) return null; return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:6, background:T.surface, color:T.textSec, border:`1px solid ${T.border}` }}>{person.name}</span>; })}
                         {/* Override start date button */}
                         <Tip label="Override start date">
                         <button
@@ -10440,7 +10446,7 @@ ${jobsCtx || "No jobs found."}`;
                             <span style={{ fontSize:12, color:T.text, flex:1 }}>{sub.title||"Untitled"}</span>
                             {sub.start && <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)}<span style={{ margin:"0 4px", opacity:0.4 }}>→</span>{fm(sub.end)}</span>}
                             <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-                              {(sub.team||[]).map(pid=>{ const person=people.find(x=>x.id===pid); if(!person) return null; return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:6, background:(person.color||T.accent)+"20", color:person.color||T.accent, border:`1px solid ${person.color||T.accent}33` }}>{person.name}</span>; })}
+                              {(sub.team||[]).map(pid=>{ const person=people.find(x=>x.id===pid); if(!person) return null; return <span key={pid} style={{ fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:6, background:T.surface, color:T.textSec, border:`1px solid ${T.border}` }}>{person.name}</span>; })}
                             </div>
                           </div>
                         ))}
@@ -10656,7 +10662,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ display:"flex", gap:4, flexWrap:"wrap", marginBottom:slot.busy.length>0?6:0 }}>
                   <span style={{ fontSize:11, color:"#10b981", fontWeight:500, marginRight:4 }}>✓ Available ({slot.available.length}):</span>
-                  {slot.available.map(p => <span key={p.id} style={{ fontSize:11, padding:"2px 8px", borderRadius:6, background:p.color+"15", color:p.color, fontWeight:600, border:`1px solid ${p.color}33` }}>{p.name}</span>)}
+                  {slot.available.map(p => <span key={p.id} style={{ fontSize:11, padding:"2px 8px", borderRadius:6, background:T.surface, color:T.textSec, fontWeight:600, border:`1px solid ${T.border}` }}>{p.name}</span>)}
                 </div>
                 {slot.busy.length>0 && <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
                   <span style={{ fontSize:11, color:T.danger, fontWeight:500, marginRight:4 }}>✗ Busy ({slot.busy.length}):</span>
@@ -10740,8 +10746,8 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>}
           {/* Assigned person */}
-          {person && <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: person.color + "0a", borderRadius: T.radiusSm, border: `1px solid ${person.color}33`, marginBottom: 16 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff", fontWeight: 700 }}>{person.name[0]}</div>
+          {person && <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff", fontWeight: 700 }}>{person.name[0]}</div>
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{person.name}</div>
               <div style={{ fontSize: 12, color: T.textDim }}>{person.department}</div>
@@ -10939,7 +10945,7 @@ ${jobsCtx || "No jobs found."}`;
             {personResults.length > 0 && <div>
               <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Members</div>
               {personResults.slice(0, 5).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <div style={{ width: 24, height: 24, borderRadius: 12, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+                <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
                 <span style={{ fontWeight: 500 }}>{p.name}</span>
                 <span style={{ fontSize: 12, color: T.textDim }}>{p.department}</span>
               </div>)}
@@ -11468,21 +11474,24 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Status Popover ── */}
     {statusPopover && <>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setStatusPopover(null)} />
-      <div style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 32px rgba(0,0,0,0.45)", padding: 6, display: "flex", flexDirection: "column", gap: 2, minWidth: 160, fontFamily: T.font, animation: "slideUp 0.15s ease-out" }}>
-        {STATUSES.map(s => {
+      <div style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+        {STATUSES.map((s, si) => {
           const sc = STA_C[s];
           const isCurrent = s === statusPopover.current;
+          const fk = `statusPop-${s}`;
           return (
-            <button key={s} onClick={() => {
-              setStatusPopover(null);
-              if (s === statusPopover.current) return;
+            <div key={s} onClick={() => {
+              if (isCurrent) return;
               if (s === "Finished" && !isAdmin) return; // non-admins must use right-click > Request Finish Approval
-              updTask(statusPopover.id, { status: s }, statusPopover.pid || undefined);
-            }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: isCurrent ? sc + "22" : "transparent", cursor: s === statusPopover.current ? "default" : "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.12s" }} onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = sc + "18"; }} onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? sc + "22" : "transparent"; }}>
-              <span style={{ fontSize: 13, color: sc }}>{STA_ICON[s]}</span>
-              <span style={{ fontSize: 12, fontWeight: isCurrent ? 700 : 400, color: isCurrent ? sc : T.text }}>{s}</span>
-              {isCurrent && <span style={{ marginLeft: "auto", fontSize: 10, color: sc }}>✓</span>}
-            </button>
+              setDropFlashKey(fk);
+              setTimeout(() => { updTask(statusPopover.id, { status: s }, statusPopover.pid || undefined); setStatusPopover(null); setDropFlashKey(null); }, 150);
+            }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${si * 38}ms both ease-out`, background: isCurrent ? sc + "12" : "transparent" }}
+            onMouseEnter={e => { if (!isCurrent && !dropFlashKey) e.currentTarget.style.background = sc + "18"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? sc + "12" : "transparent"; }}>
+              <span style={{ fontSize: 13, color: sc, flexShrink: 0 }}>{STA_ICON[s]}</span>
+              <span style={{ fontSize: 13, fontWeight: isCurrent ? 600 : 400, color: isCurrent ? sc : T.text, flex: 1 }}>{s}</span>
+              {isCurrent && <svg width="12" height="12" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={sc} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </div>
           );
         })}
       </div>
@@ -11916,7 +11925,7 @@ ${jobsCtx || "No jobs found."}`;
                 return <div key={person.id}>
                   {/* Person row */}
                   <div onClick={() => isAdmin && setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: isAdmin ? "pointer" : "default", transition: "all 0.15s" }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 10, background: person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
                       <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
@@ -12414,13 +12423,13 @@ ${jobsCtx || "No jobs found."}`;
                 for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id !== it.id && (op.team||[]).includes(p.id) && op.status !== "Finished" && op.start <= it.end && op.end >= it.start) { busy = true; } } } }
                 if (!busy) { const pp = people.find(x => x.id === p.id); if (pp) for (const to of (pp.timeOff||[])) { if (to.start <= it.end && to.end >= it.start) { busy = true; break; } } }
               }
-              return <button key={p.id} onClick={() => { if (busy) return; setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs||[]).map(panel => ({ ...panel, subs: (panel.subs||[]).map(op => op.id === it.id ? { ...op, team: sel ? [] : [p.id] } : op) })) }))); setReassignModal(null); }} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, border: `1.5px solid ${sel ? p.color : busy ? T.border : T.border}`, background: sel ? p.color + "18" : busy ? T.surface : T.surface, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.45 : 1, transition: "all 0.12s", textAlign: "left" }} onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = p.color; }} onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = sel ? p.color : T.border; }}>
-                <div style={{ width: 32, height: 32, borderRadius: 9, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+              return <button key={p.id} onClick={() => { if (busy) return; setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs||[]).map(panel => ({ ...panel, subs: (panel.subs||[]).map(op => op.id === it.id ? { ...op, team: sel ? [] : [p.id] } : op) })) }))); setReassignModal(null); }} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : T.surface, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.45 : 1, transition: "all 0.12s", textAlign: "left" }} onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = T.accent; }} onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = sel ? T.accent : T.border; }}>
+                <div style={{ width: 32, height: 32, borderRadius: 9, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? p.color : T.text }}>{p.name}{sel && " (current)"}</div>
+                  <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.text }}>{p.name}{sel && " (current)"}</div>
                   <div style={{ fontSize: 11, color: T.textDim }}>{busy ? "Busy during this period" : p.department || "Team member"}</div>
                 </div>
-                {sel && <span style={{ fontSize: 11, color: p.color, fontWeight: 700 }}>✓</span>}
+                {sel && <span style={{ fontSize: 11, color: T.accent, fontWeight: 700 }}>✓</span>}
               </button>;
             })}
             {shopCrew.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "20px 0" }}>No team members available</div>}
@@ -12511,8 +12520,8 @@ ${jobsCtx || "No jobs found."}`;
               return <button key={p.id} onClick={() => setQuickAddSub(prev => ({
                 ...prev,
                 team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id]
-              }))} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? "#fff" : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                <span style={{ width: 16, height: 16, borderRadius: 5, background: sel ? "rgba(255,255,255,0.25)" : p.color + "22", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: sel ? "#fff" : p.color, flexShrink: 0 }}>{p.name[0]}</span>
+              }))} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? T.accent : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                <span style={{ width: 16, height: 16, borderRadius: 5, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</span>
                 {p.name}
               </button>;
             })}
@@ -12948,7 +12957,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Current dates */}
           <div style={{ display: "flex", gap: 8, marginBottom: 16, padding: "10px 14px", borderRadius: 10, background: T.bg, border: `1px solid ${T.border}` }}>
             <span style={{ fontSize: 12, color: T.textDim, flex: 1 }}>Current: <span style={{ color: T.text, fontFamily: T.mono }}>{fm(op.start)} → {fm(op.end)}</span></span>
-            {(op.team || []).length > 0 && <div style={{ display: "flex", gap: 4 }}>{teamPeople.map(p => <span key={p.id} style={{ width: 20, height: 20, borderRadius: 6, background: p.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{p.name[0]}</span>)}</div>}
+            {(op.team || []).length > 0 && <div style={{ display: "flex", gap: 4 }}>{teamPeople.map(p => <span key={p.id} style={{ width: 20, height: 20, borderRadius: 6, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{p.name[0]}</span>)}</div>}
           </div>
 
           {/* Auto slot suggestion */}
@@ -13031,7 +13040,7 @@ ${jobsCtx || "No jobs found."}`;
             const person = (confirmPush.people || people).find(x => x.id === push.personId);
             return <div key={i} style={{ padding: "14px 16px", borderBottom: i < confirmPush.pushes.length - 1 ? `1px solid ${T.border}` : "none", background: i % 2 === 0 ? T.surface : "transparent" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                {person && <span style={{ width: 20, height: 20, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>}
+                {person && <span style={{ width: 20, height: 20, borderRadius: 6, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>}
                 <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{push.opTitle} – {push.panelTitle}</span>
                 <span style={{ fontSize: 12, color: T.textDim, marginLeft: "auto" }}>Job {push.jobTitle}</span>
               </div>
@@ -13083,9 +13092,9 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {people.map(p => {
             const sel = newGroupPeople.includes(p.id);
-            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: 20, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-              <div style={{ width: 24, height: 24, borderRadius: 12, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{p.name[0]}</div>
-              <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? p.color : T.textSec }}>{p.name}</span>
+            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: 20, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+              <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{p.name[0]}</div>
+              <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? T.accent : T.textSec }}>{p.name}</span>
             </button>;
           })}
         </div>
@@ -13110,9 +13119,9 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
           {people.map(p => {
             const sel = editGroupModal.memberIds.includes(p.id);
-            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: 20, border: `2px solid ${sel ? p.color : T.border}`, background: sel ? p.color + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-              <div style={{ width: 24, height: 24, borderRadius: 12, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{p.name[0]}</div>
-              <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? p.color : T.textSec }}>{p.name}</span>
+            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: 20, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+              <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{p.name[0]}</div>
+              <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? T.accent : T.textSec }}>{p.name}</span>
             </button>;
           })}
         </div>
@@ -13122,6 +13131,149 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}
+
+    {/* Edit Job modal — simple field update, no wizard */}
+    {editJobModal && (() => {
+      const ej = editJobModal;
+      const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
+      const saveEditJob = () => {
+        if (!ej.title.trim()) return;
+        updTask(ej.id, { title: ej.title.trim(), jobNumber: ej.jobNumber, poNumber: ej.poNumber, clientId: ej.clientId, projectManagerId: ej.projectManagerId, dueDate: ej.dueDate || null, notes: ej.notes, requiredDepartment: ej.requiredDepartment });
+        setEditJobModal(null);
+      };
+      const fieldLabel = (text) => <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, fontFamily: T.font }}>{text}</label>;
+      const fieldInput = (val, onChange, opts = {}) => <input value={val} onChange={e => onChange(e.target.value)} type={opts.type || "text"} placeholder={opts.placeholder || ""} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />;
+      const clientOpts = clients.map(c => ({ value: c.id, label: c.name, color: c.color, sub: c.contact || "" }));
+      return (
+        <div style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setEditJobModal(null)}>
+          <div style={{ background: T.card, borderRadius: T.radius, width: "100%", minWidth: 680, maxWidth: 720, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ padding: "20px 32px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Edit Job</h3>
+                <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details — no scheduling changes</div>
+              </div>
+              <button onClick={() => setEditJobModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px", marginLeft: 12 }}>✕</button>
+            </div>
+            {/* Body */}
+            <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
+              {/* Job Name — full width */}
+              <div>
+                {fieldLabel("Job Name")}
+                {fieldInput(ej.title, v => setEj({ title: v }), { placeholder: "Job name…" })}
+              </div>
+              {/* Job # / PO # — 2 col */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+                <div>
+                  {fieldLabel("Job #")}
+                  {fieldInput(ej.jobNumber, v => setEj({ jobNumber: v }), { placeholder: "e.g. 2024-001" })}
+                </div>
+                <div>
+                  {fieldLabel("PO #")}
+                  {fieldInput(ej.poNumber, v => setEj({ poNumber: v }), { placeholder: "e.g. PO-8821" })}
+                </div>
+              </div>
+              {/* Client */}
+              <div>
+                <SearchSelect label="Client" value={ej.clientId} onChange={v => setEj({ clientId: v })} options={clientOpts} placeholder="Search clients…" />
+              </div>
+              {/* Project Manager / Due Date — 2 col */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+                <div>
+                  {fieldLabel("Project Manager")}
+                  <div style={{ position: "relative" }}>
+                    {(() => {
+                      const selPm = people.find(p => p.id === ej.projectManagerId);
+                      return (
+                        <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
+                          {selPm
+                            ? <><div style={{ width: 22, height: 22, borderRadius: 6, background: selPm.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{selPm.name[0]}</div><span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: "left" }}>{selPm.name}</span></>
+                            : <span style={{ flex: 1, fontSize: 14, color: T.textDim, textAlign: "left" }}>— No PM —</span>}
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                        </button>
+                      );
+                    })()}
+                    {deptDropId === "editJobPM" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
+                      <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, color: T.textDim }}>— No PM —</span>
+                      </div>
+                      {people.map((p, pi) => {
+                        const isOn = ej.projectManagerId === p.id;
+                        const fk = `editJob-pm-${p.id}`;
+                        return <div key={p.id} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ projectManagerId: p.id }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${(pi + 1) * 38}ms both ease-out` }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
+                          <div style={{ width: 22, height: 22, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                            {p.department && <div style={{ fontSize: 11, color: T.textDim }}>{p.department}</div>}
+                          </div>
+                          {isOn && <svg width="12" height="12" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={T.accent} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        </div>;
+                      })}
+                    </div>}
+                  </div>
+                </div>
+                <div>
+                  {fieldLabel("Due Date")}
+                  {fieldInput(ej.dueDate, v => setEj({ dueDate: v }), { type: "date" })}
+                </div>
+              </div>
+              {/* Department — animated dropdown matching wizard style */}
+              <div>
+                {fieldLabel("Department")}
+                <div style={{ position: "relative" }}>
+                  <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobModal"; setDeptDropId(opening ? "editJobModal" : null); if (opening) { setDeptAddInput(""); setDeptAddMode(false); } }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${ej.requiredDepartment ? T.accent + "55" : T.glassBorder}`, background: ej.requiredDepartment ? T.accent + "10" : T.glass, color: ej.requiredDepartment ? T.accent : T.textDim, fontSize: 14, fontFamily: T.font, fontWeight: ej.requiredDepartment ? 600 : 400, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s" }}>
+                    <span>{ej.requiredDepartment || "— No department —"}</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  {deptDropId === "editJobModal" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
+                    {orgSettings.roles.length === 0 && !deptAddMode && <div style={{ padding: "8px 14px", fontSize: 13, color: T.textDim }}>No departments yet</div>}
+                    {/* None option */}
+                    <div onClick={() => { setEj({ requiredDepartment: "" }); setDeptDropId(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${!ej.requiredDepartment ? T.accent : T.border}`, background: !ej.requiredDepartment ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+                        {!ej.requiredDepartment && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: !ej.requiredDepartment ? 600 : 400, color: !ej.requiredDepartment ? T.accent : T.textDim }}>— No department —</span>
+                    </div>
+                    {orgSettings.roles.map((r, ri) => {
+                      const isOn = ej.requiredDepartment === r;
+                      const fk = `editJob-dept-${r}`;
+                      return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ requiredDepartment: isOn ? "" : r }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${(ri + 1) * 38}ms both ease-out` }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
+                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+                          {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        </div>
+                        <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{r}</span>
+                      </div>;
+                    })}
+                    <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
+                      {deptAddMode
+                        ? <div style={{ display: "flex", gap: 4, padding: "4px 8px 6px" }}>
+                            <input value={deptAddInput} onChange={e => setDeptAddInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { const v = deptAddInput.trim(); if (v && !orgSettings.roles.includes(v)) { setOrgSettings(s => ({ ...s, roles: [...s.roles, v] })); setEj({ requiredDepartment: v }); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if (e.key === "Escape") { setDeptAddMode(false); setDeptAddInput(""); } }} placeholder="Department name…" style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", minWidth: 0 }} autoFocus />
+                            <button onClick={() => { const v = deptAddInput.trim(); if (v && !orgSettings.roles.includes(v)) { setOrgSettings(s => ({ ...s, roles: [...s.roles, v] })); setEj({ requiredDepartment: v }); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: T.accent, color: T.accentText, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Add</button>
+                          </div>
+                        : <div onClick={() => setDeptAddMode(true)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13, color: T.accent, fontWeight: 600, transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <span style={{ fontSize: 15 }}>+</span> Create new Department
+                          </div>
+                      }
+                    </div>
+                  </div>}
+                </div>
+              </div>
+              {/* Notes — full width */}
+              <div>
+                {fieldLabel("Notes")}
+                <textarea value={ej.notes} onChange={e => setEj({ notes: e.target.value })} rows={3} placeholder="Job notes…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", resize: "vertical", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />
+              </div>
+            </div>
+            {/* Footer */}
+            <div style={{ padding: "18px 32px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
+              <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
 
     {/* Reminder modal */}
     {reminderModal && (() => {
@@ -13149,8 +13301,8 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ padding: "16px 24px" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Notifying {recipients.length} team member{recipients.length !== 1 ? "s" : ""}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
-              {recipients.map(p => <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: p.color + "18", border: `1px solid ${p.color}44`, borderRadius: 20, padding: "4px 10px 4px 6px" }}>
-                <div style={{ width: 20, height: 20, borderRadius: 6, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+              {recipients.map(p => <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 20, padding: "4px 10px 4px 6px" }}>
+                <div style={{ width: 20, height: 20, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
                 <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{p.name}</span>
               </div>)}
             </div>
@@ -13410,7 +13562,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
           {available.map(r => {
             const isSel = selectedPerson === r.p.id;
             return <div key={r.p.id} onClick={() => setSelectedPerson(isSel ? null : r.p.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: isSel ? T.accent + "12" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${isSel ? T.accent + "55" : "#10b98133"}`, cursor: "pointer", transition: "all 0.15s" }}>
-              <div style={{ width: 36, height: 36, borderRadius: 12, background: r.p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{r.p.name[0]}</div>
+              <div style={{ width: 36, height: 36, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{r.p.name[0]}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{r.p.name}</div>
                 <div style={{ fontSize: 12, color: T.textSec, marginTop: 1 }}>
@@ -13429,7 +13581,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
         <div style={{ fontSize: 12, fontWeight: 700, color: T.danger, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Busy · {busy.length}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
           {busy.map(r => <div key={r.p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.danger}22`, opacity: 0.6 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 10, background: r.p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{r.p.name[0]}</div>
+            <div style={{ width: 32, height: 32, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{r.p.name[0]}</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 500, color: T.text }}>{r.p.name}</div>
               <div style={{ fontSize: 11, color: T.textDim }}>{r.avg.toFixed(1)}h/day free · needs {aH}h</div>
@@ -13485,8 +13637,8 @@ function TimeOffModal({ people, updPerson, onClose }) {
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Team Member</label>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {shopCrew.map(p => <button key={p.id} onClick={() => setToPerson(toPerson === p.id ? null : p.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: `1px solid ${toPerson === p.id ? p.color + "66" : T.border}`, background: toPerson === p.id ? p.color + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, color: T.text, fontWeight: toPerson === p.id ? 600 : 400, transition: "all 0.15s" }}>
-              <div style={{ width: 18, height: 18, borderRadius: 6, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+            {shopCrew.map(p => <button key={p.id} onClick={() => setToPerson(toPerson === p.id ? null : p.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: `1px solid ${toPerson === p.id ? T.accent + "66" : T.border}`, background: toPerson === p.id ? T.accent + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, color: T.text, fontWeight: toPerson === p.id ? 600 : 400, transition: "all 0.15s" }}>
+              <div style={{ width: 18, height: 18, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
               {p.name}
             </button>)}
           </div>
@@ -13518,7 +13670,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
       <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Upcoming{upcoming.length > 0 ? ` · ${upcoming.length}` : ""}</div>
       {upcoming.length === 0 && <div style={{ textAlign: "center", padding: "20px 0", color: T.textDim, fontSize: 13 }}>No upcoming time off</div>}
       {upcoming.map((to, i) => <div key={to.person.id + "-" + i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, marginBottom: 6 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 8, background: to.person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{to.person.name[0]}</div>
+        <div style={{ width: 28, height: 28, borderRadius: 8, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{to.person.name[0]}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{to.person.name}</div>
           <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{fm(to.start)} → {fm(to.end)} · {to.reason}</div>
@@ -13530,7 +13682,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
       {past.length > 0 && <>
         <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, marginTop: 16 }}>Past · {past.length}</div>
         {past.map((to, i) => <div key={to.person.id + "-p-" + i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, marginBottom: 4, opacity: 0.5 }}>
-          <div style={{ width: 24, height: 24, borderRadius: 6, background: to.person.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{to.person.name[0]}</div>
+          <div style={{ width: 24, height: 24, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{to.person.name[0]}</div>
           <div style={{ flex: 1 }}>
             <span style={{ fontSize: 13, color: T.text }}>{to.person.name}</span>
             <span style={{ fontSize: 12, color: T.textDim, marginLeft: 8 }}>{fm(to.start)} → {fm(to.end)} · {to.reason}</span>
