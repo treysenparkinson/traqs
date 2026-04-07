@@ -1559,6 +1559,7 @@ Rules:
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
   const [collapsedOps, setCollapsedOps] = useState({});
   const [gZoom, setGZoom] = useState(1);
+  const [tZoom, setTZoom] = useState(1);
   const [showGanttSplit, setShowGanttSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(55);
   const [splitGanttExpanded, setSplitGanttExpanded] = useState(new Set());
@@ -2152,6 +2153,7 @@ Rules:
   const ganttRef = useRef(null);
   const ganttContainerRef = useRef(null);
   const barTooltipTimer = useRef(null);
+  const isDraggingResize = useRef(false);
   const [appTooltip, setAppTooltip] = useState(null); // { label, x, y }
   const appTooltipTimer = useRef(null);
   const tipCtx = useMemo(() => ({
@@ -4160,15 +4162,13 @@ ${jobsCtx || "No jobs found."}`;
             </div>}
           </div>
         </div>
-        {/* Right side: Clipboard + Zoom + FAST TRAQS + New Task button */}
+        {/* Right side: Clipboard */}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <Tip label="Zoom"><input type="range" min="0.5" max="4" step="0.1" value={gZoom} onChange={e => setGZoom(Number(e.target.value))} style={{ width: 80, accentColor: T.accent }} /></Tip>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
-          {can("editJobs") && !jobSelectMode && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
 
@@ -4750,7 +4750,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>}
             </div>
           </>}
-          <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
+          {taskSubView === "gantt" && <Tip label="Zoom"><input type="range" min="0.5" max="4" step="0.1" value={gZoom} onChange={e => setGZoom(Number(e.target.value))} style={{ width: 80, accentColor: T.accent }} /></Tip>}
           <Btn size="sm" onClick={() => setBcModalState("open")}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
             BC Jobs
@@ -5954,7 +5954,7 @@ ${jobsCtx || "No jobs found."}`;
     const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
     const lW = isMobile ? 120 : 260, rH = 42, grpH = 36;
     const tAvail = Math.max((teamWidth || 1200) - lW, 200);
-    const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
+    const cW = (isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : Math.max(30, tAvail / Math.max(days.length, 1))) * tZoom;
     teamCWRef.current = cW;
     // Group people by department
     const roles = []; const roleMap = {};
@@ -6110,6 +6110,7 @@ ${jobsCtx || "No jobs found."}`;
     const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null, rawBarS = null, rawBarE = null) => {
       if (!barTask) return;
       e.preventDefault(); e.stopPropagation();
+      if (mode !== "move") { clearTimeout(barTooltipTimer.current); setBarTooltip(null); isDraggingResize.current = true; }
       const DHS = 5, DHE = 21, DNH = 16;
       const origHour = rawBarS ?? (barTask.startHour ?? 8);
       const origHpd = rawBarE != null ? (rawBarE - origHour) : (barTask.hpd || 0);
@@ -6159,16 +6160,25 @@ ${jobsCtx || "No jobs found."}`;
           const target = getPersonAtY(me.clientY);
           setDayDragTarget(target && target.id !== fromPersonId ? target.id : null);
         } else if (mode === "left") {
-          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
-          const newStart = Math.round(cursorHour * 4) / 4;
-          pending.startHour = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
+          const _dayColW = timelineWidth / Math.max(1, days.length);
+          const _pxPerHour = _dayColW / (orgSettings?.hpd || 8);
+          const _pixelDelta = me.clientX - sx;
+          const _rawStart = origHour + (_pixelDelta / _pxPerHour);
+          const _snappedStart = Math.round(_rawStart * 4) / 4;
+          pending.startHour = Math.max(DHS, Math.min(origEnd - 0.25, _snappedStart));
           pending.hpd = Math.round((origEnd - pending.startHour) * 100) / 100;
-          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour) });
+          console.log("=== RESIZE DRAG ===", JSON.stringify({ mode: mode, pixelDelta: _pixelDelta, dayColW: _dayColW, pxPerHour: _pxPerHour, rawStart: _rawStart, snappedStart: _snappedStart, originalHours: origHour, newHours: pending.startHour, origEnd, resultHpd: pending.hpd }));
+          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour), hpd: pending.hpd, origHpd });
         } else {
-          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
-          const clamped = Math.max(origHour + 0.25, Math.min(DHE, Math.round(cursorHour * 4) / 4));
-          pending.hpd = Math.round((clamped - origHour) * 100) / 100;
-          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(origHour + pending.hpd) });
+          const _dayColW = timelineWidth / Math.max(1, days.length);
+          const _pxPerHour = _dayColW / (orgSettings?.hpd || 8);
+          const _pixelDelta = me.clientX - sx;
+          const _rawEnd = origEnd + (_pixelDelta / _pxPerHour);
+          const _snappedEnd = Math.round(_rawEnd * 4) / 4;
+          const _clamped = Math.max(origHour + 0.25, Math.min(DHE, _snappedEnd));
+          pending.hpd = Math.round((_clamped - origHour) * 100) / 100;
+          console.log("=== RESIZE DRAG ===", JSON.stringify({ mode: mode, pixelDelta: _pixelDelta, dayColW: _dayColW, pxPerHour: _pxPerHour, rawEnd: _rawEnd, snappedEnd: _snappedEnd, originalHours: origHour, newHpd: pending.hpd, origEnd }));
+          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(origHour + pending.hpd), hpd: pending.hpd, origHpd });
         }
       };
       const onU = (me) => {
@@ -6187,6 +6197,7 @@ ${jobsCtx || "No jobs found."}`;
         } else if (moved && mode === "right") {
           updTask(barTask.id, { hpd: pending.hpd }, pid);
         }
+        isDraggingResize.current = false;
         setTeamDayGhost(null);
         setDayDragInfo(null);
         setDayDragTarget(null);
@@ -6284,6 +6295,7 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
+          {tMode !== "day" && <Tip label="Zoom columns"><input type="range" min="0.5" max="4" step="0.1" value={tZoom} onChange={e => setTZoom(Number(e.target.value))} style={{ width: 80, accentColor: T.accent }} /></Tip>}
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
@@ -6372,7 +6384,7 @@ ${jobsCtx || "No jobs found."}`;
                           onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
                           style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2),transition:"box-shadow 0.1s,opacity 0.2s"}}
-                          onMouseEnter={e=>{ if(!dayDragInfo){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); setBarTooltip({ x: e.clientX, y: e.clientY, color: bar.color, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: bar.task?.locked || false, hasMoveLog: (bar.task?.moveLog||[]).length > 0 }); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); setBarTooltip(null); }}>
+                          onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingResize.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); setBarTooltip({ x: e.clientX, y: e.clientY, color: bar.color, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: bar.task?.locked || false, hasMoveLog: (bar.task?.moveLog||[]).length > 0 }); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); setBarTooltip(null); }}>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
@@ -6396,8 +6408,8 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
-      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
-        <div style={{ display: "flex", flexDirection: "column", position: "relative", width: "100%" }}>
+      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile || tZoom > 1 ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+        <div style={{ display: "flex", flexDirection: "column", position: "relative", minWidth: "100%", width: tW }}>
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
             <div style={{ display: "flex" }}>
@@ -6522,26 +6534,42 @@ ${jobsCtx || "No jobs found."}`;
                   });
                   return ghosts.length ? <>{ghosts}</> : null;
                 })()}
-                {/* Task/PTO bars */}
-                {bars.map(bar => {
+                {/* Task/PTO bars — each bar rendered per working day, width proportional to hpd */}
+                {(() => {
+                  const _orgHpd = orgSettings?.hpd || 8;
+                  // Pre-compute cumulative hours offset per bar per day for side-by-side placement
+                  const _dayOffsets = {};
+                  days.forEach(day => {
+                    const dow = new Date(day + "T12:00:00").getDay();
+                    if (dow === 0 || dow === 6) return;
+                    let cum = 0;
+                    bars.forEach(b => {
+                      if (b.type === "eng-chip") return;
+                      if (b.start <= day && b.end >= day) {
+                        _dayOffsets[b.id + "-" + day] = cum;
+                        cum += b.type === "pto" ? _orgHpd : (b.task?.hpd || _orgHpd);
+                      }
+                    });
+                  });
+                  return bars.flatMap(bar => {
                   const nDays = days.length;
-                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, bar.end, tStart, tEnd);
-                  const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
-                  const x = (diffD(tStart, firstBarSeg.start) / nDays * 100) + "%";
-                  const w = (Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100) + "%";
-                  // Engineering chip — render as compact pill, opens job detail
+                  // Working days this bar is visible within the current range
+                  const _activeDays = bar.type === "eng-chip" ? [] : days.filter(d => { const dow = new Date(d + "T12:00:00").getDay(); return dow !== 0 && dow !== 6 && bar.start <= d && bar.end >= d; });
+                  // Engineering chip — render as compact pill on its chip date
                   if (bar.type === "eng-chip") {
                     const chipJob = tasks.find(j => j.id === bar.jobId);
-                    return <div key={bar.id}
+                    const _chipX = (diffD(tStart, bar.start) / nDays * 100) + "%";
+                    return [<div key={bar.id}
                       onClick={() => { if (chipJob) openDetail(chipJob); }}
                       title={`${bar.panelTitle} · ${bar.activeStep}${bar.allDone ? " ✓ Done" : ""}`}
-                      style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 20, background: bar.allDone ? "#10b981" : "#3b82f6", border: `1.5px solid ${bar.allDone ? "#10b98166" : "#3b82f666"}`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
+                      style={{ position: "absolute", top: 4, left: `calc(${_chipX} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 20, background: bar.allDone ? "#10b981" : "#3b82f6", border: `1.5px solid ${bar.allDone ? "#10b98166" : "#3b82f666"}`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
                       onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
                       <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bar.panelTitle}</span>
                       {!bar.allDone && <span style={{ fontSize: 9, color: "rgba(255,255,255,0.75)", marginLeft: 4, whiteSpace: "nowrap" }}>· {bar.activeStep}</span>}
                       {bar.allDone && <span style={{ fontSize: 10, marginLeft: 4 }}>✓</span>}
-                    </div>;
+                    </div>];
                   }
+                  if (_activeDays.length === 0) return [];
                   const isPto = bar.type === "pto";
                   const isExp = false;
                   const handleTeamDrag = (e) => {
@@ -6955,37 +6983,35 @@ ${jobsCtx || "No jobs found."}`;
                   const barOpacity = barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
-                  const barKey = bar.id + "_0_" + bar.start;
-                  if (['t22isapb4','ttq9o7pyl','t76tc6gah'].includes(bar.id)) console.log("=== BAR KEY ===", bar.id, "key:", barKey, "start:", bar.start);
-                  return [<div key={barKey}
-                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
-                    onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
-                    onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
-                    {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
-                    {inDepGroup && !isBarSelected && <Tip label="Linked — moves with its dependency group"><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span></Tip>}
-                    {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                    {hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
-                    <span style={{ fontSize: 11, color: isPto ? bar.color : (isLight(bc) ? '#000000' : '#ffffff'), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
-                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
-                  </div>,
-                  ...barSegs.slice(1).map((seg, si) => {
-                    const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
-                    const tailW = ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
-                    const isPto2 = bar.type === "pto";
-                    const bc2 = bar.color;
-                    const isLastSeg = si === barSegs.length - 2;
-                    return <div key={bar.id + "_t" + si + "_" + seg.start}
-                      onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
-                      onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: isBarSelected ? `2px solid #fff` : `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
-                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto2) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc2, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
-                      {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                  // Per-day proportional rendering
+                  const _barHpdVal = isPto ? _orgHpd : (bar.task?.hpd || _orgHpd);
+                  const _barWFrac = Math.min(_barHpdVal / _orgHpd, 1);
+                  return _activeDays.map((day, di) => {
+                    const isFirst = di === 0, isLast = di === _activeDays.length - 1;
+                    const _cumH = _dayOffsets[bar.id + "-" + day] || 0;
+                    const _xPct = (diffD(tStart, day) + _cumH / _orgHpd) / nDays * 100;
+                    const _wPct = _barWFrac / nDays * 100;
+                    const _approxPxW = (_wPct / 100) * Math.max(nDays * cW, 1);
+                    const segKey = isFirst ? (bar.id + "_0_" + bar.start) : (bar.id + "_d_" + day);
+                    return <div key={segKey}
+                      onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
+                      onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
+                      style={{ position: "absolute", top: 4, left: `calc(${_xPct}% + 2px)`, width: `calc(${_wPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 6px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isFirst && isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : "none", animation: isFirst && isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto && isFirst) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }}
+                      onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
+                      {isFirst && can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                      {isLast && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                      {isFirst && isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                      {isFirst && inDepGroup && !isBarSelected && <Tip label="Linked — moves with its dependency group"><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span></Tip>}
+                      {isFirst && barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
+                      {isFirst && hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
+                      {isFirst && _approxPxW >= 30 && <span style={{ fontSize: 11, color: isPto ? bar.color : (isLight(bc) ? '#000000' : '#ffffff'), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>}
+                      {isFirst && _approxPxW >= 15 && _approxPxW < 30 && !isPto && _barHpdVal > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono, whiteSpace: "nowrap", position: "relative", zIndex: 3 }}>{_barHpdVal}h</span>}
+                      {isFirst && _approxPxW >= 30 && !isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                     </div>;
-                  })];
-                })}
+                  });
+                  });
+                })()}
               </div>
             </div>;
           })}
@@ -11178,6 +11204,14 @@ ${jobsCtx || "No jobs found."}`;
         <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{teamDayGhost.label}</span>
       </div>
       {teamDayGhost.time && <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top - 24, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${teamDayGhost.color}88`, backdropFilter: "blur(4px)", fontFamily: T.mono }}>{teamDayGhost.time}</div>}
+      {teamDayGhost.hpd != null && (() => {
+        const _h = Math.floor(teamDayGhost.hpd), _m = Math.round((teamDayGhost.hpd % 1) * 60);
+        const _hpdStr = _m > 0 ? `${_h}h ${_m}m` : `${_h}h`;
+        const _delta = Math.round((teamDayGhost.hpd - teamDayGhost.origHpd) * 100) / 100;
+        const _prefix = _delta > 0.01 ? "+ " : _delta < -0.01 ? "− " : "";
+        const _color = _delta > 0.01 ? "#22c55e" : _delta < -0.01 ? "#f87171" : "#94a3b8";
+        return <div style={{ position: "fixed", left: teamDayGhost.left + 8, top: teamDayGhost.top + teamDayGhost.height + 6, background: "rgba(10,10,20,0.92)", color: _color, fontSize: 12, fontWeight: 700, padding: "4px 9px", borderRadius: 8, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${_color}44`, backdropFilter: "blur(4px)", fontFamily: T.mono, letterSpacing: "0.01em" }}>{_prefix}{_hpdStr}</div>;
+      })()}
     </>}
     {/* Customization Modal */}
     {customizationOpen && (() => {
