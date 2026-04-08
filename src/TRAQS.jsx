@@ -1374,16 +1374,11 @@ Rules:
   const dataRef = useRef({ tasks: null, people: null, clients: null });
   const pollUpdateRef = useRef(false);
   const saveStatusRef = useRef("saved");
+  const protectedJobIds = useRef(new Set());
 
   // Keep ref in sync for save functions
-  useEffect(() => { dataRef.current.tasks = tasks; }, [tasks]);
+  useEffect(() => { dataRef.current.tasks = tasks; console.log("=== TASKS CHANGED ===", tasks.length, "jobs:", tasks.map(t => ({ id: t.id, title: t.title }))); }, [tasks]);
   useEffect(() => { dataRef.current.people = people; }, [people]);
-  useEffect(() => {
-    console.log("=== TASKS UPDATED ===", tasks.flatMap(t =>
-      [t, ...(t.subs || []).flatMap(s => [s, ...(s.subs || [])])]
-    ).filter(item => ['t22isapb4', 'ttq9o7pyl', 't76tc6gah'].includes(item.id))
-    .map(item => ({ id: item.id, start: item.start, end: item.end })));
-  }, [tasks]);
 
   // Global undo/redo history
   const undoStack = useRef([]);
@@ -1396,6 +1391,11 @@ Rules:
         undoStack.current.push(JSON.parse(JSON.stringify(prev)));
         if (undoStack.current.length > 50) undoStack.current.shift(); // cap at 50
         redoStack.current = []; // clear redo on new action
+      }
+      // Synchronously mark as unsaved for non-poll changes so the poll guard
+      // blocks any focus-triggered re-fetch before the useEffect cycle runs
+      if (next !== prev && !pollUpdateRef.current) {
+        saveStatusRef.current = "unsaved";
       }
       skipHistory.current = false;
       return next;
@@ -1867,13 +1867,17 @@ Rules:
     requiredDepartment: op.requiredDepartment ?? op.requiredRole ?? "",
     subs: (op.subs || []).map(normalizeOp),
   });
-  const normalizeTasks = arr => arr.map(job => ({
-    ...job,
-    subs: (job.subs || []).map(panel => ({
-      ...panel,
-      subs: (panel.subs || []).map(normalizeOp),
-    })),
-  }));
+  const normalizeTasks = arr => {
+    const result = arr.map(job => ({
+      ...job,
+      subs: (job.subs || []).map(panel => ({
+        ...panel,
+        subs: (panel.subs || []).map(normalizeOp),
+      })),
+    }));
+    console.log("=== TASKS FILTERED/NORMALIZED ===", "before:", arr.length, "after:", result.length);
+    return result;
+  };
 
   // Load all data from S3 on mount; fall back to seed data if S3 is empty
   useEffect(() => {
@@ -1998,6 +2002,7 @@ Rules:
     if (!orgCode) return;
     const refetch = async () => {
       if (document.hidden) return;
+      console.log("=== POLL REFETCH ===", { saveStatus: saveStatusRef.current, blocked: saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved", time: new Date().toISOString() });
       if (saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved") return;
       try {
         const [newTasks, newPeople, newClients] = await Promise.all([
@@ -2006,7 +2011,7 @@ Rules:
           fetchClients(orgCode),
         ]);
         pollUpdateRef.current = true;
-        setTasks(prev => JSON.stringify(prev) === JSON.stringify(newTasks) ? prev : normalizeTasks(newTasks));
+        setTasks(prev => { const changed = JSON.stringify(prev) !== JSON.stringify(newTasks); const missingProtected = [...protectedJobIds.current].some(id => !newTasks.find(t => t.id === id)); console.log("=== POLL OVERWRITES TASKS ===", { prevCount: prev.length, newCount: newTasks.length, changed, saveStatus: saveStatusRef.current, missingProtected }); if (saveStatusRef.current !== "saved") return prev; if (newTasks.length < prev.length) return prev; if (missingProtected) return prev; return changed ? normalizeTasks(newTasks) : prev; });
         pollUpdateRef.current = true;
         setPeople(prev => JSON.stringify(prev) === JSON.stringify(newPeople) ? prev : normalizePeople(newPeople));
         pollUpdateRef.current = true;
@@ -2063,17 +2068,25 @@ Rules:
 
   const doSave = useCallback(async () => {
     try {
+      saveStatusRef.current = "saving";
       setSaveStatus("saving");
       const d = dataRef.current;
-      await Promise.all([
+      console.log("=== DOSAVE DATA ===", "tasks:", d.tasks?.length, "people:", d.people?.length);
+      console.log("=== SAVE STARTING ===", "tasks count:", d.tasks?.length, "task ids:", d.tasks?.map(t => t.id));
+      const [tRes] = await Promise.all([
         saveTasks(d.tasks, getTokenRef.current, orgCode),
         savePeople(d.people, getTokenRef.current, orgCode),
         saveClients(d.clients, getTokenRef.current, orgCode),
       ]);
+      console.log("=== SAVE TASKS RESPONSE ===", JSON.stringify(tRes));
       lastSaveTime.current = Date.now();
+      protectedJobIds.current.clear();
+      saveStatusRef.current = "saved";
       setTimeout(() => setSaveStatus("saved"), 600);
     } catch (e) {
+      console.log("=== SAVE FAILED ===", e);
       console.error("Auto-save failed:", e);
+      saveStatusRef.current = "unsaved";
       setSaveStatus("unsaved");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2336,6 +2349,7 @@ Rules:
   // Show overlap error if conflicts found, returns true if blocked
   const showOverlapIfAny = useCallback((conflicts) => {
     if (conflicts.length === 0) return false;
+    console.log("=== CONFLICT MODAL TRIGGERED ===", { stack: new Error().stack });
     const details = conflicts.map(c => c.isPto
       ? `${c.person} has "${c.panelTitle}" time off (${fm(c.start)} – ${fm(c.end)})`
       : `${c.person} working on "${c.opTitle} – ${c.panelTitle}" from ${c.jobTitle ? `job ${c.jobTitle}` : ""} (${fm(c.start)} – ${fm(c.end)})`
@@ -3121,7 +3135,7 @@ ${jobsCtx || "No jobs found."}`;
       : { ...panel, id: panel.id || uid(), subs: (panel.subs || []).map(op => ({ ...op, id: op.id || uid() })) }
     ) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
-    else { const nw = { ...withIds, id: uid() }; if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else setTasks(p => [...p, nw]); }
+    else { const nw = { ...withIds, id: uid() }; if (parentId) { setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); } else { setTasks(p => [...p, nw]); protectedJobIds.current.add(nw.id); dataRef.current.tasks = [...tasks, nw]; doSaveRef.current(); } console.log("=== JOB CREATED ===", nw.id, nw.title, "total jobs (before state update):", tasks.length, "→ expected:", tasks.length + 1); }
     closeModal();
   };
   const views = [{ id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>, label: "Jobs" }, { id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "timestamp", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time Stamp" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
@@ -3798,12 +3812,12 @@ ${jobsCtx || "No jobs found."}`;
       const sx = e.clientX, sy = e.clientY, os = item.start, oe = item.end;
       // Capture working-day duration once at drag start so the end date is always preserved correctly across weekends
       const wdDuration = getWorkingDayDuration(os, oe);
-      let moved = false, lastDx = 0, finalDx = 0;
+      let moved = false, wasDragging = false, lastDx = 0, finalDx = 0;
       const origRow = ri4[item.id];
       const pidArg = item.isSub ? item.pid : null;
       const onM = me => {
         const dx = Math.round((me.clientX - sx) / cW);
-        if (dx !== 0 || Math.abs(me.clientY - sy) > 8) moved = true;
+        if (dx !== 0 || Math.abs(me.clientY - sy) > 8) { moved = true; wasDragging = true; }
         if (dx === lastDx) return; lastDx = dx; finalDx = dx;
         // Compute live + snapped ghost positions
         const rawS = mode !== "right" ? addD(os, dx) : os;
@@ -3847,7 +3861,7 @@ ${jobsCtx || "No jobs found."}`;
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
         setGanttDragInfo(null);
-        if (!moved) {
+        if (!wasDragging) {
           if ((item.subs || []).length > 0) setExp(p => ({ ...p, [item.id]: !p[item.id] }));
           else openDetail(item);
           return;
@@ -4297,12 +4311,13 @@ ${jobsCtx || "No jobs found."}`;
                 return segs.map((seg, si) => {
                   const x = dToX(seg.start), xE = dToX(seg.end) + cW, w = Math.max(xE - x, cW);
                   const isFirst = si === 0, isLast = si === segs.length - 1;
+                  const isSubDayBar = w <= cW && r.hpd > 0 && r.hpd < orgSettings.hpd;
                   const label = r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (r.panelTitle ? `${r.panelTitle}  ·  ${r.title}` : r.title) : r.title;
                   return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
                     {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
-                    {isFirst && can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {isLast && can("moveJobs") && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isFirst && can("moveJobs") && gMode === "day" && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { if (e.button !== 0) return; e.stopPropagation(); handleDrag(e, r, "left"); }} onContextMenu={e => e.stopPropagation()} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isLast && can("moveJobs") && gMode === "day" && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { if (e.button !== 0) return; e.stopPropagation(); handleDrag(e, r, "right"); }} onContextMenu={e => e.stopPropagation()} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{isFirst && hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{(isFirst || w > 80) ? label : ""}</span>
                   </div>;
                 });
@@ -6384,7 +6399,7 @@ ${jobsCtx || "No jobs found."}`;
                           onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
                           style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2),transition:"box-shadow 0.1s,opacity 0.2s"}}
-                          onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingResize.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); setBarTooltip({ x: e.clientX, y: e.clientY, color: bar.color, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: bar.task?.locked || false, hasMoveLog: (bar.task?.moveLog||[]).length > 0 }); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); setBarTooltip(null); }}>
+                          onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingResize.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); const cx=e.clientX,cy=e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current=setTimeout(()=>setBarTooltip({ x: cx, y: cy, color: bar.color, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: bar.task?.locked || false, hasMoveLog: (bar.task?.moveLog||[]).length > 0 }),800); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
@@ -6408,7 +6423,7 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
-      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile || tZoom > 1 ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", minWidth: "100%", width: tW }}>
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
@@ -6537,24 +6552,48 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Task/PTO bars — each bar rendered per working day, width proportional to hpd */}
                 {(() => {
                   const _orgHpd = orgSettings?.hpd || 8;
-                  // Pre-compute cumulative hours offset per bar per day for side-by-side placement
-                  const _dayOffsets = {};
-                  days.forEach(day => {
-                    const dow = new Date(day + "T12:00:00").getDay();
-                    if (dow === 0 || dow === 6) return;
-                    let cum = 0;
-                    bars.forEach(b => {
-                      if (b.type === "eng-chip") return;
-                      if (b.start <= day && b.end >= day) {
-                        _dayOffsets[b.id + "-" + day] = cum;
-                        cum += b.type === "pto" ? _orgHpd : (b.task?.hpd || _orgHpd);
+                  // Working days in view (weekends excluded)
+                  const _wkDays = days.filter(d => { const dow = new Date(d + "T12:00:00").getDay(); return dow !== 0 && dow !== 6; });
+                  // Per-day capacity tracking and visual slot map
+                  // _slots[barId:day] -> { offsetHours, segHours, isCont, hasOverflow }
+                  // FIX 1: single-day bars with hpd > orgHpd overflow into consecutive working days
+                  // FIX 2: multiple bars share a day up to orgHpd capacity, side-by-side
+                  const _dayUsed = {};
+                  const _slots = {};
+                  bars.forEach(b => {
+                    if (b.type === "eng-chip") return;
+                    const bHpd = b.type === "pto" ? _orgHpd : (b.task?.hpd || _orgHpd);
+                    const bBaseDays = _wkDays.filter(d => d >= b.start && d <= b.end);
+                    if (bBaseDays.length === 0) return;
+                    if (b.start !== b.end) {
+                      // Multi-day bar: each day in range renders one segment at min(bHpd, orgHpd) width
+                      bBaseDays.forEach((day, di) => {
+                        const used = _dayUsed[day] || 0;
+                        const segH = Math.min(bHpd, _orgHpd);
+                        _slots[b.id + ":" + day] = { offsetHours: used, segHours: segH, isCont: di > 0, hasOverflow: di < bBaseDays.length - 1 };
+                        _dayUsed[day] = used + segH;
+                      });
+                    } else {
+                      // Single-day bar: spread hpd across consecutive working days from bar.start
+                      let rem = bHpd, segIdx = 0;
+                      const si = _wkDays.indexOf(bBaseDays[0]);
+                      if (si !== -1) for (let wi = si; wi < _wkDays.length && rem > 0; wi++) {
+                        const day = _wkDays[wi];
+                        const used = _dayUsed[day] || 0;
+                        const avail = _orgHpd - used;
+                        if (avail <= 0) continue; // day full, try next
+                        const segH = Math.min(rem, avail);
+                        _slots[b.id + ":" + day] = { offsetHours: used, segHours: segH, isCont: segIdx > 0, hasOverflow: rem > segH };
+                        _dayUsed[day] = used + segH;
+                        rem -= segH;
+                        segIdx++;
                       }
-                    });
+                    }
                   });
                   return bars.flatMap(bar => {
                   const nDays = days.length;
                   // Working days this bar is visible within the current range
-                  const _activeDays = bar.type === "eng-chip" ? [] : days.filter(d => { const dow = new Date(d + "T12:00:00").getDay(); return dow !== 0 && dow !== 6 && bar.start <= d && bar.end >= d; });
+                  const _activeDays = bar.type === "eng-chip" ? [] : _wkDays.filter(d => _slots[bar.id + ":" + d]);
                   // Engineering chip — render as compact pill on its chip date
                   if (bar.type === "eng-chip") {
                     const chipJob = tasks.find(j => j.id === bar.jobId);
@@ -6983,31 +7022,44 @@ ${jobsCtx || "No jobs found."}`;
                   const barOpacity = barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
-                  // Per-day proportional rendering
+                  // Render each bar as one element per continuous working-day run.
+                  // Runs split only at weekends; a job spanning Mon–Wed is ONE div, not three.
                   const _barHpdVal = isPto ? _orgHpd : (bar.task?.hpd || _orgHpd);
-                  const _barWFrac = Math.min(_barHpdVal / _orgHpd, 1);
-                  return _activeDays.map((day, di) => {
-                    const isFirst = di === 0, isLast = di === _activeDays.length - 1;
-                    const _cumH = _dayOffsets[bar.id + "-" + day] || 0;
-                    const _xPct = (diffD(tStart, day) + _cumH / _orgHpd) / nDays * 100;
-                    const _wPct = _barWFrac / nDays * 100;
+                  const _runs = _activeDays.reduce((acc, day) => {
+                    const last = acc[acc.length - 1];
+                    if (last && diffD(last[last.length - 1], day) === 1) { last.push(day); } else { acc.push([day]); }
+                    return acc;
+                  }, []);
+                  return _runs.map((run, ri) => {
+                    const isFirstRun = ri === 0, isLastRun = ri === _runs.length - 1;
+                    // Single-day proportional: one day, ≤ orgHpd hours → size & offset within the column
+                    const _isSingleDayProp = run.length === 1 && _barHpdVal <= _orgHpd && !isPto;
+                    const _propSlot = _isSingleDayProp ? (_slots[bar.id + ":" + run[0]] || { offsetHours: 0, segHours: _barHpdVal }) : null;
+                    const _runStartPct = diffD(tStart, run[0]) / nDays * 100;
+                    const _xPct = _isSingleDayProp
+                      ? _runStartPct + (_propSlot.offsetHours / _orgHpd) / nDays * 100
+                      : _runStartPct;
+                    const _wPct = _isSingleDayProp
+                      ? (_propSlot.segHours / _orgHpd) / nDays * 100
+                      : (diffD(tStart, run[run.length - 1]) + 1) / nDays * 100 - _runStartPct;
                     const _approxPxW = (_wPct / 100) * Math.max(nDays * cW, 1);
-                    const segKey = isFirst ? (bar.id + "_0_" + bar.start) : (bar.id + "_d_" + day);
+                    const _borderVal = isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`;
+                    const segKey = isFirstRun ? (bar.id + "_0_" + bar.start) : (bar.id + "_r_" + run[0]);
                     return <div key={segKey}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${_xPct}% + 2px)`, width: `calc(${_wPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 6px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isFirst && isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : "none", animation: isFirst && isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
-                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto && isFirst) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }}
+                      style={{ position: "absolute", top: 4, left: `calc(${_xPct}% + 2px)`, width: `calc(${_wPct}% - 4px)`, height: rH - 8, borderTopLeftRadius: isFirstRun ? T.radiusXs : 2, borderTopRightRadius: isLastRun ? T.radiusXs : 2, borderBottomLeftRadius: isFirstRun ? T.radiusXs : 2, borderBottomRightRadius: isLastRun ? T.radiusXs : 2, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, borderTop: _borderVal, borderBottom: _borderVal, borderLeft: _borderVal, borderRight: _borderVal, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 6px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isFirstRun && isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : "none", animation: isFirstRun && isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto && isFirstRun) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }}
                       onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
-                      {isFirst && can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                      {isLast && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                      {isFirst && isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
-                      {isFirst && inDepGroup && !isBarSelected && <Tip label="Linked — moves with its dependency group"><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span></Tip>}
-                      {isFirst && barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                      {isFirst && hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
-                      {isFirst && _approxPxW >= 30 && <span style={{ fontSize: 11, color: isPto ? bar.color : (isLight(bc) ? '#000000' : '#ffffff'), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>}
-                      {isFirst && _approxPxW >= 15 && _approxPxW < 30 && !isPto && _barHpdVal > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono, whiteSpace: "nowrap", position: "relative", zIndex: 3 }}>{_barHpdVal}h</span>}
-                      {isFirst && _approxPxW >= 30 && !isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
+                      {isFirstRun && can("moveJobs") && !barLocked && tMode === "day" && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                      {isLastRun && can("moveJobs") && !barLocked && tMode === "day" && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                      {isFirstRun && isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                      {isFirstRun && inDepGroup && !isBarSelected && <Tip label="Linked — moves with its dependency group"><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.6, lineHeight: 0 }}><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span></Tip>}
+                      {isFirstRun && barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
+                      {isFirstRun && hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
+                      {isFirstRun && _approxPxW >= 30 && <span style={{ fontSize: 11, color: isPto ? bar.color : (isLight(bc) ? '#000000' : '#ffffff'), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>}
+                      {isFirstRun && _approxPxW >= 15 && _approxPxW < 30 && !isPto && _barHpdVal > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono, whiteSpace: "nowrap", position: "relative", zIndex: 3 }}>{_barHpdVal}h</span>}
+                      {isFirstRun && _approxPxW >= 30 && !isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                     </div>;
                   });
                   });
@@ -9907,6 +9959,7 @@ ${jobsCtx || "No jobs found."}`;
 
       // Reschedule a single panel/operation starting from a new date, leaving all others unchanged.
       const overrideSchedulePanel = (panelId, newStartDate) => {
+        console.log("=== OVERRIDE SCHEDULE START ===", "panelId:", panelId, "newStartDate:", newStartDate, "ed.subs count:", (ed.subs||[]).length, "orgSettings.hpd:", orgSettings.hpd);
         const panel = (ed.subs || []).find(p => p.id === panelId);
         if (!panel) return;
         const originalStart = panel.start;
@@ -9915,24 +9968,61 @@ ${jobsCtx || "No jobs found."}`;
         setTimeout(() => {
           const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
           const inSession = [];
-          const isPersonFreeLocal = (pid, s, eDate) => {
+          const isPersonFreeLocal = (pid, s, eDate, hpdNeeded = orgSettings.hpd) => {
             const pp = people.find(x => x.id === pid);
+            const cap = pp?.cap || orgSettings.hpd;
             if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
-            for (const job of tasks) {
-              if (ed.id && job.id === ed.id) continue;
-              for (const pnl of (job.subs || [])) {
-                if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= eDate && pnl.end >= s && (pnl.subs || []).length === 0) return false;
-                for (const op of (pnl.subs || [])) {
-                  if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
-                  if (op.start && op.end && op.start <= eDate && op.end >= s) return false;
+            let d = s;
+            while (d <= eDate) {
+              const dow = new Date(d + "T12:00:00").getDay();
+              if (dow !== 0 && dow !== 6) {
+                let existH = 0;
+                for (const job of tasks) {
+                  if (ed.id && job.id === ed.id) continue;
+                  for (const pnl of (job.subs || [])) {
+                    if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && d >= pnl.start && d <= pnl.end && (pnl.subs || []).length === 0) {
+                      const span = Math.max(1, diffBD(pnl.start, pnl.end) + 1);
+                      existH += ((pnl.hpd || orgSettings.hpd) / span) / Math.max(1, (pnl.team || []).length);
+                    }
+                    for (const op of (pnl.subs || [])) {
+                      if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
+                      if (d >= op.start && d <= op.end) {
+                        const span = Math.max(1, diffBD(op.start, op.end) + 1);
+                        existH += ((op.hpd || orgSettings.hpd) / span) / Math.max(1, (op.team || []).length);
+                      }
+                    }
+                  }
                 }
+                if (existH + hpdNeeded > cap) return false;
               }
+              d = addD(d, 1);
             }
             return true;
           };
-          const isAvailLocal = (pid, s, eDate) => {
-            if (!isPersonFreeLocal(pid, s, eDate)) return false;
-            for (const sess of inSession) { if (sess.pid === pid && sess.start <= eDate && sess.end >= s) return false; }
+          const isAvailLocal = (pid, s, eDate, hpdNeeded = orgSettings.hpd) => {
+            if (!isPersonFreeLocal(pid, s, eDate, hpdNeeded)) return false;
+            const pp = people.find(x => x.id === pid);
+            const cap = pp?.cap || orgSettings.hpd;
+            let d = s;
+            while (d <= eDate) {
+              const dow = new Date(d + "T12:00:00").getDay();
+              if (dow !== 0 && dow !== 6) {
+                const sessionH = inSession.reduce((sum, x) => x.pid === pid && x.date === d ? sum + x.hours : sum, 0);
+                console.log("=== ISAVAILLOCAL ===", {
+                  personId: pid,
+                  tryStart: s,
+                  tryEnd: eDate,
+                  hpdNeeded,
+                  inSessionHoursOnDay: sessionH,
+                  cap,
+                  willFit: sessionH + hpdNeeded <= cap,
+                  inSessionSnapshot: inSession.filter(x => x.pid === pid).map(x => ({ date: x.date, hours: x.hours, dateType: typeof x.date })),
+                  dType: typeof d,
+                });
+                if (sessionH + hpdNeeded > cap) return false;
+              }
+              d = addD(d, 1);
+            }
             return true;
           };
           const personCursors = {};
@@ -9946,27 +10036,34 @@ ${jobsCtx || "No jobs found."}`;
             return n;
           }, 0);
           const pickTeamLocal = (op, minStart = null) => {
-            const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : orgSettings.hpd;
+            const totalHours = (typeof op === "object") ? (op.hpd || op.estimatedHours || op.hours || orgSettings.hpd) : orgSettings.hpd;
             const reqDept = typeof op === "object" ? (op.requiredDepartment || "") : "";
             const eligible = allCrew.filter(pp => !reqDept || pp.department === reqDept).sort((a, b) => { const diff = jobCountLocal(a.id) - jobCountLocal(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
             if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
             const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
+            const hpdPerDay = totalHours / singleDur;
             if (scheduleTeamMode === "one") {
               let tryStart = minStart || newStartDate;
               for (let guard = 0; guard < 300; guard++) {
                 const tryEnd = sAddBD(tryStart, Math.max(0, singleDur - 1));
-                for (const candidate of eligible) { if (isAvailLocal(candidate.id, tryStart, tryEnd)) return { team: [candidate], start: tryStart, end: tryEnd }; }
+                for (const candidate of eligible) {
+                  if (isAvailLocal(candidate.id, tryStart, tryEnd, hpdPerDay)) {
+                    console.log("=== SCHEDULER PLACING JOB ===", { opTitle: op?.title, hpdNeeded: totalHours, hpdPerDay, placedDay: tryStart, candidate: candidate.name });
+                    return { team: [candidate], start: tryStart, end: tryEnd };
+                  }
+                }
                 tryStart = sAddBD(tryStart, 1);
               }
               return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
             }
             const teamSize = eligible.length;
             const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
+            const hpdPerDayTeam = totalHours / durBD / teamSize;
             let tryStart = minStart || newStartDate;
             for (let guard = 0; guard < 300; guard++) {
               const tryEnd = sAddBD(tryStart, Math.max(0, durBD - 1));
               let allFree = true;
-              for (const m of eligible) { if (!isAvailLocal(m.id, tryStart, tryEnd)) { allFree = false; break; } }
+              for (const m of eligible) { if (!isAvailLocal(m.id, tryStart, tryEnd, hpdPerDayTeam)) { allFree = false; break; } }
               if (allFree) return { team: eligible, start: tryStart, end: tryEnd };
               tryStart = sAddBD(tryStart, 1);
             }
@@ -9974,16 +10071,26 @@ ${jobsCtx || "No jobs found."}`;
             for (let g2 = 0; g2 < 300; g2++) {
               const tryS = sAddBD(fallbackStart, g2);
               const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
-              const freeSubset = eligible.filter(m => isAvailLocal(m.id, tryS, tryE));
+              const freeSubset = eligible.filter(m => isAvailLocal(m.id, tryS, tryE, hpdPerDay));
               if (freeSubset.length > 0) { const sz = freeSubset.length; const finalDur = Math.max(1, Math.ceil(totalHours / (sz * orgSettings.hpd))); return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) }; }
             }
             return { team: [], start: fallbackStart, end: fallbackStart };
           };
           let newPanel;
+          console.log("=== ABOUT TO PLACE SUBS ===", "panel:", panel.title, "subs count:", (panel.subs||[]).length);
           if ((panel.subs || []).length > 0) {
             const placedSubs = [];
             let opEarliestStart = newStartDate;
             for (const sub of (panel.subs || [])) {
+              console.log("=== PLACING SUB ===", sub.id, sub.title);
+              console.log("=== SUB-OP DATA ===", {
+                id: sub.id,
+                title: sub.title,
+                hpd: sub.hpd,
+                estimatedHours: sub.estimatedHours,
+                hours: sub.hours,
+                totalHoursResolved: (typeof sub === "object") ? (sub.hpd || sub.estimatedHours || sub.hours || orgSettings.hpd) : orgSettings.hpd,
+              });
               const { team: subTeam, start: ss, end: se } = pickTeamLocal(sub, opEarliestStart);
               if (subTeam.length === 0) {
                 setOverrideError(prev => ({ ...prev, [panelId]: `No available workers for "${sub.title}" starting ${newStartDate}. Try a later date.` }));
@@ -9991,8 +10098,22 @@ ${jobsCtx || "No jobs found."}`;
                 return;
               }
               placedSubs.push({ ...sub, start: ss, end: se, team: subTeam.map(m => m.id) });
-              subTeam.forEach(m => { inSession.push({ pid: m.id, start: ss, end: se }); personCursors[m.id] = sAddBD(se, 1); });
-              opEarliestStart = sAddBD(se, 1);
+              subTeam.forEach(m => {
+                const totalHours = (typeof sub === "object" && sub.hpd) ? sub.hpd : orgSettings.hpd;
+                const span = Math.max(1, diffBD(ss, se) + 1);
+                const hpdPerDayEntry = totalHours / span;
+                let d = ss;
+                while (d <= se) {
+                  const dow = new Date(d + "T12:00:00").getDay();
+                  if (dow !== 0 && dow !== 6) inSession.push({ pid: m.id, date: d, hours: hpdPerDayEntry });
+                  d = addD(d, 1);
+                }
+                personCursors[m.id] = sAddBD(se, 1);
+              });
+              // For short ops (hpd < orgHpd), stay on the same day so subsequent ops can stack.
+              // isAvailLocal will advance past full days automatically.
+              const placedHpd = (typeof sub === "object" ? sub.hpd : null) || orgSettings.hpd;
+              opEarliestStart = placedHpd < orgSettings.hpd ? se : sAddBD(se, 1);
             }
             const opStart = placedSubs[0]?.start || newStartDate;
             const opEnd = placedSubs[placedSubs.length - 1]?.end || newStartDate;
@@ -10518,18 +10639,34 @@ ${jobsCtx || "No jobs found."}`;
                     setEd(p => {
                       const updated={...p};
                       const allCrew=people.filter(pp => pp.userRole==="user" && !pp.noAutoSchedule);
-                      const isPersonFreeGlobal=(pid,s,eDate) => {
+                      const isPersonFreeGlobal=(pid,s,eDate,hpdNeeded=orgSettings.hpd) => {
                         const pp=people.find(x => x.id===pid);
+                        const cap=pp?.cap||orgSettings.hpd;
                         if(pp) for(const to of (pp.timeOff||[])) { if(to.start<=eDate && to.end>=s) return false; }
-                        for(const job of tasks) {
-                          if(ed.id && job.id===ed.id) continue;
-                          for(const pnl of (job.subs||[])) {
-                            if((pnl.team||[]).includes(pid) && pnl.status!=="Finished" && pnl.start && pnl.end && pnl.start<=eDate && pnl.end>=s && (pnl.subs||[]).length===0) return false;
-                            for(const op of (pnl.subs||[])) {
-                              if(!(op.team||[]).includes(pid)||op.status==="Finished") continue;
-                              if(op.start && op.end && op.start<=eDate && op.end>=s) return false;
+                        let d=s;
+                        while(d<=eDate) {
+                          const dow=new Date(d+"T12:00:00").getDay();
+                          if(dow!==0 && dow!==6) {
+                            let existH=0;
+                            for(const job of tasks) {
+                              if(ed.id && job.id===ed.id) continue;
+                              for(const pnl of (job.subs||[])) {
+                                if((pnl.team||[]).includes(pid) && pnl.status!=="Finished" && pnl.start && pnl.end && d>=pnl.start && d<=pnl.end && (pnl.subs||[]).length===0) {
+                                  const span=Math.max(1,diffBD(pnl.start,pnl.end)+1);
+                                  existH+=((pnl.hpd||orgSettings.hpd)/span)/Math.max(1,(pnl.team||[]).length);
+                                }
+                                for(const op of (pnl.subs||[])) {
+                                  if(!(op.team||[]).includes(pid)||op.status==="Finished") continue;
+                                  if(d>=op.start && d<=op.end) {
+                                    const span=Math.max(1,diffBD(op.start,op.end)+1);
+                                    existH+=((op.hpd||orgSettings.hpd)/span)/Math.max(1,(op.team||[]).length);
+                                  }
+                                }
+                              }
                             }
+                            if(existH+hpdNeeded>cap) return false;
                           }
+                          d=addD(d,1);
                         }
                         return true;
                       };
@@ -10543,12 +10680,41 @@ ${jobsCtx || "No jobs found."}`;
                           subs:(op.subs||[]).map(sub => ({...sub,id:i===0?sub.id:uid()})),
                         }));
                       });
+                      console.log("=== FULL SUB-OP OBJECTS ===", JSON.stringify(
+                        expandedOps.flatMap(op => (op.subs||[]).map(sub => ({
+                          id: sub.id,
+                          title: sub.title,
+                          hpd: sub.hpd,
+                          estimatedHours: sub.estimatedHours,
+                          hours: sub.hours,
+                          allKeys: Object.keys(sub),
+                        })))
+                      , null, 2));
                       const personCursors={};
                       allCrew.forEach(pp => { personCursors[pp.id]=slot.start; });
                       const inSession=[];
-                      const isAvail=(pid,s,eDate) => {
-                        if(!isPersonFreeGlobal(pid,s,eDate)) return false;
-                        for(const sess of inSession) { if(sess.pid===pid && sess.start<=eDate && sess.end>=s) return false; }
+                      const isAvail=(pid,s,eDate,hpdNeeded=orgSettings.hpd) => {
+                        if(!isPersonFreeGlobal(pid,s,eDate,hpdNeeded)) return false;
+                        const pp=people.find(x => x.id===pid);
+                        const cap=pp?.dailyCap||orgSettings.hpd;
+                        console.log("=== CAP DEBUG ===", {
+                          pid,
+                          ppCap: pp?.cap,
+                          ppHpd: pp?.hpd,
+                          orgHpd: orgSettings.hpd,
+                          capBeingUsed: cap,
+                          allPpKeys: Object.keys(pp || {}),
+                        });
+                        let d=s;
+                        while(d<=eDate) {
+                          const dow=new Date(d+"T12:00:00").getDay();
+                          if(dow!==0 && dow!==6) {
+                            const sessionH=inSession.reduce((sum,x) => x.pid===pid && x.date===d?sum+x.hours:sum,0);
+                            console.log("=== ISAVAIL ===", { pid, day:d, hpdNeeded, sessionH, cap, willFit:sessionH+hpdNeeded<=cap });
+                            if(sessionH+hpdNeeded>cap) return false;
+                          }
+                          d=addD(d,1);
+                        }
                         return true;
                       };
                       const jobCount=(pid) => tasks.reduce((n,job) => {
@@ -10560,17 +10726,17 @@ ${jobsCtx || "No jobs found."}`;
                         return n;
                       },0);
                       const pickTeam=(op,minStart=null) => {
-                        const totalHours=(typeof op==="object" && op?.hpd)?op.hpd:orgSettings.hpd;
+                        const totalHours=(typeof op==="object")?(op.hpd||op.estimatedHours||op.hours||orgSettings.hpd):orgSettings.hpd;
                         const reqDept=typeof op==="object"?(op.requiredDepartment||""):"";
                         const eligible=allCrew.filter(pp => !reqDept||pp.department===reqDept).sort((a,b) => { const diff=jobCount(a.id)-jobCount(b.id); if(diff!==0) return diff; return a.name.localeCompare(b.name); });
                         if(eligible.length===0) { const fallback=minStart||slot.start; return {team:[],start:fallback,end:fallback}; }
                         const singleDur=Math.max(1,Math.ceil(totalHours/orgSettings.hpd));
+                        const hpdPerDay=totalHours/singleDur;
                         if(scheduleTeamMode==="one") {
-                          let tryStart=eligible.reduce((earliest,m) => { const c=personCursors[m.id]||slot.start; return c<earliest?c:earliest; },personCursors[eligible[0].id]||slot.start);
-                          if(minStart && tryStart<minStart) tryStart=minStart;
+                          let tryStart=minStart||eligible.reduce((earliest,m) => { const c=personCursors[m.id]||slot.start; return c<earliest?c:earliest; },personCursors[eligible[0].id]||slot.start);
                           for(let guard=0;guard<300;guard++) {
                             const tryEnd=sAddBD(tryStart,Math.max(0,singleDur-1));
-                            for(const candidate of eligible) { if(isAvail(candidate.id,tryStart,tryEnd)) return {team:[candidate],start:tryStart,end:tryEnd}; }
+                            for(const candidate of eligible) { if(isAvail(candidate.id,tryStart,tryEnd,hpdPerDay)) { const r={team:[candidate],start:tryStart,end:tryEnd}; console.log("=== PICKTEAM RESULT ===",{subId:op?.id,subTitle:op?.title,subHpd:op?.hpd,assignedStart:r.start,assignedEnd:r.end,worker:candidate.id}); return r; } }
                             tryStart=sAddBD(tryStart,1);
                           }
                           const fallback=minStart||slot.start;
@@ -10578,12 +10744,13 @@ ${jobsCtx || "No jobs found."}`;
                         }
                         const teamSize=eligible.length;
                         const durBD=Math.max(1,Math.ceil(totalHours/(teamSize*orgSettings.hpd)));
+                        const hpdPerDayTeam=totalHours/durBD/teamSize;
                         let tryStart=eligible.reduce((best,m) => { const c=personCursors[m.id]||slot.start; return c>best?c:best; },slot.start);
                         if(minStart && tryStart<minStart) tryStart=minStart;
                         for(let guard=0;guard<300;guard++) {
                           const tryEnd=sAddBD(tryStart,Math.max(0,durBD-1));
                           let allFree=true;
-                          for(const m of eligible) { if(!isAvail(m.id,tryStart,tryEnd)) { allFree=false; break; } }
+                          for(const m of eligible) { if(!isAvail(m.id,tryStart,tryEnd,hpdPerDayTeam)) { allFree=false; break; } }
                           if(allFree) return {team:eligible,start:tryStart,end:tryEnd};
                           tryStart=sAddBD(tryStart,1);
                         }
@@ -10591,7 +10758,7 @@ ${jobsCtx || "No jobs found."}`;
                         for(let g2=0;g2<300;g2++) {
                           const tryS=sAddBD(fallbackStart,g2);
                           const tryE=sAddBD(tryS,Math.max(0,singleDur-1));
-                          const freeSubset=eligible.filter(m => isAvail(m.id,tryS,tryE));
+                          const freeSubset=eligible.filter(m => isAvail(m.id,tryS,tryE,hpdPerDay));
                           if(freeSubset.length>0) { const sz=freeSubset.length; const finalDur=Math.max(1,Math.ceil(totalHours/(sz*orgSettings.hpd))); return {team:freeSubset,start:tryS,end:sAddBD(tryS,Math.max(0,finalDur-1))}; }
                         }
                         return {team:eligible.slice(0,1),start:fallbackStart,end:sAddBD(fallbackStart,Math.max(0,singleDur-1))};
@@ -10610,10 +10777,25 @@ ${jobsCtx || "No jobs found."}`;
                         if(checkDeps(sub.deps).length>0) continue;
                         const {team:subTeam,start:ss,end:se}=pickTeam(sub,earliestStart);
                         resultSubs[panelIdx].placedSubs[opIdx]={...sub,_placed:true,start:ss,end:se,team:subTeam.length>0?subTeam.map(m => m.id):(sub.team||[])};
-                        subTeam.forEach(m => { inSession.push({pid:m.id,start:ss,end:se,hpd:(sub.hpd||orgSettings.hpd)/Math.max(1,subTeam.length)}); personCursors[m.id]=sAddBD(se,1); });
+                        subTeam.forEach(m => {
+                          const totalHoursPlaced=(typeof sub==="object" && sub.hpd)?sub.hpd:orgSettings.hpd;
+                          const span=Math.max(1,diffBD(ss,se)+1);
+                          const hpdPerDayEntry=totalHoursPlaced/span;
+                          let d=ss;
+                          while(d<=se) {
+                            const dow=new Date(d+"T12:00:00").getDay();
+                            if(dow!==0 && dow!==6) inSession.push({pid:m.id,date:d,hours:hpdPerDayEntry});
+                            d=addD(d,1);
+                          }
+                          personCursors[m.id]=sAddBD(se,1);
+                        });
+                        console.log("=== INSESSION AFTER PUSH ===", JSON.stringify(inSession));
                         if(se>latestEnd) latestEnd=se;
                         const nextOpIdx=opIdx+1;
-                        if(nextOpIdx<(expandedOps[panelIdx].subs||[]).length) opQueue.push({panelIdx,opIdx:nextOpIdx,earliestStart:sAddBD(se,1)});
+                        const placedHpd=(typeof sub==="object"?sub.hpd:null)||orgSettings.hpd;
+                        const nextEarliestStart=placedHpd<orgSettings.hpd?se:sAddBD(se,1);
+                        console.log("=== EARLIEST START AFTER PLACEMENT ===", nextEarliestStart, "placedHpd:", placedHpd, "orgSettings.hpd:", orgSettings.hpd);
+                        if(nextOpIdx<(expandedOps[panelIdx].subs||[]).length) opQueue.push({panelIdx,opIdx:nextOpIdx,earliestStart:nextEarliestStart});
                       }
                       resultSubs.forEach((op,pi) => {
                         if((op.subs||[]).length===0) {
