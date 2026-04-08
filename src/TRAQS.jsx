@@ -7117,6 +7117,80 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         );
       })()}
+      {/* ── Schedule Status Dashboard ── */}
+      {(() => {
+        const allOps = [];
+        tasks.forEach(job => {
+          (job.subs || []).forEach(panel => {
+            (panel.subs || []).forEach(op => {
+              allOps.push({ ...op, panelTitle: panel.title, panelId: panel.id, jobTitle: job.title, jobId: job.id });
+            });
+          });
+        });
+        const todayOps = allOps.filter(op => op.start && op.end && op.start <= TD && op.end >= TD);
+        const futureOps = allOps.filter(op => op.start && op.start > TD).sort((a, b) => a.start.localeCompare(b.start));
+        const scheduledPeople = people.filter(p => todayOps.some(op => (op.team || []).includes(p.id)));
+        if (scheduledPeople.length === 0) return null;
+        return (
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Schedule Status</div>
+            <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 6 }}>
+              {scheduledPeople.map(p => {
+                const myTodayOps = todayOps.filter(op => (op.team || []).includes(p.id));
+                const todayOp = myTodayOps[0];
+                const isActive = !!p.activeJobClock?.clockIn;
+                const loggedH = todayOp
+                  ? timeclock.filter(e => e.jobRefs?.some(r => r.opId === todayOp.id)).reduce((s, e) => s + (e.hours || 0), 0)
+                  : 0;
+                const totalH = todayOp ? (diffBD(todayOp.start, todayOp.end) + 1) * (todayOp.hpd || orgSettings.hpd) : 0;
+                const pctH = totalH > 0 ? Math.min(100, Math.round(loggedH / totalH * 100)) : 0;
+                const nextOp = futureOps.find(op => (op.team || []).includes(p.id));
+                const initials = (p.name || "?").split(" ").map(n => n[0]).join("").slice(0, 2).toUpperCase();
+                const avatarColor = p.color || "#94a3b8";
+                return (
+                  <div key={p.id} style={{ minWidth: 220, maxWidth: 220, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 16px", flexShrink: 0, display: "flex", flexDirection: "column", gap: 10 }}>
+                    {/* Header: avatar + name + dept + active dot */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: "50%", background: avatarColor + "33", border: `2px solid ${avatarColor}66`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: avatarColor }}>{initials}</span>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                        {p.department && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{p.department}</div>}
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: isActive ? "#10b981" : "#94a3b8", flexShrink: 0 }}>{isActive ? "Active" : "Not Active"}</span>
+                    </div>
+                    {/* Today's job + progress */}
+                    {todayOp && (
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{todayOp.title}</div>
+                        <div style={{ fontSize: 11, color: T.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[todayOp.panelTitle, todayOp.jobTitle].filter(Boolean).join(" · ")}</div>
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                            <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{loggedH.toFixed(1)} / {totalH.toFixed(0)} hrs</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{pctH}%</span>
+                          </div>
+                          <div style={{ height: 4, background: T.border, borderRadius: 2, overflow: "hidden" }}>
+                            <div style={{ height: "100%", width: `${pctH}%`, background: T.accent, borderRadius: 2, transition: "width 0.3s" }} />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* Next upcoming task */}
+                    {nextOp && (
+                      <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+                        <div style={{ fontSize: 10, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>Next</div>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextOp.title}</div>
+                        <div style={{ fontSize: 10, color: T.textDim, marginTop: 1 }}>{fm(nextOp.start)}{nextOp.end !== nextOp.start ? ` – ${fm(nextOp.end)}` : ""}</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
     {teamDragInfo && teamDragInfo.taskTitle && <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 8, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{teamDragInfo.taskTitle}</div>}
     {barTooltip && (() => {
       const flipLeft = barTooltip.x > window.innerWidth - 330;
