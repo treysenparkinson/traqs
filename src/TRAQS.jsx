@@ -1387,6 +1387,7 @@ Rules:
   const setTasks = useCallback((updater) => {
     _setTasks(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
+      if (next !== prev) console.log("=== TASKS STATE SET ===", next.length, next.map(t => t.id), new Error().stack);
       if (!skipHistory.current && next !== prev) {
         undoStack.current.push(JSON.parse(JSON.stringify(prev)));
         if (undoStack.current.length > 50) undoStack.current.shift(); // cap at 50
@@ -1516,6 +1517,7 @@ Rules:
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [gMode, setGMode] = useState("month"); // day, week, month
   const [gSort, setGSort] = useState("date"); // date, project, client
+  const [ganttHighlightId, setGanttHighlightId] = useState(null);
   const [ganttViewMode, setGanttViewMode] = useState("linear"); // linear | calendar
   const [exp, setExp] = useState({});
   const [selBarId, setSelBarId] = useState(null);
@@ -1552,9 +1554,120 @@ Rules:
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [orgSettings, setOrgSettings] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
-    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD }; }
+    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "08:30", workEnd: "17:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
+    catch { return { hpd: 8, workStart: "08:30", workEnd: "17:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD }; }
   });
+  // Productive minutes per day — clock span minus unpaid lunch, recalculated whenever settings change.
+  // Break minutes are NOT subtracted (paid breaks; tasks run through them per Rule 2).
+  const productiveMinutesPerDay = (() => {
+    const p = t => { const [h, m] = (t || "08:30").split(":").map(Number); return h * 60 + m; };
+    return Math.max(60, p(orgSettings.workEnd || "17:00") - p(orgSettings.clockInTime || "08:30") - (orgSettings.lunchMinutes ?? 60));
+  })();
+  // Stamp workHours and scheduledHours on a sub-operation whenever its dates are written.
+  const stampOpHours = op => {
+    if (!op.start || !op.end || !op.hpd) return op;
+    const spanDays = Math.max(1, diffBD(op.start, op.end) + 1);
+    const bb = spanDays * (orgSettings.breakMinutes ?? 30) / 60;
+    return { ...op, workHours: parseFloat((+op.hpd).toFixed(2)), scheduledHours: parseFloat((+op.hpd + bb).toFixed(2)) };
+  };
+  // Recalculate end dates and scheduledHours for all jobs (or future-only) when hpd changes.
+  // workHours (= op.hpd) stays the same; only the span and scheduledHours are recalculated.
+  const recalcJobsForNewHpd = (scope, newHpd) => {
+    const bm = orgSettings.breakMinutes ?? 30;
+    const recalcOp = op => {
+      if (!op.start || !op.hpd) return op;
+      if (scope === "future" && op.start < TD) return op;
+      const wh = op.workHours || op.hpd;
+      const newSpan = Math.max(1, Math.ceil(wh / newHpd));
+      const newEnd = sAddBD(op.start, newSpan - 1);
+      const bb = newSpan * bm / 60;
+      return { ...op, end: newEnd, scheduledHours: parseFloat((wh + bb).toFixed(2)) };
+    };
+    setTasks(prev => prev.map(job => {
+      const newSubs = (job.subs || []).map(panel => {
+        if ((panel.subs || []).length === 0) {
+          // Flat panel — recalc the panel itself
+          const updated = recalcOp(panel);
+          return updated;
+        }
+        const newOps = panel.subs.map(recalcOp);
+        const opStarts = newOps.filter(o => o.start).map(o => o.start);
+        const opEnds = newOps.filter(o => o.end).map(o => o.end);
+        return { ...panel, subs: newOps,
+          start: opStarts.length ? opStarts.reduce((a, b) => a < b ? a : b) : panel.start,
+          end: opEnds.length ? opEnds.reduce((a, b) => a > b ? a : b) : panel.end,
+        };
+      });
+      const pStarts = newSubs.filter(s => s.start).map(s => s.start);
+      const pEnds = newSubs.filter(s => s.end).map(s => s.end);
+      return { ...job, subs: newSubs,
+        start: pStarts.length ? pStarts.reduce((a, b) => a < b ? a : b) : job.start,
+        end: pEnds.length ? pEnds.reduce((a, b) => a > b ? a : b) : job.end,
+      };
+    }));
+  };
+  // Daisy-chain cascade: find downstream jobs that need to be pushed when a job moves forward.
+  // taskList must have the moved job already at its new position.
+  // Returns [{ job, oldStart, oldEnd, newStart, newEnd }] in BFS order.
+  const computeCascade = (taskList, movedJobId, movedJobNewEnd, pushBD) => {
+    const getWorkers = job => {
+      const s = new Set();
+      (job.subs || []).forEach(panel => {
+        (panel.team || []).forEach(id => s.add(id));
+        (panel.subs || []).forEach(op => (op.team || []).forEach(id => s.add(id)));
+      });
+      return s;
+    };
+    const visited = new Set([movedJobId]);
+    const result = [];
+    const queue = [[movedJobId, movedJobNewEnd]];
+    while (queue.length > 0) {
+      const [curId, curNewEnd] = queue.shift();
+      const curJob = taskList.find(j => j.id === curId);
+      if (!curJob) continue;
+      const curWorkers = getWorkers(curJob);
+      for (const j of taskList) {
+        if (visited.has(j.id) || !j.start || !j.end || j.status === "Finished") continue;
+        if (j.start <= curJob.start) continue; // only look forward in the timeline
+        const isDep = (j.deps || []).includes(curId);
+        const jWorkers = getWorkers(j);
+        const sharesWorker = [...curWorkers].some(id => jWorkers.has(id));
+        if (!isDep && !sharesWorker) continue;
+        const gap = sDiffBD(curNewEnd, j.start); // Rule 4: gap in working days
+        if (gap >= pushBD) continue; // gap already large enough — stop here
+        visited.add(j.id);
+        const newS = sAddBD(j.start, pushBD);
+        const newE = sAddBD(j.end, pushBD);
+        result.push({ job: j, oldStart: j.start, oldEnd: j.end, newStart: newS, newEnd: newE });
+        queue.push([j.id, newE]);
+      }
+    }
+    return result;
+  };
+  // Apply a computed cascade to a task list, shifting sub-dates and stamping move logs.
+  const applyCascadePushes = (tl, pushes, pushBD, movedBy) => {
+    let result = tl;
+    for (const p of pushes) {
+      result = result.map(job => {
+        if (job.id !== p.job.id) return job;
+        return {
+          ...job,
+          start: p.newStart, end: p.newEnd,
+          moveLog: [...(job.moveLog || []), { fromStart: p.oldStart, fromEnd: p.oldEnd, toStart: p.newStart, toEnd: p.newEnd, date: TD, movedBy, reason: "Daisy chain push" }],
+          subs: (job.subs || []).map(panel => ({
+            ...panel,
+            start: sAddBD(panel.start, pushBD), end: sAddBD(panel.end, pushBD),
+            subs: (panel.subs || []).map(op => ({
+              ...op,
+              start: sAddBD(op.start, pushBD), end: sAddBD(op.end, pushBD),
+              moveLog: [...(op.moveLog || []), { fromStart: op.start, fromEnd: op.end, toStart: sAddBD(op.start, pushBD), toEnd: sAddBD(op.end, pushBD), date: TD, movedBy, reason: "Daisy chain push" }],
+            })),
+          })),
+        };
+      });
+    }
+    return result;
+  };
   const [roleInput, setRoleInput] = useState("");
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
   const [collapsedOps, setCollapsedOps] = useState({});
@@ -1884,7 +1997,7 @@ Rules:
     fetchTimeclock(orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
     Promise.all([fetchTasks(orgCode), fetchPeople(orgCode), fetchClients(orgCode)])
       .then(([t, p, c]) => {
-        _setTasks(normalizeTasks(Array.isArray(t) && t.length > 0 ? t : mkTasks()));
+        const loadedTasks = normalizeTasks(Array.isArray(t) && t.length > 0 ? t : mkTasks()); console.log("=== TASKS STATE SET ===", loadedTasks.length, loadedTasks.map(t => t.id), new Error().stack); _setTasks(loadedTasks);
         const resolvedPeople = normalizePeople(Array.isArray(p) && p.length > 0 ? p : mkPeople());
         setPeople(resolvedPeople);
         setClients(Array.isArray(c) && c.length > 0 ? c : mkClients());
@@ -1925,7 +2038,7 @@ Rules:
         if (!server || Object.keys(server).length === 0) return;
         skipNextOrgSave.current = true;
         setOrgSettings(() => {
-          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD };
+          const base = { hpd: 8, workStart: "08:30", workEnd: "17:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD };
           const merged = { ...base, ...server };
           if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
           if (server.workStart && server.workEnd) {
@@ -1962,6 +2075,7 @@ Rules:
   const chatFileInputRef = useRef(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
+  const [alertTick, setAlertTick] = useState(0); // increments every 30 min to force alert recompute
   const chatBottomRef = useRef(null);
   const [lastRead, setLastRead] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tq_last_read") || "{}"); } catch { return {}; }
@@ -2040,6 +2154,11 @@ Rules:
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [notifOpen]);
+  // Re-check schedule alerts every 30 minutes (catches jobs becoming overdue as time passes)
+  useEffect(() => {
+    const id = setInterval(() => setAlertTick(t => t + 1), 30 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
   // Close Time Stamp settings dropdown on outside click
   useEffect(() => {
     if (!tsSettingsOpen) return;
@@ -2072,6 +2191,7 @@ Rules:
       setSaveStatus("saving");
       const d = dataRef.current;
       console.log("=== DOSAVE DATA ===", "tasks:", d.tasks?.length, "people:", d.people?.length);
+      console.log("=== DOSAVE TASK IDS ===", d.tasks?.map(t => t.id));
       console.log("=== SAVE STARTING ===", "tasks count:", d.tasks?.length, "task ids:", d.tasks?.map(t => t.id));
       const [tRes] = await Promise.all([
         saveTasks(d.tasks, getTokenRef.current, orgCode),
@@ -2143,6 +2263,8 @@ Rules:
   const [stepDir, setStepDir] = useState(1);        // 1 = forward, -1 = back
   const [scheduleTeamMode, setScheduleTeamMode] = useState("one"); // "one" | "team"
   const [confirmMove, setConfirmMove] = useState(null); // { message, onConfirm }
+  const [hpdChangeDialog, setHpdChangeDialog] = useState(null); // { workStart, workEnd, newHpd, prevHpd }
+  const [daisyChainDialog, setDaisyChainDialog] = useState(null); // { pushes, onMoveAll, onMoveOnly }
   const [searchQ, setSearchQ] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef(null);
@@ -2297,7 +2419,7 @@ Rules:
       const person = people.find(x => x.id === check.personId);
       if (!person) continue;
       const cap = person.cap || orgSettings.hpd;
-      const checkTotalH = check.hpd || orgSettings.hpd;
+      const checkTotalH = check.scheduledHours || check.workHours || check.hpd || orgSettings.hpd;
       const opSpanBD = Math.max(1, diffBD(check.start, check.end) + 1, Math.ceil(checkTotalH / cap));
       const newHpd = (checkTotalH / opSpanBD) / Math.max(1, check.teamLength || 1);
       let d = check.start;
@@ -2455,7 +2577,7 @@ Rules:
       result = result.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
         if (op.id === p.opId) {
           const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: p.newStart, toEnd: p.newEnd, date: TD, movedBy, reason: p.reason || "Pushed by schedule conflict" };
-          return { ...op, start: p.newStart, end: p.newEnd, moveLog: [...(op.moveLog || []), logEntry] };
+          return stampOpHours({ ...op, start: p.newStart, end: p.newEnd, moveLog: [...(op.moveLog || []), logEntry] });
         }
         return op;
       }) })) }));
@@ -2551,7 +2673,7 @@ Rules:
 
           // Clear — place here
           const finalEnd = addBD(slotStart, duration);
-          newSubs[pi].subs[oi] = { ...newSubs[pi].subs[oi], start: slotStart, end: finalEnd };
+          newSubs[pi].subs[oi] = stampOpHours({ ...newSubs[pi].subs[oi], start: slotStart, end: finalEnd });
           if (!selfBusy[pid]) selfBusy[pid] = [];
           selfBusy[pid].push({ start: slotStart, end: finalEnd });
           cursor = addBD(finalEnd, 1);
@@ -2821,13 +2943,18 @@ Rules:
         }
       }
     }
-    setTasks(p => p.map(t => {
+    setTasks(p => {
+    const newTasks = p.map(t => {
     if (pid) {
       // Level 2: updating an operation (Wire/Cut/Layout) — moves independently, no chaining
       const panelIdx = (t.subs || []).findIndex(s => s.id === pid);
       if (panelIdx >= 0) {
         const panel = t.subs[panelIdx];
-        const newOps = (panel.subs || []).map(op => op.id === id ? { ...op, ...upd } : op);
+        const newOps = (panel.subs || []).map(op => {
+          if (op.id !== id) return op;
+          const merged = { ...op, ...upd };
+          return (upd.start || upd.end) ? stampOpHours(merged) : merged;
+        });
         let newSubs = [...t.subs]; newSubs[panelIdx] = { ...panel, subs: newOps };
         return { ...t, subs: newSubs };
       }
@@ -2842,16 +2969,16 @@ Rules:
             const endDelta = upd.end ? diffD(s.end, upd.end) : 0;
             // Move: both start+end shift same amount — shift all ops equally
             if (upd.start && upd.end && startDelta === endDelta && startDelta !== 0) {
-              updated.subs = ops.map(op => ({ ...op, start: addD(op.start, startDelta), end: addD(op.end, startDelta) }));
+              updated.subs = ops.map(op => stampOpHours({ ...op, start: addD(op.start, startDelta), end: addD(op.end, startDelta) }));
             }
             // Left resize: panel start moved — shift first op's start
             else if (upd.start && !upd.end && startDelta !== 0) {
-              updated.subs = ops.map((op, i) => i === 0 ? { ...op, start: addD(op.start, startDelta) } : op);
+              updated.subs = ops.map((op, i) => i === 0 ? stampOpHours({ ...op, start: addD(op.start, startDelta) }) : op);
             }
             // Right resize: panel end moved — shift last op's end
             else if (upd.end && !upd.start && endDelta !== 0) {
               const last = ops.length - 1;
-              updated.subs = ops.map((op, i) => i === last ? { ...op, end: addD(op.end, endDelta) } : op);
+              updated.subs = ops.map((op, i) => i === last ? stampOpHours({ ...op, end: addD(op.end, endDelta) }) : op);
             }
           }
           return updated;
@@ -2870,14 +2997,28 @@ Rules:
         if (upd.start && upd.end && startDelta === endDelta && startDelta !== 0) {
           updated.subs = (t.subs || []).map(s => ({
             ...s, start: addD(s.start, startDelta), end: addD(s.end, startDelta),
-            subs: (s.subs || []).map(op => ({ ...op, start: addD(op.start, startDelta), end: addD(op.end, startDelta) }))
+            subs: (s.subs || []).map(op => stampOpHours({ ...op, start: addD(op.start, startDelta), end: addD(op.end, startDelta) }))
           }));
         }
       }
       return updated;
     }
     return t;
-  }));
+    });
+    if (upd.subs) {
+      console.log("=== TASKS AFTER SCHEDULE ===", newTasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        subs: t.subs?.map(s => ({
+          id: s.id,
+          hpd: s.hpd,
+          workHours: s.workHours,
+          scheduledHours: s.scheduledHours,
+        }))
+      })));
+    }
+    return newTasks;
+    });
   };
 
   const reassignTask = (taskId, fromPersonId, toPersonId, parentId = null) => {
@@ -3125,7 +3266,8 @@ ${jobsCtx || "No jobs found."}`;
         });
       }
     });
-    const filteredTasks = ed.id ? tasks.map(j => j.id === ed.id ? { ...j, subs: [] } : j) : tasks;
+    const currentTasks = dataRef.current.tasks;
+    const filteredTasks = ed.id ? currentTasks.map(j => j.id === ed.id ? { ...j, subs: [] } : j) : currentTasks;
     const conflicts = checkOverlapsPure(filteredTasks, opsToCheck);
     if (conflicts.length > 0) { showOverlapIfAny(conflicts); return; }
     // Generate IDs for panels and their operations
@@ -3135,7 +3277,7 @@ ${jobsCtx || "No jobs found."}`;
       : { ...panel, id: panel.id || uid(), subs: (panel.subs || []).map(op => ({ ...op, id: op.id || uid() })) }
     ) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
-    else { const nw = { ...withIds, id: uid() }; if (parentId) { setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); } else { setTasks(p => [...p, nw]); protectedJobIds.current.add(nw.id); dataRef.current.tasks = [...tasks, nw]; doSaveRef.current(); } console.log("=== JOB CREATED ===", nw.id, nw.title, "total jobs (before state update):", tasks.length, "→ expected:", tasks.length + 1); }
+    else { const nw = { ...withIds, id: uid() }; if (parentId) { setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); } else { setTasks(p => [...p, nw]); protectedJobIds.current.add(nw.id); setTimeout(() => { dataRef.current.tasks = dataRef.current.tasks.includes(nw) ? dataRef.current.tasks : [...dataRef.current.tasks, nw]; doSaveRef.current(); }, 0); } console.log("=== JOB CREATED ===", nw.id, nw.title, "total jobs (before state update):", tasks.length, "→ expected:", tasks.length + 1); }
     closeModal();
   };
   const views = [{ id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>, label: "Jobs" }, { id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "timestamp", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time Stamp" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
@@ -3626,6 +3768,118 @@ ${jobsCtx || "No jobs found."}`;
     return Object.values(map).sort((a, b) => b.latest.timestamp.localeCompare(a.latest.timestamp));
   }, [unreadMessages]);
 
+  // ── Schedule health alerts: overdue, late, overworked ─────────────────
+  const scheduleAlerts = useMemo(() => {
+    const alerts = [];
+    // Productive hours/day (mirrors productiveMinutesPerDay but usable inside useMemo)
+    const parseH = t => { const [h, m] = (t || "08:30").split(":").map(Number); return h + m / 60; };
+    const prodHPD = Math.max(1, parseH(orgSettings.workEnd || "17:00") - parseH(orgSettings.clockInTime || "08:30") - (orgSettings.lunchMinutes ?? 60) / 60);
+
+    tasks.forEach(job => {
+      (job.subs || []).forEach(panel => {
+        (panel.subs || []).forEach(op => {
+          if (!op.start || !op.end) return;
+          const workerNames = (op.team || []).map(id => people.find(p => p.id === id)?.name).filter(Boolean);
+
+          // OVERDUE: end date passed, op not finished
+          if (op.end < TD && op.status !== "Finished" && op.status !== "Done") {
+            const dayCount = diffD(op.end, TD);
+            alerts.push({
+              id: `overdue-${op.id}`,
+              type: "overdue",
+              title: job.title,
+              description: `${panel.title} · ${op.title} — ${dayCount} day${dayCount !== 1 ? "s" : ""} overdue${workerNames.length ? ` · ${workerNames.join(", ")}` : ""}`,
+              jobId: job.id,
+              targetDate: TD,
+            });
+            return; // overdue ops can't also be late
+          }
+
+          // LATE: in progress but logged hours significantly behind expected
+          if (op.start <= TD && op.end >= TD && op.status !== "Finished") {
+            const elapsedBD = diffBD(op.start, TD);
+            if (elapsedBD > 0) {
+              const totalBD = Math.max(1, diffBD(op.start, op.end) + 1);
+              const workHours = op.workHours || op.hpd || orgSettings.hpd;
+              const expectedProgress = (elapsedBD / totalBD) * workHours;
+              const loggedHours = timeclock
+                .filter(e => e.jobRefs?.some(r => r.opId === op.id))
+                .reduce((s, e) => s + (e.hours || 0), 0);
+              if (loggedHours < expectedProgress * 0.8) {
+                alerts.push({
+                  id: `late-${op.id}`,
+                  type: "late",
+                  title: job.title,
+                  description: `${panel.title} · ${op.title} — Expected ${expectedProgress.toFixed(1)}h, logged ${loggedHours.toFixed(1)}h${workerNames.length ? ` · ${workerNames.join(", ")}` : ""}`,
+                  jobId: job.id,
+                  targetDate: TD,
+                });
+              }
+            }
+          }
+        });
+      });
+    });
+
+    // OVERWORKED: total scheduled hours this week exceeds weekly capacity
+    const d = new Date(TD + "T12:00:00");
+    const dow = d.getDay();
+    const weekMon = addD(TD, -(dow === 0 ? 6 : dow - 1));
+    const weekDays = [];
+    for (let i = 0; i < 7; i++) {
+      const day = addD(weekMon, i);
+      if (!isWeekend(day)) weekDays.push(day);
+    }
+    const weeklyCapacity = prodHPD * weekDays.length;
+    people.forEach(person => {
+      let scheduledH = 0;
+      weekDays.forEach(day => {
+        tasks.forEach(job => {
+          (job.subs || []).forEach(panel => {
+            (panel.subs || []).forEach(op => {
+              if (op.start && op.end && (op.team || []).includes(person.id) && op.start <= day && op.end >= day) {
+                scheduledH += (op.hpd || orgSettings.hpd) / Math.max(1, (op.team || []).length);
+              }
+            });
+          });
+        });
+      });
+      if (scheduledH > weeklyCapacity) {
+        alerts.push({
+          id: `overworked-${person.id}`,
+          type: "overworked",
+          title: person.name,
+          description: `${scheduledH.toFixed(1)}h scheduled this week (capacity: ${weeklyCapacity.toFixed(1)}h)`,
+          personId: person.id,
+          targetDate: TD,
+        });
+      }
+    });
+
+    return alerts;
+  }, [tasks, people, timeclock, orgSettings, alertTick]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const ALERT_COLORS = { overdue: "#ef4444", late: "#f59e0b", overworked: "#8b5cf6" };
+  const ALERT_LABELS = { overdue: "Overdue", late: "Running Late", overworked: "Overworked" };
+
+  // Navigate to the relevant job/worker when an alert is clicked
+  const handleAlertClick = (alert) => {
+    setNotifOpen(false);
+    if (alert.jobId) {
+      const d = new Date(alert.targetDate + "T12:00:00");
+      const adow = d.getDay();
+      const mon = addD(alert.targetDate, -(adow === 0 ? 6 : adow - 1));
+      setGMode("week");
+      setGStart(mon);
+      setGEnd(addD(mon, 6));
+      setGanttHighlightId(alert.jobId);
+      setTimeout(() => setGanttHighlightId(null), 1500);
+      setView("schedule");
+    } else {
+      setView("schedule");
+    }
+  };
+
   function getThreadTitle(threadKey, scope, jobId, panelId, opId) {
     if (scope === "group" || threadKey?.startsWith("group:")) {
       const gId = threadKey?.replace("group:", "") || jobId;
@@ -3773,6 +4027,17 @@ ${jobsCtx || "No jobs found."}`;
 
   // ═══════════════════ GANTT ═══════════════════
   const renderGantt = () => {
+    // Navigate to the week containing targetDate and briefly highlight the job bar
+    const jumpToJob = (jobId, targetDate) => {
+      const d = new Date(targetDate + "T12:00:00");
+      const dow = d.getDay();
+      const mon = addD(targetDate, -(dow === 0 ? 6 : dow - 1));
+      setGMode("week");
+      setGStart(mon);
+      setGEnd(addD(mon, 6));
+      setGanttHighlightId(jobId);
+      setTimeout(() => setGanttHighlightId(null), 1500);
+    };
     const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
     const lW = isMobile ? 140 : 280;
     const avail = Math.max((ganttWidth || 1200) - lW, 200);
@@ -4021,13 +4286,46 @@ ${jobsCtx || "No jobs found."}`;
             excludeOpId: o.opId, opTitle: o.opTitle || item.title, panelTitle: o.panelTitle || "",
             hpd: o.hpd, teamLength: o.teamLength || 1
           }));
+          (() => {
+            const _c = conflictChecks[0]; if (!_c) return;
+            const _p = people.find(x => x.id === _c.personId);
+            const _cap = _p ? (_p.cap || orgSettings.hpd) : orgSettings.hpd;
+            const _existing = reverted.reduce((sum, job) => { for (const pnl of (job.subs || [])) { if ((pnl.team || []).includes(_c.personId) && pnl.start <= newStart && pnl.end >= newStart && !(pnl.subs || []).length && pnl.id !== _c.excludeOpId) sum += (pnl.hpd || orgSettings.hpd) / Math.max(1, diffBD(pnl.start, pnl.end) + 1) / Math.max(1, (pnl.team || []).length); for (const op of (pnl.subs || [])) { if ((op.team || []).includes(_c.personId) && op.start <= newStart && op.end >= newStart && op.id !== _c.excludeOpId) sum += (op.hpd || orgSettings.hpd) / Math.max(1, diffBD(op.start, op.end) + 1) / Math.max(1, (op.team || []).length); } } return sum; }, 0);
+            const _newHpd = _c.hpd || orgSettings.hpd;
+            console.log("=== DROP CHECK ===", { draggedJobId: item.id, draggedJobHours: item.hpd || item.scheduledHours, targetDay: newStart, existingHoursOnDay: _existing, remainingCapacity: _cap - _existing, wouldFit: _existing + _newHpd <= _cap, cap: _cap, newHpd: _newHpd });
+          })();
           const schedConflicts = checkOverlapsPure(reverted, conflictChecks);
           if (schedConflicts.length > 0) {
             setTimeout(() => showOverlapIfAny(schedConflicts), 0);
             return reverted;
           }
 
-          // No conflicts — show confirmation before committing
+          // No conflicts — check for daisy chain cascade if forward job-level move
+          if (mode === "move" && actualDelta > 0 && item.level === 0) {
+            const pushBD = sDiffBD(os, newStart);
+            if (pushBD > 0) {
+              const movedList = applyMoveWithLog(reverted);
+              const pushes = computeCascade(movedList, item.id, newEnd, pushBD);
+              if (pushes.length > 0) {
+                setTimeout(() => setDaisyChainDialog({
+                  movedTitle: item.title,
+                  pushes,
+                  onMoveAll: () => {
+                    setDaisyChainDialog(null);
+                    setTasks(curr => applyCascadePushes(applyMoveWithLog(curr), pushes, pushBD, movedByName));
+                    if (pendingReassign) reassignTask(pendingReassign.id, pendingReassign.fromPid, pendingReassign.toPid, pendingReassign.pidArg);
+                  },
+                  onMoveOnly: () => {
+                    setDaisyChainDialog(null);
+                    setTasks(curr => applyMoveWithLog(curr));
+                    if (pendingReassign) reassignTask(pendingReassign.id, pendingReassign.fromPid, pendingReassign.toPid, pendingReassign.pidArg);
+                  }
+                }), 0);
+                return reverted;
+              }
+            }
+          }
+          // No cascade (or not a forward job-level move) — show standard confirmation
           setTimeout(() => setConfirmMove({
             title: "Confirm Move",
             message: `Move "${item.title}" from ${fm(os)} → ${fm(oe)} to ${fm(newStart)} → ${fm(newEnd)}?`,
@@ -4216,11 +4514,12 @@ ${jobsCtx || "No jobs found."}`;
                 {rows.length === 0 && <div style={{padding:"40px 0",textAlign:"center",color:T.textDim,fontSize:14}}>No tasks scheduled for this day</div>}
                 {rows.map(r => {
                   const onDay = r.start <= gStart && r.end >= gStart;
-                  const hpd = r.hpd || 0;
+                  const hpd = r.scheduledHours || r.workHours || r.hpd || 0;
                   const rawBarS = r.startHour ?? 8, rawBarE = hpd > 0 ? Math.min(rawBarS + hpd, HE) : Math.min(rawBarS + 9, HE);
                   const visBarS = Math.max(rawBarS, HS), visBarE = Math.min(rawBarE, HE);
                   const barVisible = onDay && visBarE > visBarS;
                   const indent = r.level || 0;
+                  if (barVisible) console.log("=== LABEL HOURS ===", { view: "gantt-day", id: r.id, hpd: r.hpd, workHours: r.workHours, scheduledHours: r.scheduledHours, labelHours: r.hpd });
                   return (
                     <div key={r.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`}}>
                       <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 16px",paddingLeft:16+indent*16,borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:10,cursor:"pointer"}} onClick={()=>(r.subs||[]).length>0?setExp(p=>({...p,[r.id]:!p[r.id]})):openDetail(r)}>
@@ -4300,20 +4599,43 @@ ${jobsCtx || "No jobs found."}`;
               })()}
               {r.start <= gEnd && r.end >= gStart && (() => {
                 const segs = weekdaySegments(r.start, r.end, gStart, gEnd);
+                // Append buffer segment for break hours that extend past the work end date
+                const rWorkHours = r.workHours || r.hpd;
+                const rBufHours = r.scheduledHours ? parseFloat((r.scheduledHours - rWorkHours).toFixed(2)) : 0;
+                if (rBufHours > 0) {
+                  const bufDay = sAddBD(r.end, 1);
+                  if (bufDay >= gStart && bufDay <= gEnd) segs.push({ start: bufDay, end: bufDay, isBuffer: true, bufferHours: rBufHours });
+                }
                 if (segs.length === 0) return null;
                 const pct = r.status === "Finished" ? 100 : r.status === "In Progress" ? 50 : r.status === "Pending" ? 15 : r.status === "On Hold" ? 25 : 0;
                 const hasSubs = (r.subs || []).length > 0;
                 const isExp = hasSubs && exp[r.id];
                 const isDragging = ganttDragInfo?.itemId === r.id;
+                const isHighlighted = r.level === 0 && r.id === ganttHighlightId;
                 const barColor = r.color || T.accent;
                 const barBg = r.level === 1 ? barColor + "cc" : barColor;
                 const barTextColor = isLight(barColor) ? '#000000' : '#ffffff';
                 return segs.map((seg, si) => {
                   const x = dToX(seg.start), xE = dToX(seg.end) + cW, w = Math.max(xE - x, cW);
                   const isFirst = si === 0, isLast = si === segs.length - 1;
-                  const isSubDayBar = w <= cW && r.hpd > 0 && r.hpd < orgSettings.hpd;
+                  const prodHPD = productiveMinutesPerDay / 60;
+                  const effectiveHours = r.scheduledHours || r.workHours || r.hpd;
+                  const isSubDayBar = effectiveHours > 0 && effectiveHours < prodHPD;
+                  // Buffer segment — sliver showing break hours on next working day after job end
+                  if (seg.isBuffer) {
+                    const bfW = Math.max(4, (seg.bufferHours / prodHPD) * cW);
+                    return <div key={si} onClick={() => openDetail(r)} onContextMenu={e => handleCtx(e, r)} style={{ position: "absolute", top: 6, left: dToX(seg.start), width: bfW, height: rH - 12, borderRadius: T.radiusXs, background: barColor, border: `1.5px dashed ${barColor}66`, opacity: 0.4, cursor: "pointer", zIndex: r.level === 2 ? 5 : 4 }} />;
+                  }
+                  if (isFirst && (r.scheduledHours || r.workHours)) console.log("=== SEGMENTS FOR 42.5H JOB ===", { view: "gantt", id: r.id, workHours: r.workHours, scheduledHours: r.scheduledHours, hpd: r.hpd, start: r.start, end: r.end, prodHPD, segments: JSON.stringify(segs, null, 2) });
+                  // Proportional width: use effectiveHours (scheduledHours → workHours → hpd) with full-day fallback.
+                  const barW = (() => {
+                    if (!isLast || !effectiveHours) return w;
+                    if (prodHPD <= 0 || effectiveHours >= prodHPD) return w;
+                    return Math.max(24, (effectiveHours / prodHPD) * cW);
+                  })();
+                  if (isFirst) console.log("=== BAR WIDTH CALC ===", { id: r.id, title: r.title, hpd: r.hpd, workHours: r.workHours, scheduledHours: r.scheduledHours, effectiveHours, isFullDay: barW === w, computedWidth: barW, threshold: prodHPD, isSubDayBar, w, cW });
                   const label = r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (r.panelTitle ? `${r.panelTitle}  ·  ${r.title}` : r.title) : r.title;
-                  return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
+                  return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: barW, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s", "--glow-color": barColor + "88", animation: isHighlighted && isFirst ? "scheduleGlow 1.5s ease-out forwards" : undefined }}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
                     {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
                     {isFirst && can("moveJobs") && gMode === "day" && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { if (e.button !== 0) return; e.stopPropagation(); handleDrag(e, r, "left"); }} onContextMenu={e => e.stopPropagation()} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -4706,10 +5028,10 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Link to Job Field</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {FIELD_COL_CATALOG.map(fc => {
+                    {FIELD_COL_CATALOG.map((fc, fi) => {
                       const alreadyAdded = customCols.some(c => c.fieldKey === fc.fieldKey);
                       return <button key={fc.fieldKey} disabled={alreadyAdded} onClick={() => { if (alreadyAdded) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: fc.label, type: fc.type, fieldKey: fc.fieldKey }]); setColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setColPickerOpen(false); }}
-                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1 }}
+                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1, animation: `toolDrop 0.14s ${fi * 38}ms both ease-out` }}
                         onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "15"; }}
                         onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = "transparent"; }}>
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
@@ -4727,7 +5049,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ padding: "10px 14px 8px", borderTop: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Templates</div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
-                    {COL_TEMPLATES.map(tpl => {
+                    {COL_TEMPLATES.map((tpl, ti) => {
                       const alreadyAdded = customCols.some(c => c.label === tpl.label && !c.fieldKey);
                       return <button key={tpl.label} disabled={alreadyAdded} onClick={() => {
                         if (alreadyAdded) return;
@@ -4736,7 +5058,7 @@ ${jobsCtx || "No jobs found."}`;
                         setColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                         setEngColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                         setColPickerOpen(false);
-                      }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusXs, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s" }}
+                      }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusXs, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
                         onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "18"; }}
                         onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "08"; }}>
                         <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 6 }}>
@@ -6395,6 +6717,8 @@ ${jobsCtx || "No jobs found."}`;
                         const visS = Math.max(rawS, HS), visE = Math.min(rawE, HE);
                         if (visE <= visS) return null;
                         const isDraggingThis = dayDragInfo?.itemId === bar.task?.id;
+                        const labelHours = bar.scheduledHours || bar.workHours || bar.hpd || hpd;
+                        console.log("=== LABEL HOURS ===", { view: "team-hour", id: bar.id, hpd: bar.hpd, workHours: bar.workHours, scheduledHours: bar.scheduledHours, labelHours: bar.scheduledHours || bar.workHours || bar.hpd });
                         return <div key={bar.id}
                           onMouseDown={e=>{ if(e.button===0) handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
@@ -6403,7 +6727,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
-                          <span style={{fontSize:10,color:isLight(bar.color)?'#000000':'#ffffff',fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"center"}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
+                          <span style={{fontSize:10,color:isLight(bar.color)?'#000000':'#ffffff',fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"center"}}>{labelHours > 0 ? `${labelHours}h · ` : ""}{bar.task?.title || bar.title}</span>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
@@ -6567,10 +6891,15 @@ ${jobsCtx || "No jobs found."}`;
                     if (bBaseDays.length === 0) return;
                     if (b.start !== b.end) {
                       // Multi-day bar: each day in range renders one segment at min(bHpd, orgHpd) width
-                      bBaseDays.forEach((day, di) => {
+                      // Append a partial buffer day if scheduledHours > workHours (break overhang)
+                      const bBufHours = b.type !== "pto" ? parseFloat(((b.task?.scheduledHours || 0) - (b.task?.workHours || b.task?.hpd || 0)).toFixed(2)) : 0;
+                      const bDays = bBufHours > 0 ? [...bBaseDays] : bBaseDays;
+                      if (bBufHours > 0) { const bufDay = sAddBD(b.end, 1); if (_wkDays.includes(bufDay)) bDays.push(bufDay); }
+                      bDays.forEach((day, di) => {
                         const used = _dayUsed[day] || 0;
-                        const segH = Math.min(bHpd, _orgHpd);
-                        _slots[b.id + ":" + day] = { offsetHours: used, segHours: segH, isCont: di > 0, hasOverflow: di < bBaseDays.length - 1 };
+                        const isBufferDay = bBufHours > 0 && day > b.end;
+                        const segH = isBufferDay ? bBufHours : Math.min(bHpd, _orgHpd);
+                        _slots[b.id + ":" + day] = { offsetHours: used, segHours: segH, isCont: di > 0, hasOverflow: !isBufferDay && di < bDays.length - 1, isBuffer: isBufferDay };
                         _dayUsed[day] = used + segH;
                       });
                     } else {
@@ -7024,16 +7353,18 @@ ${jobsCtx || "No jobs found."}`;
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   // Render each bar as one element per continuous working-day run.
                   // Runs split only at weekends; a job spanning Mon–Wed is ONE div, not three.
-                  const _barHpdVal = isPto ? _orgHpd : (bar.task?.hpd || _orgHpd);
+                  const _barHpdVal = isPto ? _orgHpd : (bar.task?.scheduledHours || bar.task?.workHours || bar.task?.hpd || _orgHpd);
                   const _runs = _activeDays.reduce((acc, day) => {
                     const last = acc[acc.length - 1];
                     if (last && diffD(last[last.length - 1], day) === 1) { last.push(day); } else { acc.push([day]); }
                     return acc;
                   }, []);
+                  if (!isPto && (bar.task?.scheduledHours || bar.task?.workHours)) console.log("=== SEGMENTS FOR 42.5H JOB ===", { view: "team-week", id: bar.id, workHours: bar.task?.workHours, scheduledHours: bar.task?.scheduledHours, hpd: bar.task?.hpd, start: bar.start, end: bar.end, segments: JSON.stringify(_runs, null, 2) });
                   return _runs.map((run, ri) => {
                     const isFirstRun = ri === 0, isLastRun = ri === _runs.length - 1;
                     // Single-day proportional: one day, ≤ orgHpd hours → size & offset within the column
-                    const _isSingleDayProp = run.length === 1 && _barHpdVal <= _orgHpd && !isPto;
+                    const _isBufferRun = !isPto && run.length === 1 && !!_slots[bar.id + ":" + run[0]]?.isBuffer;
+                    const _isSingleDayProp = run.length === 1 && !isPto && (_barHpdVal <= _orgHpd || _isBufferRun);
                     const _propSlot = _isSingleDayProp ? (_slots[bar.id + ":" + run[0]] || { offsetHours: 0, segHours: _barHpdVal }) : null;
                     const _runStartPct = diffD(tStart, run[0]) / nDays * 100;
                     const _xPct = _isSingleDayProp
@@ -7045,10 +7376,11 @@ ${jobsCtx || "No jobs found."}`;
                     const _approxPxW = (_wPct / 100) * Math.max(nDays * cW, 1);
                     const _borderVal = isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`;
                     const segKey = isFirstRun ? (bar.id + "_0_" + bar.start) : (bar.id + "_r_" + run[0]);
+                    if (isFirstRun && !isPto) console.log("=== LABEL HOURS ===", { view: "team-week", id: bar.id, taskId: bar.task?.id, hpd: bar.task?.hpd, workHours: bar.task?.workHours, scheduledHours: bar.task?.scheduledHours, labelHours: bar.task?.hpd, _barHpdVal });
                     return <div key={segKey}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${_xPct}% + 2px)`, width: `calc(${_wPct}% - 4px)`, height: rH - 8, borderTopLeftRadius: isFirstRun ? T.radiusXs : 2, borderTopRightRadius: isLastRun ? T.radiusXs : 2, borderBottomLeftRadius: isFirstRun ? T.radiusXs : 2, borderBottomRightRadius: isLastRun ? T.radiusXs : 2, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, borderTop: _borderVal, borderBottom: _borderVal, borderLeft: _borderVal, borderRight: _borderVal, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 6px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isFirstRun && isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : "none", animation: isFirstRun && isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                      style={{ position: "absolute", top: 4, left: `calc(${_xPct}% + 2px)`, width: `calc(${_wPct}% - 4px)`, height: rH - 8, borderTopLeftRadius: isFirstRun ? T.radiusXs : 2, borderTopRightRadius: isLastRun ? T.radiusXs : 2, borderBottomLeftRadius: isFirstRun ? T.radiusXs : 2, borderBottomRightRadius: isLastRun ? T.radiusXs : 2, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, borderTop: _borderVal, borderBottom: _borderVal, borderLeft: _borderVal, borderRight: _borderVal, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 6px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isFirstRun && isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : "none", animation: isFirstRun && isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: _isBufferRun ? 0.4 : barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
                       onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); if (!isPto && isFirstRun) { const cx = e.clientX, cy = e.clientY; clearTimeout(barTooltipTimer.current); barTooltipTimer.current = setTimeout(() => setBarTooltip({ x: cx, y: cy, color: bc, jobTitle: bar.task?.jobTitle || bar.title, subTitle: bar.task?.level === 2 ? `${bar.task.panelTitle} · ${bar.task.title}` : bar.task?.level === 1 ? bar.task.title : null, start: bar.start, end: bar.end, dueDate: bar.dueDate || null, clientName: bar.clientName || null, jobNumber: bar.jobNumber || bar.task?.jobNumber || null, poNumber: bar.task?.poNumber || null, status: bar.status || null, locked: barLocked, hasMoveLog }), 800); } }}
                       onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); clearTimeout(barTooltipTimer.current); setBarTooltip(null); }}>
                       {isFirstRun && can("moveJobs") && !barLocked && tMode === "day" && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -7059,7 +7391,7 @@ ${jobsCtx || "No jobs found."}`;
                       {isFirstRun && hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
                       {isFirstRun && _approxPxW >= 30 && <span style={{ fontSize: 11, color: isPto ? bar.color : (isLight(bc) ? '#000000' : '#ffffff'), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, flex: 1 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>}
                       {isFirstRun && _approxPxW >= 15 && _approxPxW < 30 && !isPto && _barHpdVal > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono, whiteSpace: "nowrap", position: "relative", zIndex: 3 }}>{_barHpdVal}h</span>}
-                      {isFirstRun && _approxPxW >= 30 && !isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
+                      {isFirstRun && _approxPxW >= 30 && !isPto && (bar.task?.scheduledHours || bar.task?.workHours || bar.task?.hpd) > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono }}>{Math.round(((bar.task.scheduledHours || bar.task.workHours || bar.task.hpd) / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                     </div>;
                   });
                   });
@@ -7162,7 +7494,7 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                     {/* Today's job + progress */}
                     {todayOp && (
-                      <div>
+                      <div onClick={() => jumpToJob(todayOp.jobId, TD)} style={{ cursor: "pointer" }}>
                         <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{todayOp.title}</div>
                         <div style={{ fontSize: 11, color: T.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[todayOp.panelTitle, todayOp.jobTitle].filter(Boolean).join(" · ")}</div>
                         <div style={{ marginTop: 8 }}>
@@ -7178,7 +7510,7 @@ ${jobsCtx || "No jobs found."}`;
                     )}
                     {/* Next upcoming task */}
                     {nextOp && (
-                      <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 8 }}>
+                      <div onClick={() => jumpToJob(nextOp.jobId, nextOp.start)} style={{ borderTop: `1px solid ${T.border}`, paddingTop: 8, cursor: "pointer" }}>
                         <div style={{ fontSize: 10, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 3 }}>Next</div>
                         <div style={{ fontSize: 11, fontWeight: 600, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextOp.title}</div>
                         <div style={{ fontSize: 10, color: T.textDim, marginTop: 1 }}>{fm(nextOp.start)}{nextOp.end !== nextOp.start ? ` – ${fm(nextOp.end)}` : ""}</div>
@@ -7296,7 +7628,6 @@ ${jobsCtx || "No jobs found."}`;
                 {hasSubs && <div style={{ fontSize: 11, color: T.accent, marginTop: 3 }}>{t.subs.length} subtask{t.subs.length > 1 ? "s" : ""}{subs.length < t.subs.length ? ` (${subs.length} today)` : ""}</div>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                <HealthIcon t={t} size={10} />
                 {!hasSubs && <span style={{ fontSize: 10, color: T.textDim }}>view</span>}
               </div>
             </div>
@@ -7310,7 +7641,6 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ fontSize: 13, fontWeight: 500, color: isActive ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
                     <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{fm(s.start)} → {fm(s.end)}{!isActive ? " · not today" : ""}</div>
                   </div>
-                  <HealthIcon t={s} size={8} />
                 </div>;
               })}
               <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer", gap: 6 }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
@@ -7348,7 +7678,6 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 12, color: opts.dateColor || T.textDim, marginTop: 2 }}>{opts.prefix || ""}{cl ? cl.name + " · " : ""}{fm(t.start)} → {fm(t.end)}</div>
             {hasSubs && <div style={{ fontSize: 11, color: T.accent, marginTop: 3 }}>{t.subs.length} subtask{t.subs.length > 1 ? "s" : ""}</div>}
           </div>
-          <HealthIcon t={t} size={10} />
         </div>
         {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${cardBorder}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
           {(t.subs || []).map(s => <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 32px", cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
@@ -7357,7 +7686,6 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
               <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{fm(s.start)} → {fm(s.end)}</div>
             </div>
-            <HealthIcon t={s} size={8} />
           </div>)}
           <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer" }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
             <span style={{ fontSize: 12, color: T.accent, fontWeight: 600 }}>View Full Project</span>
@@ -7407,10 +7735,12 @@ ${jobsCtx || "No jobs found."}`;
     const renderSettingsPanel = () => {
       if (!tsSettingsOpen || !tsSettingsDraft) return null;
       return (
-        <div className="anim-drop" style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 999, minWidth: 640, maxWidth: "min(800px, 96vw)", maxHeight: "80vh", overflowY: "auto", background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
+        <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}
+          onClick={closeSettings}>
+        <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(680px, calc(100vw - 32px))", maxHeight: "88vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
           {/* Header row */}
-          <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>Time Stamp Settings</span>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
+            <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Time &amp; Pay</span>
             <button onClick={closeSettings} style={{ background: "none", border: "none", color: T.textDim, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>✕</button>
           </div>
 
@@ -7431,6 +7761,39 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ fontSize: 11, color: T.textDim }}>
                 {(() => { const pp = getPayPeriodFromDates(orgSettings.payDates||[5,20], TD); const fmtD = d => new Date(d + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
+              </div>
+            </div>}
+
+            {/* Work Day Adjustments */}
+            {isAdmin && <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Work Day Adjustments</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 4 }}>Typical Clock-In Time</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input type="time" value={orgSettings.clockInTime ?? "08:30"} onChange={e => setOrgSettings(s => ({ ...s, clockInTime: e.target.value }))}
+                      style={{ padding: "5px 8px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 5 }}>The time workers typically start their day — used as the anchor for all scheduling offsets</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 4 }}>Lunch Duration</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input type="number" min="0" max="120" value={orgSettings.lunchMinutes ?? 60} onChange={e => { const v = Math.min(120, Math.max(0, parseInt(e.target.value) || 0)); setOrgSettings(s => ({ ...s, lunchMinutes: v })); }}
+                      style={{ width: 70, padding: "5px 8px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                    <span style={{ fontSize: 13, color: T.textDim }}>minutes</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 5 }}>Unpaid — subtracted from the working day</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text, marginBottom: 4 }}>Paid Break Time</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <input type="number" min="0" max="120" value={orgSettings.breakMinutes ?? 30} onChange={e => { const v = Math.min(120, Math.max(0, parseInt(e.target.value) || 0)); setOrgSettings(s => ({ ...s, breakMinutes: v })); }}
+                      style={{ width: 70, padding: "5px 8px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                    <span style={{ fontSize: 13, color: T.textDim }}>minutes</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 5 }}>Total paid break time per day — added as buffer to job scheduling</div>
+                </div>
               </div>
             </div>}
 
@@ -7500,6 +7863,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             </div>
           </div>
+        </div>
         </div>
       );
     };
@@ -8442,14 +8806,7 @@ ${jobsCtx || "No jobs found."}`;
         {renderPinModal()}
         {renderPersonEditModal()}
 
-        {/* ── Settings button + dropdown ── */}
-        <div ref={tsSettingsRef} style={{ display: "flex", justifyContent: "flex-end", position: "relative" }}>
-          <button onClick={openSettings} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: T.radiusSm, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "12" : T.surface, color: tsSettingsOpen ? T.accent : T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { if (!tsSettingsOpen) { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; } }} onMouseLeave={e => { if (!tsSettingsOpen) { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; } }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            Time Stamp Settings
-          </button>
-          {renderSettingsPanel()}
-        </div>
+        {renderSettingsPanel()}
 
         {/* ── Centered clock section — hourly only ── */}
         {loggedInUser.payType === "salary" ? (
@@ -9180,6 +9537,7 @@ ${jobsCtx || "No jobs found."}`;
           {people.map(p => {
             const pTasks = allItems.filter(t => (t.team || []).includes(p.id) && TD >= t.start && TD <= t.end);
             const hrs = pTasks.reduce((a, t) => a + (t.hpd || 0), 0);
+            console.log("=== DASHBOARD HOURS CALC ===", { workerId: p.id, workerName: p.name, jobsFound: pTasks.map(j => ({ id: j.id, title: j.title, hours: j.hpd || j.scheduledHours })), total: hrs });
             const pct = Math.min(hrs / p.cap * 100, 100);
             return <div key={p.id} style={{ marginBottom: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -9212,7 +9570,7 @@ ${jobsCtx || "No jobs found."}`;
         })()}
         <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? T.accent + "15" : T.bg, border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{unreadMessages.length > 9 ? "9+" : unreadMessages.length}</span>}
+          {(unreadByThread.length > 0 || scheduleAlerts.length > 0) && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{(unreadMessages.length + scheduleAlerts.length) > 9 ? "9+" : unreadMessages.length + scheduleAlerts.length}</span>}
         </button>
         <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: settingsOpen ? T.accent + "15" : T.bg, border: `1px solid ${settingsOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={settingsOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.3s", transform: settingsOpen ? "rotate(90deg)" : "none" }}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -9360,7 +9718,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>}
-          <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+<button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Clients</div>
@@ -9437,9 +9795,25 @@ ${jobsCtx || "No jobs found."}`;
             {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font, fontWeight: 600 }}>Mark all read</button>}
           </div>
           <div style={{ overflow: "auto" }}>
-            {unreadByThread.length === 0 ? (
+            {unreadByThread.length === 0 && scheduleAlerts.length === 0 ? (
               <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up! 🎉</div>
-            ) : unreadByThread.map(item => {
+            ) : <>
+              {scheduleAlerts.map(alert => (
+                <div key={alert.id} onClick={() => handleAlertClick(alert)}
+                  style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start" }}
+                  onTouchStart={e => e.currentTarget.style.background = ALERT_COLORS[alert.type] + "10"}
+                  onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+                  <div style={{ width: 8, height: 8, borderRadius: 4, background: ALERT_COLORS[alert.type], flexShrink: 0, marginTop: 4 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alert.title}</span>
+                      <span style={{ fontSize: 10, color: ALERT_COLORS[alert.type], flexShrink: 0, marginLeft: 8, fontWeight: 700 }}>{ALERT_LABELS[alert.type]}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alert.description}</div>
+                  </div>
+                </div>
+              ))}
+              {unreadByThread.map(item => {
               const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
               return <div key={item.threadKey} onClick={() => {
                 const gId = item.scope === "group" ? item.threadKey.replace("group:", "") : null;
@@ -9457,7 +9831,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{item.latest.authorName}:</strong> {item.latest.text}</div>
                 </div>
               </div>;
-            })}
+            })}</>}
           </div>
         </div>
       </>}
@@ -10042,9 +10416,9 @@ ${jobsCtx || "No jobs found."}`;
         setTimeout(() => {
           const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
           const inSession = [];
-          const isPersonFreeLocal = (pid, s, eDate, hpdNeeded = orgSettings.hpd) => {
+          const isPersonFreeLocal = (pid, s, eDate, hpdNeeded = productiveMinutesPerDay / 60) => {
             const pp = people.find(x => x.id === pid);
-            const cap = pp?.cap || orgSettings.hpd;
+            const cap = pp?.cap || productiveMinutesPerDay / 60;
             if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
             let d = s;
             while (d <= eDate) {
@@ -10073,10 +10447,10 @@ ${jobsCtx || "No jobs found."}`;
             }
             return true;
           };
-          const isAvailLocal = (pid, s, eDate, hpdNeeded = orgSettings.hpd) => {
+          const isAvailLocal = (pid, s, eDate, hpdNeeded = productiveMinutesPerDay / 60) => {
             if (!isPersonFreeLocal(pid, s, eDate, hpdNeeded)) return false;
             const pp = people.find(x => x.id === pid);
-            const cap = pp?.cap || orgSettings.hpd;
+            const cap = pp?.cap || productiveMinutesPerDay / 60;
             let d = s;
             while (d <= eDate) {
               const dow = new Date(d + "T12:00:00").getDay();
@@ -10114,7 +10488,8 @@ ${jobsCtx || "No jobs found."}`;
             const reqDept = typeof op === "object" ? (op.requiredDepartment || "") : "";
             const eligible = allCrew.filter(pp => !reqDept || pp.department === reqDept).sort((a, b) => { const diff = jobCountLocal(a.id) - jobCountLocal(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
             if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
-            const singleDur = Math.max(1, Math.ceil(totalHours / orgSettings.hpd));
+            const prodHPD = productiveMinutesPerDay / 60;
+            const singleDur = Math.max(1, Math.ceil(totalHours / prodHPD));
             const hpdPerDay = totalHours / singleDur;
             if (scheduleTeamMode === "one") {
               let tryStart = minStart || newStartDate;
@@ -10131,7 +10506,7 @@ ${jobsCtx || "No jobs found."}`;
               return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
             }
             const teamSize = eligible.length;
-            const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * orgSettings.hpd)));
+            const durBD = Math.max(1, Math.ceil(totalHours / (teamSize * prodHPD)));
             const hpdPerDayTeam = totalHours / durBD / teamSize;
             let tryStart = minStart || newStartDate;
             for (let guard = 0; guard < 300; guard++) {
@@ -10146,7 +10521,7 @@ ${jobsCtx || "No jobs found."}`;
               const tryS = sAddBD(fallbackStart, g2);
               const tryE = sAddBD(tryS, Math.max(0, singleDur - 1));
               const freeSubset = eligible.filter(m => isAvailLocal(m.id, tryS, tryE, hpdPerDay));
-              if (freeSubset.length > 0) { const sz = freeSubset.length; const finalDur = Math.max(1, Math.ceil(totalHours / (sz * orgSettings.hpd))); return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) }; }
+              if (freeSubset.length > 0) { const sz = freeSubset.length; const finalDur = Math.max(1, Math.ceil(totalHours / (sz * prodHPD))); return { team: freeSubset, start: tryS, end: sAddBD(tryS, Math.max(0, finalDur - 1)) }; }
             }
             return { team: [], start: fallbackStart, end: fallbackStart };
           };
@@ -10171,7 +10546,24 @@ ${jobsCtx || "No jobs found."}`;
                 setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
                 return;
               }
-              placedSubs.push({ ...sub, start: ss, end: se, team: subTeam.map(m => m.id) });
+              const subSpanDays = Math.max(1, diffBD(ss, se) + 1);
+              const subWorkHours = sub.hpd || orgSettings.hpd;
+              const subBreakBuffer = subSpanDays * (orgSettings.breakMinutes ?? 30) / 60;
+              console.log("=== ABOUT TO STAMP ===", { subId: sub.id, subHpd: sub.hpd, ss, se, subSpanDays: Math.max(1, diffBD(ss, se) + 1), breakMinutes: orgSettings.breakMinutes });
+              const placedSub = { ...sub, start: ss, end: se, team: subTeam.map(m => m.id), workHours: parseFloat(subWorkHours.toFixed(2)), scheduledHours: parseFloat((subWorkHours + subBreakBuffer).toFixed(2)) };
+              placedSubs.push(placedSub);
+              console.log("=== STAMPED HOURS ===", { id: placedSub.id, workHours: placedSub.workHours, scheduledHours: placedSub.scheduledHours });
+              console.log("=== JOB HOURS CALC ===", {
+                workHours: subWorkHours,
+                hpd: sub.hpd,
+                scheduledHours: parseFloat((subWorkHours + subBreakBuffer).toFixed(2)),
+                productiveMinutesPerDay: productiveMinutesPerDay,
+                lunchMinutes: orgSettings.lunchMinutes,
+                breakMinutes: orgSettings.breakMinutes,
+                clockInTime: orgSettings.clockInTime,
+                subSpanDays,
+                subBreakBuffer,
+              });
               subTeam.forEach(m => {
                 const totalHours = (typeof sub === "object" && sub.hpd) ? sub.hpd : orgSettings.hpd;
                 const span = Math.max(1, diffBD(ss, se) + 1);
@@ -10199,7 +10591,10 @@ ${jobsCtx || "No jobs found."}`;
               setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
               return;
             }
-            newPanel = { ...panel, start: ps, end: pe, team: panelTeam.map(m => m.id) };
+            const panelSpanDays = Math.max(1, diffBD(ps, pe) + 1);
+            const panelWorkHours = panel.hpd || orgSettings.hpd;
+            const panelBreakBuffer = panelSpanDays * (orgSettings.breakMinutes ?? 30) / 60;
+            newPanel = { ...panel, start: ps, end: pe, team: panelTeam.map(m => m.id), workHours: parseFloat(panelWorkHours.toFixed(2)), scheduledHours: parseFloat((panelWorkHours + panelBreakBuffer).toFixed(2)) };
           }
           const overrideEntry = {
             fromStart: originalStart, fromEnd: panel.end,
@@ -10710,6 +11105,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   <button onClick={(e) => {
                     e.stopPropagation();
+                    console.log("=== USE THIS SCHEDULE HANDLER FIRED ===");
                     setEd(p => {
                       const updated={...p};
                       const allCrew=people.filter(pp => pp.userRole==="user" && !pp.noAutoSchedule);
@@ -10844,12 +11240,19 @@ ${jobsCtx || "No jobs found."}`;
                       }));
                       const opQueue=[];
                       resultSubs.forEach((op,pi) => { if((op.subs||[]).length>0) opQueue.push({panelIdx:pi,opIdx:0,earliestStart:slot.start}); });
+                      console.log("=== OPQUEUE BUILT ===", opQueue?.length, opQueue?.map(o => ({ panelIdx: o.panelIdx, opIdx: o.opIdx, subId: expandedOps[o.panelIdx]?.subs?.[o.opIdx]?.id, subTitle: expandedOps[o.panelIdx]?.subs?.[o.opIdx]?.title })));
+                      console.log("=== PLACEMENT LOOP STARTING ===", "opQueue length:", opQueue?.length);
                       for(let safety=0;safety<10000 && opQueue.length>0;safety++) {
                         opQueue.sort((a,b) => a.earliestStart.localeCompare(b.earliestStart));
                         const {panelIdx,opIdx,earliestStart}=opQueue.shift();
                         const sub=expandedOps[panelIdx].subs[opIdx];
+                        console.log("=== PROCESSING SUB ===", sub?.id, sub?.title);
                         if(checkDeps(sub.deps).length>0) continue;
                         const {team:subTeam,start:ss,end:se}=pickTeam(sub,earliestStart);
+                        const subWorkHoursLocal=(typeof sub==="object"&&sub.hpd)?sub.hpd:orgSettings.hpd;
+                        const subSpanDaysLocal=Math.max(1,diffBD(ss,se)+1);
+                        const subBreakBufferLocal=subSpanDaysLocal*(orgSettings.breakMinutes??30)/60;
+                        console.log("=== ABOUT TO PUSH PLACED SUB ===", sub?.id, "workHours:", subWorkHoursLocal, "scheduledHours:", subWorkHoursLocal+subBreakBufferLocal);
                         resultSubs[panelIdx].placedSubs[opIdx]={...sub,_placed:true,start:ss,end:se,team:subTeam.length>0?subTeam.map(m => m.id):(sub.team||[])};
                         subTeam.forEach(m => {
                           const totalHoursPlaced=(typeof sub==="object" && sub.hpd)?sub.hpd:orgSettings.hpd;
@@ -10863,6 +11266,10 @@ ${jobsCtx || "No jobs found."}`;
                           }
                           personCursors[m.id]=sAddBD(se,1);
                         });
+                        if(subBreakBufferLocal > 0) {
+                          const bufferDay = sAddBD(se, 1);
+                          subTeam.forEach(m => inSession.push({ pid: m.id, date: bufferDay, hours: subBreakBufferLocal }));
+                        }
                         console.log("=== INSESSION AFTER PUSH ===", JSON.stringify(inSession));
                         if(se>latestEnd) latestEnd=se;
                         const nextOpIdx=opIdx+1;
@@ -10887,7 +11294,7 @@ ${jobsCtx || "No jobs found."}`;
                         const placed=op.placedSubs;
                         const opStart=placed[0]?.start||slot.start;
                         const opEnd=placed[placed.length-1]?.end||slot.start;
-                        return {...op,start:opStart,end:opEnd,team:placed[0]?.team||[],subs:placed.map(({_placed,...rest}) => rest)};
+                        return {...op,start:opStart,end:opEnd,team:placed[0]?.team||[],subs:placed.map(({_placed,...rest}) => stampOpHours(rest))};
                       });
                       const overlapErrors=[];
                       for(const pnl of newSubs) {
@@ -10934,6 +11341,21 @@ ${jobsCtx || "No jobs found."}`;
                       updated.subs=newSubs;
                       updated.start=newSubs.length>0?newSubs[0].start:slot.start;
                       updated.end=latestEnd;
+                      const placedSubs=newSubs.flatMap(s=>(s.subs&&s.subs.length>0)?s.subs:[s]);
+                      updated.scheduledHours=parseFloat(placedSubs.reduce((sum,s)=>sum+(s.scheduledHours||s.hpd||0),0).toFixed(2));
+                      updated.workHours=parseFloat(placedSubs.reduce((sum,s)=>sum+(s.workHours||s.hpd||0),0).toFixed(2));
+                      console.log("=== JOB AFTER SCHEDULE ===", {
+                        id: updated.id,
+                        hpd: updated.hpd,
+                        workHours: updated.workHours,
+                        scheduledHours: updated.scheduledHours,
+                        subs: updated.subs?.flatMap(s => s.subs?.length > 0 ? s.subs : [s]).map(s => ({
+                          id: s.id,
+                          hpd: s.hpd,
+                          workHours: s.workHours,
+                          scheduledHours: s.scheduledHours,
+                        }))
+                      });
                       return updated;
                     });
                     setAiSuggestion(null);
@@ -11307,16 +11729,32 @@ ${jobsCtx || "No jobs found."}`;
         <div ref={notifRef} style={{ position: "relative" }}>
           <Tip label="Notifications"><button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{unreadByThread.length > 9 ? "9+" : unreadMessages.length}</span>}
+            {(unreadByThread.length > 0 || scheduleAlerts.length > 0) && <span style={{ position: "absolute", top: 4, right: 4, width: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{(unreadMessages.length + scheduleAlerts.length) > 9 ? "9+" : unreadMessages.length + scheduleAlerts.length}</span>}
           </button></Tip>
-          {notifOpen && <div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
+          {notifOpen && <div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, maxHeight: "70vh", overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
             <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Notifications</div>
               {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
             </div>
-            {unreadByThread.length === 0 ? (
+            {unreadByThread.length === 0 && scheduleAlerts.length === 0 ? (
               <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up! 🎉</div>
-            ) : unreadByThread.map((item, i) => {
+            ) : <>
+              {scheduleAlerts.map((alert, i) => (
+                <div key={alert.id} onClick={() => handleAlertClick(alert)}
+                  style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 40}ms` }}
+                  onMouseEnter={e => e.currentTarget.style.background = ALERT_COLORS[alert.type] + "10"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <div style={{ width: 8, height: 8, borderRadius: 4, background: ALERT_COLORS[alert.type], flexShrink: 0, marginTop: 5 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alert.title}</span>
+                      <span style={{ fontSize: 10, color: ALERT_COLORS[alert.type], flexShrink: 0, marginLeft: 8, fontWeight: 700 }}>{ALERT_LABELS[alert.type]}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{alert.description}</div>
+                  </div>
+                </div>
+              ))}
+              {unreadByThread.map((item, i) => {
               const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
               const author = people.find(p => p.id === item.latest.authorId);
               return <div key={item.threadKey} onClick={() => {
@@ -11324,7 +11762,7 @@ ${jobsCtx || "No jobs found."}`;
                 const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
                 setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
                 setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
-              }} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              }} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${(scheduleAlerts.length + i) * 40}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 5 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -11334,7 +11772,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{item.latest.authorName}:</strong> {item.latest.text}</div>
                 </div>
               </div>;
-            })}
+            })}</>}
           </div>}
         </div>
         {/* Settings Gear */}
@@ -11373,6 +11811,14 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <span style={{ fontSize: 16, color: T.textDim }}>›</span>
               </button>
+              {isAdmin && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setView("timestamp"); setTsSettingsDraft(people.map(p => ({ ...p }))); setTsSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "90ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Time &amp; Pay</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>Pay period, clock events &amp; work day</div>
+                </div>
+                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+              </button>}
             </> : settingsTab === "org" && isAdmin ? (<>
               <div style={{ padding: "16px 16px 8px" }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Organization Code</div>
@@ -11820,20 +12266,28 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 12, color: T.textDim }}>Opens</span>
-                <input type="time" value={orgSettings.workStart || "07:00"} onChange={e => {
+                <input type="time" value={hpdChangeDialog?.workStart ?? (orgSettings.workStart || "08:30")} onChange={e => {
                   const newStart = e.target.value;
                   const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
-                  const newHpd = Math.max(0.5, parseFloat((parseH(orgSettings.workEnd || "15:00") - parseH(newStart)).toFixed(2)));
-                  setOrgSettings(s => ({ ...s, workStart: newStart, hpd: newHpd }));
+                  const newHpd = Math.max(0.5, parseFloat((parseH(orgSettings.workEnd || "17:00") - parseH(newStart)).toFixed(2)));
+                  if (newHpd !== orgSettings.hpd) {
+                    setHpdChangeDialog({ workStart: newStart, workEnd: orgSettings.workEnd || "17:00", newHpd, prevHpd: orgSettings.hpd });
+                  } else {
+                    setOrgSettings(s => ({ ...s, workStart: newStart, hpd: newHpd }));
+                  }
                 }} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 12, color: T.textDim }}>Closes</span>
-                <input type="time" value={orgSettings.workEnd || "15:00"} onChange={e => {
+                <input type="time" value={hpdChangeDialog?.workEnd ?? (orgSettings.workEnd || "17:00")} onChange={e => {
                   const newEnd = e.target.value;
                   const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
-                  const newHpd = Math.max(0.5, parseFloat((parseH(newEnd) - parseH(orgSettings.workStart || "07:00")).toFixed(2)));
-                  setOrgSettings(s => ({ ...s, workEnd: newEnd, hpd: newHpd }));
+                  const newHpd = Math.max(0.5, parseFloat((parseH(newEnd) - parseH(orgSettings.workStart || "08:30")).toFixed(2)));
+                  if (newHpd !== orgSettings.hpd) {
+                    setHpdChangeDialog({ workStart: orgSettings.workStart || "08:30", workEnd: newEnd, newHpd, prevHpd: orgSettings.hpd });
+                  } else {
+                    setOrgSettings(s => ({ ...s, workEnd: newEnd, hpd: newHpd }));
+                  }
                 }} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
               <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>= {orgSettings.hpd} hrs/day</span>
@@ -12821,7 +13275,7 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={() => setQuickAddSub(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={() => {
             if (!quickAddSub.title.trim()) return;
-            const newItem = { id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: quickAddSub.team || [], hpd: 7.5, notes: "", deps: [] };
+            const newItem = stampOpHours({ id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: quickAddSub.team || [], hpd: 7.5, notes: "", deps: [] });
             if (quickAddSub.type === "panel") {
               setTasks(prev => prev.map(job => job.id === quickAddSub.parentId
                 ? { ...job, subs: [...(job.subs || []), { ...newItem, subs: [] }] }
@@ -13101,6 +13555,63 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
           <Btn variant="ghost" onClick={() => { if (confirmMove.onCancel) confirmMove.onCancel(); }} style={{ minWidth: 120 }}>Cancel</Btn>
           <Btn onClick={() => { if (confirmMove.onConfirm) confirmMove.onConfirm(); }} style={{ minWidth: 120 }}>Yes, Move It</Btn>
+        </div>
+      </div>
+    </div>}
+
+    {/* ── Working Hours Change Dialog ──────────────────────────────────────── */}
+    {hpdChangeDialog && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setHpdChangeDialog(null)}>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 480, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 20, fontWeight: 700 }}>Working Hours Changed</h3>
+        <p style={{ margin: "0 0 6px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>
+          Working hours changed from <strong style={{ color: T.text }}>{hpdChangeDialog.prevHpd}h</strong> to <strong style={{ color: T.accent }}>{hpdChangeDialog.newHpd}h</strong> per day.
+        </p>
+        <p style={{ margin: "0 0 24px", fontSize: 13, color: T.textDim, lineHeight: 1.5 }}>
+          Job end dates can be recalculated to match the new schedule. Work hours stay the same — only the number of days changes.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={() => {
+            setOrgSettings(s => ({ ...s, workStart: hpdChangeDialog.workStart, workEnd: hpdChangeDialog.workEnd, hpd: hpdChangeDialog.newHpd }));
+            recalcJobsForNewHpd("all", hpdChangeDialog.newHpd);
+            setHpdChangeDialog(null);
+          }} style={{ padding: "12px 16px", borderRadius: T.radiusSm, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, color: T.accentText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>
+            Update All Jobs — Recalculate every job's end date
+          </button>
+          <button onClick={() => {
+            setOrgSettings(s => ({ ...s, workStart: hpdChangeDialog.workStart, workEnd: hpdChangeDialog.workEnd, hpd: hpdChangeDialog.newHpd }));
+            recalcJobsForNewHpd("future", hpdChangeDialog.newHpd);
+            setHpdChangeDialog(null);
+          }} style={{ padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>
+            Update Future Jobs Only — Leave past and in-progress jobs unchanged
+          </button>
+          <button onClick={() => setHpdChangeDialog(null)} style={{ padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>
+            Cancel — Discard this change, keep current jobs as-is
+          </button>
+        </div>
+      </div>
+    </div>}
+
+    {/* ── Daisy Chain Push Dialog ──────────────────────────────────────────── */}
+    {daisyChainDialog && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => { daisyChainDialog.onMoveOnly(); }}>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 480, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+        <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 20, fontWeight: 700 }}>Move Affects Other Jobs</h3>
+        <p style={{ margin: "0 0 6px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>
+          Moving <strong style={{ color: T.text }}>{daisyChainDialog.movedTitle}</strong> forward pushes into <strong style={{ color: T.accent }}>{daisyChainDialog.pushes.length} other job{daisyChainDialog.pushes.length !== 1 ? "s" : ""}</strong>.
+        </p>
+        <div style={{ margin: "12px 0 24px", maxHeight: 160, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+          {daisyChainDialog.pushes.map(p => (
+            <div key={p.job.id} style={{ fontSize: 12, color: T.textDim, padding: "4px 8px", background: T.accent + "10", borderRadius: 6 }}>
+              <strong style={{ color: T.textSec }}>{p.job.title}</strong>: {fm(p.oldStart)} → {fm(p.newStart)}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <button onClick={daisyChainDialog.onMoveAll} style={{ padding: "12px 16px", borderRadius: T.radiusSm, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, color: T.accentText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>
+            Move All Jobs — Push all {daisyChainDialog.pushes.length} affected job{daisyChainDialog.pushes.length !== 1 ? "s" : ""} forward
+          </button>
+          <button onClick={daisyChainDialog.onMoveOnly} style={{ padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>
+            Move This Job Only — Leave other jobs where they are
+          </button>
         </div>
       </div>
     </div>}
