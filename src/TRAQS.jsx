@@ -4782,28 +4782,6 @@ ${jobsCtx || "No jobs found."}`;
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
-      {/* ── BuilderTrend Modal ── */}
-      {bcModalState !== "closed" && (
-        <div
-          onAnimationEnd={() => { if (bcModalState === "closing") setBcModalState("closed"); }}
-          style={{
-            position: "fixed", inset: 0, zIndex: 10020, background: T.bg,
-            display: "flex", flexDirection: "column", fontFamily: T.font,
-            animation: bcModalState === "closing"
-              ? "bcPageOut 0.22s cubic-bezier(0.4, 0, 1, 1) both"
-              : "bcPageIn  0.30s cubic-bezier(0.22, 1, 0.36, 1) both",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-            <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>BuilderTrend</span>
-            <button onClick={() => setBcModalState("closing")} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>✕</button>
-          </div>
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            {/* BuilderTrend API integration — coming soon */}
-          </div>
-        </div>
-      )}
       {/* ── Sign-Off Queue (cards view) — one section per template ── */}
       {taskSubView === "cards" && canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => {
         if (!(pending.length > 0 || finished.length > 0)) return null;
@@ -4993,7 +4971,7 @@ ${jobsCtx || "No jobs found."}`;
                   {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
                   {client && <span style={{ fontSize: 11, color: client.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: client.color, display: "inline-block" }} />{client.name}</span>}
                   {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: T.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 7, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>{pm.name.split(" ")[0]}</span> : null; })()}
-                  <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>
+                  {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600, marginLeft: "auto" }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>}
                 </div>
               </div>;
             })}
@@ -5012,7 +4990,7 @@ ${jobsCtx || "No jobs found."}`;
                     <span style={{ fontSize: 11 }}>✅</span>
                     <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                     {client && <span style={{ fontSize: 10, color: client.color, fontWeight: 600 }}>{client.name}</span>}
-                    <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>
+                    {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>}
                   </div>
                 </div>;
               })}
@@ -5187,6 +5165,8 @@ ${jobsCtx || "No jobs found."}`;
           const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: job.id, pid: null, title: job.title, jobNumber: job.jobNumber || null }); } else { updTask(job.id, { status: next }); } };
           const cyclePri = (job) => { const opts = ["Low","Medium","High"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
           const cycleStatusSub = (item2, pid2) => { const i = STATUSES.indexOf(item2.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item2.id, pid: pid2 || null, title: item2.title, jobNumber: null }); } else { updTask(item2.id, { status: next }, pid2); } };
+          const isScheduledLater = level === 0 ? !!item.scheduledLater : !!(tasks.find(t => t.id === jobId)?.scheduledLater);
+          const safeDate = ds => { if (!ds) return "—"; const d = new Date(ds + "T12:00:00"); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
           switch (colId) {
             case "name": return (
               <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: level === 0 ? 10 : 8 + indent }}
@@ -5241,19 +5221,23 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             );
             case "start": return (
-              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: "text" }}
-                onClick={e => startEdit(e, item.id, "start")}>
-                {isEdit(item.id, "start")
-                  ? <input type="date" autoFocus defaultValue={item.start} onBlur={e => commitEdit(item.id, "start", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
-                  : <span style={{ color: T.textSec }}>{fm(item.start)}</span>}
+              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: isScheduledLater ? "default" : "text" }}
+                onClick={e => !isScheduledLater && startEdit(e, item.id, "start")}>
+                {isScheduledLater
+                  ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>PENDING</span>
+                  : isEdit(item.id, "start")
+                    ? <input type="date" autoFocus defaultValue={item.start} onBlur={e => commitEdit(item.id, "start", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
+                    : <span style={{ color: T.textSec }}>{safeDate(item.start)}</span>}
               </div>
             );
             case "end": return (
-              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: "text" }}
-                onClick={e => startEdit(e, item.id, "end")}>
-                {isEdit(item.id, "end")
-                  ? <input type="date" autoFocus defaultValue={item.end} onBlur={e => commitEdit(item.id, "end", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
-                  : <span style={{ color: T.textSec }}>{fm(item.end)}</span>}
+              <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: isScheduledLater ? "default" : "text" }}
+                onClick={e => !isScheduledLater && startEdit(e, item.id, "end")}>
+                {isScheduledLater
+                  ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>PENDING</span>
+                  : isEdit(item.id, "end")
+                    ? <input type="date" autoFocus defaultValue={item.end} onBlur={e => commitEdit(item.id, "end", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
+                    : <span style={{ color: T.textSec }}>{safeDate(item.end)}</span>}
               </div>
             );
             case "due": return (
@@ -6309,6 +6293,7 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
+          <Btn size="sm" onClick={() => setBcModalState("open")}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg> BC Jobs</Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
@@ -10769,7 +10754,10 @@ ${jobsCtx || "No jobs found."}`;
           </>}
           {modalStep === 2 && <>
             <Btn variant="ghost" onClick={() => goStep(1)}>← Back</Btn>
-            <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length>0) { goStep(3); suggestSchedule(); } }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer" }}>Schedule & Assign →</Btn>
+            <div style={{ display:"flex", gap:8 }}>
+              <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length===0) return; const cleanDeps=deps=>(deps||[]).filter(d=>d!=='__pending__'); const stripDT=op=>{ const {start:_s,end:_e,team:_t,qty:_q,...rest}=op; return {...rest,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub=>{const{start:_ss,end:_se,team:_st,...sr}=sub;return{...sr,deps:cleanDeps(sr.deps)};})};  }; const expanded={...ed,scheduledLater:true,subs:(ed.subs||[]).flatMap(op=>{ const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-\d+$/,"").trimEnd(); const cleaned=stripDT(op); if(qty===1)return[cleaned]; return Array.from({length:qty},(_,i)=>({...cleaned,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`})); })}; saveTask(expanded,modal.parentId); closeModal(); }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer", background:T.bg, border:`1.5px solid ${T.accent}`, color:T.accent }}>Schedule Later...</Btn>
+              <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length>0) { goStep(3); suggestSchedule(); } }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer" }}>Schedule & Assign →</Btn>
+            </div>
           </>}
           {modalStep === 3 && <>
             <div style={{ display:"flex", gap:12, alignItems:"center" }}>
@@ -11253,6 +11241,71 @@ ${jobsCtx || "No jobs found."}`;
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto" }}>
       {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
+    {/* ── BuilderTrend Modal ── */}
+    {bcModalState !== "closed" && (
+      <div
+        onAnimationEnd={() => { if (bcModalState === "closing") setBcModalState("closed"); }}
+        style={{
+          position: "fixed", inset: 0, zIndex: 10020, background: T.bg,
+          display: "flex", flexDirection: "column", fontFamily: T.font,
+          animation: bcModalState === "closing"
+            ? "bcPageOut 0.22s cubic-bezier(0.4, 0, 1, 1) both"
+            : "bcPageIn  0.30s cubic-bezier(0.22, 1, 0.36, 1) both",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
+          <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>BuilderTrend</span>
+          <button onClick={() => setBcModalState("closing")} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>✕</button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
+          {(() => {
+            const laterJobs = tasks.filter(t => t.scheduledLater);
+            if (laterJobs.length === 0) return (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12, paddingTop: 80 }}>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                <span style={{ fontSize: 14, color: T.textDim }}>No jobs pending scheduling</span>
+              </div>
+            );
+            return (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Pending Scheduling — {laterJobs.length} job{laterJobs.length !== 1 ? "s" : ""}</div>
+                {laterJobs.map(job => {
+                  const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+                  return (
+                    <div key={job.id}
+                      onClick={() => {
+                        setBcModalState("closing");
+                        setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false);
+                        setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({});
+                        setAiSuggestion(null);
+                        setModal({ type: "edit", data: { ...job }, parentId: null });
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = T.accent + "88"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
+                      style={{ display: "flex", flexDirection: "column", gap: 4, padding: "14px 16px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", transition: "border-color 0.15s" }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        {job.color && <div style={{ width: 10, height: 10, borderRadius: "50%", background: job.color, flexShrink: 0 }} />}
+                        <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>{job.title}</span>
+                        {job.jobNumber && <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{job.jobNumber}</span>}
+                        <span style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>Schedule →</span>
+                      </div>
+                      {(cl || (job.subs || []).length > 0) && (
+                        <div style={{ fontSize: 12, color: T.textDim, paddingLeft: 18, display: "flex", gap: 10 }}>
+                          {cl && <span>{cl.name}</span>}
+                          {(job.subs || []).length > 0 && <span>{(job.subs || []).length} operation{(job.subs || []).length !== 1 ? "s" : ""}</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    )}
     {/* Team day-view drag ghost */}
     {teamDayGhost && <>
       <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top, width: teamDayGhost.width, height: teamDayGhost.height, background: teamDayGhost.color, borderRadius: T.radiusXs, display: "flex", alignItems: "center", padding: "0 10px", overflow: "hidden", boxShadow: `0 8px 24px ${teamDayGhost.color}66, 0 0 0 2px rgba(255,255,255,0.3)`, opacity: 0.88, pointerEvents: "none", zIndex: 9999, border: "1.5px solid rgba(255,255,255,0.35)" }}>
