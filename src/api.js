@@ -303,6 +303,24 @@ export const jobClockOutAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+export const jobPauseAction = async (payload, getToken, orgCode) => {
+  const headers = await authHeaders(getToken, orgCode);
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "jobPause", ...payload }),
+  }).then(r => r.json());
+};
+
+export const jobResumeAction = async (payload, getToken, orgCode) => {
+  const headers = await authHeaders(getToken, orgCode);
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "jobResume", ...payload }),
+  }).then(r => r.json());
+};
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 // payload: { type, jobTitle, panelTitle, stepLabel, jobTeamIds, jobNumber }
 export async function callNotify(payload, getToken, orgCode) {

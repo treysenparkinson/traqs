@@ -129,6 +129,128 @@ export async function handler(event) {
       }
     }
 
+    // ── Job Clock In (Bearer token, no PIN) ──────────────────────────────────
+    if (action === "jobClockIn") {
+      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+
+      const { personId: jciPersonId, jobId, panelId, opId, jobTitle, panelTitle, opTitle } = body;
+      if (!jciPersonId || !jobId) return err(400, "Missing personId or jobId");
+
+      let jciPeople;
+      try { jciPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+
+      const jciIdx = jciPeople.findIndex(p => p.id === jciPersonId);
+      if (jciIdx === -1) return err(404, "Person not found");
+
+      const jciPerson = jciPeople[jciIdx];
+      if (jciPerson.activeJobClock) return err(409, "Already clocked into a job");
+
+      const jciClockIn = new Date().toISOString();
+      jciPeople[jciIdx] = { ...jciPerson, activeJobClock: { clockIn: jciClockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle } };
+      try { await writeJson(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
+
+      return json(200, { ok: true, clockIn: jciClockIn });
+    }
+
+    // ── Job Clock Out (Bearer token, no PIN) ──────────────────────────────────
+    if (action === "jobClockOut") {
+      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+
+      const { personId: jcoPId } = body;
+      if (!jcoPId) return err(400, "Missing personId");
+
+      let jcoPeople;
+      try { jcoPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+
+      const jcoIdx = jcoPeople.findIndex(p => p.id === jcoPId);
+      if (jcoIdx === -1) return err(404, "Person not found");
+
+      const jcoPerson = jcoPeople[jcoIdx];
+      if (!jcoPerson.activeJobClock) return err(409, "Not clocked into any job");
+
+      const jcoClockOut = new Date().toISOString();
+      const { clockIn: jcoClockIn, jobId: jcoJobId, panelId: jcoPanelId, opId: jcoOpId, totalPausedMs: jcoPausedMs = 0 } = jcoPerson.activeJobClock;
+      const jcoRawMs = new Date(jcoClockOut) - new Date(jcoClockIn);
+      const jcoHours = Math.max(0, Math.round(((jcoRawMs - jcoPausedMs) / 3600000) * 100) / 100);
+
+      jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null };
+      try { await writeJson(peopleKey, jcoPeople); } catch { return err(500, "Failed to save"); }
+
+      if (jcoHours > 0 && jcoJobId) {
+        try {
+          let tasks = await readJson(tasksKey) ?? [];
+          tasks = tasks.map(job => {
+            if (job.id !== jcoJobId) return job;
+            const newJobHours = Math.round(((job.loggedHours || 0) + jcoHours) * 100) / 100;
+            const newSubs = jcoOpId ? (job.subs || []).map(panel => {
+              if (panel.id !== jcoPanelId) return panel;
+              return {
+                ...panel,
+                subs: (panel.subs || []).map(op => {
+                  if (op.id !== jcoOpId) return op;
+                  return { ...op, loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100 };
+                }),
+              };
+            }) : job.subs;
+            return { ...job, loggedHours: newJobHours, subs: newSubs };
+          });
+          await writeJson(tasksKey, tasks);
+        } catch { /* non-fatal */ }
+      }
+
+      return json(200, { ok: true, hours: jcoHours });
+    }
+
+    // ── Job Pause (Bearer token, no PIN) ──────────────────────────────────────
+    if (action === "jobPause") {
+      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+
+      const { personId: jpPId } = body;
+      if (!jpPId) return err(400, "Missing personId");
+
+      let jpPeople;
+      try { jpPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+
+      const jpIdx = jpPeople.findIndex(p => p.id === jpPId);
+      if (jpIdx === -1) return err(404, "Person not found");
+
+      const jpPerson = jpPeople[jpIdx];
+      if (!jpPerson.activeJobClock) return err(409, "Not clocked into any job");
+      if (jpPerson.activeJobClock.pausedAt) return err(409, "Job already paused");
+
+      const pausedAt = new Date().toISOString();
+      jpPeople[jpIdx] = { ...jpPerson, activeJobClock: { ...jpPerson.activeJobClock, pausedAt } };
+      try { await writeJson(peopleKey, jpPeople); } catch { return err(500, "Failed to save"); }
+
+      return json(200, { ok: true, pausedAt });
+    }
+
+    // ── Job Resume (Bearer token, no PIN) ─────────────────────────────────────
+    if (action === "jobResume") {
+      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+
+      const { personId: jrPId } = body;
+      if (!jrPId) return err(400, "Missing personId");
+
+      let jrPeople;
+      try { jrPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+
+      const jrIdx = jrPeople.findIndex(p => p.id === jrPId);
+      if (jrIdx === -1) return err(404, "Person not found");
+
+      const jrPerson = jrPeople[jrIdx];
+      if (!jrPerson.activeJobClock) return err(409, "Not clocked into any job");
+      if (!jrPerson.activeJobClock.pausedAt) return err(409, "Job is not paused");
+
+      const pausedDuration = Date.now() - new Date(jrPerson.activeJobClock.pausedAt).getTime();
+      const totalPausedMs = (jrPerson.activeJobClock.totalPausedMs || 0) + pausedDuration;
+      const { pausedAt: _removed, ...jrJobClock } = jrPerson.activeJobClock;
+      jrPeople[jrIdx] = { ...jrPerson, activeJobClock: { ...jrJobClock, totalPausedMs } };
+      try { await writeJson(peopleKey, jrPeople); } catch { return err(500, "Failed to save"); }
+
+      return json(200, { ok: true, totalPausedMs });
+    }
+
     // ── PIN-authenticated actions ──────────────────────────────────────────
     const { personId, pin } = body;
     if (!pin) return err(400, "Missing pin");
@@ -301,77 +423,6 @@ export async function handler(event) {
       if (!updated) return err(404, "Operation not found");
       try { await writeJson(tasksKey, tasks); } catch { return err(500, "Failed to save tasks"); }
       return json(200, { ok: true });
-    }
-
-    // ── Job Clock In (Bearer token, no PIN) ──────────────────────────────────
-    if (action === "jobClockIn") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
-
-      const { personId: jciPersonId, jobId, panelId, opId, jobTitle, panelTitle, opTitle } = body;
-      if (!jciPersonId || !jobId) return err(400, "Missing personId or jobId");
-
-      let jciPeople;
-      try { jciPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
-
-      const jciIdx = jciPeople.findIndex(p => p.id === jciPersonId);
-      if (jciIdx === -1) return err(404, "Person not found");
-
-      const jciPerson = jciPeople[jciIdx];
-      if (jciPerson.activeJobClock) return err(409, "Already clocked into a job");
-
-      const jciClockIn = new Date().toISOString();
-      jciPeople[jciIdx] = { ...jciPerson, activeJobClock: { clockIn: jciClockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle } };
-      try { await writeJson(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
-
-      return json(200, { ok: true, clockIn: jciClockIn });
-    }
-
-    // ── Job Clock Out (Bearer token, no PIN) ──────────────────────────────────
-    if (action === "jobClockOut") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
-
-      const { personId: jcoPId } = body;
-      if (!jcoPId) return err(400, "Missing personId");
-
-      let jcoPeople;
-      try { jcoPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
-
-      const jcoIdx = jcoPeople.findIndex(p => p.id === jcoPId);
-      if (jcoIdx === -1) return err(404, "Person not found");
-
-      const jcoPerson = jcoPeople[jcoIdx];
-      if (!jcoPerson.activeJobClock) return err(409, "Not clocked into any job");
-
-      const jcoClockOut = new Date().toISOString();
-      const { clockIn: jcoClockIn, jobId: jcoJobId, panelId: jcoPanelId, opId: jcoOpId } = jcoPerson.activeJobClock;
-      const jcoHours = hoursElapsed(jcoClockIn, jcoClockOut);
-
-      jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null };
-      try { await writeJson(peopleKey, jcoPeople); } catch { return err(500, "Failed to save"); }
-
-      if (jcoHours > 0 && jcoJobId) {
-        try {
-          let tasks = await readJson(tasksKey) ?? [];
-          tasks = tasks.map(job => {
-            if (job.id !== jcoJobId) return job;
-            const newJobHours = Math.round(((job.loggedHours || 0) + jcoHours) * 100) / 100;
-            const newSubs = jcoOpId ? (job.subs || []).map(panel => {
-              if (panel.id !== jcoPanelId) return panel;
-              return {
-                ...panel,
-                subs: (panel.subs || []).map(op => {
-                  if (op.id !== jcoOpId) return op;
-                  return { ...op, loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100 };
-                }),
-              };
-            }) : job.subs;
-            return { ...job, loggedHours: newJobHours, subs: newSubs };
-          });
-          await writeJson(tasksKey, tasks);
-        } catch { /* non-fatal */ }
-      }
-
-      return json(200, { ok: true, hours: jcoHours });
     }
 
     return err(400, "Unknown action");

@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, fetchOrgConfig, updateOrgCode } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, jobPauseAction, jobResumeAction, fetchOrgConfig, updateOrgCode } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
@@ -511,7 +511,7 @@ const Tip = ({ label, children }) => {
     </div>
   );
 };
-function CtxMenuItem({ icon, label, sub, onClick }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
+function CtxMenuItem({ icon, label, sub, onClick, animIdx }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s", ...(animIdx !== undefined ? { animation: `toolDrop 0.14s ${animIdx * 38}ms both ease-out` } : {}) }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
 
 /** Reusable sliding-pill toggle. options=[{value,label}], value=active key */
 function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) {
@@ -1785,7 +1785,7 @@ Rules:
 
   // ─── Time Stamp / Kiosk state ─────────────────────────────────────────────
   const [pinInput, setPinInput] = useState("");
-  const [pinState, setPinState] = useState("closed"); // closed | clockIn_pin | clockIn_jobs | clockOut_pin | switchJob_pin | switchJob_jobs
+  const [pinState, setPinState] = useState("closed"); // closed | clockIn_pin | clockIn_jobs | clockOut_pin | lunchStart_pin | lunchEnd_pin | breakStart_pin | breakEnd_pin
   const [pinPerson, setPinPerson] = useState(null);
   const [pinError, setPinError] = useState(false);
   const [pinSelectedOps, setPinSelectedOps] = useState([]);
@@ -1795,6 +1795,10 @@ Rules:
   const [tsJobElapsed, setTsJobElapsed] = useState("");
   const [jobClockLoading, setJobClockLoading] = useState(false);
   const [jobOpSelections, setJobOpSelections] = useState({}); // { [jobId]: opId }
+  const [startJobPickerOpen, setStartJobPickerOpen] = useState(false);
+  const [startJobSearch, setStartJobSearch] = useState("");
+  const [pickerExpandedJobs, setPickerExpandedJobs] = useState(new Set());
+  const [pickerExpandedPanels, setPickerExpandedPanels] = useState(new Set());
   const [tsAdminTab, setTsAdminTab] = useState("live");
   const [tsPeriodDays, setTsPeriodDays] = useState(0);
   const [tsSettingsOpen, setTsSettingsOpen] = useState(false);
@@ -1839,20 +1843,23 @@ Rules:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loggedInUser?.activeClockIn?.clockIn]);
 
-  // Job clock timer
+  // Job clock timer — accounts for pause time
   useEffect(() => {
-    const ci = loggedInUser?.activeJobClock?.clockIn;
-    if (!ci) { setTsJobElapsed(""); return; }
-    const update = () => {
-      const ms = Date.now() - new Date(ci).getTime();
-      const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    const jc = loggedInUser?.activeJobClock;
+    if (!jc?.clockIn) { setTsJobElapsed(""); return; }
+    const calc = () => {
+      const totalMs = Date.now() - new Date(jc.clockIn).getTime();
+      const curPausedMs = jc.pausedAt ? (Date.now() - new Date(jc.pausedAt).getTime()) : 0;
+      const netMs = Math.max(0, totalMs - (jc.totalPausedMs || 0) - curPausedMs);
+      const h = Math.floor(netMs / 3600000), m = Math.floor((netMs % 3600000) / 60000);
       setTsJobElapsed(`${h}h ${m}m`);
     };
-    update();
-    const iv = setInterval(update, 60000);
+    calc();
+    if (jc.pausedAt) return; // paused — show static time, no interval
+    const iv = setInterval(calc, 60000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loggedInUser?.activeJobClock?.clockIn]);
+  }, [loggedInUser?.activeJobClock?.clockIn, loggedInUser?.activeJobClock?.totalPausedMs, loggedInUser?.activeJobClock?.pausedAt]);
 
   // Admin live refresh every 60s
   useEffect(() => {
@@ -2906,7 +2913,17 @@ Rules:
       return t;
     }));
   };
-  const delTask = (id, pid = null) => setTasks(p => { let n = pid ? p.map(t => t.id === pid ? { ...t, subs: (t.subs || []).filter(s => s.id !== id) } : t) : p.filter(t => t.id !== id); return n.map(t => ({ ...t, deps: (t.deps || []).filter(d => d !== id), subs: (t.subs || []).map(s => ({ ...s, deps: (s.deps || []).filter(d => d !== id) })) })); });
+  const delTask = (id, pid = null) => setTasks(p => {
+    const removeFromTree = (nodes) =>
+      nodes
+        .filter(n => n.id !== id)
+        .map(n => ({
+          ...n,
+          deps: (n.deps || []).filter(d => d !== id),
+          subs: n.subs ? removeFromTree(n.subs) : n.subs,
+        }));
+    return removeFromTree(p);
+  });
   const cascadeDeps = (movedId, delta) => setTasks(p => p.map(t => { let nt = { ...t, subs: [...(t.subs || [])] }; if ((t.deps || []).includes(movedId)) { nt.start = addD(t.start, delta); nt.end = addD(t.end, delta); nt.subs = nt.subs.map(s => ({ ...s, start: addD(s.start, delta), end: addD(s.end, delta) })); } else nt.subs = nt.subs.map(s => (s.deps || []).includes(movedId) ? { ...s, start: addD(s.start, delta), end: addD(s.end, delta) } : s); return nt; }));
   const toggleDep = (taskId, depId) => setTasks(p => p.map(t => { if (t.id === taskId) { const d = t.deps || []; return { ...t, deps: d.includes(depId) ? d.filter(x => x !== depId) : [...d, depId] }; } return { ...t, subs: (t.subs || []).map(s => { if (s.id === taskId) { const d = s.deps || []; return { ...s, deps: d.includes(depId) ? d.filter(x => x !== depId) : [...d, depId] }; } return s; }) }; }));
   const pName = id => { const p = people.find(x => x.id === id); return p ? (p.teamNumber ? `${p.teamNumber} - ${p.name.split(" ")[0]}` : p.name.split(" ")[0]) : "?"; };
@@ -2921,7 +2938,7 @@ Rules:
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
   const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
-  const openEdit = (t) => { setEditJobModal({ id: t.id, title: t.title || "", jobNumber: t.jobNumber || "", poNumber: t.poNumber || "", clientId: t.clientId || null, projectManagerId: t.projectManagerId || null, dueDate: t.dueDate || "", notes: t.notes || "", requiredDepartment: t.requiredDepartment || "" }); };
+  const openEdit = (t) => { console.log("=== EDIT CLICKED ===", { id: t?.id, title: t?.title, level: t?.level, isSub: t?.isSub, pid: t?.pid }); setEditJobModal({ id: t.id, title: t.title || "", jobNumber: t.jobNumber || "", poNumber: t.poNumber || "", clientId: t.clientId || null, projectManagerId: t.projectManagerId || null, dueDate: t.dueDate || "", notes: t.notes || "", requiredDepartment: t.requiredDepartment || "" }); };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
@@ -7060,6 +7077,121 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
       </div>}
+      {/* ── Daily Schedule Status ── */}
+      {people.length > 0 && (() => {
+        const getStatusBars = (pid) => {
+          const todayBars = [], futureBars = [];
+          tasks.forEach(job => {
+            if ((job.jobType || "panel") === "panel") {
+              (job.subs || []).forEach(panel => {
+                (panel.subs || []).forEach(op => {
+                  if (!(op.team || []).includes(pid)) return;
+                  if (op.status === "Finished") return;
+                  if (!op.start || !op.end) return;
+                  const tc = panel.color || "#94a3b8";
+                  const bar = { id: op.id, start: op.start, end: op.end, color: tc, task: { ...op, color: tc, jobTitle: job.title, panelTitle: panel.title, level: 2 } };
+                  if (op.start <= TD && op.end >= TD) todayBars.push(bar);
+                  else if (op.start > TD) futureBars.push(bar);
+                });
+                if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
+                  const tc = panel.color || "#94a3b8";
+                  const bar = { id: panel.id, start: panel.start, end: panel.end, color: tc, task: { ...panel, color: tc, jobTitle: job.title, panelTitle: null, level: 1 } };
+                  if (panel.start <= TD && panel.end >= TD) todayBars.push(bar);
+                  else if (panel.start > TD) futureBars.push(bar);
+                }
+              });
+            } else {
+              (job.subs || []).forEach(sub => {
+                if (!(sub.team || []).includes(pid)) return;
+                if (sub.status === "Finished") return;
+                if (!sub.start || !sub.end) return;
+                const tc = sub.color || "#94a3b8";
+                const bar = { id: sub.id, start: sub.start, end: sub.end, color: tc, task: { ...sub, color: tc, jobTitle: job.title, panelTitle: null, level: 1 } };
+                if (sub.start <= TD && sub.end >= TD) todayBars.push(bar);
+                else if (sub.start > TD) futureBars.push(bar);
+              });
+            }
+          });
+          futureBars.sort((a, b) => a.start.localeCompare(b.start));
+          return { todayBars, nextBar: futureBars[0] || null };
+        };
+        const workersToday = people
+          .map(p => { const { todayBars, nextBar } = getStatusBars(p.id); return todayBars.length > 0 ? { person: p, todayBars, nextBar } : null; })
+          .filter(Boolean);
+        if (workersToday.length === 0) return null;
+        const navToWeek = (dateStr) => {
+          const d = new Date(dateStr + "T12:00:00");
+          const dow = d.getDay();
+          const mon = addD(dateStr, -(dow === 0 ? 6 : dow - 1));
+          setTMode("week"); setTStart(mon); setTEnd(addD(mon, 6));
+        };
+        const fmRange = (s, e) => {
+          const sd = new Date(s + "T12:00:00"), ed = new Date(e + "T12:00:00");
+          if (s === e) return sd.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+          return `${sd.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${ed.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+        };
+        return (
+          <div style={{ borderTop: `1px solid ${T.border}`, background: T.bg, padding: "14px 20px 18px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Schedule Status</div>
+            <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
+              {workersToday.map(({ person, todayBars, nextBar }) => {
+                const isActive = !!person.activeJobClock;
+                const initials = person.name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
+                const todayBar = todayBars[0];
+                const totalHours = todayBar.task?.hpd || productiveHoursPerDay;
+                const loggedHours = todayBar.task?.loggedHours || 0;
+                const progressPct = Math.min(100, totalHours > 0 ? (loggedHours / totalHours) * 100 : 0);
+                return (
+                  <div key={person.id} style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: person.color || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#fff" }}>{initials}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
+                        <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.department || ""}</div>
+                      </div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: isActive ? "#10b981" : T.textDim, flexShrink: 0, paddingTop: 2, letterSpacing: "0.03em" }}>{isActive ? "Active" : "Not Active"}</div>
+                    </div>
+                    <div
+                      onClick={() => navToWeek(TD)}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = todayBar.color + "99"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
+                      style={{ cursor: "pointer", padding: "10px 10px 8px", borderRadius: T.radiusSm, background: T.surface, border: `1px solid ${T.border}`, transition: "border-color 0.15s" }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: todayBar.color, flexShrink: 0 }} />
+                        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{todayBar.task?.jobTitle || "—"}</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6, paddingLeft: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minHeight: 16 }}>
+                        {todayBar.task?.panelTitle ? `${todayBar.task.panelTitle}${todayBar.task?.title ? " · " + todayBar.task.title : ""}` : (todayBar.task?.title || "")}
+                      </div>
+                      <div style={{ height: 3, borderRadius: 2, background: T.border, overflow: "hidden", marginBottom: 4 }}>
+                        <div style={{ height: "100%", width: `${progressPct}%`, background: todayBar.color || T.accent, borderRadius: 2 }} />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.textDim }}>
+                        <span>{loggedHours.toFixed(1)}h logged</span>
+                        <span>{totalHours.toFixed(1)}h sched</span>
+                      </div>
+                    </div>
+                    {nextBar && (
+                      <div
+                        onClick={() => navToWeek(nextBar.start)}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = nextBar.color + "99"}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
+                        style={{ cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusSm, background: T.surface, border: `1px solid ${T.border}`, transition: "border-color 0.15s" }}
+                      >
+                        <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>Next Task</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextBar.task?.jobTitle || "—"}</div>
+                        {nextBar.task?.panelTitle && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextBar.task.panelTitle}</div>}
+                        <div style={{ fontSize: 10, color: T.textDim, marginTop: 2, fontFamily: T.mono }}>{fmRange(nextBar.start, nextBar.end)}</div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
       {tMode !== "day" && (() => {
         const scrStart = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()-6); return toDS(new Date(d.getFullYear(),d.getMonth(),1)); })();
         const scrEnd   = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()+12); return toDS(new Date(d.getFullYear(),d.getMonth()+1,0)); })();
@@ -7471,7 +7603,6 @@ ${jobsCtx || "No jobs found."}`;
 
     const openClockIn = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("clockIn_pin"); };
     const openClockOut = () => { setPinInput(""); setPinError(false); setPinState("clockOut_pin"); };
-    const openSwitchJob = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("switchJob_pin"); };
     const openLunch = () => { setPinInput(""); setPinError(false); setPinState(isOnLunch ? "lunchEnd_pin" : "lunchStart_pin"); };
     const openBreak = () => { setPinInput(""); setPinError(false); setPinState(isOnBreak ? "breakEnd_pin" : "breakStart_pin"); };
     const closePin = () => { setPinState("closed"); setPinInput(""); setPinError(false); setPinSelectedOps([]); };
@@ -7486,7 +7617,6 @@ ${jobsCtx || "No jobs found."}`;
       setPinInput("");
       if (pinState === "clockIn_pin") handleClockInPin(pin);
       else if (pinState === "clockOut_pin") handleClockOutPin(pin);
-      else if (pinState === "switchJob_pin") handleSwitchJobPin(pin);
       else if (pinState === "lunchStart_pin" || pinState === "lunchEnd_pin" || pinState === "breakStart_pin" || pinState === "breakEnd_pin") handleLunchBreakPin(pin);
     };
 
@@ -7550,51 +7680,6 @@ ${jobsCtx || "No jobs found."}`;
         } else {
           setPinError(true); setTimeout(() => setPinError(false), 600);
         }
-      } catch { alert("Network error"); } finally { setPinLoading(false); }
-    };
-
-    const handleSwitchJobPin = async pin => {
-      setPinLoading(true);
-      try {
-        const res = await fetch("/.netlify/functions/timeclock", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
-          body: JSON.stringify({ action: "identify", pin }),
-        }).then(r => r.json());
-        if (!res.ok || res.personId !== loggedInUser.id) {
-          setPinError(true); setTimeout(() => setPinError(false), 600);
-        } else {
-          setPinPerson({ ...loggedInUser, _pin: pin });
-          const myOps = tasks.flatMap(job =>
-            (job.subs || []).flatMap(panel =>
-              (panel.subs || [])
-                .filter(op => op.team?.includes(loggedInUser.id) && op.start <= TD && op.end >= TD && op.status !== "Finished")
-                .map(op => ({ job, panel, op }))
-            )
-          );
-          if (myOps.length > 0) {
-            setPinState("switchJob_jobs");
-          } else {
-            await doSwitchJob(pin, []);
-          }
-        }
-      } catch {
-        setPinError(true); setTimeout(() => setPinError(false), 600);
-      } finally { setPinLoading(false); }
-    };
-
-    const doSwitchJob = async (pin, jobRefs) => {
-      setPinLoading(true);
-      try {
-        // Clock out current session (saves hours to old jobRefs)
-        const outRes = await clockOutAction({ action: "clockOut", personId: loggedInUser.id, pin }, orgCode);
-        if (!outRes.ok) { alert(outRes.error || "Failed to clock out current job"); return; }
-        setTimeclock(tc => [...tc, outRes.entry]);
-        // Immediately clock in to new job
-        const inRes = await clockInAction({ action: "clockIn", personId: loggedInUser.id, pin, jobRefs }, orgCode);
-        if (!inRes.ok) { alert(inRes.error || "Failed to clock in to new job"); return; }
-        setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: { clockIn: inRes.clockIn, jobRefs } } : p));
-        closePin();
       } catch { alert("Network error"); } finally { setPinLoading(false); }
     };
 
@@ -7710,15 +7795,15 @@ ${jobsCtx || "No jobs found."}`;
       >{d}</button>
     );
 
-    const pinModalTitle = (pinState === "clockIn_pin" || pinState === "clockIn_jobs") ? "Clock In" : pinState === "clockOut_pin" ? "Clock Out" : pinState === "lunchStart_pin" ? "Start Lunch" : pinState === "lunchEnd_pin" ? "End Lunch" : pinState === "breakStart_pin" ? "Start Break" : pinState === "breakEnd_pin" ? "End Break" : "Switch Job";
-    const pinModalColor = pinState === "clockOut_pin" ? "#ef4444" : (pinState === "switchJob_pin" || pinState === "switchJob_jobs" || pinState.startsWith("lunch") || pinState.startsWith("break")) ? "#f59e0b" : T.accent;
+    const pinModalTitle = (pinState === "clockIn_pin" || pinState === "clockIn_jobs") ? "Clock In" : pinState === "clockOut_pin" ? "Clock Out" : pinState === "lunchStart_pin" ? "Start Lunch" : pinState === "lunchEnd_pin" ? "End Lunch" : pinState === "breakStart_pin" ? "Start Break" : pinState === "breakEnd_pin" ? "End Break" : "";
+    const pinModalColor = pinState === "clockOut_pin" ? "#ef4444" : (pinState.startsWith("lunch") || pinState.startsWith("break")) ? "#f59e0b" : T.accent;
 
     // ── PIN Modal ─────────────────────────────────────────────────────────────
     const renderPinModal = () => {
       if (pinState === "closed") return null;
-      return (
+      return createPortal(
         <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closePin}>
-          <div style={{ background: T.card, borderRadius: 20, padding: 32, width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative" }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 20, padding: 32, width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closePin} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
 
             {/* Title */}
@@ -7727,11 +7812,11 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 18, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
             </div>
 
-            {(pinState === "clockIn_jobs" || pinState === "switchJob_jobs") ? (
+            {pinState === "clockIn_jobs" ? (
               /* Job selection step */
               <div>
                 <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14, textAlign: "center" }}>
-                  {pinState === "switchJob_jobs" ? "Select the job you're switching to" : "Select what you're working on (optional)"}
+                  Select what you're working on (optional)
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20, maxHeight: 260, overflowY: "auto" }}>
                   {myTodayOps.map(({ job, panel, op }) => {
@@ -7748,17 +7833,15 @@ ${jobsCtx || "No jobs found."}`;
                   })}
                 </div>
                 <button
-                  onClick={() => pinState === "switchJob_jobs" ? doSwitchJob(pinPerson?._pin, pinSelectedOps) : doClockIn(pinPerson?._pin, pinSelectedOps)}
+                  onClick={() => doClockIn(pinPerson?._pin, pinSelectedOps)}
                   disabled={pinLoading || pinSelectedOps.length === 0}
                   style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: pinSelectedOps.length === 0 ? T.border : pinModalColor, color: pinSelectedOps.length === 0 ? T.textDim : "#fff", fontSize: 15, fontWeight: 700, cursor: pinSelectedOps.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1 }}
                 >
-                  {pinLoading ? "Processing…" : pinState === "switchJob_jobs" ? "Switch to Selected Job" : "Confirm Clock In"}
+                  {pinLoading ? "Processing…" : "Confirm Clock In"}
                 </button>
-                {pinState === "clockIn_jobs" && (
-                  <button onClick={() => doClockIn(pinPerson?._pin, [])} disabled={pinLoading} style={{ width: "100%", padding: "10px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>
-                    Skip — Clock in without selecting
-                  </button>
-                )}
+                <button onClick={() => doClockIn(pinPerson?._pin, [])} disabled={pinLoading} style={{ width: "100%", padding: "10px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>
+                  Skip — Clock in without selecting
+                </button>
               </div>
             ) : (
               /* PIN entry step */
@@ -7790,7 +7873,8 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       );
     };
 
@@ -7846,9 +7930,9 @@ ${jobsCtx || "No jobs found."}`;
         } catch { alert("Network error"); setTsPersonEditModal(m => ({ ...m, saving: false })); }
       };
 
-      return (
+      return createPortal(
         <div style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setTsPersonEditModal(null)}>
-          <div style={{ background: T.card, borderRadius: 16, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out" }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 16, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ width: 10, height: 10, borderRadius: 5, background: T.textDim, flexShrink: 0 }} />
@@ -7906,7 +7990,8 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       );
     };
 
@@ -7916,38 +8001,59 @@ ${jobsCtx || "No jobs found."}`;
     const myTodayHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0);
 
     // ── Job clock helpers ─────────────────────────────────────────────────────
-    // All jobs where the logged-in user has at least one non-finished op assigned
-    const myAssignedJobs = tasks.reduce((acc, job) => {
-      const assignedOps = (job.subs || []).flatMap(panel =>
-        (panel.subs || [])
-          .filter(op => op.team?.includes(loggedInUser.id) && op.status !== "Finished")
-          .map(op => ({ panelId: panel.id, panelTitle: panel.title, opId: op.id, opTitle: op.title }))
-      );
-      if (assignedOps.length > 0) acc.push({ jobId: job.id, jobTitle: job.title, color: job.color, ops: assignedOps });
-      return acc;
-    }, []);
+    const openStartJobPicker = () => setStartJobPickerOpen(true);
+    const closeStartJobPicker = () => { setStartJobPickerOpen(false); setStartJobSearch(""); setPickerExpandedJobs(new Set()); setPickerExpandedPanels(new Set()); };
 
-    const handleJobClockIn = async ({ jobId, jobTitle, panelId, panelTitle, opId, opTitle }) => {
+    const handleStartJob = async ({ jobId, jobTitle, panelId, panelTitle, opId, opTitle }) => {
       setJobClockLoading(true);
       try {
         const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle }, getToken, orgCode);
         if (res.ok) {
-          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle } } : p));
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
+          closeStartJobPicker();
         } else {
-          alert(res.error || "Clock-in failed");
+          alert(res.error || "Failed to start job");
         }
       } catch { alert("Network error"); } finally { setJobClockLoading(false); }
     };
 
-    const handleJobClockOut = async () => {
+    const handlePauseJob = async () => {
+      setJobClockLoading(true);
+      try {
+        const res = await jobPauseAction({ personId: loggedInUser.id }, getToken, orgCode);
+        if (res.ok) {
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { ...p.activeJobClock, pausedAt: res.pausedAt } } : p));
+        } else {
+          alert(res.error || "Failed to pause job");
+        }
+      } catch { alert("Network error"); } finally { setJobClockLoading(false); }
+    };
+
+    const handleResumeJob = async () => {
+      setJobClockLoading(true);
+      try {
+        const res = await jobResumeAction({ personId: loggedInUser.id }, getToken, orgCode);
+        if (res.ok) {
+          setPeople(pp => pp.map(p => p.id !== loggedInUser.id ? p : {
+            ...p,
+            activeJobClock: { ...p.activeJobClock, totalPausedMs: res.totalPausedMs, pausedAt: null },
+          }));
+        } else {
+          alert(res.error || "Failed to resume job");
+        }
+      } catch { alert("Network error"); } finally { setJobClockLoading(false); }
+    };
+
+    const handleEndJob = async () => {
       const jc = loggedInUser.activeJobClock;
       setJobClockLoading(true);
       try {
         const res = await jobClockOutAction({ personId: loggedInUser.id }, getToken, orgCode);
         if (res.ok) {
+          // Server calculates net hours (subtracts totalPausedMs) — use directly
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: null } : p));
           if (res.hours > 0 && jc) {
-            setTasks(prev => prev.map(job => {
+            const newTasks = tasks.map(job => {
               if (job.id !== jc.jobId) return job;
               const newJobHours = Math.round(((job.loggedHours || 0) + res.hours) * 100) / 100;
               const newSubs = jc.opId ? (job.subs || []).map(panel => {
@@ -7955,19 +8061,224 @@ ${jobsCtx || "No jobs found."}`;
                 return { ...panel, subs: (panel.subs || []).map(op => op.id !== jc.opId ? op : { ...op, loggedHours: Math.round(((op.loggedHours || 0) + res.hours) * 100) / 100 }) };
               }) : job.subs;
               return { ...job, loggedHours: newJobHours, subs: newSubs };
-            }));
+            });
+            setTasks(newTasks);
+            saveTasks(newTasks, getToken, orgCode).catch(console.warn);
           }
         } else {
-          alert(res.error || "Clock-out failed");
+          alert(res.error || "Failed to end job");
         }
       } catch { alert("Network error"); } finally { setJobClockLoading(false); }
+    };
+
+    // ── Start Job Picker Modal ────────────────────────────────────────────────
+    const renderStartJobPicker = () => {
+      if (!startJobPickerOpen) return null;
+
+      // Flatten ALL non-finished ops across all jobs
+      const allEntries = tasks.reduce((acc, job) => {
+        (job.subs || []).forEach(panel => {
+          (panel.subs || [])
+            .filter(op => op.status !== "Finished")
+            .forEach(op => acc.push({ job, panel, op }));
+        });
+        return acc;
+      }, []);
+
+      // Apply search filter
+      const q = startJobSearch.trim().toLowerCase();
+      const filtered = q ? allEntries.filter(({ job, panel, op }) =>
+        job.title.toLowerCase().includes(q) ||
+        panel.title.toLowerCase().includes(q) ||
+        op.title.toLowerCase().includes(q)
+      ) : allEntries;
+
+      const upcomingEnd = addD(TD, 13);
+
+      // Section 1: Your Jobs — user is assigned
+      const yourEntries = filtered
+        .filter(x => x.op.team?.includes(loggedInUser.id))
+        .sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
+      const yourOpIds = new Set(yourEntries.map(x => x.op.id));
+
+      // Section 2: Upcoming Jobs — not assigned, starts within 14 days
+      const upcomingEntries = filtered
+        .filter(x => !yourOpIds.has(x.op.id) && x.op.start && x.op.start >= TD && x.op.start <= upcomingEnd)
+        .sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
+      const upcomingOpIds = new Set(upcomingEntries.map(x => x.op.id));
+
+      // Section 3: Other Jobs — everything else
+      const otherEntries = filtered
+        .filter(x => !yourOpIds.has(x.op.id) && !upcomingOpIds.has(x.op.id))
+        .sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
+
+      const fmtRange = (start, end) => {
+        const fmtD = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        return end ? `${fmtD(start)} → ${fmtD(end)}` : fmtD(start);
+      };
+
+      // Build 3-level tree from flat entries: Job → Panel → Op
+      const buildTree = (entries) => {
+        const jobMap = new Map();
+        entries.forEach(({ job, panel, op }) => {
+          if (!jobMap.has(job.id)) jobMap.set(job.id, { job, panels: new Map() });
+          const jNode = jobMap.get(job.id);
+          if (!jNode.panels.has(panel.id)) jNode.panels.set(panel.id, { panel, ops: [] });
+          jNode.panels.get(panel.id).ops.push(op);
+        });
+        return [...jobMap.values()].map(jn => ({ job: jn.job, panels: [...jn.panels.values()] }));
+      };
+
+      const sections = [
+        { label: "Your Jobs", key: "your", entries: yourEntries },
+        { label: "Upcoming Jobs", key: "upcoming", entries: upcomingEntries },
+        { label: "Other Jobs", key: "other", entries: otherEntries },
+      ].filter(s => s.entries.length > 0);
+
+      // Expand state helpers — when searching, everything auto-expands
+      const isJobOpen = (skey, jobId) => q.length > 0 || pickerExpandedJobs.has(`${skey}-${jobId}`);
+      const isPanelOpen = (skey, jobId, panelId) => q.length > 0 || pickerExpandedPanels.has(`${skey}-${jobId}-${panelId}`);
+
+      const toggleJob = (skey, jobId) => {
+        setPickerExpandedJobs(prev => {
+          const k = `${skey}-${jobId}`;
+          const next = new Set(prev);
+          if (next.has(k)) next.delete(k); else next.add(k);
+          return next;
+        });
+      };
+
+      const togglePanel = (skey, jobId, panelId) => {
+        setPickerExpandedPanels(prev => {
+          const k = `${skey}-${jobId}-${panelId}`;
+          const next = new Set(prev);
+          if (next.has(k)) next.delete(k); else next.add(k);
+          return next;
+        });
+      };
+
+      return createPortal(
+        <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closeStartJobPicker}>
+          <div style={{ background: T.card, borderRadius: 20, padding: 28, width: "100%", maxWidth: 520, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+            <button onClick={closeStartJobPicker} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>Start Job</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 16 }}>Select a job to clock into</div>
+
+            {/* Search bar */}
+            <input
+              type="text"
+              value={startJobSearch}
+              onChange={e => setStartJobSearch(e.target.value)}
+              placeholder="Search jobs..."
+              autoFocus
+              style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", marginBottom: 16, boxSizing: "border-box", transition: "border-color 0.15s" }}
+              onFocus={e => { e.target.style.borderColor = T.accent; }}
+              onBlur={e => { e.target.style.borderColor = T.border; }}
+            />
+
+            {sections.length === 0 && (
+              <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>
+                {q ? "No jobs match your search." : "No active jobs found."}
+              </div>
+            )}
+
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 20 }}>
+              {sections.map(section => {
+                const tree = buildTree(section.entries);
+                return (
+                  <div key={section.key}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{section.label}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                      {tree.map((jNode, ji) => {
+                        const jobOpen = isJobOpen(section.key, jNode.job.id);
+                        return (
+                          <div key={`${section.key}-${jNode.job.id}`} style={{ marginBottom: 8, animation: `toolDrop 0.14s ${ji * 38}ms both ease-out` }}>
+
+                            {/* L1 — Job row */}
+                            <button
+                              onClick={() => toggleJob(section.key, jNode.job.id)}
+                              style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: jobOpen ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, cursor: "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s, border-color 0.15s" }}
+                              onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0a"; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = T.surface; }}
+                            >
+                              <div style={{ width: 9, height: 9, borderRadius: "50%", background: jNode.job.color || T.accent, flexShrink: 0 }} />
+                              <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>{jNode.job.title}</span>
+                              <span style={{ fontSize: 11, color: T.textDim, marginRight: 4 }}>{jNode.panels.reduce((s, p) => s + p.ops.length, 0)} op{jNode.panels.reduce((s, p) => s + p.ops.length, 0) !== 1 ? "s" : ""}</span>
+                              <svg width="12" height="12" viewBox="0 0 12 12" style={{ flexShrink: 0, color: T.textDim, transform: jobOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+                                <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                              </svg>
+                            </button>
+
+                            {/* L2 — Panel rows */}
+                            {jobOpen && jNode.panels.map((pNode, pi) => {
+                              const panelOpen = isPanelOpen(section.key, jNode.job.id, pNode.panel.id);
+                              const isLastPanel = pi === jNode.panels.length - 1;
+                              const l2Radius = !panelOpen && isLastPanel ? `0 0 ${T.radiusSm}px ${T.radiusSm}px` : 0;
+                              return (
+                                <div key={`${section.key}-${jNode.job.id}-${pNode.panel.id}`} style={{ animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
+                                  <button
+                                    onClick={() => togglePanel(section.key, jNode.job.id, pNode.panel.id)}
+                                    style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 14px 8px 26px", background: T.bg, border: `1.5px solid ${T.border}`, borderTop: "none", borderRadius: l2Radius, cursor: "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = T.accent + "08"; }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = T.bg; }}
+                                  >
+                                    <span style={{ fontSize: 13, fontWeight: 600, color: T.textDim, flex: 1 }}>{pNode.panel.title}</span>
+                                    <span style={{ fontSize: 11, color: T.textDim, marginRight: 4 }}>{pNode.ops.length}</span>
+                                    <svg width="10" height="10" viewBox="0 0 12 12" style={{ flexShrink: 0, color: T.textDim, transform: panelOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
+                                      <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  </button>
+
+                                  {/* L3 — Op rows */}
+                                  {panelOpen && pNode.ops.map((op, oi) => {
+                                    const dept = op.requiredDepartment || pNode.panel.requiredDepartment || jNode.job.requiredDepartment;
+                                    const isLastOp = oi === pNode.ops.length - 1;
+                                    const l3Radius = isLastPanel && isLastOp ? `0 0 ${T.radiusSm}px ${T.radiusSm}px` : 0;
+                                    return (
+                                      <button
+                                        key={op.id}
+                                        onClick={() => handleStartJob({ jobId: jNode.job.id, jobTitle: jNode.job.title, panelId: pNode.panel.id, panelTitle: pNode.panel.title, opId: op.id, opTitle: op.title })}
+                                        disabled={jobClockLoading}
+                                        style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, width: "100%", padding: "8px 14px 8px 40px", background: T.surface, border: `1.5px solid ${T.border}`, borderTop: "none", borderRadius: l3Radius, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s", opacity: jobClockLoading ? 0.6 : 1, animation: `toolDrop 0.14s ${oi * 38}ms both ease-out` }}
+                                        onMouseEnter={e => { if (!jobClockLoading) e.currentTarget.style.background = T.accent + "12"; }}
+                                        onMouseLeave={e => { e.currentTarget.style.background = T.surface; }}
+                                      >
+                                        <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+                                          <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1 }}>{op.title}</span>
+                                          {dept && (
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}30`, borderRadius: 6, padding: "2px 6px", whiteSpace: "nowrap" }}>
+                                              {dept}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {op.start && (
+                                          <div style={{ fontSize: 11, color: T.textDim }}>{fmtRange(op.start, op.end)}</div>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>,
+        document.body
+      );
     };
 
     // ── Mobile layout ─────────────────────────────────────────────────────────
     if (isMobile) {
       const mobileSettingsPanel = () => {
         if (!tsSettingsOpen || !tsSettingsDraft) return null;
-        return (
+        return createPortal(
           <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
             <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, background: T.surface, flexShrink: 0 }}>
               <button onClick={closeSettings} style={{ background: "none", border: "none", color: T.text, fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0 }}>←</button>
@@ -8049,7 +8360,8 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               )}
             </div>
-          </div>
+          </div>,
+          document.body
         );
       };
 
@@ -8057,6 +8369,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", fontFamily: T.font }}>
           {renderPinModal()}
           {renderPersonEditModal()}
+          {renderStartJobPicker()}
           {mobileSettingsPanel()}
 
           {/* Header */}
@@ -8068,6 +8381,19 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             )}
           </div>
+
+          {/* Job status banner */}
+          {isClockedIn && (
+            <div style={{ padding: "8px 16px", background: loggedInUser.activeJobClock ? "#22c55e10" : "none", borderBottom: `1px solid ${loggedInUser.activeJobClock ? "#22c55e25" : T.border}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: loggedInUser.activeJobClock ? (loggedInUser.activeJobClock.pausedAt ? "#f59e0b" : "#22c55e") : T.textDim, boxShadow: (loggedInUser.activeJobClock && !loggedInUser.activeJobClock.pausedAt) ? "0 0 6px #22c55e" : "none", flexShrink: 0 }} />
+              {loggedInUser.activeJobClock
+                ? <span style={{ fontSize: 13, fontWeight: 600, color: loggedInUser.activeJobClock.pausedAt ? T.text : "#22c55e" }}>
+                    Active on {loggedInUser.activeJobClock.opTitle || loggedInUser.activeJobClock.jobTitle} — {tsJobElapsed || "0h 0m"}
+                  </span>
+                : <span style={{ fontSize: 13, fontWeight: 500, color: T.textDim }}>Clocked in — not on a job</span>
+              }
+            </div>
+          )}
 
           {/* Scrollable body */}
           <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px 100px" }}>
@@ -8088,75 +8414,91 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ fontSize: 10, color: T.textDim, marginTop: 2 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
                   </div>
                 </div>
+
+                {/* Active job summary — inline on time card */}
+                {loggedInUser.activeJobClock && (() => {
+                  const jc = loggedInUser.activeJobClock;
+                  const isPaused = !!jc.pausedAt;
+                  return (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Currently Working On</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: isPaused ? "#f59e0b" : "#22c55e", boxShadow: isPaused ? "none" : "0 0 6px #22c55e", flexShrink: 0 }} />
+                        <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{jc.jobTitle}</span>
+                        {jc.opTitle && <span style={{ fontSize: 12, color: T.textDim }}>· {jc.opTitle}</span>}
+                        <span style={{ fontSize: 13, fontWeight: 700, color: isPaused ? T.textDim : "#22c55e", fontFamily: T.mono, marginLeft: "auto" }}>{tsJobElapsed || "0h 0m"}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {isPaused
+                          ? <button onClick={handleResumeJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Resume</button>
+                          : <button onClick={handlePauseJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: `1.5px solid ${T.accent}60`, background: T.accent + "12", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Pause</button>
+                        }
+                        <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
-            {/* Job Clock — clock into specific assigned jobs, tracks job hours (not pay) */}
-            <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>Job Clock</div>
+            {/* Job Clock — STATE 1 / 2 / 3 */}
+            {isClockedIn && (
+              <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>Job Clock</div>
 
-              {/* Active job clock */}
-              {loggedInUser.activeJobClock && (() => {
-                const { jobTitle, panelTitle, opTitle, clockIn: jcIn } = loggedInUser.activeJobClock;
-                return (
-                  <div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                      <div style={{ width: 8, height: 8, borderRadius: 4, background: "#22c55e", boxShadow: "0 0 8px #22c55e", flexShrink: 0 }} />
-                      <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{jobTitle}</span>
-                    </div>
-                    {(panelTitle || opTitle) && (
-                      <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8, paddingLeft: 16 }}>{panelTitle}{opTitle ? ` · ${opTitle}` : ""}</div>
-                    )}
-                    <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>Clocked in at {fmtTime(jcIn)}</div>
-                    <div style={{ fontSize: 48, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 16, textAlign: "center" }}>{tsJobElapsed || "0h 0m"}</div>
-                    <button
-                      onClick={handleJobClockOut}
-                      disabled={jobClockLoading}
-                      style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
-                    >{jobClockLoading ? "Clocking Out…" : "Clock Out of Job"}</button>
-                  </div>
-                );
-              })()}
+                {/* STATE 1: clocked in, no active job */}
+                {!loggedInUser.activeJobClock && (
+                  <button
+                    onClick={openStartJobPicker}
+                    disabled={jobClockLoading}
+                    style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
+                  >Start Job</button>
+                )}
 
-              {/* Job selection */}
-              {!loggedInUser.activeJobClock && (
-                <div>
-                  {myAssignedJobs.length === 0 && (
-                    <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "16px 0" }}>No jobs currently assigned to you.</div>
-                  )}
-                  {myAssignedJobs.map(({ jobId, jobTitle, color, ops }) => {
-                    const selOpId = jobOpSelections[jobId] || ops[0]?.opId;
-                    const selOp = ops.find(o => o.opId === selOpId) || ops[0];
-                    return (
-                      <div key={jobId} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "12px 14px", marginBottom: 10 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: ops.length > 1 ? 10 : 8 }}>
-                          <div style={{ width: 9, height: 9, borderRadius: 5, background: color || T.accent, flexShrink: 0 }} />
-                          <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{jobTitle}</span>
-                        </div>
-                        {ops.length > 1 ? (
-                          <select
-                            value={selOpId}
-                            onChange={e => setJobOpSelections(prev => ({ ...prev, [jobId]: e.target.value }))}
-                            style={{ width: "100%", padding: "9px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontFamily: T.font, marginBottom: 10, outline: "none" }}
-                          >
-                            {ops.map(op => (
-                              <option key={op.opId} value={op.opId}>{op.panelTitle} · {op.opTitle}</option>
-                            ))}
-                          </select>
-                        ) : (
-                          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>{ops[0].panelTitle} · {ops[0].opTitle}</div>
-                        )}
-                        <button
-                          onClick={() => handleJobClockIn({ jobId, jobTitle, panelId: selOp.panelId, panelTitle: selOp.panelTitle, opId: selOp.opId, opTitle: selOp.opTitle })}
-                          disabled={jobClockLoading}
-                          style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
-                        >{jobClockLoading ? "Clocking In…" : "Clock into Job"}</button>
+                {/* STATE 2: active job running */}
+                {loggedInUser.activeJobClock && !loggedInUser.activeJobClock.pausedAt && (() => {
+                  const { jobTitle, panelTitle, opTitle } = loggedInUser.activeJobClock;
+                  return (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 4, background: "#22c55e", boxShadow: "0 0 8px #22c55e", flexShrink: 0 }} />
+                        <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{jobTitle}</span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                      {(panelTitle || opTitle) && (
+                        <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12, paddingLeft: 16 }}>{panelTitle}{opTitle ? ` · ${opTitle}` : ""}</div>
+                      )}
+                      <div style={{ fontSize: 48, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 16, textAlign: "center" }}>{tsJobElapsed || "0h 0m"}</div>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button onClick={handlePauseJob} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: `1.5px solid ${T.accent}60`, background: T.accent + "12", color: T.accent, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Pause Job</button>
+                        <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* STATE 3: active job paused */}
+                {loggedInUser.activeJobClock?.pausedAt && (() => {
+                  const { jobTitle, panelTitle, opTitle } = loggedInUser.activeJobClock;
+                  return (
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: 4, background: "#f59e0b", flexShrink: 0 }} />
+                        <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{jobTitle}</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 10, padding: "2px 8px" }}>Paused</span>
+                      </div>
+                      {(panelTitle || opTitle) && (
+                        <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12, paddingLeft: 16 }}>{panelTitle}{opTitle ? ` · ${opTitle}` : ""}</div>
+                      )}
+                      <div style={{ fontSize: 48, fontWeight: 700, color: T.textDim, fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 16, textAlign: "center" }}>{tsJobElapsed || "0h 0m"}</div>
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <button onClick={handleResumeJob} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Resume Job</button>
+                        <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Admin section */}
             {isAdmin && (
@@ -8355,6 +8697,7 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
         {renderPinModal()}
         {renderPersonEditModal()}
+        {renderStartJobPicker()}
 
         {/* ── Settings button + dropdown ── */}
         <div ref={tsSettingsRef} style={{ display: "flex", justifyContent: "flex-end", position: "relative" }}>
@@ -8365,98 +8708,105 @@ ${jobsCtx || "No jobs found."}`;
           {renderSettingsPanel()}
         </div>
 
-        {/* ── Centered clock section — hourly only ── */}
+        {/* ── Personal clock section ── */}
         {loggedInUser.payType === "salary" ? (
           <div style={{ textAlign: "center", padding: "32px 0", color: T.textDim, fontSize: 14 }}>
             Time tracking is not required for salaried employees.
           </div>
-        ) : null}
-        {loggedInUser.payType !== "salary" && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 460, width: "100%", margin: "0 auto" }}>
 
-          {/* Status indicator */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 9, height: 9, borderRadius: 5, background: isClockedIn ? "#22c55e" : T.border, boxShadow: isClockedIn ? "0 0 8px #22c55e" : "none", transition: "all 0.3s" }} />
-            <span style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{loggedInUser.name}</span>
-            <span style={{ fontSize: 13, color: T.textDim }}>{isClockedIn ? `· clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}` : "· not clocked in"}</span>
-          </div>
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              <div style={{ width: 9, height: 9, borderRadius: "50%", background: isClockedIn ? "#22c55e" : T.border, boxShadow: isClockedIn ? "0 0 8px #22c55e" : "none", transition: "all 0.3s", flexShrink: 0 }} />
+              <span style={{ fontSize: 15, fontWeight: 500, color: T.text }}>
+                {loggedInUser.name}
+                <span style={{ color: T.textDim, fontWeight: 400 }}>
+                  {isClockedIn ? ` · clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}` : " · not clocked in"}
+                </span>
+              </span>
+            </div>
 
-          {/* Current job(s) when clocked in */}
-          {isClockedIn && (() => {
-            const refs = loggedInUser.activeClockIn?.jobRefs || [];
-            if (refs.length === 0) return <div style={{ fontSize: 12, color: T.textDim }}>No job selected</div>;
-            return (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-                {refs.map(r => {
-                  const job = tasks.find(j => j.id === r.jobId);
-                  const panel = job?.subs?.find(p => p.id === r.panelId);
-                  const op = panel?.subs?.find(o => o.id === r.opId);
-                  return (
-                    <div key={r.opId} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", background: T.accent + "15", borderRadius: 20, border: `1px solid ${T.accent}30` }}>
-                      <div style={{ width: 6, height: 6, borderRadius: 3, background: T.accent }} />
-                      <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{job?.title || "Unknown job"}</span>
-                      {panel && <span style={{ fontSize: 11, color: T.textDim }}>· {panel.title}{op ? ` · ${op.title}` : ""}</span>}
+            {/* Job card — STATE 1: active job */}
+            {isClockedIn && loggedInUser.activeJobClock && (() => {
+              const jc = loggedInUser.activeJobClock;
+              const isPaused = !!jc.pausedAt;
+              const accentClr = isPaused ? "#f59e0b" : "#22c55e";
+              return (
+                <div style={{ borderRadius: T.radiusSm, border: `0.5px solid ${accentClr}`, padding: "14px 16px", background: T.card }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: accentClr, boxShadow: isPaused ? "none" : "0 0 5px #22c55e", flexShrink: 0 }} />
+                        <span style={{ fontSize: 14, fontWeight: 500, color: accentClr }}>
+                          {isPaused ? "Paused on" : "Active on"} {jc.opTitle || jc.jobTitle}
+                        </span>
+                      </div>
+                      {(jc.panelTitle || jc.jobTitle) && (
+                        <div style={{ fontSize: 11, color: T.textDim, paddingLeft: 14 }}>
+                          {jc.panelTitle ? `${jc.panelTitle} · ${jc.jobTitle}` : jc.jobTitle}
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
+                    <div style={{ fontSize: 22, fontWeight: 700, color: isPaused ? T.textDim : "#22c55e", fontFamily: T.mono, letterSpacing: "-0.02em", flexShrink: 0 }}>
+                      {tsJobElapsed || "0h 0m"}
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                    {isPaused
+                      ? <button onClick={handleResumeJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b", background: "none", color: "#f59e0b", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Resume</button>
+                      : <button onClick={handlePauseJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b", background: "none", color: "#f59e0b", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Pause</button>
+                    }
+                    <button onClick={openStartJobPicker} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Switch</button>
+                    <button onClick={handleEndJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef4444", background: "none", color: "#ef4444", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
+                  </div>
+                </div>
+              );
+            })()}
 
-          {/* Elapsed timer when clocked in */}
-          {isClockedIn && (
-            <div style={{ fontSize: 44, fontWeight: 700, color: T.accent, fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1 }}>{tsElapsed || "0h 0m"}</div>
-          )}
-
-          {/* Clock In / Clock Out / Switch Job / Lunch / Break buttons */}
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", justifyContent: "center" }}>
-            <button
-              onClick={openClockIn}
-              disabled={isClockedIn}
-              style={{ padding: "14px 40px", borderRadius: T.radiusSm, border: "none", background: isClockedIn ? T.border : T.accent, color: isClockedIn ? T.textDim : "#fff", fontSize: 15, fontWeight: 700, cursor: isClockedIn ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isClockedIn ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
-            >Clock In</button>
+            {/* Timer */}
             {isClockedIn && (
-              <button
-                onClick={openSwitchJob}
-                style={{ padding: "14px 28px", borderRadius: T.radiusSm, border: `1.5px solid #f59e0b60`, background: "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s", letterSpacing: "0.01em" }}
-              >Switch Job</button>
+              <div style={{ textAlign: "center", padding: "4px 0" }}>
+                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 4 }}>Total Time Today</div>
+                <div style={{ fontSize: 56, fontWeight: 700, color: "#ef4444", fontFamily: T.mono, letterSpacing: "-0.03em", lineHeight: 1 }}>{tsElapsed || "0h 0m"}</div>
+              </div>
             )}
-            {isClockedIn && orgSettings.trackLunch && (
-              <button
-                onClick={openLunch}
-                disabled={isOnBreak}
-                style={{ padding: "14px 28px", borderRadius: T.radiusSm, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: isOnLunch ? "#f59e0b22" : "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
-              >{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
-            )}
-            {isClockedIn && orgSettings.trackBreaks && (
-              <button
-                onClick={openBreak}
-                disabled={isOnLunch}
-                style={{ padding: "14px 28px", borderRadius: T.radiusSm, border: `1.5px solid ${isOnBreak ? "#f59e0b" : "#f59e0b60"}`, background: isOnBreak ? "#f59e0b22" : "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnLunch ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnLunch ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
-              >{isOnBreak ? "End Break" : "Start Break"}</button>
-            )}
-            <button
-              onClick={openClockOut}
-              disabled={!isClockedIn}
-              style={{ padding: "14px 40px", borderRadius: T.radiusSm, border: `1.5px solid ${!isClockedIn ? T.border : "#ef444460"}`, background: !isClockedIn ? "none" : "#ef444412", color: !isClockedIn ? T.textDim : "#ef4444", fontSize: 15, fontWeight: 700, cursor: !isClockedIn ? "not-allowed" : "pointer", fontFamily: T.font, opacity: !isClockedIn ? 0.45 : 1, transition: "all 0.15s", letterSpacing: "0.01em" }}
-            >Clock Out</button>
-          </div>
 
-          {!loggedInUser.pin && <div style={{ fontSize: 11, color: T.textDim }}>No PIN set — ask your admin to assign one in Time Stamp Settings</div>}
+            {/* Action buttons */}
+            {isClockedIn ? (
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={openClockOut} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
+                {orgSettings.trackLunch && (
+                  <button onClick={openLunch} disabled={isOnBreak} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: isOnLunch ? "#f59e0b18" : "none", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1 }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
+                )}
+                {orgSettings.trackBreaks && (
+                  <button onClick={openBreak} disabled={isOnLunch} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnBreak ? "#f59e0b" : "#f59e0b60"}`, background: isOnBreak ? "#f59e0b18" : "none", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnLunch ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnLunch ? 0.45 : 1 }}>{isOnBreak ? "End Break" : "Start Break"}</button>
+                )}
+                {!loggedInUser.activeJobClock && (
+                  <button onClick={openStartJobPicker} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #22c55e60", background: "none", color: "#22c55e", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Start Job</button>
+                )}
+              </div>
+            ) : (
+              <button onClick={openClockIn} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
+            )}
 
-          {/* Stats row */}
-          <div style={{ display: "flex", gap: 16, flexWrap: "wrap", justifyContent: "center", marginTop: 4 }}>
-            <div style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, padding: "16px 28px", textAlign: "center", minWidth: 120 }}>
-              <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Today</div>
-              <div style={{ fontSize: 30, fontWeight: 700, color: T.accent, fontFamily: T.mono, lineHeight: 1 }}>{myTodayHrs.toFixed(1)}</div>
-              <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>hours</div>
+
+            {/* Stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, padding: "16px", textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Today</div>
+                <div style={{ fontSize: 30, fontWeight: 700, color: "#ef4444", fontFamily: T.mono, lineHeight: 1 }}>{myTodayHrs.toFixed(1)}</div>
+                <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>hours</div>
+              </div>
+              <div style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, padding: "16px", textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>This Period</div>
+                <div style={{ fontSize: 30, fontWeight: 700, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{myPeriodHrs.toFixed(1)}</div>
+                <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
+              </div>
             </div>
-            <div style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, padding: "16px 28px", textAlign: "center", minWidth: 120 }}>
-              <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>This Period</div>
-              <div style={{ fontSize: 30, fontWeight: 700, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{myPeriodHrs.toFixed(1)}</div>
-              <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
-            </div>
+
           </div>
-        </div>}
+        )}
 
         {/* ── Admin section ── */}
         {isAdmin && (
@@ -8537,7 +8887,12 @@ ${jobsCtx || "No jobs found."}`;
                                 {clocked ? `${fmtTime(p.activeClockIn.clockIn)} (${eh}h ${em}m)` : "—"}
                               </td>
                               <td style={{ padding: "10px 10px", maxWidth: 200 }}>
-                                {clocked && (p.activeClockIn?.jobRefs || []).length > 0 ? (
+                                {p.activeJobClock ? (
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={[p.activeJobClock.opTitle, p.activeJobClock.jobTitle].filter(Boolean).join(" · ")}>
+                                    {p.activeJobClock.opTitle || p.activeJobClock.jobTitle}
+                                    {p.activeJobClock.opTitle && p.activeJobClock.jobTitle && <span style={{ fontWeight: 400, color: T.textDim }}> · {p.activeJobClock.jobTitle}</span>}
+                                  </div>
+                                ) : clocked && (p.activeClockIn?.jobRefs || []).length > 0 ? (
                                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                                     {(p.activeClockIn.jobRefs).map(r => {
                                       const job = tasks.find(j => j.id === r.jobId);
@@ -8562,16 +8917,9 @@ ${jobsCtx || "No jobs found."}`;
                                 {periodH > 0 ? periodH.toFixed(1) + "h" : "—"}
                               </td>
                               <td style={{ padding: "10px 10px" }} onClick={e => e.stopPropagation()}>
-                                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                                  {clocked && (
-                                    <button onClick={() => adminClockOut(p.id)} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: "1px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                                      Clock Out
-                                    </button>
-                                  )}
-                                  <button onClick={() => openPersonEditModal(p)} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                                    Edit
-                                  </button>
-                                </div>
+                                <button onClick={() => openPersonEditModal(p)} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                                  Edit
+                                </button>
                               </td>
                             </tr>
                             {isExpanded && (
@@ -9891,7 +10239,8 @@ ${jobsCtx || "No jobs found."}`;
             const results = [];
             const maxScan = 200;
             for (let attempt = 0; attempt < maxScan && results.length < 3; attempt++) {
-              const wStart = sAddBD(sNextBD(TD), attempt);
+              const baseDate = (ed.isReschedule && ed._rescheduleStartDate) ? ed._rescheduleStartDate : TD;
+              const wStart = sAddBD(sNextBD(baseDate), attempt);
 
               // Simulate scheduling all panels in batches from wStart
               // Direct pipeline estimate:
@@ -10388,6 +10737,13 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* STEP 3 — Schedule & Assign */}
           {modalStep === 3 && <div key="step3" style={{ animation:"stepIn 0.22s ease-out", "--sd":stepDir }}>
+            {ed.isReschedule && !scheduleConfirmed && <div style={{ display:"flex", alignItems:"flex-end", gap:12, marginBottom:16, padding:"12px 16px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm }}>
+              <div style={{ flex:1 }}>
+                <label style={{ display:"block", fontSize:11, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>New Start Date</label>
+                <input type="date" value={ed._rescheduleStartDate||TD} onChange={e => setEd(p => ({...p,_rescheduleStartDate:e.target.value}))} style={{ width:"100%", padding:"8px 12px", borderRadius:T.radiusSm, border:`1px solid ${T.glassBorder}`, background:T.glass, color:T.text, fontSize:13, fontFamily:T.font, outline:"none", colorScheme:T.colorScheme, boxSizing:"border-box" }} />
+              </div>
+              <button disabled={aiLoading} onClick={() => { setAiSuggestion(null); suggestSchedule(); }} style={{ padding:"9px 22px", borderRadius:T.radiusSm, border:"none", background:T.accent, color:T.accentText, fontSize:13, fontWeight:700, cursor:aiLoading?"not-allowed":"pointer", fontFamily:T.font, flexShrink:0, opacity:aiLoading?0.5:1, whiteSpace:"nowrap" }}>{aiLoading?"Checking…":"Reassign"}</button>
+            </div>}
             {aiLoading && <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 0", gap:16 }}>
               <div style={{ width:36, height:36, border:`3px solid ${T.border}`, borderTopColor:T.accent, borderRadius:18, animation:"spin 0.8s linear infinite" }} />
               <div style={{ fontSize:14, color:T.textSec }}>Checking availability…</div>
@@ -10602,7 +10958,9 @@ ${jobsCtx || "No jobs found."}`;
                       const pickTeam=(op,minStart=null) => {
                         const totalHours=(typeof op==="object" && op?.hpd)?op.hpd:productiveHoursPerDay;
                         const reqDept=typeof op==="object"?(op.requiredDepartment||""):"";
-                        const eligible=allCrew.filter(pp => !reqDept||pp.department===reqDept).sort((a,b) => { const diff=jobCount(a.id)-jobCount(b.id); if(diff!==0) return diff; return a.name.localeCompare(b.name); });
+                        const eligible = ed.isReschedule && (op.team||[]).length>0
+                          ? allCrew.filter(pp => (op.team||[]).includes(pp.id))
+                          : allCrew.filter(pp => !reqDept||pp.department===reqDept).sort((a,b) => { const diff=jobCount(a.id)-jobCount(b.id); if(diff!==0) return diff; return a.name.localeCompare(b.name); });
                         if(eligible.length===0) { const fallback=minStart||slot.start; return {team:[],start:fallback,end:fallback}; }
                         const singleDur=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
                         if(scheduleTeamMode==="one") {
@@ -10756,7 +11114,7 @@ ${jobsCtx || "No jobs found."}`;
             <Btn variant="ghost" onClick={() => goStep(1)}>← Back</Btn>
             <div style={{ display:"flex", gap:8 }}>
               <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length===0) return; const cleanDeps=deps=>(deps||[]).filter(d=>d!=='__pending__'); const stripDT=op=>{ const {start:_s,end:_e,team:_t,qty:_q,...rest}=op; return {...rest,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub=>{const{start:_ss,end:_se,team:_st,...sr}=sub;return{...sr,deps:cleanDeps(sr.deps)};})};  }; const expanded={...ed,scheduledLater:true,subs:(ed.subs||[]).flatMap(op=>{ const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-\d+$/,"").trimEnd(); const cleaned=stripDT(op); if(qty===1)return[cleaned]; return Array.from({length:qty},(_,i)=>({...cleaned,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`})); })}; saveTask(expanded,modal.parentId); closeModal(); }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer", background:T.bg, border:`1.5px solid ${T.accent}`, color:T.accent }}>Schedule Later...</Btn>
-              <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length>0) { goStep(3); suggestSchedule(); } }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer" }}>Schedule & Assign →</Btn>
+              <Btn disabled={(ed.subs||[]).length===0} onClick={() => { if((ed.subs||[]).length>0) { goStep(3); if(!ed.isReschedule) suggestSchedule(); } }} style={{ opacity:(ed.subs||[]).length===0?0.4:1, cursor:(ed.subs||[]).length===0?"not-allowed":"pointer" }}>{ed.isReschedule ? "Reassign →" : "Schedule & Assign →"}</Btn>
             </div>
           </>}
           {modalStep === 3 && <>
@@ -10778,12 +11136,20 @@ ${jobsCtx || "No jobs found."}`;
       if (fresh.level === 2 || (fresh.isSub && fresh.pid && !tasks.find(x => x.id === fresh.id))) {
         // Find parent panel and job
         let parentPanel = null, parentJob = null;
-        for (const job of tasks) {
-          for (const panel of (job.subs || [])) {
-            const op = (panel.subs || []).find(o => o.id === fresh.id);
-            if (op) { parentPanel = panel; parentJob = job; break; }
+        if (fresh.level === 1) {
+          // Direct sub of a job (no panel wrapper)
+          for (const job of tasks) {
+            if ((job.subs || []).find(s => s.id === fresh.id)) { parentJob = job; break; }
           }
-          if (parentJob) break;
+        } else {
+          // level 2 — sub-operation nested inside a panel
+          for (const job of tasks) {
+            for (const panel of (job.subs || [])) {
+              const op = (panel.subs || []).find(o => o.id === fresh.id);
+              if (op) { parentPanel = panel; parentJob = job; break; }
+            }
+            if (parentJob) break;
+          }
         }
         const opData = parentPanel ? (parentPanel.subs || []).find(o => o.id === fresh.id) || fresh : fresh;
         const assignee = (opData.team || [])[0];
@@ -10888,7 +11254,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>}
           {/* Actions */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {can("editJobs") && <Btn onClick={() => { closeModal(); if (parentPanel) openEdit(parentJob, null); }}>Edit Job</Btn>}
+            {can("editJobs") && <Btn onClick={() => { console.log("=== EDIT JOB BUTTON CLICKED ==="); console.log("=== FRESH OBJECT ===", JSON.stringify({ id: fresh?.id, title: fresh?.title, level: fresh?.level })); console.log("=== PARENT PANEL ===", parentPanel); console.log("=== PARENT JOB ===", parentJob); closeModal(); if (parentJob) openEdit(parentJob, null); }}>Edit Job</Btn>}
             {can("lockJobs") && parentPanel && <Btn variant={isOpLocked ? "warn" : "ghost"} onClick={() => { toggleLock(opData.id, parentPanel.id); closeModal(); }}>{isOpLocked ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>Unlock</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Lock</>}</Btn>}
             {parentJob && <Btn variant="ghost" onClick={() => { closeModal(); openDetail(parentJob); }}>View Full Job</Btn>}
           </div>
@@ -10962,7 +11328,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>;
           })}
         </div>}
-        {can("editJobs") && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><Btn onClick={() => { closeModal(); openEdit(fresh, fresh.isSub ? fresh.pid : null); }}>Edit</Btn></div>}
+        {can("editJobs") && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><Btn onClick={() => { console.log("=== EDIT JOB BUTTON CLICKED ==="); console.log("=== FRESH OBJECT ===", JSON.stringify({ id: fresh?.id, title: fresh?.title, level: fresh?.level })); openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn></div>}
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(false), position: "relative" }} onClick={e => e.stopPropagation()}>{cls}
@@ -11514,7 +11880,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}
     {/* ── Column header context menu ── */}
     {colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => setColCtxMenu(null)}>
-      <div onClick={e => e.stopPropagation()} style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
+      <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
         {colCtxMenu.isCustom && <button onClick={() => { setEditingColHeader(colCtxMenu.colId); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Rename Column
@@ -12431,7 +12797,7 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* ─── Group context menu ─── */}
     {groupCtxMenu && <div onClick={() => setGroupCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
-      <div onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(groupCtxMenu.x, window.innerWidth - 220), top: Math.min(groupCtxMenu.y, window.innerHeight - 260), zIndex: 9999, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
+      <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: Math.min(groupCtxMenu.x, window.innerWidth - 220), top: Math.min(groupCtxMenu.y, window.innerHeight - 260), zIndex: 9999, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>👥 {groupCtxMenu.groupName}</div>
         </div>
@@ -12442,17 +12808,17 @@ ${jobsCtx || "No jobs found."}`;
           setPinnedGroups(updated);
           localStorage.setItem("tq_pinned_groups", JSON.stringify(updated));
           setGroupCtxMenu(null);
-        }} />
+        }} animIdx={0} />
         {can("editJobs") && <>
           <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
           <CtxMenuItem icon="✏️" label="Edit Group" sub="Rename and manage members" onClick={() => {
             const g = groups.find(g => g.id === groupCtxMenu.groupId);
             if (g) setEditGroupModal({ groupId: g.id, name: g.name, memberIds: g.memberIds || [] });
             setGroupCtxMenu(null);
-          }} />
+          }} animIdx={1} />
         </>}
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: `group:${groupCtxMenu.groupId}`, label: groupCtxMenu.groupName, isGroup: true, groupId: groupCtxMenu.groupId }); setGroupCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: `group:${groupCtxMenu.groupId}`, label: groupCtxMenu.groupName, isGroup: true, groupId: groupCtxMenu.groupId }); setGroupCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 76ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Group</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this group and its messages</div></div>
         </div>}
@@ -12461,7 +12827,7 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* ─── Job thread context menu ─── */}
     {threadCtxMenu && <div onClick={() => setThreadCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
-      <div onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(threadCtxMenu.x, window.innerWidth - 220), top: Math.min(threadCtxMenu.y, window.innerHeight - 140), zIndex: 9999, minWidth: 210, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
+      <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: Math.min(threadCtxMenu.x, window.innerWidth - 220), top: Math.min(threadCtxMenu.y, window.innerHeight - 140), zIndex: 9999, minWidth: 210, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{threadCtxMenu.scope === "op" ? "🔧" : threadCtxMenu.scope === "panel" ? "📦" : "🏗"} {threadCtxMenu.title}</div>
         </div>
@@ -12472,9 +12838,9 @@ ${jobsCtx || "No jobs found."}`;
           setPinnedThreads(updated);
           localStorage.setItem("tq_pinned_threads", JSON.stringify(updated));
           setThreadCtxMenu(null);
-        }} />
+        }} animIdx={0} />
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Clear Chat</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this thread</div></div>
         </div>}
@@ -12503,6 +12869,7 @@ ${jobsCtx || "No jobs found."}`;
       if (it.moveLog) logCount = it.moveLog.length;
       if (isJob) { const job = tasks.find(j => j.id === it.id); if (job) (job.subs||[]).forEach(pnl => (pnl.subs||[]).forEach(op => { logCount += (op.moveLog||[]).length; })); }
       else if (isPanel) { tasks.forEach(job => { const pnl = (job.subs||[]).find(s => s.id === it.id); if (pnl) (pnl.subs||[]).forEach(op => { logCount += (op.moveLog||[]).length; }); }); }
+      let _ci = -1; const ci = () => ++_ci;
       return <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: isMobile ? 16 : Math.min(ctxMenu.x, window.innerWidth - 268), ...(isMobile ? { bottom: 16, right: 16 } : vPos), zIndex: 9999, minWidth: isMobile ? "auto" : 252, width: isMobile ? "calc(100% - 32px)" : "auto", maxHeight: isMobile ? "80vh" : maxH, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
       {/* Header */}
       <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
@@ -12510,7 +12877,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}</div>
         {/* Quick action icon buttons */}
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-          {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+          {can("editJobs") && <Tip label="Edit"><button onClick={() => { console.log("=== EDIT FIRED ===", { itemId: it.id, title: it.title, level: it.level, isSub: it.isSub, pid: it.pid, grandPid: it.grandPid, source: ctxMenu.source }); setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } console.log("=== EDIT isOp parentJob ===", parentJob?.id, parentJob?.title); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); console.log("=== EDIT isPanel parentJob ===", parentJob?.id, parentJob?.title); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { console.log("=== EDIT isJob direct ===", it.id, it.title); openEdit(it, null); } }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
           {can("editJobs") && <Tip label="Rename"><button onClick={() => { setGridCell({ id: it.id, col: "title" }); setCtxMenu(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg></button></Tip>}
           <Tip label="Copy"><button onClick={() => copyItem(it)} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></Tip>
           <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 34, height: 34, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
@@ -12518,26 +12885,23 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
       {/* Quick add panel (job level) */}
-      {can("editJobs") && isJob && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>} label="Add Panel" sub="Add a new panel to this job" onClick={() => { setCtxMenu(null); setQuickAddSub({ type: "panel", parentId: it.id, grandParentId: null, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y }); }} />}
+      {can("editJobs") && isJob && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>} label="Add Panel" sub="Add a new panel to this job" onClick={() => { setCtxMenu(null); setQuickAddSub({ type: "panel", parentId: it.id, grandParentId: null, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y }); }} animIdx={ci()} />}
+      {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Quick add operation (panel level) */}
-      {can("editJobs") && isPanel && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>} label="Add Operation" sub="Add a new operation to this panel" onClick={() => { let grandParentId = null; for (const job of tasks) { if ((job.subs||[]).find(p => p.id === it.id)) { grandParentId = job.id; break; } } setCtxMenu(null); setQuickAddSub({ type: "op", parentId: it.id, grandParentId, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y }); }} />}
+      {can("editJobs") && isPanel && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>} label="Add Operation" sub="Add a new operation to this panel" onClick={() => { let grandParentId = null; for (const job of tasks) { if ((job.subs||[]).find(p => p.id === it.id)) { grandParentId = job.id; break; } } setCtxMenu(null); setQuickAddSub({ type: "op", parentId: it.id, grandParentId, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y }); }} animIdx={ci()} />}
       {/* Reassign Operation — opens modal */}
-      {can("reassign") && isOp && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Reassign Operation" sub="Choose from available people" onClick={() => { setReassignModal({ item: it }); setCtxMenu(null); }} />}
-      {can("editJobs") && isOp && (() => { let siblingOps=[],panelId=null,jobId=null,panelTitle=""; for(const job of tasks){for(const panel of(job.subs||[])){if((panel.subs||[]).find(o=>o.id===it.id)){siblingOps=panel.subs;panelId=panel.id;jobId=job.id;panelTitle=panel.title;break;}}if(panelId)break;} if(siblingOps.length<2)return null; return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>} label="Add/Edit Dependencies" sub="Link sub-operations to move together" onClick={()=>{ setDepsModal({ item:it, panelSubs:siblingOps.map(s=>({...s,deps:[...(s.deps||[])]})), panelId, jobId, panelTitle }); setCtxMenu(null); }} />; })()}
-      {ctxMenu.source === "team" && (() => { const parentJob = (() => { if (it.grandPid) return tasks.find(j => j.id === it.grandPid); if (it.pid) { const j = tasks.find(j => j.id === it.pid); if (j) return j; for (const job of tasks) { if ((job.subs||[]).find(s => s.id === it.pid)) return job; } } return tasks.find(j => j.id === it.id); })(); if (!parentJob) return null; return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>} label="Go to Project" sub={parentJob.title || it.jobTitle || ""} onClick={() => { setCtxMenu(null); setView("tasks"); setTaskSubView("gantt"); setGMode("month"); const sd = new Date(parentJob.start + "T12:00:00"); const first = new Date(sd.getFullYear(), sd.getMonth(), 1); const last = new Date(sd.getFullYear(), sd.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); setExp(p => ({ ...p, [parentJob.id]: true })); }} />; })()}
-      {/* Jump to Schedule */}
-      {it.start && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>} label="Jump to Schedule" sub={`Show week of ${fm(it.start)}`} onClick={() => { const d = new Date(it.start + "T12:00:00"); const dow = d.getDay(); const daysToMon = dow === 0 ? -6 : 1 - dow; const ws = toDS(new Date(d.getFullYear(), d.getMonth(), d.getDate() + daysToMon)); setTStart(ws); setTEnd(addD(ws, 13)); setView("schedule"); setScheduleHighlightId(it.id); setTimeout(() => setScheduleHighlightId(null), 2500); setCtxMenu(null); }} />}
+      {can("reassign") && isOp && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Reassign Operation" sub="Choose from available people" onClick={() => { setReassignModal({ item: it }); setCtxMenu(null); }} animIdx={ci()} />}
+      {can("editJobs") && isOp && (() => { let siblingOps=[],panelId=null,jobId=null,panelTitle=""; for(const job of tasks){for(const panel of(job.subs||[])){if((panel.subs||[]).find(o=>o.id===it.id)){siblingOps=panel.subs;panelId=panel.id;jobId=job.id;panelTitle=panel.title;break;}}if(panelId)break;} if(siblingOps.length<2)return null; return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>} label="Add/Edit Dependencies" sub="Link sub-operations to move together" onClick={()=>{ setDepsModal({ item:it, panelSubs:siblingOps.map(s=>({...s,deps:[...(s.deps||[])]})), panelId, jobId, panelTitle }); setCtxMenu(null); }} animIdx={ci()} />; })()}
       {/* View Details */}
-      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => { openDetail(it); setCtxMenu(null); }} />
+      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => { openDetail(it); setCtxMenu(null); }} animIdx={ci()} />
       {/* Schedule Log */}
-      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>} label={logCount > 0 ? `Schedule Log (${logCount})` : "Schedule Log"} sub={logCount > 0 ? "View move history" : "No changes recorded"} onClick={() => { openDetail(it); setCtxMenu(null); }} />
-      {/* Lock Job */}
-      {can("lockJobs") && (isOp || isPanel) && <CtxMenuItem icon={it.locked ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg> : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>} label={it.locked ? "Unlock Job" : "Lock Job"} sub={it.locked ? "Allow this job to be moved" : "Prevent this job from being moved"} onClick={() => { toggleLock(it.id, it.pid); setCtxMenu(null); }} />}
+      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>} label={logCount > 0 ? `Schedule Log (${logCount})` : "Schedule Log"} sub={logCount > 0 ? "View move history" : "No changes recorded"} onClick={() => { openDetail(it); setCtxMenu(null); }} animIdx={ci()} />
       {/* Request Finish Approval — lowest level bar with no children */}
-      {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Finish Approval" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} />}
+      {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Finish Approval" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Delete */}
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => {
+        console.log("=== DELETE FIRED ===", { taskId: it.id, title: it.title, source: ctxMenu.source, level: it.level, isSub: it.isSub, pid: it.pid, grandPid: it.grandPid });
         setCtxMenu(null);
         let deleteTarget = { id: it.id, title: it.title, pid: null };
         if (ctxMenu.source === "team") {
@@ -12550,8 +12914,9 @@ ${jobsCtx || "No jobs found."}`;
         } else {
           deleteTarget.pid = it.isSub ? it.pid : null;
         }
+        console.log("=== DELETE TARGET RESOLVED ===", deleteTarget);
         setConfirmDelete(deleteTarget);
-      }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: `toolDrop 0.14s ${ci() * 38}ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Permanently remove this item</div></div>
       </div>}
@@ -12741,9 +13106,9 @@ ${jobsCtx || "No jobs found."}`;
         const pto = pp ? (pp.timeOff || [])[idx] : null;
         if (pto) setTimeOffEdit({ personId: pid, idx, start: pto.start, end: pto.end, reason: pto.reason || "", type: pto.type || "PTO" });
         setPtoCtx(null);
-      }} />
+      }} animIdx={0} />
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-      <div onClick={() => { delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <div onClick={() => { delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Time Off</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this entry</div></div>
       </div>
@@ -13276,6 +13641,7 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Edit Job modal — simple field update, no wizard */}
     {editJobModal && (() => {
+      console.log("=== EDIT JOB MODAL STATE ===", editJobModal);
       const ej = editJobModal;
       const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
       const saveEditJob = () => {
