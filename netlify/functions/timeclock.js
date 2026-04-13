@@ -149,6 +149,27 @@ export async function handler(event) {
       jciPeople[jciIdx] = { ...jciPerson, activeJobClock: { clockIn: jciClockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle } };
       try { await writeJson(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
 
+      // Update job and sub-operation status to "In Progress" in tasks.json
+      try {
+        let jciTasks = await readJson(tasksKey) ?? [];
+        const jciTaskIdx = jciTasks.findIndex(t => t.id === jobId);
+        if (jciTaskIdx !== -1) {
+          const jciJob = jciTasks[jciTaskIdx];
+          jciTasks[jciTaskIdx] = {
+            ...jciJob,
+            status: jciJob.status === "In Progress" ? jciJob.status : "In Progress",
+            subs: (jciJob.subs || []).map(panel => ({
+              ...panel,
+              subs: (panel.subs || []).map(op => {
+                if (op.id !== opId) return op;
+                return { ...op, status: "In Progress" };
+              }),
+            })),
+          };
+          await writeJson(tasksKey, jciTasks);
+        }
+      } catch (e) { console.warn("jobClockIn: failed to update task status", e); }
+
       return json(200, { ok: true, clockIn: jciClockIn });
     }
 

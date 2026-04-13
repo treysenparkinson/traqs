@@ -5966,7 +5966,7 @@ ${jobsCtx || "No jobs found."}`;
   const teamRef = useRef(null);
   const teamContainerRef = useRef(null);
   const [teamWidth, setTeamWidth] = useState(1200);
-  const [teamColW, setTeamColW] = useState(null);
+  const [monthZoom, setMonthZoom] = useState(1);
   useEffect(() => {
     const el = teamContainerRef.current;
     if (!el) return;
@@ -5980,7 +5980,7 @@ ${jobsCtx || "No jobs found."}`;
     const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
     const lW = isMobile ? 120 : 260, rH = 42, grpH = 36;
     const tAvail = Math.max((teamWidth || 1200) - lW, 200);
-    const cW = teamColW != null ? teamColW : (isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1));
+    const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
     teamCWRef.current = cW;
     // Group people by department
     const roles = []; const roleMap = {};
@@ -6311,10 +6311,10 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
-          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          {tMode === "month" && <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-            <input type="range" min={30} max={200} value={teamColW ?? Math.min(200, Math.max(30, Math.round(cW)))} onChange={e => { const newValue = Number(e.target.value); console.log("=== SLIDER CHANGED ===", { newValue, currentTeamColW: teamColW }); setTeamColW(newValue); }} style={{ width: 80, cursor: "pointer", accentColor: T.accent }} />
-          </div>
+            <input type="range" min={1} max={3} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} style={{ width: 80, cursor: "pointer", accentColor: T.accent }} />
+          </div>}
           <Btn size="sm" onClick={() => setBcModalState("open")}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg> BC Jobs</Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
@@ -6486,8 +6486,8 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
-      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
-        <div style={{ display: "flex", flexDirection: "column", position: "relative", width: teamColW != null ? lW + days.length * cW : "100%" }}>
+      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month" && monthZoom > 1) ? "hidden" : undefined, border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+        <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
             <div style={{ display: "flex" }}>
@@ -6681,6 +6681,16 @@ ${jobsCtx || "No jobs found."}`;
                       });
                       return members;
                     })() : [];
+                    // Dep mode + anchor detection for unlocked groups
+                    const depsMode = (() => {
+                      if (!isGroupDrag || bar.task.level !== 2 || !bar.task.grandPid) return "locked";
+                      const parentPanel = tasks.find(j => j.id === bar.task.grandPid)?.subs?.find(p => p.id === bar.task.pid);
+                      return parentPanel?.depsMode || "locked";
+                    })();
+                    const allGroupStarts = [os, ...groupMembers.map(m => m.origStart)];
+                    const minGroupStart = allGroupStarts.reduce((a, b) => a < b ? a : b, os);
+                    const maxGroupStart = allGroupStarts.reduce((a, b) => a > b ? a : b, os);
+                    const isGroupAnchor = !isGroupDrag || depsMode === "locked" || os <= minGroupStart || os >= maxGroupStart;
                     // Multi-select drag — collect all other selected bars
                     const isMultiDrag = barSelectMode && selBars.has(bar.id) && selBars.size > 1;
                     const multiDragMembers = isMultiDrag ? (() => {
@@ -6800,6 +6810,13 @@ ${jobsCtx || "No jobs found."}`;
                       const finalDx = Math.round((me.clientX - sx) / liveCW);
                       const newStart = nextBD(addD(os, finalDx));
                       const newEnd = countWorkingDays(newStart, wdDuration);
+                      // Unlocked middle ops clamp between anchor bounds; anchors move freely
+                      let effStart = newStart;
+                      if (!isGroupAnchor && depsMode === "unlocked") {
+                        if (newStart < minGroupStart) effStart = nextBD(minGroupStart);
+                        else if (newStart > maxGroupStart) effStart = nextBD(maxGroupStart);
+                      }
+                      const effEnd = countWorkingDays(effStart, wdDuration);
                       const dropPerson = lastDropPid || origPerson;
                       const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
                       const movedByName = loggedInUser ? loggedInUser.name : "Admin";
@@ -6816,11 +6833,12 @@ ${jobsCtx || "No jobs found."}`;
                       // Compute final positions for all group members + multi-selected bars (same delta)
                       const wdDelta = newStart > os ? diffBD(os, newStart) : -diffBD(newStart, os);
                       const groupFinalMoves = [
-                        // Dep-group members always move by the same delta in both directions
-                        ...groupMembers.map(m => {
+                        // Locked mode or anchor drag: all dep-group members move by the same delta
+                        // Unlocked middle drag: dep-group members stay put (only dragged op moves)
+                        ...(isGroupAnchor ? groupMembers.map(m => {
                           const mStart = nextBD(addD(m.origStart, finalDx));
                           return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
-                        }),
+                        }) : []),
                         ...multiDragMembers.map(m => {
                           const mStart = addBD(m.origStart, wdDelta);
                           const mEnd   = addBD(m.origEnd,   wdDelta);
@@ -6828,7 +6846,7 @@ ${jobsCtx || "No jobs found."}`;
                         }),
                       ];
                       // Conflict detection — exclude all moving IDs as obstacles for each other
-                      const { pushes: mainPushes, blocked: mainBlocked, lockedOps: mainLocked } = previewPush(tasks, bar.task.id, dropPerson, newStart, newEnd, movingIds);
+                      const { pushes: mainPushes, blocked: mainBlocked, lockedOps: mainLocked } = previewPush(tasks, bar.task.id, dropPerson, effStart, effEnd, movingIds);
                       if (mainBlocked) { showLockedError(mainLocked); return; }
                       let allPushes = [...mainPushes];
                       let anyBlocked = false; let allLocked = [];
@@ -6843,13 +6861,13 @@ ${jobsCtx || "No jobs found."}`;
                       if (anyBlocked) { showLockedError(allLocked); return; }
                       const logBase = { date: TD, movedBy: movedByName, reason: "Moved in schedule" };
                       const allMoves = [
-                        { id: bar.task.id, newStart, newEnd, logEntry: { ...logBase, fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd } },
+                        { id: bar.task.id, newStart: effStart, newEnd: effEnd, logEntry: { ...logBase, fromStart: os, fromEnd: oe, toStart: effStart, toEnd: effEnd } },
                         ...groupFinalMoves.map(m => ({ id: m.id, newStart: m.newStart, newEnd: m.newEnd, logEntry: { ...logBase, fromStart: m.origStart, fromEnd: m.origEnd, toStart: m.newStart, toEnd: m.newEnd } }))
                       ];
                       const withMove = buildGroupMove(tasks, allMoves);
                       // Expand viewport to include all newly placed bars
-                      const allNewStarts = [newStart, ...groupFinalMoves.map(m => m.newStart)];
-                      const minNewStart = allNewStarts.reduce((a, b) => a < b ? a : b, newStart);
+                      const allNewStarts = [effStart, ...groupFinalMoves.map(m => m.newStart)];
+                      const minNewStart = allNewStarts.reduce((a, b) => a < b ? a : b, effStart);
                       const applyReassign = (snapshot) => {
                         const allReassignments = [
                           { taskId: bar.task.id, pid: taskPid, fromPerson: origPerson },
@@ -7082,6 +7100,51 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
       </div>}
+      {tMode !== "day" && (() => {
+        const scrStart = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()-6); return toDS(new Date(d.getFullYear(),d.getMonth(),1)); })();
+        const scrEnd   = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()+12); return toDS(new Date(d.getFullYear(),d.getMonth()+1,0)); })();
+        const scrDays  = diffD(scrStart, scrEnd) + 1;
+        const thumbL   = Math.max(0, Math.min(98, (diffD(scrStart, tStart) / scrDays) * 100));
+        const thumbW   = Math.max(2, Math.min(100 - thumbL, ((diffD(tStart, tEnd) + 1) / scrDays) * 100));
+        const months   = [];
+        let md = new Date(scrStart+"T12:00:00");
+        while (toDS(md) <= scrEnd) {
+          months.push({ pct: (diffD(scrStart, toDS(new Date(md.getFullYear(),md.getMonth(),1))) / scrDays)*100, label: md.toLocaleDateString("en-US",{month:"short"}), isJan: md.getMonth()===0, year: md.getFullYear() });
+          md.setMonth(md.getMonth()+1);
+        }
+        const handleThumbDrag = e => {
+          e.stopPropagation();
+          const trackRect = e.currentTarget.parentElement.getBoundingClientRect();
+          const startX = e.clientX, startTS = tStart, startTE = tEnd;
+          const span = diffD(tStart, tEnd);
+          const pxPerDay = trackRect.width / scrDays;
+          const sty = document.createElement("style"); sty.textContent="*{cursor:grabbing!important;user-select:none!important}"; document.head.appendChild(sty);
+          const onM = me => { const delta=Math.round((me.clientX-startX)/pxPerDay); let ns=addD(startTS,delta),ne=addD(startTE,delta); if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}setTStart(ns);setTEnd(ne); };
+          const onU = () => { document.head.removeChild(sty); document.removeEventListener("mousemove",onM); document.removeEventListener("mouseup",onU); };
+          document.addEventListener("mousemove",onM); document.addEventListener("mouseup",onU);
+        };
+        const handleTrackClick = e => {
+          if (e.target !== e.currentTarget) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = (e.clientX - rect.left) / rect.width;
+          const target = addD(scrStart, Math.round(pct * scrDays));
+          const span = diffD(tStart, tEnd), half = Math.floor(span/2);
+          let ns=addD(target,-half), ne=addD(target,span-half);
+          if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}
+          setTStart(ns); setTEnd(ne);
+        };
+        return (
+          <div style={{ marginTop: 6, userSelect: "none" }}>
+            <div style={{ position: "relative", height: 30, cursor: "pointer" }} onClick={handleTrackClick}>
+              {months.map((m,i) => <div key={i} style={{ position:"absolute", bottom:0, left:`${m.pct}%`, transform:"translateX(-50%)", fontSize:9, color:T.textDim, fontWeight:m.isJan?700:400, lineHeight:1, whiteSpace:"nowrap", pointerEvents:"none", textAlign:"center" }}>{m.label}{m.isJan && <span style={{display:"block",fontSize:8,opacity:0.6}}>{m.year}</span>}</div>)}
+              <div style={{ position:"absolute", left:0, right:0, top:"40%", height:6, transform:"translateY(-50%)", background:T.bg, borderRadius:3, border:`1px solid ${T.border}` }} />
+              <div style={{ position:"absolute", top:"40%", left:`${thumbL}%`, width:`${thumbW}%`, height:10, transform:"translateY(-50%)", background:T.accent+"88", borderRadius:4, border:`1.5px solid ${T.accent}`, cursor:"grab", minWidth:8 }}
+                onMouseDown={handleThumbDrag} onClick={e=>e.stopPropagation()}
+                onMouseEnter={e=>e.currentTarget.style.background=T.accent+"cc"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"88"} />
+            </div>
+          </div>
+        );
+      })()}
       {/* ── Daily Schedule Status ── */}
       {people.length > 0 && (() => {
         const getStatusBars = (pid) => {
@@ -7193,51 +7256,6 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 );
               })}
-            </div>
-          </div>
-        );
-      })()}
-      {tMode !== "day" && (() => {
-        const scrStart = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()-6); return toDS(new Date(d.getFullYear(),d.getMonth(),1)); })();
-        const scrEnd   = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()+12); return toDS(new Date(d.getFullYear(),d.getMonth()+1,0)); })();
-        const scrDays  = diffD(scrStart, scrEnd) + 1;
-        const thumbL   = Math.max(0, Math.min(98, (diffD(scrStart, tStart) / scrDays) * 100));
-        const thumbW   = Math.max(2, Math.min(100 - thumbL, ((diffD(tStart, tEnd) + 1) / scrDays) * 100));
-        const months   = [];
-        let md = new Date(scrStart+"T12:00:00");
-        while (toDS(md) <= scrEnd) {
-          months.push({ pct: (diffD(scrStart, toDS(new Date(md.getFullYear(),md.getMonth(),1))) / scrDays)*100, label: md.toLocaleDateString("en-US",{month:"short"}), isJan: md.getMonth()===0, year: md.getFullYear() });
-          md.setMonth(md.getMonth()+1);
-        }
-        const handleThumbDrag = e => {
-          e.stopPropagation();
-          const trackRect = e.currentTarget.parentElement.getBoundingClientRect();
-          const startX = e.clientX, startTS = tStart, startTE = tEnd;
-          const span = diffD(tStart, tEnd);
-          const pxPerDay = trackRect.width / scrDays;
-          const sty = document.createElement("style"); sty.textContent="*{cursor:grabbing!important;user-select:none!important}"; document.head.appendChild(sty);
-          const onM = me => { const delta=Math.round((me.clientX-startX)/pxPerDay); let ns=addD(startTS,delta),ne=addD(startTE,delta); if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}setTStart(ns);setTEnd(ne); };
-          const onU = () => { document.head.removeChild(sty); document.removeEventListener("mousemove",onM); document.removeEventListener("mouseup",onU); };
-          document.addEventListener("mousemove",onM); document.addEventListener("mouseup",onU);
-        };
-        const handleTrackClick = e => {
-          if (e.target !== e.currentTarget) return;
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pct = (e.clientX - rect.left) / rect.width;
-          const target = addD(scrStart, Math.round(pct * scrDays));
-          const span = diffD(tStart, tEnd), half = Math.floor(span/2);
-          let ns=addD(target,-half), ne=addD(target,span-half);
-          if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}
-          setTStart(ns); setTEnd(ne);
-        };
-        return (
-          <div style={{ marginTop: 6, userSelect: "none" }}>
-            <div style={{ position: "relative", height: 30, cursor: "pointer" }} onClick={handleTrackClick}>
-              {months.map((m,i) => <div key={i} style={{ position:"absolute", bottom:0, left:`${m.pct}%`, transform:"translateX(-50%)", fontSize:9, color:T.textDim, fontWeight:m.isJan?700:400, lineHeight:1, whiteSpace:"nowrap", pointerEvents:"none", textAlign:"center" }}>{m.label}{m.isJan && <span style={{display:"block",fontSize:8,opacity:0.6}}>{m.year}</span>}</div>)}
-              <div style={{ position:"absolute", left:0, right:0, top:"40%", height:6, transform:"translateY(-50%)", background:T.bg, borderRadius:3, border:`1px solid ${T.border}` }} />
-              <div style={{ position:"absolute", top:"40%", left:`${thumbL}%`, width:`${thumbW}%`, height:10, transform:"translateY(-50%)", background:T.accent+"88", borderRadius:4, border:`1.5px solid ${T.accent}`, cursor:"grab", minWidth:8 }}
-                onMouseDown={handleThumbDrag} onClick={e=>e.stopPropagation()}
-                onMouseEnter={e=>e.currentTarget.style.background=T.accent+"cc"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"88"} />
             </div>
           </div>
         );
@@ -8015,6 +8033,28 @@ ${jobsCtx || "No jobs found."}`;
         const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle }, getToken, orgCode);
         if (res.ok) {
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
+          setTasks(prev => {
+            const updatedTasks = prev.map(job => {
+              if (job.id !== jobId) return job;
+              return {
+                ...job,
+                status: job.status === "In Progress" ? job.status : "In Progress",
+                subs: (job.subs || []).map(panel => {
+                  const hasActiveOp = (panel.subs || []).some(op => op.id === opId);
+                  return {
+                    ...panel,
+                    status: hasActiveOp ? "In Progress" : panel.status,
+                    subs: (panel.subs || []).map(op => {
+                      if (op.id !== opId) return op;
+                      return { ...op, status: "In Progress" };
+                    }),
+                  };
+                }),
+              };
+            });
+            saveTasks(updatedTasks, getToken, orgCode).catch(console.warn);
+            return updatedTasks;
+          });
           closeStartJobPicker();
         } else {
           alert(res.error || "Failed to start job");
@@ -10191,11 +10231,20 @@ ${jobsCtx || "No jobs found."}`;
           // Collect assignable units at the lowest level of each branch.
           // Panels with sub-ops → sub-ops are assignable. Panels without sub-ops → the panel itself is assignable.
           const blockedSubtasks = [];
+          const topoSort = (ops) => {
+            const result = [], visited = new Set();
+            const visit = (op) => {
+              if (visited.has(op.id)) return;
+              visited.add(op.id);
+              (op.deps || []).forEach(depId => { const dep = ops.find(o => o.id === depId); if (dep) visit(dep); });
+              result.push(op);
+            };
+            ops.forEach(op => visit(op));
+            return result;
+          };
           const rawOps = (ed.subs || []).flatMap(panel => {
             if ((panel.subs || []).length > 0) {
-              return (panel.subs || [])
-                .filter(o => o.title?.trim())
-                .filter(o => { const b = checkDeps(o.deps); if (b.length > 0) { blockedSubtasks.push({ title: o.title, count: b.length }); return false; } return true; })
+              return topoSort((panel.subs || []).filter(o => o.title?.trim()))
                 .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd, requiredDepartment: o.requiredDepartment || "" }));
             }
             return panel.title?.trim() ? [{ title: panel.title, durationBD: opDurBD(panel), hpd: panel.hpd || orgSettings.hpd, requiredDepartment: panel.requiredDepartment || "" }] : [];
@@ -10713,7 +10762,9 @@ ${jobsCtx || "No jobs found."}`;
                                   ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:groupIds}; if(groupIds.includes(s.id)) return {...s,deps:[...new Set([...(s.deps||[]).filter(d=>d!=='__pending__'),sub.id])]}; return s; });
                                 }
                               }
-                              updatePanel({subs:ns});
+                              const allEmpty = ns.every(s => !(s.deps||[]).some(d => d !== '__pending__'));
+                              const depsPatch = on ? (allEmpty ? {depsMode: undefined} : {}) : (!panel.depsMode ? {depsMode: "unlocked"} : {});
+                              updatePanel({subs:ns, ...depsPatch});
                             }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, userSelect:"none", animation:`toolDrop 0.14s ${di*38}ms both ease-out` }}
                               onMouseEnter={e=>{ e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
                               <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${on?T.accent:T.border}`, background:on?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
@@ -10722,6 +10773,24 @@ ${jobsCtx || "No jobs found."}`;
                               <span style={{ fontSize:12, color:T.text, userSelect:"none" }}>{sub.title||<em style={{color:T.textDim}}>Unnamed</em>}</span>
                             </div>;
                           })}
+                          {hasAny && <>
+                            <div style={{ margin:"4px 14px", borderTop:`1px solid ${T.border}` }} />
+                            <div style={{ padding:"6px 14px 4px", fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em" }}>Dependency Mode</div>
+                            {[["unlocked","Unlocked","chain"],["locked","Locked","lock"]].map(([mode,label,iconType]) => {
+                              const active = (panel.depsMode || "unlocked") === mode;
+                              return <div key={mode} onClick={() => updatePanel({depsMode: mode})} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 14px", cursor:"pointer" }}
+                                onMouseEnter={e=>{ e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
+                                <div style={{ width:14, height:14, borderRadius:"50%", border:`2px solid ${active?T.accent:T.border}`, background:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
+                                  {active && <div style={{ width:6, height:6, borderRadius:"50%", background:T.accent }} />}
+                                </div>
+                                {iconType === "chain"
+                                  ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={active?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                                  : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={active?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                }
+                                <span style={{ fontSize:12, color:active?T.accent:T.text, fontWeight:active?600:400, userSelect:"none" }}>{label}</span>
+                              </div>;
+                            })}
+                          </>}
                         </div>}
                       </div>;
                     })()}
@@ -11010,7 +11079,6 @@ ${jobsCtx || "No jobs found."}`;
                         opQueue.sort((a,b) => a.earliestStart.localeCompare(b.earliestStart));
                         const {panelIdx,opIdx,earliestStart}=opQueue.shift();
                         const sub=expandedOps[panelIdx].subs[opIdx];
-                        if(checkDeps(sub.deps).length>0) continue;
                         const {team:subTeam,start:ss,end:se}=pickTeam(sub,earliestStart);
                         resultSubs[panelIdx].placedSubs[opIdx]={...sub,_placed:true,start:ss,end:se,team:subTeam.length>0?subTeam.map(m => m.id):(sub.team||[])};
                         subTeam.forEach(m => { inSession.push({pid:m.id,start:ss,end:se,hpd:(sub.hpd||productiveHoursPerDay)/Math.max(1,subTeam.length)}); personCursors[m.id]=sAddBD(se,1); });
@@ -12900,7 +12968,7 @@ ${jobsCtx || "No jobs found."}`;
       {can("editJobs") && isPanel && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>} label="Add Operation" sub="Add a new operation to this panel" onClick={() => { let grandParentId = null; for (const job of tasks) { if ((job.subs||[]).find(p => p.id === it.id)) { grandParentId = job.id; break; } } setCtxMenu(null); setQuickAddSub({ type: "op", parentId: it.id, grandParentId, parentTitle: it.title, title: "", start: it.start, end: it.end, team: [], x: ctxMenu.x, y: ctxMenu.y }); }} animIdx={ci()} />}
       {/* Reassign Operation — opens modal */}
       {can("reassign") && isOp && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} label="Reassign Operation" sub="Choose from available people" onClick={() => { setReassignModal({ item: it }); setCtxMenu(null); }} animIdx={ci()} />}
-      {can("editJobs") && isOp && (() => { let siblingOps=[],panelId=null,jobId=null,panelTitle=""; for(const job of tasks){for(const panel of(job.subs||[])){if((panel.subs||[]).find(o=>o.id===it.id)){siblingOps=panel.subs;panelId=panel.id;jobId=job.id;panelTitle=panel.title;break;}}if(panelId)break;} if(siblingOps.length<2)return null; return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>} label="Add/Edit Dependencies" sub="Link sub-operations to move together" onClick={()=>{ setDepsModal({ item:it, panelSubs:siblingOps.map(s=>({...s,deps:[...(s.deps||[])]})), panelId, jobId, panelTitle }); setCtxMenu(null); }} animIdx={ci()} />; })()}
+      {can("editJobs") && isOp && (() => { let siblingOps=[],panelId=null,jobId=null,panelTitle="",panelDepsMode="unlocked"; for(const job of tasks){for(const panel of(job.subs||[])){if((panel.subs||[]).find(o=>o.id===it.id)){siblingOps=panel.subs;panelId=panel.id;jobId=job.id;panelTitle=panel.title;panelDepsMode=panel.depsMode||"unlocked";break;}}if(panelId)break;} if(siblingOps.length<2)return null; return <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>} label="Add/Edit Dependencies" sub="Link sub-operations to move together" onClick={()=>{ setDepsModal({ item:it, panelSubs:siblingOps.map(s=>({...s,deps:[...(s.deps||[])]})), panelId, jobId, panelTitle, depsMode:panelDepsMode }); setCtxMenu(null); }} animIdx={ci()} />; })()}
       {/* View Details */}
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => { openDetail(it); setCtxMenu(null); }} animIdx={ci()} />
       {/* Schedule Log */}
@@ -12977,7 +13045,7 @@ ${jobsCtx || "No jobs found."}`;
       const self=ps.find(x=>x.id===it.id)||it;
       const isLinked=sid=>sid!==it.id&&((self.deps||[]).includes(sid)||(ps.find(x=>x.id===sid)?.deps||[]).includes(it.id));
       const toggle=sibId=>{ if(sibId===it.id) return; const linked=isLinked(sibId); const ns=ps.map(s=>{ if(s.id===it.id){const d=s.deps||[];return{...s,deps:linked?d.filter(x=>x!==sibId):[...d,sibId]};} if(s.id===sibId){const d=s.deps||[];return{...s,deps:linked?d.filter(x=>x!==it.id):[...d,it.id]};} return s; }); setDepsModal(p=>({...p,panelSubs:ns})); };
-      const save=()=>{ const next=tasks.map(job=>({...job,subs:(job.subs||[]).map(panel=>panel.id!==depsModal.panelId?panel:{...panel,subs:ps})})); setTasks(next); saveTasks(next,getToken,orgCode).catch(console.warn); setDepsModal(null); };
+      const save=()=>{ const anyLinked=ps.some(s=>s.id!==it.id&&isLinked(s.id)); const next=tasks.map(job=>({...job,subs:(job.subs||[]).map(panel=>panel.id!==depsModal.panelId?panel:{...panel,subs:ps,...(anyLinked?{depsMode:depsModal.depsMode||"unlocked"}:{depsMode:undefined})})})); setTasks(next); saveTasks(next,getToken,orgCode).catch(console.warn); setDepsModal(null); };
       return <div onClick={()=>setDepsModal(null)} style={{ position:"fixed",inset:0,zIndex:10005,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:T.font }}>
         <div onClick={e=>e.stopPropagation()} style={{ background:T.card,border:`1px solid ${T.borderLight}`,borderRadius:T.radiusSm,boxShadow:"0 24px 64px rgba(0,0,0,0.6)",width:"min(440px, calc(100vw - 32px))",padding:"24px 24px 20px",animation:"slideUp 0.22s ease-out" }}>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6 }}>
@@ -13005,6 +13073,28 @@ ${jobsCtx || "No jobs found."}`;
               </button>;
             })}
           </div>
+          {ps.some(s=>s.id!==it.id&&isLinked(s.id)) && <>
+            <div style={{ borderTop:`1px solid ${T.border}`, margin:"4px 0 12px" }} />
+            <div style={{ fontSize:10,fontWeight:700,color:T.textDim,textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:8 }}>Dependency Mode</div>
+            {[["unlocked","Unlocked","First & last are anchors, middle floats","chain"],["locked","Locked","All sub-ops move as one block","lock"]].map(([mode,label,desc,iconType]) => {
+              const active=(depsModal.depsMode||"unlocked")===mode;
+              return <div key={mode} onClick={()=>setDepsModal(p=>({...p,depsMode:mode}))} style={{ display:"flex",alignItems:"center",gap:10,padding:"7px 10px",borderRadius:T.radiusSm,cursor:"pointer",marginBottom:4 }}
+                onMouseEnter={e=>{ e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
+                <div style={{ width:14,height:14,borderRadius:"50%",border:`2px solid ${active?T.accent:T.border}`,background:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.12s" }}>
+                  {active && <div style={{ width:6,height:6,borderRadius:"50%",background:T.accent }} />}
+                </div>
+                {iconType==="chain"
+                  ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={active?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={active?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                }
+                <div>
+                  <div style={{ fontSize:12,fontWeight:active?600:400,color:active?T.accent:T.text }}>{label}</div>
+                  <div style={{ fontSize:11,color:T.textDim }}>{desc}</div>
+                </div>
+              </div>;
+            })}
+            <div style={{ marginBottom:8 }} />
+          </>}
           <div style={{ display:"flex",gap:8 }}>
             <button onClick={()=>setDepsModal(null)} style={{ flex:1,padding:"9px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:"transparent",color:T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:T.font }}>Cancel</button>
             <button onClick={save} style={{ flex:2,padding:"9px",borderRadius:T.radiusSm,border:"none",background:T.accent,color:T.accentText,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:T.font }}>Save</button>
