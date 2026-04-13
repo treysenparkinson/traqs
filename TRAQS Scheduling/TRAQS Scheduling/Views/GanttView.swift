@@ -14,6 +14,14 @@ struct GanttView: View {
 
     // MARK: - Computed
 
+    /// currentPersonId, or falls back to a live email lookup in case the auth timing
+    /// gap left currentPersonId nil (isAuthenticated fires before fetchUserEmail completes).
+    private var resolvedPersonId: String? {
+        if let id = appState.currentPersonId { return id }
+        guard let email = appState.matchEmail else { return nil }
+        return appState.people.first(where: { $0.email.lowercased() == email.lowercased() })?.id
+    }
+
     var weekDates: [Date] {
         // Find Monday of the current week + offset
         let today = Date()
@@ -62,6 +70,51 @@ struct GanttView: View {
         return order.compactMap { id -> DayJobGroup? in
             guard let ops = byJob[id],
                   let job = appState.jobs.first(where: { $0.id == id }) else { return nil }
+            return DayJobGroup(job: job, ops: ops)
+        }
+    }
+
+    /// Jobs where current user is the project manager, with all their ops active today
+    var managingJobGroups: [DayJobGroup] {
+        guard let myId = resolvedPersonId else { return [] }
+        let allToday = appState.jobs.flatMap { job -> [(job: Job, panel: Panel, op: Operation)] in
+            guard job.projectManagerId == myId else { return [] }
+            return job.subs.flatMap { panel in
+                panel.subs.filter { op in
+                    guard let s = op.start.asDate, let e = op.end.asDate else { return false }
+                    return s <= selectedDate && e >= selectedDate
+                }.map { (job: job, panel: panel, op: $0) }
+            }
+        }
+        return groupByJob(allToday)
+    }
+
+    /// Ops the user is directly assigned to, excluding jobs already in managingJobGroups.
+    var personalJobGroups: [DayJobGroup] {
+        guard let myId = resolvedPersonId else { return [] }
+        let managedIds = Set(managingJobGroups.map(\.job.id))
+        let myOps = appState.jobs.flatMap { job -> [(job: Job, panel: Panel, op: Operation)] in
+            guard !managedIds.contains(job.id) else { return [] }
+            return job.subs.flatMap { panel in
+                panel.subs.filter { op in
+                    guard let s = op.start.asDate, let e = op.end.asDate else { return false }
+                    return s <= selectedDate && e >= selectedDate && op.team.contains(myId)
+                }.map { (job: job, panel: panel, op: $0) }
+            }
+        }
+        return groupByJob(myOps)
+    }
+
+    /// Shared grouping helper
+    private func groupByJob(_ items: [(job: Job, panel: Panel, op: Operation)]) -> [DayJobGroup] {
+        var byJob: [String: [(panel: Panel, op: Operation)]] = [:]
+        var order: [String] = []
+        for item in items {
+            if byJob[item.job.id] == nil { order.append(item.job.id) }
+            byJob[item.job.id, default: []].append((item.panel, item.op))
+        }
+        return order.compactMap { id in
+            guard let ops = byJob[id], let job = appState.jobs.first(where: { $0.id == id }) else { return nil }
             return DayJobGroup(job: job, ops: ops)
         }
     }
@@ -213,40 +266,84 @@ struct GanttView: View {
                     Rectangle().fill(Color(hex: T.border)).frame(height: 1)
 
                     // ── Task list ──
-                    if activeJobGroups.isEmpty {
-                        Spacer()
-                        VStack(spacing: 12) {
-                            if let err = appState.errorMessage {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(.system(size: 44))
-                                    .foregroundColor(Color(hex: T.danger))
-                                Text(err)
-                                    .foregroundColor(Color(hex: T.danger))
-                                    .font(.caption)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal, 40)
-                            } else {
-                                Image(systemName: "checkmark.circle")
-                                    .font(.system(size: 44))
-                                    .foregroundColor(Color(hex: T.border))
-                                Text(showMyTasks ? "No tasks assigned to you today" : "No tasks scheduled for this day")
-                                    .foregroundColor(Color(hex: T.muted))
-                                    .font(.subheadline)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal, 40)
-                            }
-                        }
-                        Spacer()
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 8) {
-                                ForEach(activeJobGroups) { group in
-                                    JobDayRow(group: group)
+                    if showMyTasks {
+                        let isEmpty = managingJobGroups.isEmpty && personalJobGroups.isEmpty
+                        if isEmpty {
+                            Spacer()
+                            VStack(spacing: 12) {
+                                if let err = appState.errorMessage {
+                                    Image(systemName: "exclamationmark.triangle")
+                                        .font(.system(size: 44))
+                                        .foregroundColor(Color(hex: T.danger))
+                                    Text(err)
+                                        .foregroundColor(Color(hex: T.danger))
+                                        .font(.caption)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 40)
+                                } else {
+                                    Image(systemName: "checkmark.circle")
+                                        .font(.system(size: 44))
+                                        .foregroundColor(Color(hex: T.border))
+                                    Text("No tasks assigned to you today")
+                                        .foregroundColor(Color(hex: T.muted))
+                                        .font(.subheadline)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 40)
                                 }
                             }
-                            .padding(16)
+                            Spacer()
+                        } else {
+                            ScrollView {
+                                LazyVStack(spacing: 8) {
+                                    if !managingJobGroups.isEmpty {
+                                        MyTasksSectionHeader(title: "Managing", count: managingJobGroups.count)
+                                        ForEach(managingJobGroups) { group in JobDayRow(group: group) }
+                                    }
+                                    if !personalJobGroups.isEmpty {
+                                        MyTasksSectionHeader(title: "My Work", count: personalJobGroups.count)
+                                        ForEach(personalJobGroups) { group in JobDayRow(group: group) }
+                                    }
+                                }
+                                .padding(16)
+                            }
+                            .refreshable { await appState.loadAll() }
                         }
-                        .refreshable { await appState.loadAll() }
+                    } else {
+                        if activeJobGroups.isEmpty {
+                            Spacer()
+                            VStack(spacing: 12) {
+                                if let err = appState.errorMessage {
+                                    Image(systemName: "exclamationmark.triangle")
+                                        .font(.system(size: 44))
+                                        .foregroundColor(Color(hex: T.danger))
+                                    Text(err)
+                                        .foregroundColor(Color(hex: T.danger))
+                                        .font(.caption)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 40)
+                                } else {
+                                    Image(systemName: "checkmark.circle")
+                                        .font(.system(size: 44))
+                                        .foregroundColor(Color(hex: T.border))
+                                    Text("No tasks scheduled for this day")
+                                        .foregroundColor(Color(hex: T.muted))
+                                        .font(.subheadline)
+                                        .multilineTextAlignment(.center)
+                                        .padding(.horizontal, 40)
+                                }
+                            }
+                            Spacer()
+                        } else {
+                            ScrollView {
+                                LazyVStack(spacing: 8) {
+                                    ForEach(activeJobGroups) { group in
+                                        JobDayRow(group: group)
+                                    }
+                                }
+                                .padding(16)
+                            }
+                            .refreshable { await appState.loadAll() }
+                        }
                     }
                 }
             }
@@ -262,6 +359,29 @@ struct GanttView: View {
             let d = cal.startOfDay(for: date)
             return s <= d && e >= d
         }.count
+    }
+}
+
+// MARK: - My Tasks Section Header
+
+private struct MyTasksSectionHeader: View {
+    let title: String
+    let count: Int
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(title.uppercased())
+                .font(.caption.bold())
+                .foregroundColor(Color(hex: T.muted))
+                .kerning(0.5)
+            Text("\(count)")
+                .font(.caption2.bold())
+                .padding(.horizontal, 5).padding(.vertical, 2)
+                .background(Color(hex: T.muted).opacity(0.15))
+                .foregroundColor(Color(hex: T.muted))
+                .cornerRadius(5)
+            Spacer()
+        }
+        .padding(.top, 4)
     }
 }
 

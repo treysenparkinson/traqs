@@ -178,6 +178,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     var moveLog: [MoveLogEntry]?
     var jobType: String?
     var loggedHours: Double?
+    var projectManagerId: String?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -200,6 +201,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         moveLog   = try? c.decodeIfPresent([MoveLogEntry].self, forKey: .moveLog)
         jobType   = try? c.decodeIfPresent(String.self, forKey: .jobType)
         loggedHours = try? c.decodeIfPresent(Double.self, forKey: .loggedHours)
+        projectManagerId = try? c.decodeFlexID(forKey: .projectManagerId)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
@@ -209,13 +211,13 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
          team: [String] = [], color: String = "#3d7fff", hpd: Double = 7.5,
          notes: String = "", clientId: String? = nil, deps: [String] = [],
          subs: [Panel] = [], moveLog: [MoveLogEntry]? = nil, jobType: String? = nil,
-         loggedHours: Double? = nil) {
+         loggedHours: Double? = nil, projectManagerId: String? = nil) {
         self.id = id; self.title = title; self.jobNumber = jobNumber; self.poNumber = poNumber
         self.start = start; self.end = end; self.dueDate = dueDate
         self.status = status; self.pri = pri; self.team = team; self.color = color
         self.hpd = hpd; self.notes = notes; self.clientId = clientId
         self.deps = deps; self.subs = subs; self.moveLog = moveLog; self.jobType = jobType
-        self.loggedHours = loggedHours
+        self.loggedHours = loggedHours; self.projectManagerId = projectManagerId
     }
 
     static func == (lhs: Job, rhs: Job) -> Bool { lhs.id == rhs.id }

@@ -5966,6 +5966,7 @@ ${jobsCtx || "No jobs found."}`;
   const teamRef = useRef(null);
   const teamContainerRef = useRef(null);
   const [teamWidth, setTeamWidth] = useState(1200);
+  const [teamColW, setTeamColW] = useState(null);
   useEffect(() => {
     const el = teamContainerRef.current;
     if (!el) return;
@@ -5979,7 +5980,7 @@ ${jobsCtx || "No jobs found."}`;
     const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
     const lW = isMobile ? 120 : 260, rH = 42, grpH = 36;
     const tAvail = Math.max((teamWidth || 1200) - lW, 200);
-    const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
+    const cW = teamColW != null ? teamColW : (isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1));
     teamCWRef.current = cW;
     // Group people by department
     const roles = []; const roleMap = {};
@@ -6310,6 +6311,10 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            <input type="range" min={30} max={200} value={teamColW ?? Math.min(200, Math.max(30, Math.round(cW)))} onChange={e => { const newValue = Number(e.target.value); console.log("=== SLIDER CHANGED ===", { newValue, currentTeamColW: teamColW }); setTeamColW(newValue); }} style={{ width: 80, cursor: "pointer", accentColor: T.accent }} />
+          </div>
           <Btn size="sm" onClick={() => setBcModalState("open")}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg> BC Jobs</Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
@@ -6482,7 +6487,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
       <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
-        <div style={{ display: "flex", flexDirection: "column", position: "relative", width: "100%" }}>
+        <div style={{ display: "flex", flexDirection: "column", position: "relative", width: teamColW != null ? lW + days.length * cW : "100%" }}>
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
             <div style={{ display: "flex" }}>
@@ -11074,8 +11079,12 @@ ${jobsCtx || "No jobs found."}`;
                         return p;
                       }
                       updated.subs=newSubs;
-                      updated.start=newSubs.length>0?newSubs[0].start:slot.start;
+                      const allOpStarts=newSubs.flatMap(op=>op.subs&&op.subs.length>0?op.subs.map(s=>s.start).filter(Boolean):[op.start].filter(Boolean));
+                      const earliestStart=allOpStarts.length>0?allOpStarts.reduce((a,b)=>a<b?a:b):slot.start;
+                      updated.start=earliestStart;
                       updated.end=latestEnd;
+                      updated.scheduledLater=false;
+                      console.log("=== BC JOB SCHEDULED ===", { id: updated.id, scheduledLater: updated.scheduledLater, start: updated.start, end: updated.end });
                       return updated;
                     });
                     setAiSuggestion(null);

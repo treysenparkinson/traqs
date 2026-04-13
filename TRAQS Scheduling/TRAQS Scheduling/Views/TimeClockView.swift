@@ -209,7 +209,7 @@ private struct WorkerClockedView: View {
                 .foregroundColor(Color(hex: T.accent))
                 .cornerRadius(10)
                 .overlay(RoundedRectangle(cornerRadius: 10)
-                    .stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                    .stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 3))
         }
         .buttonStyle(.plain)
     }
