@@ -6687,10 +6687,33 @@ ${jobsCtx || "No jobs found."}`;
                       const parentPanel = tasks.find(j => j.id === bar.task.grandPid)?.subs?.find(p => p.id === bar.task.pid);
                       return parentPanel?.depsMode || "locked";
                     })();
-                    const allGroupStarts = [os, ...groupMembers.map(m => m.origStart)];
-                    const minGroupStart = allGroupStarts.reduce((a, b) => a < b ? a : b, os);
-                    const maxGroupStart = allGroupStarts.reduce((a, b) => a > b ? a : b, os);
-                    const isGroupAnchor = !isGroupDrag || depsMode === "locked" || os <= minGroupStart || os >= maxGroupStart;
+                    // Unlocked: find direct predecessor and successor of the dragged task within its dep group
+                    let predecessorEnd = null, successorStart = null;
+                    if (depsMode === "unlocked" && isGroupDrag) {
+                      let siblings = [];
+                      for (const job of tasks) {
+                        for (const panel of (job.subs || [])) {
+                          if ((panel.subs || []).find(o => o.id === bar.task.id)) { siblings = panel.subs || []; break; }
+                        }
+                        if (siblings.length) break;
+                      }
+                      for (const dep of (bar.task.deps || [])) {
+                        const predOp = siblings.find(s => s.id === dep && depGroupIds.has(s.id));
+                        if (predOp && (predecessorEnd === null || predOp.end > predecessorEnd)) predecessorEnd = predOp.end;
+                      }
+                      for (const sib of siblings) {
+                        if (depGroupIds.has(sib.id) && (sib.deps || []).includes(bar.task.id)) {
+                          if (successorStart === null || sib.start < successorStart) successorStart = sib.start;
+                        }
+                      }
+                    }
+                    // Clamp helper: keeps a start date within unlocked dep boundaries
+                    const clampUnlocked = (start, duration) => {
+                      let s = start;
+                      if (predecessorEnd !== null) { const minS = addBD(predecessorEnd, 1); if (s < minS) s = minS; }
+                      if (successorStart !== null) { const latestS = addBD(successorStart, -duration); if (s > latestS) s = latestS; }
+                      return s;
+                    };
                     // Multi-select drag — collect all other selected bars
                     const isMultiDrag = barSelectMode && selBars.has(bar.id) && selBars.size > 1;
                     const multiDragMembers = isMultiDrag ? (() => {
@@ -6743,7 +6766,8 @@ ${jobsCtx || "No jobs found."}`;
                           const pxDx2 = lastCX - sx;
                           const pxDy2 = lastCY - sy;
                           const dx2 = Math.round(pxDx2 / liveCW);
-                          const snapS2 = nextBD(addD(os, dx2));
+                          let snapS2 = nextBD(addD(os, dx2));
+                          if (depsMode === "unlocked" && isGroupDrag) snapS2 = clampUnlocked(snapS2, wdDuration);
                           const snapE2 = countWorkingDays(snapS2, wdDuration);
                           setTeamDragInfo(prev => prev ? { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2 } : prev);
                         }
@@ -6769,11 +6793,13 @@ ${jobsCtx || "No jobs found."}`;
                       }
                       // Use live-measured column width so overlap preview matches actual render
                       const dx = Math.round(pxDx / liveCW);
-                      const snapS = nextBD(addD(os, dx));
+                      let snapS = nextBD(addD(os, dx));
+                      // Unlocked: clamp preview ghost to dep boundaries so bar physically stops at constraint
+                      if (depsMode === "unlocked" && isGroupDrag) snapS = clampUnlocked(snapS, wdDuration);
                       const snapE = countWorkingDays(snapS, wdDuration);
-                      // Group member ghost positions (same delta applied to each member's original start)
+                      // Group member ghost positions — locked moves all together; unlocked moves only dragged task
                       const groupSnaps = [
-                        ...(isGroupDrag ? groupMembers : []),
+                        ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
                       ].map(m => {
                         const mSnap = nextBD(addD(m.origStart, dx));
                         return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: countWorkingDays(mSnap, m.wdDur), color: bar.color };
@@ -6810,12 +6836,8 @@ ${jobsCtx || "No jobs found."}`;
                       const finalDx = Math.round((me.clientX - sx) / liveCW);
                       const newStart = nextBD(addD(os, finalDx));
                       const newEnd = countWorkingDays(newStart, wdDuration);
-                      // Unlocked middle ops clamp between anchor bounds; anchors move freely
-                      let effStart = newStart;
-                      if (!isGroupAnchor && depsMode === "unlocked") {
-                        if (newStart < minGroupStart) effStart = nextBD(minGroupStart);
-                        else if (newStart > maxGroupStart) effStart = nextBD(maxGroupStart);
-                      }
+                      // Unlocked: clamp drop position to dep boundaries (same rule as drag preview)
+                      let effStart = depsMode === "unlocked" && isGroupDrag ? clampUnlocked(newStart, wdDuration) : newStart;
                       const effEnd = countWorkingDays(effStart, wdDuration);
                       const dropPerson = lastDropPid || origPerson;
                       const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
@@ -6831,11 +6853,11 @@ ${jobsCtx || "No jobs found."}`;
                         }
                       }
                       // Compute final positions for all group members + multi-selected bars (same delta)
-                      const wdDelta = newStart > os ? diffBD(os, newStart) : -diffBD(newStart, os);
+                      const wdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
                       const groupFinalMoves = [
-                        // Locked mode or anchor drag: all dep-group members move by the same delta
-                        // Unlocked middle drag: dep-group members stay put (only dragged op moves)
-                        ...(isGroupAnchor ? groupMembers.map(m => {
+                        // Locked mode: all dep-group members move by the same delta as the dragged bar
+                        // Unlocked mode: each task moves independently — only the dragged task moves
+                        ...(depsMode === "locked" ? groupMembers.map(m => {
                           const mStart = nextBD(addD(m.origStart, finalDx));
                           return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
                         }) : []),
