@@ -6681,11 +6681,11 @@ ${jobsCtx || "No jobs found."}`;
                       });
                       return members;
                     })() : [];
-                    // Dep mode + anchor detection for unlocked groups
+                    // Dep mode: free for non-dep tasks, otherwise read from task or parent panel
                     const depsMode = (() => {
-                      if (!isGroupDrag || bar.task.level !== 2 || !bar.task.grandPid) return "locked";
+                      if (!isGroupDrag) return "free";
                       const parentPanel = tasks.find(j => j.id === bar.task.grandPid)?.subs?.find(p => p.id === bar.task.pid);
-                      return parentPanel?.depsMode || "locked";
+                      return bar.task?.depsMode || parentPanel?.depsMode || "unlocked";
                     })();
                     // Unlocked: find direct predecessor and successor of the dragged task within its dep group
                     let predecessorEnd = null, successorStart = null;
@@ -6797,9 +6797,9 @@ ${jobsCtx || "No jobs found."}`;
                       // Unlocked: clamp preview ghost to dep boundaries so bar physically stops at constraint
                       if (depsMode === "unlocked" && isGroupDrag) snapS = clampUnlocked(snapS, wdDuration);
                       const snapE = countWorkingDays(snapS, wdDuration);
-                      // Group member ghost positions — locked moves all together; unlocked moves only dragged task
+                      // Group member ghost positions — locked moves all together; free/unlocked moves only dragged task
                       const groupSnaps = [
-                        ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
+                        ...(isGroupDrag && depsMode === "locked" ? groupMembers : []),
                       ].map(m => {
                         const mSnap = nextBD(addD(m.origStart, dx));
                         return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: countWorkingDays(mSnap, m.wdDur), color: bar.color };
