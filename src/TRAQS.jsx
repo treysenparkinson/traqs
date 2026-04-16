@@ -6705,7 +6705,7 @@ ${jobsCtx || "No jobs found."}`;
                       }
                       return "free";
                     })();
-                    // Unlocked: find direct predecessor and successor of the dragged task within its dep group
+                    // Unlocked: find predecessor and successor by chronological order within the dep group
                     let predecessorEnd = null, successorStart = null;
                     if (depsMode === "unlocked" && isGroupDrag) {
                       let siblings = [];
@@ -6715,15 +6715,15 @@ ${jobsCtx || "No jobs found."}`;
                         }
                         if (siblings.length) break;
                       }
-                      for (const dep of (bar.task.deps || [])) {
-                        const predOp = siblings.find(s => s.id === dep && depGroupIds.has(s.id));
-                        if (predOp && (predecessorEnd === null || predOp.end > predecessorEnd)) predecessorEnd = predOp.end;
-                      }
-                      for (const sib of siblings) {
-                        if (depGroupIds.has(sib.id) && (sib.deps || []).includes(bar.task.id)) {
-                          if (successorStart === null || sib.start < successorStart) successorStart = sib.start;
-                        }
-                      }
+                      // Sort all group members by start date — predecessor is the one before, successor is the one after
+                      const groupSiblings = siblings
+                        .filter(s => depGroupIds.has(s.id))
+                        .sort((a, b) => a.start < b.start ? -1 : 1);
+                      const myIndex = groupSiblings.findIndex(s => s.id === bar.task.id);
+                      const predecessor = myIndex > 0 ? groupSiblings[myIndex - 1] : null;
+                      const successor = myIndex < groupSiblings.length - 1 ? groupSiblings[myIndex + 1] : null;
+                      predecessorEnd = predecessor ? predecessor.end : null;
+                      successorStart = successor ? successor.start : null;
                     }
                     // Clamp helper: keeps a start date within unlocked dep boundaries
                     const clampUnlocked = (start, duration) => {
@@ -6817,7 +6817,7 @@ ${jobsCtx || "No jobs found."}`;
                       const snapE = countWorkingDays(snapS, wdDuration);
                       // Group member ghost positions — locked moves all together; free/unlocked moves only dragged task
                       const groupSnaps = [
-                        ...(isGroupDrag && depsMode === "locked" ? groupMembers : []),
+                        ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
                       ].map(m => {
                         const mSnap = nextBD(addD(m.origStart, dx));
                         return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: countWorkingDays(mSnap, m.wdDur), color: bar.color };
