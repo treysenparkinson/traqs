@@ -12964,7 +12964,7 @@ ${jobsCtx || "No jobs found."}`;
       return <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: isMobile ? 16 : Math.min(ctxMenu.x, window.innerWidth - 268), ...(isMobile ? { bottom: 16, right: 16 } : vPos), zIndex: 9999, minWidth: isMobile ? "auto" : 252, width: isMobile ? "calc(100% - 32px)" : "auto", maxHeight: isMobile ? "80vh" : maxH, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
       {/* Header */}
       {(() => {
-        let parentJobTitle = null, parentPanelTitle = null, panelId = null, siblingOpCount = 0, curDepsMode = "unlocked";
+        let parentJobTitle = null, parentPanelTitle = null, panelId = null, siblingOpCount = 0, curDepsMode = "free";
         if (isOp) {
           for (const job of tasks) {
             for (const panel of (job.subs || [])) {
@@ -12973,7 +12973,7 @@ ${jobsCtx || "No jobs found."}`;
                 parentPanelTitle = panel.title;
                 panelId = panel.id;
                 siblingOpCount = (panel.subs || []).length;
-                curDepsMode = panel.depsMode || "unlocked";
+                curDepsMode = panel.depsMode || "free";
                 break;
               }
             }
