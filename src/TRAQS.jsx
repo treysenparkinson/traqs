@@ -2092,6 +2092,16 @@ Rules:
     try {
       setSaveStatus("saving");
       const d = dataRef.current;
+      if (!d.tasks || d.tasks.length === 0) {
+        console.warn("doSave blocked — tasks is empty, skipping save to prevent data loss");
+        setSaveStatus("unsaved");
+        return;
+      }
+      if (!d.people || d.people.length === 0) {
+        console.warn("doSave blocked — people is empty, skipping save to prevent data loss");
+        setSaveStatus("unsaved");
+        return;
+      }
       await Promise.all([
         saveTasks(d.tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i), getTokenRef.current, orgCode),
         savePeople(d.people, getTokenRef.current, orgCode),

@@ -34,6 +34,11 @@ export async function handler(event) {
     }
     try {
       const incoming = JSON.parse(event.body);
+      if (!Array.isArray(incoming)) return err(400, "Invalid people data");
+      if (incoming.length === 0) {
+        const allow = event.headers?.["x-allow-empty"] === "true";
+        if (!allow) return err(400, "Refusing to overwrite people with empty array");
+      }
 
       // Check for userRole changes — only admins may change them
       const existing = (await readJson(s3Key)) ?? [];
