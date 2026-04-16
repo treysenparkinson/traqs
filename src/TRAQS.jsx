@@ -13000,7 +13000,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
             </div>
             {showDepToggle && <button
-              onClick={() => { const newMode = toggleNext; const next = tasks.map(job => ({ ...job, subs: (job.subs || []).map(panel => panel.id !== panelId ? panel : { ...panel, depsMode: newMode }) })); setTasks(next); saveTasks(next, getToken, orgCode).catch(console.warn); setCtxMenu(null); }}
+              onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); saveTasks(next, getToken, orgCode).catch(console.warn); return next; }); }}
               title={toggleTitle}
               style={{ flexShrink: 0, width: 30, height: 30, borderRadius: "50%", border: `1px solid ${toggleBorder}`, background: toggleBg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: toggleColor, transition: "all 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "18"; }}
