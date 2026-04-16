@@ -6684,8 +6684,16 @@ ${jobsCtx || "No jobs found."}`;
                     // Dep mode: free for non-dep tasks, otherwise read from task or parent panel
                     const depsMode = (() => {
                       if (!isGroupDrag) return "free";
-                      const parentPanel = tasks.find(j => j.id === bar.task.grandPid)?.subs?.find(p => p.id === bar.task.pid);
-                      return bar.task?.depsMode || parentPanel?.depsMode || "unlocked";
+                      if (bar.task.level === 2 && bar.task.grandPid) {
+                        const parentPanel = tasks.find(j => j.id === bar.task.grandPid)?.subs?.find(p => p.id === bar.task.pid);
+                        return bar.task?.depsMode || parentPanel?.depsMode || "unlocked";
+                      }
+                      if (bar.task.level === 1) {
+                        const parentJob = tasks.find(j => (j.subs || []).find(p => p.id === bar.task.id));
+                        const panel = parentJob?.subs?.find(p => p.id === bar.task.id);
+                        return panel?.depsMode || "unlocked";
+                      }
+                      return "free";
                     })();
                     // Unlocked: find direct predecessor and successor of the dragged task within its dep group
                     let predecessorEnd = null, successorStart = null;
