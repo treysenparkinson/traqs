@@ -112,8 +112,8 @@ const ADMIN_PERMS = [
 const PRIORITIES = ["Low","Medium","High"];
 const STATUSES = ["Not Started","Pending","In Progress","On Hold","Finished"];
 const PRI_C = { Low: "#10b981", Medium: "#f59e0b", High: "#f43f5e" };
-const STA_C = { "Not Started": "#94a3b8", Pending: "#a78bfa", "In Progress": "#3b82f6", "On Hold": "#f59e0b", Finished: "#10b981" };
-const STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "On Hold": "⏸", Finished: "●" };
+const STA_C = { "Not Started": "#94a3b8", Pending: "#a78bfa", "In Progress": "#3b82f6", "On Hold": "#f59e0b", Finished: "#10b981", Paused: "#f59e0b" };
+const STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "On Hold": "⏸", Finished: "●", Paused: "⏸" };
 const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,"0"); const d = String(dt.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; };
 const NOW = new Date(); const TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
@@ -1713,10 +1713,26 @@ Rules:
     const logged = timeclock
       .filter(e => e.jobRefs?.some(r => r.opId === op.id))
       .reduce((s, e) => s + (e.hours || 0), 0);
-    if (logged === 0) return op.status === "In Progress" ? 5 : op.status === "On Hold" ? 2 : 0;
-    return Math.min(98, Math.round(logged / totalEst * 100));
+    // Add live elapsed for any worker currently clocked into this op (display only)
+    const activeP = people.find(p => p.activeJobClock?.opId === op.id && p.activeJobClock?.clockIn);
+    const liveElapsed = activeP ? Math.max(0,
+      (Date.now() - new Date(activeP.activeJobClock.clockIn).getTime()) / 3600000
+      - (activeP.activeJobClock.totalPausedMs || 0) / 3600000
+    ) : 0;
+    const totalLogged = logged + liveElapsed;
+    if (totalLogged === 0) return op.status === "In Progress" ? 5 : op.status === "On Hold" ? 2 : 0;
+    return Math.min(98, Math.round(totalLogged / totalEst * 100));
   };
   const _jobPct = (job) => { const ops = (job.subs || []).flatMap(p => p.subs || []); return ops.length ? Math.round(ops.reduce((s, op) => s + _opPct(op), 0) / ops.length) : 0; };
+  // Display-only status override for sub-ops: shows "Paused" when hours are logged but no one is clocked in
+  const getOpDisplayStatus = (op) => {
+    if (op.status === "Finished") return "Finished";
+    if ((op.loggedHours || 0) > 0) {
+      const isActivelyClocked = people.some(p => p.activeJobClock?.opId === op.id);
+      return isActivelyClocked ? "In Progress" : "Paused";
+    }
+    return op.status;
+  };
   const condFields = [
     { key: "status", label: "Status", type: "select", options: STATUSES },
     { key: "pri",    label: "Priority", type: "select", options: PRIORITIES },
@@ -1792,6 +1808,7 @@ Rules:
   const [pinSummary, setPinSummary] = useState(null);
   const [tsElapsed, setTsElapsed] = useState("");
   const [tsJobElapsed, setTsJobElapsed] = useState("");
+  const [clockTick, setClockTick] = useState(0); // increments every 60s when any worker is actively clocked in — triggers re-renders for live progress display
   const [jobClockLoading, setJobClockLoading] = useState(false);
   const [jobOpSelections, setJobOpSelections] = useState({}); // { [jobId]: opId }
   const [startJobPickerOpen, setStartJobPickerOpen] = useState(false);
@@ -1859,6 +1876,15 @@ Rules:
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loggedInUser?.activeJobClock?.clockIn, loggedInUser?.activeJobClock?.totalPausedMs, loggedInUser?.activeJobClock?.pausedAt]);
+
+  // Tick every 60s whenever any worker is actively clocked in — keeps live progress fresh
+  useEffect(() => {
+    const anyActive = people.some(p => p.activeJobClock?.clockIn && !p.activeJobClock.pausedAt);
+    if (!anyActive) return;
+    const iv = setInterval(() => setClockTick(t => t + 1), 60000);
+    return () => clearInterval(iv);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [people.some(p => p.activeJobClock?.clockIn && !p.activeJobClock.pausedAt)]);
 
   // Admin live refresh every 60s
   useEffect(() => {
@@ -5156,7 +5182,8 @@ ${jobsCtx || "No jobs found."}`;
           const teamMembers = level === 0 ? (item.team || []).map(id => people.find(p => p.id === id)).filter(Boolean) : [];
           const health = getHealth(item);
           const healthColor = HEALTH_DOT[health];
-          const staColor = STA_C[item.status] || T.textDim;
+          const dispStatus = level === 2 ? getOpDisplayStatus(item) : (item.status || "Not Started");
+          const staColor = STA_C[dispStatus] || T.textDim;
           const priColor = PRI_C[item.pri] || T.textDim;
           const hrs = level === 2 ? opHrs(item) : level === 1 ? panelHrs(item) : jobHrs(item);
           const pct = level === 2 ? opPct(item) : level === 1 ? panelPct(item) : jobPct(item);
@@ -5208,7 +5235,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ ...cellBase, cursor: "pointer" }}
                 onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setStatusPopover({ id: item.id, pid: pid || null, current: item.status || "Not Started", x: r.left, y: r.bottom + 4 }); }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 11, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none" }}>
-                  {STA_ICON[item.status] || "○"} {item.status || "Not Started"}
+                  {STA_ICON[dispStatus] || "○"} {dispStatus}
                 </span>
               </div>
             );
@@ -7220,7 +7247,11 @@ ${jobsCtx || "No jobs found."}`;
                 const initials = person.name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
                 const todayBar = todayBars[0];
                 const totalHours = todayBar.task?.hpd || productiveHoursPerDay;
-                const loggedHours = todayBar.task?.loggedHours || 0;
+                const jcLive = person.activeJobClock;
+                const liveElapsed = (jcLive?.clockIn && jcLive?.opId === todayBar.task?.id)
+                  ? Math.max(0, (Date.now() - new Date(jcLive.clockIn).getTime()) / 3600000 - (jcLive.totalPausedMs || 0) / 3600000)
+                  : 0;
+                const loggedHours = (todayBar.task?.loggedHours || 0) + liveElapsed;
                 const progressPct = Math.min(100, totalHours > 0 ? (loggedHours / totalHours) * 100 : 0);
                 return (
                   <div key={person.id} style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
