@@ -10994,12 +10994,22 @@ ${jobsCtx || "No jobs found."}`;
                       const expandedOps=(p.subs||[]).flatMap(op => {
                         const qty=Math.max(1,parseInt(op.qty)||1);
                         const baseTitle=op.title.replace(/-\d+$/,"").trimEnd();
-                        return Array.from({length:qty},(_,i) => ({
-                          ...op, id:i===0?op.id:uid(),
-                          title:qty>1?`${baseTitle}-${String(i+1).padStart(3,"0")}`:op.title,
-                          qty:undefined,
-                          subs:(op.subs||[]).map(sub => ({...sub,id:i===0?sub.id:uid()})),
-                        }));
+                        return Array.from({length:qty},(_,i) => {
+                          const {qty:_q,...rest}=op;
+                          const idMap={};
+                          (rest.subs||[]).forEach(sub => { idMap[sub.id]=i===0?sub.id:uid(); });
+                          return {
+                            ...rest,
+                            id:i===0?op.id:uid(),
+                            title:qty>1?`${baseTitle}-${String(i+1).padStart(3,"0")}`:op.title,
+                            depsMode:op.depsMode,
+                            subs:(rest.subs||[]).map(sub => ({
+                              ...sub,
+                              id:idMap[sub.id],
+                              deps:(sub.deps||[]).filter(d=>d!=='__pending__').map(d=>idMap[d]||d),
+                            })),
+                          };
+                        });
                       });
                       const personCursors={};
                       allCrew.forEach(pp => { personCursors[pp.id]=slot.start; });
