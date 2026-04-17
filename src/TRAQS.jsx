@@ -2183,6 +2183,7 @@ Rules:
   const [aiLoading, setAiLoading] = useState(false);
   const [availCheckPassed, setAvailCheckPassed] = useState(false);
   const [scheduleConfirmed, setScheduleConfirmed] = useState(false);
+  const [rescheduleSelection, setRescheduleSelection] = useState([]); // panel IDs selected to be rescheduled
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [previewPanelExpanded, setPreviewPanelExpanded] = useState({});
   const [overrideOpen, setOverrideOpen] = useState({});     // panelId → bool
@@ -10589,9 +10590,11 @@ ${jobsCtx || "No jobs found."}`;
                 const updatePanel = (patch) => { const subs=[...(ed.subs||[])]; subs[pi]={...subs[pi],...patch}; setEd(p => ({ ...p, subs })); };
                 const hasSubs = (panel.subs||[]).length>0;
                 const panelHpdSum = hasSubs ? Math.round((panel.subs||[]).reduce((s,x) => s+(x.hpd??7.5),0)*10)/10 : null;
-                return <div key={panel.id} style={{ background:T.bg, borderRadius:T.radiusSm, border:`1px solid ${T.border}`, padding:12, animation:"fadeIn 0.25s ease-out backwards" }}>
+                const isPanelSelected = !ed.isReschedule || rescheduleSelection.includes(panel.id);
+                return <div key={panel.id} style={{ background:T.bg, borderRadius:T.radiusSm, border:`1px solid ${T.border}`, padding:12, animation:"fadeIn 0.25s ease-out backwards", opacity:isPanelSelected?1:0.4, transition:"opacity 0.15s" }}>
                   {/* Panel header row */}
                   <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
+                    {ed.isReschedule && <input type="checkbox" checked={rescheduleSelection.includes(panel.id)} onChange={() => setRescheduleSelection(prev => prev.includes(panel.id) ? prev.filter(id => id !== panel.id) : [...prev, panel.id])} style={{ width:16, height:16, cursor:"pointer", accentColor:T.accent, flexShrink:0 }} />}
                     <div style={{ display:"flex", alignItems:"center", gap:3, flexShrink:0 }}>
                       <Tip label="Quantity — creates this many copies when saved"><input type="number" min="1" max="999" value={panel.qty||1} onChange={e => updatePanel({qty:Math.max(1,parseInt(e.target.value)||1)})} style={{ width:54, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${(panel.qty||1)>1?T.accent:T.border}`, background:T.surface, color:(panel.qty||1)>1?T.accent:T.text, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:(panel.qty||1)>1?700:400 }} /></Tip>
                       <span style={{ fontSize:11, color:T.textDim }}>qty</span>
@@ -11022,7 +11025,7 @@ ${jobsCtx || "No jobs found."}`;
                         }
                         return true;
                       };
-                      const expandedOps=(p.subs||[]).flatMap(op => {
+                      const expandedOps=(p.subs||[]).filter(op => !p.isReschedule || rescheduleSelection.includes(op.id)).flatMap(op => {
                         const qty=Math.max(1,parseInt(op.qty)||1);
                         const baseTitle=op.title.replace(/-\d+$/,"").trimEnd();
                         return Array.from({length:qty},(_,i) => {
@@ -11175,7 +11178,13 @@ ${jobsCtx || "No jobs found."}`;
                         setTimeout(() => setAiSuggestion(prev => ({...(prev||{}),overlapError:overlapErrors.join(" | ")})),0);
                         return p;
                       }
-                      updated.subs=newSubs;
+                      if (p.isReschedule && rescheduleSelection.length < (p.subs||[]).length) {
+                        // Merge: scheduled panels get new dates; unselected panels keep original dates
+                        const scheduledMap=new Map(newSubs.map(s => [s.id, s]));
+                        updated.subs=(p.subs||[]).map(orig => scheduledMap.get(orig.id) || orig);
+                      } else {
+                        updated.subs=newSubs;
+                      }
                       const allOpStarts=newSubs.flatMap(op=>op.subs&&op.subs.length>0?op.subs.map(s=>s.start).filter(Boolean):[op.start].filter(Boolean));
                       const earliestStart=allOpStarts.length>0?allOpStarts.reduce((a,b)=>a<b?a:b):slot.start;
                       updated.start=earliestStart;
@@ -13040,7 +13049,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Add/Edit Dependencies — ops with sibling ops */}
       {isOp && (() => { let panel = null, parentJobId = null; for (const job of tasks) { for (const pnl of (job.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { panel = pnl; parentJobId = job.id; break; } } if (panel) break; } return panel && (panel.subs||[]).length >= 2 ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>} label="Add/Edit Dependencies" sub="Manage dependency links between sub-ops" onClick={() => { setCtxMenu(null); setDepsModal({ item: it, panelSubs: panel.subs||[], panelId: panel.id, jobId: parentJobId, panelTitle: panel.title, depsMode: panel.depsMode||"unlocked" }); }} animIdx={ci()} /> : null; })()}
       {/* Reschedule */}
-      {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
+      {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Request Finish Approval — lowest level bar with no children */}
       {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Finish Approval" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Delete */}
