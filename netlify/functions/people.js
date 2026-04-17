@@ -35,10 +35,7 @@ export async function handler(event) {
     try {
       const incoming = JSON.parse(event.body);
       if (!Array.isArray(incoming)) return err(400, "Invalid people data");
-      if (incoming.length === 0) {
-        const allow = event.headers?.["x-allow-empty"] === "true";
-        if (!allow) return err(400, "Refusing to overwrite people with empty array");
-      }
+      if (incoming.length === 0) return err(400, "Refusing to overwrite people with empty array");
 
       // Check for userRole changes — only admins may change them
       const existing = (await readJson(s3Key)) ?? [];
@@ -56,15 +53,11 @@ export async function handler(event) {
           tokenPayload["https://traqs.matrixsystems.com/email"] ||
           ""
         ).toLowerCase();
-        if (requesterEmail) {
-          const requesterIsAdmin = existing.some(
-            p => p.userRole === "admin" && p.email?.toLowerCase() === requesterEmail
-          );
-          if (!requesterIsAdmin) {
-            return err(403, "Only admins can change user roles");
-          }
-        }
-        // If no email claim is available we allow through — frontend enforces this already
+        if (!requesterEmail) return err(403, "Cannot verify requester identity — role change denied");
+        const requesterIsAdmin = existing.some(
+          p => p.userRole === "admin" && p.email?.toLowerCase() === requesterEmail
+        );
+        if (!requesterIsAdmin) return err(403, "Only admins can change user roles");
       }
 
       // Preserve existing PINs for records that don't supply a new one

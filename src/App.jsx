@@ -177,8 +177,8 @@ function OrgCodeStep({ onContinue, onCreateOrg, onForgot }) {
     setLoading(true); setError("");
     try {
       const config = await fetchOrgConfig(trimmed);
-      localStorage.setItem(LS_CODE, trimmed);
-      localStorage.setItem(LS_CONFIG, JSON.stringify(config));
+      sessionStorage.setItem(LS_CODE, trimmed);
+      sessionStorage.setItem(LS_CONFIG, JSON.stringify(config));
       onContinue(trimmed, config);
     } catch (err) {
       setError(err.message.includes("not found")
@@ -318,8 +318,8 @@ function CreateOrgStep({ onSuccess, onBack }) {
     try {
       await createOrg({ code, name, domain, adminEmail });
       const config = { name, domain, adminEmail, createdAt: new Date().toISOString() };
-      localStorage.setItem(LS_CODE, code);
-      localStorage.setItem(LS_CONFIG, JSON.stringify(config));
+      sessionStorage.setItem(LS_CODE, code);
+      sessionStorage.setItem(LS_CONFIG, JSON.stringify(config));
       onSuccess(code, config);
     } catch (err) {
       setError(err.message);
@@ -777,32 +777,32 @@ function AuthGate() {
 
   // "org" | "create-org" | "forgot-org" | "team" | "domain-error" | "not-in-team"
   const [step, setStep] = useState(() => {
-    return localStorage.getItem(LS_CODE) ? "team" : "org";
+    return sessionStorage.getItem(LS_CODE) ? "team" : "org";
   });
-  const [orgCode, setOrgCode] = useState(() => localStorage.getItem(LS_CODE) || "");
+  const [orgCode, setOrgCode] = useState(() => sessionStorage.getItem(LS_CODE) || "");
   const [orgConfig, setOrgConfig] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(LS_CONFIG) || "null"); } catch { return null; }
+    try { return JSON.parse(sessionStorage.getItem(LS_CONFIG) || "null"); } catch { return null; }
   });
   const [teamPeople, setTeamPeople] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
+    try { return JSON.parse(sessionStorage.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
   });
   const [selectedPerson, setSelectedPerson] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
+    try { return JSON.parse(sessionStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
   });
 
   // On mount: re-fetch config + people from S3 (keeps data fresh)
   useEffect(() => {
-    const savedCode = localStorage.getItem(LS_CODE);
+    const savedCode = sessionStorage.getItem(LS_CODE);
     if (savedCode) {
       fetchOrgConfig(savedCode)
         .then(async cfg => {
           setOrgConfig(cfg);
           setOrgCode(savedCode);
-          localStorage.setItem(LS_CONFIG, JSON.stringify(cfg));
+          sessionStorage.setItem(LS_CONFIG, JSON.stringify(cfg));
           try {
             const people = await fetchPeople(savedCode);
             setTeamPeople(people);
-            localStorage.setItem(LS_PEOPLE, JSON.stringify(people));
+            sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));
           } catch {
             // non-fatal: keep cached people
           }
@@ -813,9 +813,9 @@ function AuthGate() {
           // For transient errors (network, 500), keep the code so the user
           // isn't forced to re-enter it on every blip.
           if (e?.status === 404) {
-            localStorage.removeItem(LS_CODE);
-            localStorage.removeItem(LS_CONFIG);
-            localStorage.removeItem(LS_PEOPLE);
+            sessionStorage.removeItem(LS_CODE);
+            sessionStorage.removeItem(LS_CONFIG);
+            sessionStorage.removeItem(LS_PEOPLE);
             setOrgCode("");
             setOrgConfig(null);
           }
@@ -831,7 +831,7 @@ function AuthGate() {
 
     // If a specific person was selected, the logged-in email must match
     const saved = selectedPerson || (() => {
-      try { return JSON.parse(localStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
+      try { return JSON.parse(sessionStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
     })();
     if (saved && user.email?.toLowerCase() !== saved.email?.toLowerCase()) {
       setStep("wrong-user");
@@ -845,7 +845,7 @@ function AuthGate() {
     }
 
     const roster = teamPeople.length > 0 ? teamPeople : (() => {
-      try { return JSON.parse(localStorage.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
+      try { return JSON.parse(sessionStorage.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
     })();
 
     const inRoster = roster.find(p => p.email?.toLowerCase() === user.email?.toLowerCase());
@@ -868,7 +868,7 @@ function AuthGate() {
     fetchPeople(code)
       .then(people => {
         setTeamPeople(people);
-        localStorage.setItem(LS_PEOPLE, JSON.stringify(people));
+        sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));
       })
       .catch(() => {});
     setStep("team");
@@ -876,7 +876,7 @@ function AuthGate() {
 
   function handlePersonSelect(person) {
     setSelectedPerson(person);
-    localStorage.setItem("tq_selected_person", JSON.stringify(person));
+    sessionStorage.setItem("tq_selected_person", JSON.stringify(person));
     loginWithRedirect({
       authorizationParams: {
         login_hint: person.email,
@@ -894,10 +894,10 @@ function AuthGate() {
   }
 
   function handleSwitch() {
-    localStorage.removeItem(LS_CODE);
-    localStorage.removeItem(LS_CONFIG);
-    localStorage.removeItem(LS_PEOPLE);
-    localStorage.removeItem("tq_selected_person");
+    sessionStorage.removeItem(LS_CODE);
+    sessionStorage.removeItem(LS_CONFIG);
+    sessionStorage.removeItem(LS_PEOPLE);
+    sessionStorage.removeItem("tq_selected_person");
     setOrgCode("");
     setOrgConfig(null);
     setTeamPeople([]);
@@ -909,10 +909,10 @@ function AuthGate() {
   }
 
   function handleDomainLogout() {
-    localStorage.removeItem(LS_CODE);
-    localStorage.removeItem(LS_CONFIG);
-    localStorage.removeItem(LS_PEOPLE);
-    localStorage.removeItem("tq_selected_person");
+    sessionStorage.removeItem(LS_CODE);
+    sessionStorage.removeItem(LS_CONFIG);
+    sessionStorage.removeItem(LS_PEOPLE);
+    sessionStorage.removeItem("tq_selected_person");
     setOrgCode("");
     setOrgConfig(null);
     setTeamPeople([]);
@@ -954,7 +954,7 @@ function AuthGate() {
 
   if (step === "wrong-user") {
     const saved = selectedPerson || (() => {
-      try { return JSON.parse(localStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
+      try { return JSON.parse(sessionStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
     })();
     return (
       <WrongUserError

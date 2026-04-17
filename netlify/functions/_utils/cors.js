@@ -1,6 +1,6 @@
 // CORS headers for all Netlify functions
 export const CORS = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": process.env.ALLOWED_ORIGIN || "https://traqs.netlify.app",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Org-Code",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
 };

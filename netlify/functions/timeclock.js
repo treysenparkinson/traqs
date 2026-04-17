@@ -2,6 +2,8 @@ import { validateToken } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 
+const failedAttempts = new Map(); // ip -> { count, firstAttempt }
+
 function getOrgCode(event) {
   const code = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
   if (!code || !/^[a-zA-Z0-9]{3,20}$/.test(code)) return null;
@@ -281,8 +283,19 @@ export async function handler(event) {
 
     // ── Identify (PIN lookup by scanning all people — no personId needed) ───
     if (action === "identify") {
+      const ip = event.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "unknown";
+      const attempts = failedAttempts.get(ip) || { count: 0, firstAttempt: Date.now() };
+      if (Date.now() - attempts.firstAttempt > 15 * 60 * 1000) {
+        failedAttempts.delete(ip);
+      } else if (attempts.count >= 5) {
+        return err(429, "Too many failed attempts. Try again later.");
+      }
       const person = people.find(p => p.pin && String(p.pin) === String(pin));
-      if (!person) return err(401, "Invalid PIN");
+      if (!person) {
+        failedAttempts.set(ip, { count: (attempts.count || 0) + 1, firstAttempt: attempts.firstAttempt || Date.now() });
+        return err(401, "Invalid PIN");
+      }
+      failedAttempts.delete(ip);
       return json(200, { ok: true, personId: person.id, name: person.name, activeClockIn: person.activeClockIn || null });
     }
 
@@ -293,9 +306,18 @@ export async function handler(event) {
     if (personIdx === -1) return err(404, "Person not found");
 
     const person = people[personIdx];
+    const _ip = event.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "unknown";
+    const _attempts = failedAttempts.get(_ip) || { count: 0, firstAttempt: Date.now() };
+    if (Date.now() - _attempts.firstAttempt > 15 * 60 * 1000) {
+      failedAttempts.delete(_ip);
+    } else if (_attempts.count >= 5) {
+      return err(429, "Too many failed attempts. Try again later.");
+    }
     if (!person.pin || String(person.pin) !== String(pin)) {
+      failedAttempts.set(_ip, { count: (_attempts.count || 0) + 1, firstAttempt: _attempts.firstAttempt || Date.now() });
       return err(401, "Invalid PIN");
     }
+    failedAttempts.delete(_ip);
 
     // ── Clock In ────────────────────────────────────────────────────────────
     if (action === "clockIn") {
