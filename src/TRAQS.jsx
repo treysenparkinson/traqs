@@ -10749,64 +10749,27 @@ ${jobsCtx || "No jobs found."}`;
                       </div>}
                     </div>
                     {(panel.subs||[]).length>=2 && (() => {
-                      const allSubs=panel.subs||[];
-                      const isLinked=s=>(s.deps||[]).length>0||allSubs.some(o=>o.id!==s.id&&(o.deps||[]).includes(s.id));
-                      const linkedCount=allSubs.filter(isLinked).length;
-                      const hasAny=linkedCount>0;
-                      return <div style={{ position:"relative" }}>
-                        <button onClick={e=>{ e.stopPropagation(); setDepsDropId(depsDropId===panel.id?null:panel.id); }}
-                          style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${hasAny?T.accent+"55":T.border}`, background:hasAny?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={hasAny?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                          <span style={{ fontSize:11, color:hasAny?T.accent:T.textDim, fontWeight:600 }}>{hasAny?`${linkedCount} linked`:"Dependencies"}</span>
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                        </button>
-                        {depsDropId===panel.id && <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:220, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
-                          <div style={{ padding:"6px 14px 4px", fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em" }}>Link sub-operations</div>
-                          {allSubs.map((sub,di) => {
-                            const on=isLinked(sub);
-                            const groupIds=allSubs.filter(s=>s.id!==sub.id&&isLinked(s)).map(s=>s.id);
-                            return <div key={sub.id} onClick={() => {
-                              let ns;
-                              if(on){
-                                ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:[]}; return {...s,deps:(s.deps||[]).filter(d=>d!==sub.id)}; });
-                              } else {
-                                if(groupIds.length===0){
-                                  ns=allSubs.map(s=>s.id===sub.id?{...s,deps:['__pending__']}:s);
-                                } else {
-                                  ns=allSubs.map(s=>{ if(s.id===sub.id) return {...s,deps:groupIds}; if(groupIds.includes(s.id)) return {...s,deps:[...new Set([...(s.deps||[]).filter(d=>d!=='__pending__'),sub.id])]}; return s; });
-                                }
-                              }
-                              const allEmpty = ns.every(s => !(s.deps||[]).some(d => d !== '__pending__'));
-                              const depsPatch = on ? (allEmpty ? {depsMode: undefined} : {}) : (!panel.depsMode ? {depsMode: "unlocked"} : {});
-                              updatePanel({subs:ns, ...depsPatch});
-                            }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, userSelect:"none", animation:`toolDrop 0.14s ${di*38}ms both ease-out` }}
-                              onMouseEnter={e=>{ e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
-                              <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${on?T.accent:T.border}`, background:on?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
-                                {on && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                              </div>
-                              <span style={{ fontSize:12, color:T.text, userSelect:"none" }}>{sub.title||<em style={{color:T.textDim}}>Unnamed</em>}</span>
-                            </div>;
-                          })}
-                          {hasAny && <>
-                            <div style={{ margin:"4px 14px", borderTop:`1px solid ${T.border}` }} />
-                            <div style={{ padding:"6px 14px 4px", fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em" }}>Dependency Mode</div>
-                            {[["unlocked","Unlocked","chain"],["locked","Locked","lock"]].map(([mode,label,iconType]) => {
-                              const active = (panel.depsMode || "unlocked") === mode;
-                              return <div key={mode} onClick={() => updatePanel({depsMode: mode})} style={{ display:"flex", alignItems:"center", gap:10, padding:"7px 14px", cursor:"pointer" }}
-                                onMouseEnter={e=>{ e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e=>{ e.currentTarget.style.background="transparent"; }}>
-                                <div style={{ width:14, height:14, borderRadius:"50%", border:`2px solid ${active?T.accent:T.border}`, background:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
-                                  {active && <div style={{ width:6, height:6, borderRadius:"50%", background:T.accent }} />}
-                                </div>
-                                {iconType === "chain"
-                                  ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={active?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                                  : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={active?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                                }
-                                <span style={{ fontSize:12, color:active?T.accent:T.text, fontWeight:active?600:400, userSelect:"none" }}>{label}</span>
-                              </div>;
-                            })}
-                          </>}
-                        </div>}
-                      </div>;
+                      const curMode = panel.depsMode || "free";
+                      const isFree = curMode === "free";
+                      const isLocked = curMode === "locked";
+                      const nextMode = isLocked ? "free" : isFree ? "unlocked" : "locked";
+                      const tColor = isFree ? T.textSec : T.accent;
+                      const tBg = isFree ? T.surface : T.accent+"18";
+                      const tBorder = isFree ? T.border : T.accent;
+                      const tTitle = isFree ? "Dependencies: Free — click for Unlocked" : isLocked ? "Dependencies: Locked — click for Free" : "Dependencies: Unlocked — click to Lock";
+                      return <button
+                        onClick={e => { e.stopPropagation(); const siblings=panel.subs||[]; const allSubIds=siblings.map(s=>s.id); if(nextMode==="unlocked"){ updatePanel({depsMode:"unlocked",subs:siblings.map(s=>({...s,deps:allSubIds.filter(id=>id!==s.id)}))}); } else if(nextMode==="locked"){ updatePanel({depsMode:"locked"}); } else { updatePanel({depsMode:undefined,subs:siblings.map(s=>({...s,deps:[]}))}); } }}
+                        title={tTitle}
+                        style={{ flexShrink:0, width:30, height:30, borderRadius:"50%", border:`1px solid ${tBorder}`, background:tBg, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", color:tColor, transition:"all 0.15s" }}
+                        onMouseEnter={e=>{ e.currentTarget.style.borderColor=T.accent; e.currentTarget.style.color=T.accent; e.currentTarget.style.background=T.accent+"18"; }}
+                        onMouseLeave={e=>{ e.currentTarget.style.borderColor=tBorder; e.currentTarget.style.color=tColor; e.currentTarget.style.background=tBg; }}
+                      >
+                        {isFree
+                          ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/><line x1="3" y1="21" x2="21" y2="3"/></svg>
+                          : isLocked
+                            ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}
+                      </button>;
                     })()}
                     </div>
                     <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:[...(panel.subs||[]),{id:uid(),title:"",hpd:7.5,team:[],subs:[],status:"Not Started",pri:"High",start:"",end:"",notes:"",deps:[],requiredDepartment:""}]}); }} style={{ padding:"3px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.textDim, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:T.font }}>+ Add Sub-operation</button>
