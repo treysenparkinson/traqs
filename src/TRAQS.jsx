@@ -7841,6 +7841,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const pinModalTitle = (pinState === "clockIn_pin" || pinState === "clockIn_jobs") ? "Clock In" : pinState === "clockOut_pin" ? "Clock Out" : pinState === "lunchStart_pin" ? "Start Lunch" : pinState === "lunchEnd_pin" ? "End Lunch" : pinState === "breakStart_pin" ? "Start Break" : pinState === "breakEnd_pin" ? "End Break" : "";
     const pinModalColor = pinState === "clockOut_pin" ? "#ef4444" : (pinState.startsWith("lunch") || pinState.startsWith("break")) ? "#f59e0b" : T.accent;
+    const pinModalTextColor = accentText(pinModalColor);
 
     // ── PIN Modal ─────────────────────────────────────────────────────────────
     const renderPinModal = () => {
@@ -7879,7 +7880,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button
                   onClick={() => doClockIn(pinPerson?._pin, pinSelectedOps)}
                   disabled={pinLoading || pinSelectedOps.length === 0}
-                  style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: pinSelectedOps.length === 0 ? T.border : pinModalColor, color: pinSelectedOps.length === 0 ? T.textDim : "#fff", fontSize: 15, fontWeight: 700, cursor: pinSelectedOps.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1 }}
+                  style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: pinSelectedOps.length === 0 ? T.border : pinModalColor, color: pinSelectedOps.length === 0 ? T.textDim : pinModalTextColor, fontSize: 15, fontWeight: 700, cursor: pinSelectedOps.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1 }}
                 >
                   {pinLoading ? "Processing…" : "Confirm Clock In"}
                 </button>
@@ -8496,7 +8497,7 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
                         {isPaused
-                          ? <button onClick={handleResumeJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Resume</button>
+                          ? <button onClick={handleResumeJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Resume</button>
                           : <button onClick={handlePauseJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: `1.5px solid ${T.accent}60`, background: T.accent + "12", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Pause</button>
                         }
                         <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
@@ -8517,7 +8518,7 @@ ${jobsCtx || "No jobs found."}`;
                   <button
                     onClick={openStartJobPicker}
                     disabled={jobClockLoading}
-                    style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
+                    style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
                   >Start Job</button>
                 )}
 
@@ -8853,7 +8854,7 @@ ${jobsCtx || "No jobs found."}`;
                 )}
               </div>
             ) : (
-              <button onClick={openClockIn} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
+              <button onClick={openClockIn} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
             )}
 
 
