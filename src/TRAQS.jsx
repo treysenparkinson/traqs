@@ -11025,7 +11025,10 @@ ${jobsCtx || "No jobs found."}`;
                         }
                         return true;
                       };
-                      const expandedOps=(p.subs||[]).filter(op => !p.isReschedule || rescheduleSelection.includes(op.id)).flatMap(op => {
+                      const panelsForScheduling = p.isReschedule
+                        ? (p.subs||[]).map(panel => !rescheduleSelection.includes(panel.id) ? panel : { ...panel, team: [], subs: (panel.subs||[]).map(sub => ({ ...sub, team: [] })) })
+                        : (p.subs||[]);
+                      const expandedOps=panelsForScheduling.filter(op => !p.isReschedule || rescheduleSelection.includes(op.id)).flatMap(op => {
                         const qty=Math.max(1,parseInt(op.qty)||1);
                         const baseTitle=op.title.replace(/-\d+$/,"").trimEnd();
                         return Array.from({length:qty},(_,i) => {
