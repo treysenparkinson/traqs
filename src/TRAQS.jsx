@@ -2276,6 +2276,7 @@ Rules:
   };
 
   useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
+  useEffect(() => { if (!soDropPanelId && !deptDropId && !depsDropId && !colorDropId) return; const h = () => { setSoDropPanelId(null); setDeptDropId(null); setDepsDropId(null); setColorDropId(null); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [!!soDropPanelId, !!deptDropId, !!depsDropId, !!colorDropId]);
   useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
 
@@ -10611,7 +10612,7 @@ ${jobsCtx || "No jobs found."}`;
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color:T.textDim }}><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
                       </Tip>
-                      {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:10, width:208, display:"flex", flexDirection:"column", gap:8, animation:"menuIn 0.15s ease-out" }}>
+                      {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:10, width:208, display:"flex", flexDirection:"column", gap:8, animation:"menuIn 0.15s ease-out" }}>
                         <HexColorPicker color={panel.color||COLORS[pi%COLORS.length]} onChange={c => updatePanel({color:c})} style={{ width:"100%", height:160 }} />
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                           <div style={{ width:22, height:22, borderRadius:6, background:panel.color||COLORS[pi%COLORS.length], flexShrink:0, border:`1px solid ${T.border}` }} />
@@ -10636,7 +10637,7 @@ ${jobsCtx || "No jobs found."}`;
                           <span style={{ fontSize:11, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
-                        {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                           {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                           {orgSettings.roles.map((r,ri) => {
                             const isOn=panel.requiredDepartment===r;
@@ -10685,7 +10686,7 @@ ${jobsCtx || "No jobs found."}`;
                               <span style={{ fontSize:11, color:sub.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{sub.requiredDepartment||"Dept"}</span>
                               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
-                            {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                            {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                               {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                               {orgSettings.roles.map((r,ri) => {
                                 const isOn=sub.requiredDepartment===r;
@@ -10728,7 +10729,7 @@ ${jobsCtx || "No jobs found."}`;
                         </span>
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
-                      {soDropPanelId===panel.id && <div onClick={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:200, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                      {soDropPanelId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:200, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                         {signOffTemplates.length===0 && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No templates yet</div>}
                         {signOffTemplates.map((tmpl,ti) => {
                           const isOn=(panel.signOffs||{})[tmpl.id]!==undefined;
@@ -10775,7 +10776,7 @@ ${jobsCtx || "No jobs found."}`;
                           <span style={{ fontSize:11, color:hasAny?T.accent:T.textDim, fontWeight:600 }}>{hasAny?`${linkedCount} linked`:"Dependencies"}</span>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
-                        {depsDropId===panel.id && <div onClick={e=>e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:220, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        {depsDropId===panel.id && <div onClick={e=>e.stopPropagation()} onMouseDown={e=>e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:220, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                           <div style={{ padding:"6px 14px 4px", fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em" }}>Link sub-operations</div>
                           {allSubs.map((sub,di) => {
                             const on=isLinked(sub);
