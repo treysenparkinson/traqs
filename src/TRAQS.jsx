@@ -6941,7 +6941,7 @@ ${jobsCtx || "No jobs found."}`;
                                   ...newSubs[panelIdx],
                                   subs: (newSubs[panelIdx].subs || []).map(op =>
                                     op.id === taskId
-                                      ? { ...op, team: (op.team || []).map(x => x === fromPerson ? lastDropPid : x) }
+                                      ? { ...op, team: (op.team || []).map(x => x === fromPerson ? lastDropPid : x), segments: (op.segments || []).map(seg => seg.workerId === fromPerson ? { ...seg, workerId: lastDropPid } : seg) }
                                       : op
                                   )
                                 };
@@ -6952,7 +6952,7 @@ ${jobsCtx || "No jobs found."}`;
                                   ...updated,
                                   subs: (updated.subs || []).map(s =>
                                     s.id === taskId
-                                      ? { ...s, team: (s.team || []).map(x => x === fromPerson ? lastDropPid : x) }
+                                      ? { ...s, team: (s.team || []).map(x => x === fromPerson ? lastDropPid : x), segments: (s.segments || []).map(seg => seg.workerId === fromPerson ? { ...seg, workerId: lastDropPid } : seg) }
                                       : s
                                   )
                                 };
@@ -6960,7 +6960,8 @@ ${jobsCtx || "No jobs found."}`;
                             } else if (updated.id === taskId) {
                               updated = {
                                 ...updated,
-                                team: (updated.team || []).map(x => x === fromPerson ? lastDropPid : x)
+                                team: (updated.team || []).map(x => x === fromPerson ? lastDropPid : x),
+                                segments: (updated.segments || []).map(seg => seg.workerId === fromPerson ? { ...seg, workerId: lastDropPid } : seg)
                               };
                             }
                           });

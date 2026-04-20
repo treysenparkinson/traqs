@@ -156,7 +156,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         end: owSplitDate,
         hoursPlanned: owLoggedHours,
         hoursLogged: owLoggedHours,
-        status: owLoggedHours > 0 ? "complete" : "active",
+        status: owLoggedHours > 0 ? "complete" : "remaining",
         segmentIndex: 0,
       };
 
