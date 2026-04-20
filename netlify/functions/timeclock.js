@@ -65,6 +65,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   // STEP 3 — Find interrupted sub-op
   const fromOp = findOp(fromOpId);
   if (!fromOp || !fromOp.start) return null;
+  if (fromOp.status === "Finished") return null;
 
   // STEP 4 — Split the interrupted sub-op
   const daysCompleted = hoursCompleted / productiveHoursPerDay;

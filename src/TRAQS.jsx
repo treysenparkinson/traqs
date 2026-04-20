@@ -6051,13 +6051,22 @@ ${jobsCtx || "No jobs found."}`;
               if (!op.start || !op.end || op.end < tStart || op.start > tEnd) return;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
-              if (op.segments && op.segments.length > 1) {
-                op.segments.filter(seg => seg.workerId === pid).forEach(seg => {
-                  if (!seg.start || !seg.end || seg.end < tStart || seg.start > tEnd) return;
-                  const ss = seg.start < tStart ? tStart : seg.start;
-                  const se = seg.end > tEnd ? tEnd : seg.end;
-                  bars.push({ type: "task", id: op.id + "-seg-" + seg.segmentId, start: ss, end: se, title: `${panel.title} · ${op.title} (${seg.segmentIndex + 1}/${op.segments.length})`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false, spliceSegment: seg });
-                });
+              if (op.segments && op.segments.length > 0) {
+                const workerSegs = op.segments.filter(seg => seg.workerId === pid);
+                if (workerSegs.length > 0) {
+                  workerSegs.forEach(seg => {
+                    if (!seg.start || !seg.end || seg.end < tStart || seg.start > tEnd) return;
+                    const ss = seg.start < tStart ? tStart : seg.start;
+                    const se = seg.end > tEnd ? tEnd : seg.end;
+                    const workerSegCount = workerSegs.length;
+                    bars.push({ type: "task", id: op.id + "-seg-" + seg.segmentId, start: ss, end: se, title: `${panel.title} · ${op.title} (${seg.segmentIndex + 1}/${workerSegCount})`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false, spliceSegment: seg });
+                  });
+                } else {
+                  const s = op.start < tStart ? tStart : op.start;
+                  const e = op.end > tEnd ? tEnd : op.end;
+                  const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
+                  bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+                }
               } else {
                 const s = op.start < tStart ? tStart : op.start;
                 const e = op.end > tEnd ? tEnd : op.end;
@@ -8088,7 +8097,7 @@ ${jobsCtx || "No jobs found."}`;
             await new Promise(resolve => setTimeout(resolve, 500));
             const freshTasks = await fetchTasks(orgCode);
             if (freshTasks && freshTasks.length > 0) setTasks(freshTasks);
-            setTimeout(() => { spliceJustOccurredRef.current = false; }, 10000);
+            setTimeout(() => { spliceJustOccurredRef.current = false; }, 30000);
           } else {
             setTasks(prev => {
               const updatedTasks = prev.map(job => {
@@ -13603,7 +13612,9 @@ ${jobsCtx || "No jobs found."}`;
             <Btn onClick={() => {
               setTasks(newTasks);
               setOptimizePreview(null);
-              setScheduleHighlightId(null);
+              const firstId = changes[0]?.opId || null;
+              setScheduleHighlightId(firstId);
+              setTimeout(() => setScheduleHighlightId(null), 3000);
             }} style={{ flex: 2, background: T.accent, border: "none", fontWeight: 700, fontSize: 15 }}>
               Apply {changes.length} Changes
             </Btn>
