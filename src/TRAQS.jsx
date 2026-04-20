@@ -8081,7 +8081,7 @@ ${jobsCtx || "No jobs found."}`;
         if (res.ok) {
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           if (res.spliceResult?.spliceOccurred) {
-            const freshTasks = await fetchTasks(getToken, orgCode);
+            const freshTasks = await fetchTasks(orgCode);
             setTasks(freshTasks);
           } else {
             setTasks(prev => {
