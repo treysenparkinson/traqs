@@ -2373,10 +2373,22 @@ Rules:
               for (const op of (panel.subs || [])) {
                 if (op.id === check.excludeOpId || op.status === "Finished") continue;
                 if (!(op.team || []).includes(check.personId)) continue;
-                if (d >= op.start && d <= op.end) {
-                  const opTotalH = op.hpd || productiveHoursPerDay;
-                  const existingSpanBD = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opTotalH / cap));
-                  existingH += (opTotalH / existingSpanBD) / Math.max(1, (op.team || []).length);
+                if (op.segments && op.segments.length > 0) {
+                  const workerSegs = op.segments.filter(s => s.workerId === check.personId);
+                  for (const seg of workerSegs) {
+                    if (!seg.start || !seg.end) continue;
+                    if (d >= seg.start && d <= seg.end) {
+                      const opTotalH = seg.hoursPlanned || op.hpd || productiveHoursPerDay;
+                      const segSpanBD = Math.max(1, diffBD(seg.start, seg.end) + 1);
+                      existingH += (opTotalH / segSpanBD) / Math.max(1, (op.team || []).length);
+                    }
+                  }
+                } else {
+                  if (d >= op.start && d <= op.end) {
+                    const opTotalH = op.hpd || productiveHoursPerDay;
+                    const existingSpanBD = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opTotalH / cap));
+                    existingH += (opTotalH / existingSpanBD) / Math.max(1, (op.team || []).length);
+                  }
                 }
               }
             }
@@ -7135,7 +7147,7 @@ ${jobsCtx || "No jobs found."}`;
                   const barKey = bar.id + "_0_" + bar.start;
                   if (['t22isapb4','ttq9o7pyl','t76tc6gah'].includes(bar.id)) console.log("=== BAR KEY ===", bar.id, "key:", barKey, "start:", bar.start);
                   const spliceStatus = bar.spliceSegment?.status ?? null;
-                  const spliceSegOpacity = spliceStatus === "remaining" ? 0.6 : 1.0;
+                  const spliceSegOpacity = spliceStatus === "remaining" ? 0.75 : 1.0;
                   const spliceSegAnim = spliceStatus === "active" ? "splicePulse 1.5s ease-in-out infinite" : undefined;
                   const finalWidth = bar.proportionalFactor && bar.proportionalFactor < 1
                     ? `calc(${wNum * bar.proportionalFactor}% - 4px)`
@@ -7143,7 +7155,7 @@ ${jobsCtx || "No jobs found."}`;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: finalWidth, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: spliceSegAnim ?? (isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined), "--glow-color": bc + "99", opacity: barOpacity * spliceSegOpacity, borderLeft: spliceStatus === "remaining" ? "2px dashed rgba(255,255,255,0.65)" : undefined, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: finalWidth, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: spliceSegAnim ?? (isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined), "--glow-color": bc + "99", opacity: bar.spliceSegment ? spliceSegOpacity : barOpacity * spliceSegOpacity, borderLeft: spliceStatus === "remaining" ? "2px dashed rgba(255,255,255,0.65)" : undefined, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}

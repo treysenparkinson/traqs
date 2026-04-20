@@ -111,8 +111,9 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   const toOp = findOp(toOpId);
   if (!toOp) return null;
 
-  // STEP 6 — toOp insertion position
-  const insertStart = addWorkingDays(splitDate, 1);
+  // STEP 6 — toOp insertion position (anchored to today, not the past job start)
+  const today = new Date().toISOString().slice(0, 10);
+  const insertStart = today;
   const toOpDuration = Math.max(1, Math.ceil((toOp.hpd || productiveHoursPerDay) / productiveHoursPerDay));
   const insertEnd = toOpDuration > 1 ? addWorkingDays(insertStart, toOpDuration - 1) : insertStart;
 
