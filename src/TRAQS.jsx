@@ -1378,6 +1378,7 @@ Rules:
   const dataRef = useRef({ tasks: null, people: null, clients: null });
   const protectedJobIds = useRef(new Set());
   const pollUpdateRef = useRef(false);
+  const spliceJustOccurredRef = useRef(false);
   const saveStatusRef = useRef("saved");
 
   // Keep ref in sync for save functions
@@ -2048,6 +2049,7 @@ Rules:
   useEffect(() => {
     if (!orgCode) return;
     const refetch = async () => {
+      if (spliceJustOccurredRef.current) return;
       if (document.hidden) return;
       if (saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved") return;
       try {
@@ -8081,8 +8083,11 @@ ${jobsCtx || "No jobs found."}`;
         if (res.ok) {
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           if (res.spliceResult?.spliceOccurred) {
+            spliceJustOccurredRef.current = true;
+            await new Promise(resolve => setTimeout(resolve, 500));
             const freshTasks = await fetchTasks(orgCode);
-            setTasks(freshTasks);
+            if (freshTasks && freshTasks.length > 0) setTasks(freshTasks);
+            setTimeout(() => { spliceJustOccurredRef.current = false; }, 10000);
           } else {
             setTasks(prev => {
               const updatedTasks = prev.map(job => {

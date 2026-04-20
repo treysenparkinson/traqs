@@ -67,7 +67,10 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   if (!fromOp || !fromOp.start) return null;
 
   // STEP 4 — Split the interrupted sub-op
-  const splitDate = addWorkingDays(fromOp.start, Math.floor(hoursCompleted / productiveHoursPerDay));
+  const daysCompleted = hoursCompleted / productiveHoursPerDay;
+  const splitDate = daysCompleted >= 1
+    ? addWorkingDays(fromOp.start, Math.floor(daysCompleted))
+    : fromOp.start;
   const nowIso = new Date().toISOString();
   const spliceId = `splice_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -77,6 +80,9 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     segments: fromOp.segments ? [...fromOp.segments] : [],
   };
 
+  const existingWorkerSegs = (fromOp.segments || []).filter(s => s.workerId === switchingWorkerId);
+  const nextSegIndex = existingWorkerSegs.length;
+
   const seg0 = {
     segmentId: `seg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     workerId: switchingWorkerId,
@@ -85,7 +91,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     hoursPlanned: hoursCompleted,
     hoursLogged: hoursCompleted,
     status: "complete",
-    segmentIndex: 0,
+    segmentIndex: nextSegIndex,
   };
 
   const spliceLogEntry = {
@@ -123,7 +129,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     hoursPlanned: remainingHours,
     hoursLogged: 0,
     status: "remaining",
-    segmentIndex: 1,
+    segmentIndex: nextSegIndex + 1,
   };
 
   // STEP 9 — Two-worker scenario: prepare segments for existing toOp workers
@@ -191,16 +197,17 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
           };
         }
 
-        // toOp: update dates, add switchingWorker to team, add original worker segments
+        // toOp: update dates (only if not yet started), add switchingWorker to team, add original worker segments
         if (op.id === toOpId) {
+          const alreadyStarted = (op.loggedHours || 0) > 0;
           const newTeam = (op.team || []).includes(switchingWorkerId)
             ? op.team
             : [...(op.team || []), switchingWorkerId];
           return {
             ...op,
             team: newTeam,
-            start: insertStart,
-            end: insertEnd,
+            start: alreadyStarted ? op.start : insertStart,
+            end: alreadyStarted ? op.end : insertEnd,
             segments: [...(op.segments || []), ...owSegmentsForToOp],
           };
         }
@@ -237,8 +244,22 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     })),
   }));
 
-  // STEP 11 — Write updated tasks to S3
-  try { await writeJson(tasksKey, updatedTasks); } catch { return null; }
+  // STEP 11 — Apply status update and write to S3 in a single pass
+  const finalTasks = updatedTasks.map(job => {
+    if (job.id !== toJobId) return job;
+    return {
+      ...job,
+      status: job.status === "In Progress" ? job.status : "In Progress",
+      subs: (job.subs || []).map(panel => ({
+        ...panel,
+        subs: (panel.subs || []).map(op => {
+          if (op.id !== toOpId) return op;
+          return { ...op, status: "In Progress" };
+        }),
+      })),
+    };
+  });
+  try { await writeJson(tasksKey, finalTasks); } catch { return null; }
 
   // STEP 12 — Return splice result
   return {
@@ -408,25 +429,28 @@ export async function handler(event) {
       try { await writeJson(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
 
       // Update job and sub-operation status to "In Progress" in tasks.json
-      try {
-        let jciTasks = await readJson(tasksKey) ?? [];
-        const jciTaskIdx = jciTasks.findIndex(t => t.id === jobId);
-        if (jciTaskIdx !== -1) {
-          const jciJob = jciTasks[jciTaskIdx];
-          jciTasks[jciTaskIdx] = {
-            ...jciJob,
-            status: jciJob.status === "In Progress" ? jciJob.status : "In Progress",
-            subs: (jciJob.subs || []).map(panel => ({
-              ...panel,
-              subs: (panel.subs || []).map(op => {
-                if (op.id !== opId) return op;
-                return { ...op, status: "In Progress" };
-              }),
-            })),
-          };
-          await writeJson(tasksKey, jciTasks);
-        }
-      } catch (e) { console.warn("jobClockIn: failed to update task status", e); }
+      // (skipped when spliceResult is set — status update was already applied inside runSpliceAlgorithm)
+      if (spliceResult === null) {
+        try {
+          let jciTasks = await readJson(tasksKey) ?? [];
+          const jciTaskIdx = jciTasks.findIndex(t => t.id === jobId);
+          if (jciTaskIdx !== -1) {
+            const jciJob = jciTasks[jciTaskIdx];
+            jciTasks[jciTaskIdx] = {
+              ...jciJob,
+              status: jciJob.status === "In Progress" ? jciJob.status : "In Progress",
+              subs: (jciJob.subs || []).map(panel => ({
+                ...panel,
+                subs: (panel.subs || []).map(op => {
+                  if (op.id !== opId) return op;
+                  return { ...op, status: "In Progress" };
+                }),
+              })),
+            };
+            await writeJson(tasksKey, jciTasks);
+          }
+        } catch (e) { console.warn("jobClockIn: failed to update task status", e); }
+      }
 
       return json(200, { ok: true, clockIn: jciClockIn, spliceResult });
     }
