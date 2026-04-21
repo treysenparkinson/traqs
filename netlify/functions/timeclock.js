@@ -70,10 +70,6 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   if (fromOp.status === "Finished") return null;
 
   // STEP 4 — Split the interrupted sub-op
-  const daysCompleted = hoursCompleted / productiveHoursPerDay;
-  const splitDate = daysCompleted >= 1
-    ? addWorkingDays(fromOp.start, Math.floor(daysCompleted))
-    : fromOp.start;
   const nowIso = new Date().toISOString();
   const today = new Date().toISOString().slice(0, 10);
   const spliceId = `splice_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
@@ -151,16 +147,19 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
 
       const owLoggedHours = toOp.loggedHours || 0;
 
-      const owSeg0 = {
-        segmentId: `seg_${Date.now()}_ow0_${Math.random().toString(36).slice(2, 7)}`,
-        workerId: owId,
-        start: today,
-        end: today,
-        hoursPlanned: owLoggedHours,
-        hoursLogged: owLoggedHours,
-        status: owLoggedHours > 0 ? "complete" : "remaining",
-        segmentIndex: 0,
-      };
+      if (owLoggedHours > 0) {
+        const owSeg0 = {
+          segmentId: `seg_${Date.now()}_ow0_${Math.random().toString(36).slice(2, 7)}`,
+          workerId: owId,
+          start: today,
+          end: today,
+          hoursPlanned: owLoggedHours,
+          hoursLogged: owLoggedHours,
+          status: "complete",
+          segmentIndex: 0,
+        };
+        owSegmentsForToOp.push(owSeg0);
+      }
 
       const owRemHours = Math.max(0, (toOp.hpd || productiveHoursPerDay) - owLoggedHours);
       const owRemDuration = Math.max(1, Math.ceil(owRemHours / productiveHoursPerDay));
@@ -178,10 +177,20 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         segmentIndex: 1,
       };
 
-      if (owLoggedHours > 0) owSegmentsForToOp.push(owSeg0);
       owSegmentsForToOp.push(owSeg1);
     }
   }
+
+  const switchingWorkerSeg = {
+    segmentId: `seg_${Date.now()}_sw_${Math.random().toString(36).slice(2, 7)}`,
+    workerId: switchingWorkerId,
+    start: insertStart,
+    end: insertEnd,
+    hoursPlanned: toOpRemainingHours,
+    hoursLogged: 0,
+    status: "active",
+    segmentIndex: owSegmentsForToOp.length,
+  };
 
   // Apply all changes in a single pass (STEPS 8, 9, 10)
   const updatedTasks = tasks.map(job => ({
@@ -211,7 +220,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
             team: newTeam,
             start: alreadyStarted ? op.start : insertStart,
             end: alreadyStarted ? op.end : insertEnd,
-            segments: [...(op.segments || []), ...owSegmentsForToOp],
+            segments: [...(op.segments || []), ...owSegmentsForToOp, switchingWorkerSeg],
           };
         }
 
@@ -272,7 +281,6 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     spliceOccurred: true,
     fromOpId,
     toOpId,
-    splitDate,
     insertStart,
     insertEnd,
     remainingStart,
@@ -499,8 +507,8 @@ export async function handler(event) {
                   if (op.id !== jcoOpId) return op;
                   const updatedSegments = op.segments
                     ? op.segments.map(seg => {
-                        if (seg.workerId !== jcoPId || seg.status !== "remaining") return seg;
-                        return { ...seg, hoursLogged: Math.round(((seg.hoursLogged || 0) + jcoHours) * 100) / 100 };
+                        if (seg.workerId !== jcoPId || (seg.status !== "remaining" && seg.status !== "active")) return seg;
+                        return { ...seg, hoursLogged: Math.round(((seg.hoursLogged || 0) + jcoHours) * 100) / 100, status: "complete" };
                       })
                     : op.segments;
                   return {
