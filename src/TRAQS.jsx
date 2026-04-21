@@ -1384,12 +1384,6 @@ Rules:
   // Keep ref in sync for save functions
   useEffect(() => { dataRef.current.tasks = tasks; }, [tasks]);
   useEffect(() => { dataRef.current.people = people; }, [people]);
-  useEffect(() => {
-    console.log("=== TASKS UPDATED ===", tasks.flatMap(t =>
-      [t, ...(t.subs || []).flatMap(s => [s, ...(s.subs || [])])]
-    ).filter(item => ['t22isapb4', 'ttq9o7pyl', 't76tc6gah'].includes(item.id))
-    .map(item => ({ id: item.id, start: item.start, end: item.end })));
-  }, [tasks]);
 
   // Global undo/redo history
   const undoStack = useRef([]);
