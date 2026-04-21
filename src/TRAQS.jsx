@@ -1549,6 +1549,8 @@ Rules:
   const [customColLabel, setCustomColLabel] = useState("");
   const [customColType, setCustomColType] = useState("text");
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
+  const [splitModal, setSplitModal] = useState(null); // { op, panel, parentJob }
+  const [splitHour, setSplitHour] = useState(0);
   const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
@@ -12140,6 +12142,66 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}
+    {/* ── Split Job Modal ── */}
+    {splitModal && (() => {
+      const { op, panel, parentJob } = splitModal;
+      const totalHours = op.hpd || productiveHoursPerDay;
+      const maxHour = totalHours - 0.5;
+      const part1 = splitHour;
+      const part2 = Math.round((totalHours - splitHour) * 100) / 100;
+      const workerNames = (op.team || []).map(id => { const p = people.find(x => x.id === id); return p ? p.name : null; }).filter(Boolean);
+      const doSplit = () => {
+        const newStart = addBD(op.end, 1);
+        const newEnd = addBD(newStart, Math.max(0, Math.ceil(part2 / productiveHoursPerDay) - 1));
+        const newOp = { ...op, id: uid(), title: op.title + " (2)", hpd: part2, start: newStart, end: newEnd, status: "Not Started", deps: [], loggedHours: 0 };
+        const updated = tasks.map(j => {
+          if (j.id !== parentJob.id) return j;
+          return { ...j, subs: (j.subs || []).map(pnl => {
+            if (pnl.id !== panel.id) return pnl;
+            const idx = pnl.subs.findIndex(o => o.id === op.id);
+            const newSubs = [...pnl.subs];
+            newSubs[idx] = { ...newSubs[idx], hpd: part1 };
+            newSubs.splice(idx + 1, 0, newOp);
+            return { ...pnl, subs: newSubs };
+          })};
+        });
+        const newTasks = recalcBounds(updated, loggedInUser?.name || "Split");
+        setTasks(newTasks);
+        saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+        setSplitModal(null);
+      };
+      return <div style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setSplitModal(null)}>
+        <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", padding: "28px 28px 24px", animation: "slideUp 0.22s ease-out" }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 4 }}>Split Job</div>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 24 }}>{op.title} &nbsp;·&nbsp; <span style={{ color: T.textSec }}>{parentJob.title || parentJob.jobNumber || ""}</span></div>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: T.textSec, marginBottom: 10, fontWeight: 500 }}>Split at hour: <strong style={{ color: T.text }}>{part1}h</strong></div>
+            <input type="range" min={1} max={maxHour} step={0.5} value={splitHour} onChange={e => setSplitHour(parseFloat(e.target.value))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.textDim, marginTop: 4 }}>
+              <span>1h</span><span>{maxHour}h</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+            <div style={{ flex: 1, padding: "12px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
+              <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Part 1</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{part1}h</div>
+              <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>{op.title}</div>
+              {workerNames.length > 0 && <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{workerNames.join(", ")}</div>}
+            </div>
+            <div style={{ flex: 1, padding: "12px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
+              <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Part 2</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{part2}h</div>
+              <div style={{ fontSize: 12, color: T.textSec, marginTop: 2 }}>{op.title} (2)</div>
+              {workerNames.length > 0 && <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{workerNames.join(", ")}</div>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => setSplitModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={doSplit} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Split</button>
+          </div>
+        </div>
+      </div>;
+    })()}
     {/* ── Scheduling / Org Settings Modal ── */}
     {orgSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setOrgSettingsOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(460px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
@@ -13060,6 +13122,8 @@ ${jobsCtx || "No jobs found."}`;
       {isOp && (() => { let panel = null, parentJobId = null; for (const job of tasks) { for (const pnl of (job.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { panel = pnl; parentJobId = job.id; break; } } if (panel) break; } return panel && (panel.subs||[]).length >= 2 ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>} label="Add/Edit Dependencies" sub="Manage dependency links between sub-ops" onClick={() => { setCtxMenu(null); setDepsModal({ item: it, panelSubs: panel.subs||[], panelId: panel.id, jobId: parentJobId, panelTitle: panel.title, depsMode: panel.depsMode||"unlocked" }); }} animIdx={ci()} /> : null; })()}
       {/* Reschedule */}
       {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
+      {/* Split Job */}
+      {can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Request Finish Approval — lowest level bar with no children */}
       {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Finish Approval" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Delete */}
