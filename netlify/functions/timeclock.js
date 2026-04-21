@@ -73,7 +73,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   const nowIso = new Date().toISOString();
   const today = new Date().toISOString().slice(0, 10);
   const todayDow = new Date(today + "T12:00:00Z").getUTCDay();
-  const workingToday = todayDow === 0 ? addWorkingDays(today, 1) : todayDow === 6 ? addWorkingDays(today, 2) : today;
+  const workingToday = (todayDow === 0 || todayDow === 6) ? addWorkingDays(today, 1) : today;
   const spliceId = `splice_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   const snapshotBefore = {
