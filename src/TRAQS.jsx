@@ -2687,7 +2687,12 @@ Rules:
         const ops = (panel.subs || []);
         if (ops.length === 0) return panel;
         const earliest = ops.reduce((a, b) => a.start < b.start ? a : b).start;
-        const latest = ops.reduce((a, b) => a.end > b.end ? a : b).end;
+        let latest = ops.reduce((a, b) => a.end > b.end ? a : b).end;
+        ops.forEach(op => {
+          (op.segments || []).forEach(seg => {
+            if (seg.end && seg.end > latest) latest = seg.end;
+          });
+        });
         if (earliest === panel.start && latest === panel.end) return panel;
         return { ...panel, start: earliest, end: latest };
       });

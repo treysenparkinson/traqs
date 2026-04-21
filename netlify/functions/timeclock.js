@@ -47,6 +47,8 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   const totalPausedMs = activeJobClock.totalPausedMs || 0;
   const hoursCompleted = Math.max(0, Math.round(((nowMs - clockInMs - totalPausedMs) / 3600000) * 100) / 100);
 
+  if (hoursCompleted < 0.05) return null;
+
   // STEP 2 — Read tasks
   let tasks;
   try { tasks = await readJson(tasksKey) ?? []; } catch { return null; }
@@ -148,10 +150,6 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
       originalWorkerIds.push(owId);
 
       const owLoggedHours = toOp.loggedHours || 0;
-      const owDaysIn = owLoggedHours / productiveHoursPerDay;
-      const owSplitDate = toOp.start
-        ? addWorkingDays(toOp.start, Math.floor(owDaysIn))
-        : insertStart;
 
       const owSeg0 = {
         segmentId: `seg_${Date.now()}_ow0_${Math.random().toString(36).slice(2, 7)}`,
@@ -180,11 +178,10 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         segmentIndex: 1,
       };
 
-      owSegmentsForToOp.push(owSeg0, owSeg1);
+      if (owLoggedHours > 0) owSegmentsForToOp.push(owSeg0);
+      owSegmentsForToOp.push(owSeg1);
     }
   }
-
-  const toOpOriginalStart = toOp.start;
 
   // Apply all changes in a single pass (STEPS 8, 9, 10)
   const updatedTasks = tasks.map(job => ({
@@ -500,7 +497,17 @@ export async function handler(event) {
                 ...panel,
                 subs: (panel.subs || []).map(op => {
                   if (op.id !== jcoOpId) return op;
-                  return { ...op, loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100 };
+                  const updatedSegments = op.segments
+                    ? op.segments.map(seg => {
+                        if (seg.workerId !== jcoPId || seg.status !== "remaining") return seg;
+                        return { ...seg, hoursLogged: Math.round(((seg.hoursLogged || 0) + jcoHours) * 100) / 100 };
+                      })
+                    : op.segments;
+                  return {
+                    ...op,
+                    loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100,
+                    ...(updatedSegments ? { segments: updatedSegments } : {}),
+                  };
                 }),
               };
             }) : job.subs;
