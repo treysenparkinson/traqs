@@ -8113,7 +8113,10 @@ ${jobsCtx || "No jobs found."}`;
             spliceJustOccurredRef.current = true;
             await new Promise(resolve => setTimeout(resolve, 500));
             const freshTasks = await fetchTasks(orgCode);
-            if (freshTasks && freshTasks.length > 0) setTasks(normalizeTasks(freshTasks));
+            if (freshTasks && freshTasks.length > 0) {
+              const normalized = normalizeTasks(freshTasks);
+              setTasks(recalcBounds(normalized, loggedInUser?.name || "Splice"));
+            }
             setTimeout(() => { spliceJustOccurredRef.current = false; }, 30000);
           } else {
             setTasks(prev => {

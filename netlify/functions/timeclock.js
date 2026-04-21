@@ -156,8 +156,8 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
       const owSeg0 = {
         segmentId: `seg_${Date.now()}_ow0_${Math.random().toString(36).slice(2, 7)}`,
         workerId: owId,
-        start: toOp.start || insertStart,
-        end: owSplitDate,
+        start: today,
+        end: today,
         hoursPlanned: owLoggedHours,
         hoursLogged: owLoggedHours,
         status: owLoggedHours > 0 ? "complete" : "remaining",
@@ -221,7 +221,9 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         // STEP 8 — Push downstream ops for switchingWorkerId
         if (
           (op.team || []).includes(switchingWorkerId) &&
-          op.start && op.start > splitDate
+          op.id !== fromOpId &&
+          op.id !== toOpId &&
+          op.start && op.start > today
         ) {
           return {
             ...op,
@@ -234,8 +236,9 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         for (const owId of originalWorkerIds) {
           if (
             (op.team || []).includes(owId) &&
-            toOpOriginalStart &&
-            op.start && op.start > toOpOriginalStart
+            op.id !== fromOpId &&
+            op.id !== toOpId &&
+            op.start && op.start > today
           ) {
             return {
               ...op,
