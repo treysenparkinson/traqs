@@ -1378,12 +1378,17 @@ Rules:
   const dataRef = useRef({ tasks: null, people: null, clients: null });
   const protectedJobIds = useRef(new Set());
   const pollUpdateRef = useRef(false);
-  const spliceJustOccurredRef = useRef(false);
   const saveStatusRef = useRef("saved");
 
   // Keep ref in sync for save functions
   useEffect(() => { dataRef.current.tasks = tasks; }, [tasks]);
   useEffect(() => { dataRef.current.people = people; }, [people]);
+  useEffect(() => {
+    console.log("=== TASKS UPDATED ===", tasks.flatMap(t =>
+      [t, ...(t.subs || []).flatMap(s => [s, ...(s.subs || [])])]
+    ).filter(item => ['t22isapb4', 'ttq9o7pyl', 't76tc6gah'].includes(item.id))
+    .map(item => ({ id: item.id, start: item.start, end: item.end })));
+  }, [tasks]);
 
   // Global undo/redo history
   const undoStack = useRef([]);
@@ -2043,7 +2048,6 @@ Rules:
   useEffect(() => {
     if (!orgCode) return;
     const refetch = async () => {
-      if (spliceJustOccurredRef.current) return;
       if (document.hidden) return;
       if (saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved") return;
       try {
@@ -2367,22 +2371,10 @@ Rules:
               for (const op of (panel.subs || [])) {
                 if (op.id === check.excludeOpId || op.status === "Finished") continue;
                 if (!(op.team || []).includes(check.personId)) continue;
-                if (op.segments && op.segments.length > 0) {
-                  const workerSegs = op.segments.filter(s => s.workerId === check.personId);
-                  for (const seg of workerSegs) {
-                    if (!seg.start || !seg.end) continue;
-                    if (d >= seg.start && d <= seg.end) {
-                      const opTotalH = seg.hoursPlanned || op.hpd || productiveHoursPerDay;
-                      const segSpanBD = Math.max(1, diffBD(seg.start, seg.end) + 1);
-                      existingH += (opTotalH / segSpanBD) / Math.max(1, (op.team || []).length);
-                    }
-                  }
-                } else {
-                  if (d >= op.start && d <= op.end) {
-                    const opTotalH = op.hpd || productiveHoursPerDay;
-                    const existingSpanBD = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opTotalH / cap));
-                    existingH += (opTotalH / existingSpanBD) / Math.max(1, (op.team || []).length);
-                  }
+                if (d >= op.start && d <= op.end) {
+                  const opTotalH = op.hpd || productiveHoursPerDay;
+                  const existingSpanBD = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opTotalH / cap));
+                  existingH += (opTotalH / existingSpanBD) / Math.max(1, (op.team || []).length);
                 }
               }
             }
@@ -2681,12 +2673,7 @@ Rules:
         const ops = (panel.subs || []);
         if (ops.length === 0) return panel;
         const earliest = ops.reduce((a, b) => a.start < b.start ? a : b).start;
-        let latest = ops.reduce((a, b) => a.end > b.end ? a : b).end;
-        ops.forEach(op => {
-          (op.segments || []).forEach(seg => {
-            if (seg.end && seg.end > latest) latest = seg.end;
-          });
-        });
+        const latest = ops.reduce((a, b) => a.end > b.end ? a : b).end;
         if (earliest === panel.start && latest === panel.end) return panel;
         return { ...panel, start: earliest, end: latest };
       });
@@ -2991,7 +2978,7 @@ Rules:
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
   const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
-  const openEdit = (t) => { setEditJobModal({ id: t.id, title: t.title || "", jobNumber: t.jobNumber || "", poNumber: t.poNumber || "", clientId: t.clientId || null, projectManagerId: t.projectManagerId || null, dueDate: t.dueDate || "", notes: t.notes || "", requiredDepartment: t.requiredDepartment || "" }); };
+  const openEdit = (t) => { console.log("=== EDIT CLICKED ===", { id: t?.id, title: t?.title, level: t?.level, isSub: t?.isSub, pid: t?.pid }); setEditJobModal({ id: t.id, title: t.title || "", jobNumber: t.jobNumber || "", poNumber: t.poNumber || "", clientId: t.clientId || null, projectManagerId: t.projectManagerId || null, dueDate: t.dueDate || "", notes: t.notes || "", requiredDepartment: t.requiredDepartment || "" }); };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
@@ -4378,38 +4365,7 @@ ${jobsCtx || "No jobs found."}`;
                 const gc = hasOverlap ? "#ef4444" : T.accent;
                 return <div style={{ position: "absolute", top: 3, left: gx - 2, width: gw + 4, height: rH - 6, borderRadius: T.radiusXs + 2, border: `2px solid ${gc}`, background: gc + "18", boxShadow: `0 0 24px ${gc}77, 0 0 8px ${gc}55, 0 0 48px ${gc}33`, pointerEvents: "none", zIndex: 3, animation: "ghost-fade-in 0.22s cubic-bezier(0.34,1.56,0.64,1)" }} />;
               })()}
-              {(() => {
-                if (r.level === 2 && r.segments && r.segments.filter(s => (s.hoursPlanned || 0) > 0).length > 0) {
-                  const spliceSegs = r.segments.filter(s => (s.hoursPlanned || 0) > 0 && s.start && s.end && s.start <= gEnd && s.end >= gStart);
-                  if (spliceSegs.length === 0) return null;
-                  const pct = r.status === "Finished" ? 100 : r.status === "In Progress" ? 50 : r.status === "Pending" ? 15 : r.status === "On Hold" ? 25 : 0;
-                  const hasSubs = (r.subs || []).length > 0;
-                  const isExp = hasSubs && exp[r.id];
-                  const isDragging = ganttDragInfo?.itemId === r.id;
-                  const barColor = r.color || T.accent;
-                  const barTextColor = isLight(barColor) ? '#000000' : '#ffffff';
-                  const label = r.panelTitle ? `${r.panelTitle}  ·  ${r.title}` : r.title;
-                  return spliceSegs.flatMap((splSeg, splIdx) => {
-                    const wkSegs = weekdaySegments(splSeg.start, splSeg.end, gStart, gEnd);
-                    if (wkSegs.length === 0) return [];
-                    const segOpacity = splSeg.status === "remaining" ? 0.75 : 1;
-                    const isActive = splSeg.status === "active";
-                    return wkSegs.map((wkSeg, si) => {
-                      const x = dToX(wkSeg.start), xE = dToX(wkSeg.end) + cW, w = Math.max(xE - x, cW);
-                      const isFirst = si === 0, isLast = si === wkSegs.length - 1;
-                      const isFirstSplice = splIdx === 0;
-                      const blStyle = (splSeg.status === "remaining" && isFirst) ? `2px dashed ${barColor}bb` : (!isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`);
-                      return <div key={`${splSeg.segmentId || splIdx}-${si}`} className={isFirst && isFirstSplice ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barColor, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: blStyle, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: 5, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : segOpacity, transition: isDragging ? "none" : "opacity 0.15s", animation: isActive ? "splicePulse 2s ease-in-out infinite" : undefined }}
-                        onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
-                        {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
-                        {isFirst && can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                        {isLast && can("moveJobs") && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                        <span style={{ fontSize: 11, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{isFirst && isFirstSplice && hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{(isFirst || w > 80) ? label : ""}</span>
-                      </div>;
-                    });
-                  });
-                }
-                if (!(r.start <= gEnd && r.end >= gStart)) return null;
+              {r.start <= gEnd && r.end >= gStart && (() => {
                 const segs = weekdaySegments(r.start, r.end, gStart, gEnd);
                 if (segs.length === 0) return null;
                 const pct = r.status === "Finished" ? 100 : r.status === "In Progress" ? 50 : r.status === "Pending" ? 15 : r.status === "On Hold" ? 25 : 0;
@@ -6090,32 +6046,16 @@ ${jobsCtx || "No jobs found."}`;
             (panel.subs || []).forEach(op => {
               if (!(op.team || []).includes(pid)) return;
               if (op.status === "Finished") return;
-              if (!op.start || !op.end) return;
-              const hasVisibleSegment = op.segments && op.segments.length > 0
-                ? op.segments.some(seg => seg.workerId === pid && seg.start && seg.end && seg.end >= tStart && seg.start <= tEnd)
-                : (op.end >= tStart && op.start <= tEnd);
-              if (!hasVisibleSegment) return;
+              if (!op.start || !op.end || op.end < tStart || op.start > tEnd) return;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
-              if (op.segments && op.segments.length > 0) {
-                const workerSegs = op.segments.filter(seg => seg.workerId === pid);
-                if (workerSegs.length > 0) {
-                  workerSegs.forEach(seg => {
-                    if (!seg.start || !seg.end || seg.end < tStart || seg.start > tEnd) return;
-                    if ((seg.hoursPlanned || 0) === 0) return;
-                    const ss = seg.start < tStart ? tStart : seg.start;
-                    const se = seg.end > tEnd ? tEnd : seg.end;
-                    const workerSegCount = workerSegs.filter(s => (s.hoursPlanned || 0) > 0).length;
-                    const segHours = seg.hoursPlanned || productiveHoursPerDay;
-                    const proportionalFactor = Math.min(1, segHours / productiveHoursPerDay);
-                    bars.push({ type: "task", id: op.id + "-seg-" + seg.segmentId, start: ss, end: se, title: `${panel.title} · ${op.title} (${seg.segmentIndex + 1}/${workerSegCount})`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false, spliceSegment: seg, proportionalFactor });
-                  });
-                } else {
-                  const s = op.start < tStart ? tStart : op.start;
-                  const e = op.end > tEnd ? tEnd : op.end;
-                  const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
-                  bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
-                }
+              if (op.segments && op.segments.length > 1) {
+                op.segments.filter(seg => seg.workerId === pid).forEach(seg => {
+                  if (!seg.start || !seg.end || seg.end < tStart || seg.start > tEnd) return;
+                  const ss = seg.start < tStart ? tStart : seg.start;
+                  const se = seg.end > tEnd ? tEnd : seg.end;
+                  bars.push({ type: "task", id: op.id + "-seg-" + seg.segmentId, start: ss, end: se, title: `${panel.title} · ${op.title} (${seg.segmentIndex + 1}/${op.segments.length})`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false, spliceSegment: seg });
+                });
               } else {
                 const s = op.start < tStart ? tStart : op.start;
                 const e = op.end > tEnd ? tEnd : op.end;
@@ -6702,8 +6642,7 @@ ${jobsCtx || "No jobs found."}`;
                   const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, bar.end, tStart, tEnd);
                   const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
                   const x = (diffD(tStart, firstBarSeg.start) / nDays * 100) + "%";
-                  const wNum = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100;
-                  const w = wNum + "%";
+                  const w = (Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100) + "%";
                   // Engineering chip — render as compact pill, opens job detail
                   if (bar.type === "eng-chip") {
                     const chipJob = tasks.find(j => j.id === bar.jobId);
@@ -7000,7 +6939,7 @@ ${jobsCtx || "No jobs found."}`;
                                   ...newSubs[panelIdx],
                                   subs: (newSubs[panelIdx].subs || []).map(op =>
                                     op.id === taskId
-                                      ? { ...op, team: (op.team || []).map(x => x === fromPerson ? lastDropPid : x), segments: (op.segments || []).map(seg => seg.workerId === fromPerson ? { ...seg, workerId: lastDropPid } : seg) }
+                                      ? { ...op, team: (op.team || []).map(x => x === fromPerson ? lastDropPid : x) }
                                       : op
                                   )
                                 };
@@ -7011,7 +6950,7 @@ ${jobsCtx || "No jobs found."}`;
                                   ...updated,
                                   subs: (updated.subs || []).map(s =>
                                     s.id === taskId
-                                      ? { ...s, team: (s.team || []).map(x => x === fromPerson ? lastDropPid : x), segments: (s.segments || []).map(seg => seg.workerId === fromPerson ? { ...seg, workerId: lastDropPid } : seg) }
+                                      ? { ...s, team: (s.team || []).map(x => x === fromPerson ? lastDropPid : x) }
                                       : s
                                   )
                                 };
@@ -7019,8 +6958,7 @@ ${jobsCtx || "No jobs found."}`;
                             } else if (updated.id === taskId) {
                               updated = {
                                 ...updated,
-                                team: (updated.team || []).map(x => x === fromPerson ? lastDropPid : x),
-                                segments: (updated.segments || []).map(seg => seg.workerId === fromPerson ? { ...seg, workerId: lastDropPid } : seg)
+                                team: (updated.team || []).map(x => x === fromPerson ? lastDropPid : x)
                               };
                             }
                           });
@@ -7180,16 +7118,14 @@ ${jobsCtx || "No jobs found."}`;
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   const barKey = bar.id + "_0_" + bar.start;
+                  if (['t22isapb4','ttq9o7pyl','t76tc6gah'].includes(bar.id)) console.log("=== BAR KEY ===", bar.id, "key:", barKey, "start:", bar.start);
                   const spliceStatus = bar.spliceSegment?.status ?? null;
-                  const spliceSegOpacity = spliceStatus === "remaining" ? 0.75 : 1.0;
+                  const spliceSegOpacity = spliceStatus === "remaining" ? 0.6 : 1.0;
                   const spliceSegAnim = spliceStatus === "active" ? "splicePulse 1.5s ease-in-out infinite" : undefined;
-                  const finalWidth = bar.proportionalFactor && bar.proportionalFactor < 1
-                    ? `calc(${wNum * bar.proportionalFactor}% - 4px)`
-                    : `calc(${w} - 4px)`;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: finalWidth, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: spliceSegAnim ?? (isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined), "--glow-color": bc + "99", opacity: bar.spliceSegment ? spliceSegOpacity : barOpacity * spliceSegOpacity, borderLeft: spliceStatus === "remaining" ? "2px dashed rgba(255,255,255,0.65)" : undefined, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: spliceSegAnim ?? (isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined), "--glow-color": bc + "99", opacity: barOpacity * spliceSegOpacity, borderLeft: spliceStatus === "remaining" ? "2px dashed rgba(255,255,255,0.65)" : undefined, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -8145,14 +8081,8 @@ ${jobsCtx || "No jobs found."}`;
         if (res.ok) {
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           if (res.spliceResult?.spliceOccurred) {
-            spliceJustOccurredRef.current = true;
-            await new Promise(resolve => setTimeout(resolve, 500));
-            const freshTasks = await fetchTasks(orgCode);
-            if (freshTasks && freshTasks.length > 0) {
-              const normalized = normalizeTasks(freshTasks);
-              setTasks(recalcBounds(normalized, loggedInUser?.name || "Splice"));
-            }
-            setTimeout(() => { spliceJustOccurredRef.current = false; }, 30000);
+            const freshTasks = await fetchTasks(getToken, orgCode);
+            setTasks(freshTasks);
           } else {
             setTasks(prev => {
               const updatedTasks = prev.map(job => {
@@ -11298,6 +11228,7 @@ ${jobsCtx || "No jobs found."}`;
                       updated.start=earliestStart;
                       updated.end=latestEnd;
                       updated.scheduledLater=false;
+                      console.log("=== BC JOB SCHEDULED ===", { id: updated.id, scheduledLater: updated.scheduledLater, start: updated.start, end: updated.end });
                       return updated;
                     });
                     setAiSuggestion(null);
@@ -11476,7 +11407,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>}
           {/* Actions */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {can("editJobs") && <Btn onClick={() => { closeModal(); if (parentJob) openEdit(parentJob, null); }}>Edit Job</Btn>}
+            {can("editJobs") && <Btn onClick={() => { console.log("=== EDIT JOB BUTTON CLICKED ==="); console.log("=== FRESH OBJECT ===", JSON.stringify({ id: fresh?.id, title: fresh?.title, level: fresh?.level })); console.log("=== PARENT PANEL ===", parentPanel); console.log("=== PARENT JOB ===", parentJob); closeModal(); if (parentJob) openEdit(parentJob, null); }}>Edit Job</Btn>}
             {can("lockJobs") && parentPanel && <Btn variant={isOpLocked ? "warn" : "ghost"} onClick={() => { toggleLock(opData.id, parentPanel.id); closeModal(); }}>{isOpLocked ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>Unlock</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Lock</>}</Btn>}
             {parentJob && <Btn variant="ghost" onClick={() => { closeModal(); openDetail(parentJob); }}>View Full Job</Btn>}
           </div>
@@ -11550,7 +11481,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>;
           })}
         </div>}
-        {can("editJobs") && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><Btn onClick={() => { openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn></div>}
+        {can("editJobs") && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><Btn onClick={() => { console.log("=== EDIT JOB BUTTON CLICKED ==="); console.log("=== FRESH OBJECT ===", JSON.stringify({ id: fresh?.id, title: fresh?.title, level: fresh?.level })); openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn></div>}
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(false), position: "relative" }} onClick={e => e.stopPropagation()}>{cls}
@@ -13131,7 +13062,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+              {can("editJobs") && <Tip label="Edit"><button onClick={() => { console.log("=== EDIT FIRED ===", { itemId: it.id, title: it.title, level: it.level, isSub: it.isSub, pid: it.pid, grandPid: it.grandPid, source: ctxMenu.source }); setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } console.log("=== EDIT isOp parentJob ===", parentJob?.id, parentJob?.title); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); console.log("=== EDIT isPanel parentJob ===", parentJob?.id, parentJob?.title); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { console.log("=== EDIT isJob direct ===", it.id, it.title); openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
               {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
@@ -13164,6 +13095,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Delete */}
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => {
+        console.log("=== DELETE FIRED ===", { taskId: it.id, title: it.title, source: ctxMenu.source, level: it.level, isSub: it.isSub, pid: it.pid, grandPid: it.grandPid });
         setCtxMenu(null);
         let deleteTarget = { id: it.id, title: it.title, pid: null };
         if (ctxMenu.source === "team") {
@@ -13176,6 +13108,7 @@ ${jobsCtx || "No jobs found."}`;
         } else {
           deleteTarget.pid = it.isSub ? it.pid : null;
         }
+        console.log("=== DELETE TARGET RESOLVED ===", deleteTarget);
         setConfirmDelete(deleteTarget);
       }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: `toolDrop 0.14s ${ci() * 38}ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
@@ -13664,9 +13597,7 @@ ${jobsCtx || "No jobs found."}`;
             <Btn onClick={() => {
               setTasks(newTasks);
               setOptimizePreview(null);
-              const firstId = changes[0]?.opId || null;
-              setScheduleHighlightId(firstId);
-              setTimeout(() => setScheduleHighlightId(null), 3000);
+              setScheduleHighlightId(null);
             }} style={{ flex: 2, background: T.accent, border: "none", fontWeight: 700, fontSize: 15 }}>
               Apply {changes.length} Changes
             </Btn>
@@ -13905,6 +13836,7 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Edit Job modal — simple field update, no wizard */}
     {editJobModal && (() => {
+      console.log("=== EDIT JOB MODAL STATE ===", editJobModal);
       const ej = editJobModal;
       const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
       const saveEditJob = () => {

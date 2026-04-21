@@ -26,6 +26,16 @@ function addWorkingDays(dateStr, days) {
   return date.toISOString().slice(0, 10);
 }
 
+function subtractWorkingDays(dateStr, days) {
+  let date = new Date(dateStr + "T12:00:00Z");
+  let subtracted = 0;
+  while (subtracted < days) {
+    date.setUTCDate(date.getUTCDate() - 1);
+    const dow = date.getUTCDay();
+    if (dow !== 0 && dow !== 6) subtracted++;
+  }
+  return date.toISOString().slice(0, 10);
+}
 
 async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPanelId, fromJobId, toOpId, toPanelId, toJobId, activeJobClock) {
   const tasksKey = `orgs/${orgCode}/tasks.json`;
@@ -36,8 +46,6 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   const clockInMs = new Date(activeJobClock.clockIn).getTime();
   const totalPausedMs = activeJobClock.totalPausedMs || 0;
   const hoursCompleted = Math.max(0, Math.round(((nowMs - clockInMs - totalPausedMs) / 3600000) * 100) / 100);
-
-  if (hoursCompleted < 0.05) return null;
 
   // STEP 2 — Read tasks
   let tasks;
@@ -57,13 +65,10 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   // STEP 3 — Find interrupted sub-op
   const fromOp = findOp(fromOpId);
   if (!fromOp || !fromOp.start) return null;
-  if (fromOp.status === "Finished") return null;
 
   // STEP 4 — Split the interrupted sub-op
+  const splitDate = addWorkingDays(fromOp.start, Math.floor(hoursCompleted / productiveHoursPerDay));
   const nowIso = new Date().toISOString();
-  const today = new Date().toISOString().slice(0, 10);
-  const todayDow = new Date(today + "T12:00:00Z").getUTCDay();
-  const workingToday = (todayDow === 0 || todayDow === 6) ? addWorkingDays(today, 1) : today;
   const spliceId = `splice_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   const snapshotBefore = {
@@ -72,18 +77,15 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     segments: fromOp.segments ? [...fromOp.segments] : [],
   };
 
-  const existingWorkerSegs = (fromOp.segments || []).filter(s => s.workerId === switchingWorkerId);
-  const nextSegIndex = existingWorkerSegs.length;
-
   const seg0 = {
     segmentId: `seg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     workerId: switchingWorkerId,
-    start: workingToday,
-    end: workingToday,
+    start: fromOp.start,
+    end: splitDate,
     hoursPlanned: hoursCompleted,
     hoursLogged: hoursCompleted,
     status: "complete",
-    segmentIndex: nextSegIndex,
+    segmentIndex: 0,
   };
 
   const spliceLogEntry = {
@@ -102,11 +104,9 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   const toOp = findOp(toOpId);
   if (!toOp) return null;
 
-  // STEP 6 — toOp insertion position (anchored to today, not the past job start)
-  const insertStart = workingToday;
-  const toOpLoggedHours = toOp.loggedHours || 0;
-  const toOpRemainingHours = Math.max(productiveHoursPerDay * 0.1, (toOp.hpd || productiveHoursPerDay) - toOpLoggedHours);
-  const toOpDuration = Math.max(1, Math.ceil(toOpRemainingHours / productiveHoursPerDay));
+  // STEP 6 — toOp insertion position
+  const insertStart = addWorkingDays(splitDate, 1);
+  const toOpDuration = Math.max(1, Math.ceil((toOp.hpd || productiveHoursPerDay) / productiveHoursPerDay));
   const insertEnd = toOpDuration > 1 ? addWorkingDays(insertStart, toOpDuration - 1) : insertStart;
 
   // STEP 7 — Remaining fromOp segment placed after toOp
@@ -123,7 +123,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     hoursPlanned: remainingHours,
     hoursLogged: 0,
     status: "remaining",
-    segmentIndex: nextSegIndex + 1,
+    segmentIndex: 1,
   };
 
   // STEP 9 — Two-worker scenario: prepare segments for existing toOp workers
@@ -138,20 +138,21 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
       originalWorkerIds.push(owId);
 
       const owLoggedHours = toOp.loggedHours || 0;
+      const owDaysIn = owLoggedHours / productiveHoursPerDay;
+      const owSplitDate = toOp.start
+        ? addWorkingDays(toOp.start, Math.floor(owDaysIn))
+        : insertStart;
 
-      if (owLoggedHours > 0) {
-        const owSeg0 = {
-          segmentId: `seg_${Date.now()}_ow0_${Math.random().toString(36).slice(2, 7)}`,
-          workerId: owId,
-          start: workingToday,
-          end: workingToday,
-          hoursPlanned: owLoggedHours,
-          hoursLogged: owLoggedHours,
-          status: "complete",
-          segmentIndex: 0,
-        };
-        owSegmentsForToOp.push(owSeg0);
-      }
+      const owSeg0 = {
+        segmentId: `seg_${Date.now()}_ow0_${Math.random().toString(36).slice(2, 7)}`,
+        workerId: owId,
+        start: toOp.start || insertStart,
+        end: owSplitDate,
+        hoursPlanned: owLoggedHours,
+        hoursLogged: owLoggedHours,
+        status: owLoggedHours > 0 ? "complete" : "active",
+        segmentIndex: 0,
+      };
 
       const owRemHours = Math.max(0, (toOp.hpd || productiveHoursPerDay) - owLoggedHours);
       const owRemDuration = Math.max(1, Math.ceil(owRemHours / productiveHoursPerDay));
@@ -166,23 +167,14 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         hoursPlanned: owRemHours,
         hoursLogged: 0,
         status: "remaining",
-        segmentIndex: owLoggedHours > 0 ? 1 : 0,
+        segmentIndex: 1,
       };
 
-      owSegmentsForToOp.push(owSeg1);
+      owSegmentsForToOp.push(owSeg0, owSeg1);
     }
   }
 
-  const switchingWorkerSeg = {
-    segmentId: `seg_${Date.now()}_sw_${Math.random().toString(36).slice(2, 7)}`,
-    workerId: switchingWorkerId,
-    start: insertStart,
-    end: insertEnd,
-    hoursPlanned: toOpRemainingHours,
-    hoursLogged: 0,
-    status: "active",
-    segmentIndex: owSegmentsForToOp.length,
-  };
+  const toOpOriginalStart = toOp.start;
 
   // Apply all changes in a single pass (STEPS 8, 9, 10)
   const updatedTasks = tasks.map(job => ({
@@ -194,34 +186,29 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         if (op.id === fromOpId) {
           return {
             ...op,
-            start: seg0.start,
-            end: seg0.end,
             segments: [...(op.segments || []), seg0, seg1],
             spliceLog: [...(op.spliceLog || []), spliceLogEntry],
           };
         }
 
-        // toOp: update dates (only if not yet started), add switchingWorker to team, add original worker segments
+        // toOp: update dates, add switchingWorker to team, add original worker segments
         if (op.id === toOpId) {
-          const alreadyStarted = (op.loggedHours || 0) > 0;
           const newTeam = (op.team || []).includes(switchingWorkerId)
             ? op.team
             : [...(op.team || []), switchingWorkerId];
           return {
             ...op,
             team: newTeam,
-            start: alreadyStarted ? op.start : insertStart,
-            end: alreadyStarted ? op.end : insertEnd,
-            segments: [...(op.segments || []), ...owSegmentsForToOp, switchingWorkerSeg],
+            start: insertStart,
+            end: insertEnd,
+            segments: [...(op.segments || []), ...owSegmentsForToOp],
           };
         }
 
         // STEP 8 — Push downstream ops for switchingWorkerId
         if (
           (op.team || []).includes(switchingWorkerId) &&
-          op.id !== fromOpId &&
-          op.id !== toOpId &&
-          op.start && op.start > today
+          op.start && op.start > splitDate
         ) {
           return {
             ...op,
@@ -234,9 +221,8 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         for (const owId of originalWorkerIds) {
           if (
             (op.team || []).includes(owId) &&
-            op.id !== fromOpId &&
-            op.id !== toOpId &&
-            op.start && op.start > today
+            toOpOriginalStart &&
+            op.start && op.start > toOpOriginalStart
           ) {
             return {
               ...op,
@@ -251,36 +237,15 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     })),
   }));
 
-  // STEP 11 — Apply status update and write to S3 in a single pass
-  const finalTasks = updatedTasks.map(job => {
-    if (job.id === toJobId) {
-      return {
-        ...job,
-        status: job.status === "In Progress" ? job.status : "In Progress",
-        subs: (job.subs || []).map(panel => ({
-          ...panel,
-          subs: (panel.subs || []).map(op => {
-            if (op.id !== toOpId) return op;
-            return { ...op, status: "In Progress" };
-          }),
-        })),
-      };
-    }
-    if (job.id === fromJobId) {
-      return {
-        ...job,
-        status: job.status === "In Progress" ? job.status : "In Progress",
-      };
-    }
-    return job;
-  });
-  try { await writeJson(tasksKey, finalTasks); } catch { return null; }
+  // STEP 11 — Write updated tasks to S3
+  try { await writeJson(tasksKey, updatedTasks); } catch { return null; }
 
   // STEP 12 — Return splice result
   return {
     spliceOccurred: true,
     fromOpId,
     toOpId,
+    splitDate,
     insertStart,
     insertEnd,
     remainingStart,
@@ -443,28 +408,25 @@ export async function handler(event) {
       try { await writeJson(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
 
       // Update job and sub-operation status to "In Progress" in tasks.json
-      // (skipped when spliceResult is set — status update was already applied inside runSpliceAlgorithm)
-      if (spliceResult === null) {
-        try {
-          let jciTasks = await readJson(tasksKey) ?? [];
-          const jciTaskIdx = jciTasks.findIndex(t => t.id === jobId);
-          if (jciTaskIdx !== -1) {
-            const jciJob = jciTasks[jciTaskIdx];
-            jciTasks[jciTaskIdx] = {
-              ...jciJob,
-              status: jciJob.status === "In Progress" ? jciJob.status : "In Progress",
-              subs: (jciJob.subs || []).map(panel => ({
-                ...panel,
-                subs: (panel.subs || []).map(op => {
-                  if (op.id !== opId) return op;
-                  return { ...op, status: "In Progress" };
-                }),
-              })),
-            };
-            await writeJson(tasksKey, jciTasks);
-          }
-        } catch (e) { console.warn("jobClockIn: failed to update task status", e); }
-      }
+      try {
+        let jciTasks = await readJson(tasksKey) ?? [];
+        const jciTaskIdx = jciTasks.findIndex(t => t.id === jobId);
+        if (jciTaskIdx !== -1) {
+          const jciJob = jciTasks[jciTaskIdx];
+          jciTasks[jciTaskIdx] = {
+            ...jciJob,
+            status: jciJob.status === "In Progress" ? jciJob.status : "In Progress",
+            subs: (jciJob.subs || []).map(panel => ({
+              ...panel,
+              subs: (panel.subs || []).map(op => {
+                if (op.id !== opId) return op;
+                return { ...op, status: "In Progress" };
+              }),
+            })),
+          };
+          await writeJson(tasksKey, jciTasks);
+        }
+      } catch (e) { console.warn("jobClockIn: failed to update task status", e); }
 
       return json(200, { ok: true, clockIn: jciClockIn, spliceResult });
     }
@@ -505,17 +467,7 @@ export async function handler(event) {
                 ...panel,
                 subs: (panel.subs || []).map(op => {
                   if (op.id !== jcoOpId) return op;
-                  const updatedSegments = op.segments
-                    ? op.segments.map(seg => {
-                        if (seg.workerId !== jcoPId || (seg.status !== "remaining" && seg.status !== "active")) return seg;
-                        return { ...seg, hoursLogged: Math.round(((seg.hoursLogged || 0) + jcoHours) * 100) / 100, status: "complete" };
-                      })
-                    : op.segments;
-                  return {
-                    ...op,
-                    loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100,
-                    ...(updatedSegments ? { segments: updatedSegments } : {}),
-                  };
+                  return { ...op, loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100 };
                 }),
               };
             }) : job.subs;

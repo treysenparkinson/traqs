@@ -69,10 +69,6 @@ export async function fetchClients(orgCode) {
 }
 
 export async function saveClients(clients, getToken, orgCode) {
-  if (!Array.isArray(clients)) {
-    console.warn("saveClients blocked — invalid data", clients);
-    return { ok: true };
-  }
   const headers = await authHeaders(getToken, orgCode);
   const res = await fetch(`${BASE}/clients`, {
     method: "POST",
