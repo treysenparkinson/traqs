@@ -4378,7 +4378,38 @@ ${jobsCtx || "No jobs found."}`;
                 const gc = hasOverlap ? "#ef4444" : T.accent;
                 return <div style={{ position: "absolute", top: 3, left: gx - 2, width: gw + 4, height: rH - 6, borderRadius: T.radiusXs + 2, border: `2px solid ${gc}`, background: gc + "18", boxShadow: `0 0 24px ${gc}77, 0 0 8px ${gc}55, 0 0 48px ${gc}33`, pointerEvents: "none", zIndex: 3, animation: "ghost-fade-in 0.22s cubic-bezier(0.34,1.56,0.64,1)" }} />;
               })()}
-              {r.start <= gEnd && r.end >= gStart && (() => {
+              {(() => {
+                if (r.level === 2 && r.segments && r.segments.filter(s => (s.hoursPlanned || 0) > 0).length > 0) {
+                  const spliceSegs = r.segments.filter(s => (s.hoursPlanned || 0) > 0 && s.start && s.end && s.start <= gEnd && s.end >= gStart);
+                  if (spliceSegs.length === 0) return null;
+                  const pct = r.status === "Finished" ? 100 : r.status === "In Progress" ? 50 : r.status === "Pending" ? 15 : r.status === "On Hold" ? 25 : 0;
+                  const hasSubs = (r.subs || []).length > 0;
+                  const isExp = hasSubs && exp[r.id];
+                  const isDragging = ganttDragInfo?.itemId === r.id;
+                  const barColor = r.color || T.accent;
+                  const barTextColor = isLight(barColor) ? '#000000' : '#ffffff';
+                  const label = r.panelTitle ? `${r.panelTitle}  ·  ${r.title}` : r.title;
+                  return spliceSegs.flatMap((splSeg, splIdx) => {
+                    const wkSegs = weekdaySegments(splSeg.start, splSeg.end, gStart, gEnd);
+                    if (wkSegs.length === 0) return [];
+                    const segOpacity = splSeg.status === "remaining" ? 0.75 : 1;
+                    const isActive = splSeg.status === "active";
+                    return wkSegs.map((wkSeg, si) => {
+                      const x = dToX(wkSeg.start), xE = dToX(wkSeg.end) + cW, w = Math.max(xE - x, cW);
+                      const isFirst = si === 0, isLast = si === wkSegs.length - 1;
+                      const isFirstSplice = splIdx === 0;
+                      const blStyle = (splSeg.status === "remaining" && isFirst) ? `2px dashed ${barColor}bb` : (!isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`);
+                      return <div key={`${splSeg.segmentId || splIdx}-${si}`} className={isFirst && isFirstSplice ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barColor, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: blStyle, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: 5, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : segOpacity, transition: isDragging ? "none" : "opacity 0.15s", animation: isActive ? "splicePulse 2s ease-in-out infinite" : undefined }}
+                        onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
+                        {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
+                        {isFirst && can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                        {isLast && can("moveJobs") && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                        <span style={{ fontSize: 11, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{isFirst && isFirstSplice && hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{(isFirst || w > 80) ? label : ""}</span>
+                      </div>;
+                    });
+                  });
+                }
+                if (!(r.start <= gEnd && r.end >= gStart)) return null;
                 const segs = weekdaySegments(r.start, r.end, gStart, gEnd);
                 if (segs.length === 0) return null;
                 const pct = r.status === "Finished" ? 100 : r.status === "In Progress" ? 50 : r.status === "Pending" ? 15 : r.status === "On Hold" ? 25 : 0;
@@ -6059,7 +6090,11 @@ ${jobsCtx || "No jobs found."}`;
             (panel.subs || []).forEach(op => {
               if (!(op.team || []).includes(pid)) return;
               if (op.status === "Finished") return;
-              if (!op.start || !op.end || op.end < tStart || op.start > tEnd) return;
+              if (!op.start || !op.end) return;
+              const hasVisibleSegment = op.segments && op.segments.length > 0
+                ? op.segments.some(seg => seg.workerId === pid && seg.start && seg.end && seg.end >= tStart && seg.start <= tEnd)
+                : (op.end >= tStart && op.start <= tEnd);
+              if (!hasVisibleSegment) return;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
               if (op.segments && op.segments.length > 0) {
@@ -6070,7 +6105,7 @@ ${jobsCtx || "No jobs found."}`;
                     if ((seg.hoursPlanned || 0) === 0) return;
                     const ss = seg.start < tStart ? tStart : seg.start;
                     const se = seg.end > tEnd ? tEnd : seg.end;
-                    const workerSegCount = workerSegs.length;
+                    const workerSegCount = workerSegs.filter(s => (s.hoursPlanned || 0) > 0).length;
                     const segHours = seg.hoursPlanned || productiveHoursPerDay;
                     const proportionalFactor = Math.min(1, segHours / productiveHoursPerDay);
                     bars.push({ type: "task", id: op.id + "-seg-" + seg.segmentId, start: ss, end: se, title: `${panel.title} · ${op.title} (${seg.segmentIndex + 1}/${workerSegCount})`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false, spliceSegment: seg, proportionalFactor });
