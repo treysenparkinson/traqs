@@ -6582,6 +6582,17 @@ ${jobsCtx || "No jobs found."}`;
             // Person row
             const p = row.person;
             const bars = (row.bars || []).filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i);
+            // Precompute stacking order for single-day partial-hour bars (month view only)
+            const singleDayStacking = {};
+            if (tMode === "month") {
+              bars.forEach(bar => {
+                if (bar.type !== "task" || bar.start !== bar.end) return;
+                const hpd = bar.task?.hpd || 0;
+                if (hpd <= 0 || hpd >= productiveHoursPerDay) return;
+                if (!singleDayStacking[bar.start]) singleDayStacking[bar.start] = [];
+                singleDayStacking[bar.start].push(bar.id);
+              });
+            }
             const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
             const isDrop = dropTarget === p.id;
             const isBeingDragged = rowDragId === p.id;
@@ -6630,8 +6641,14 @@ ${jobsCtx || "No jobs found."}`;
                   const nDays = days.length;
                   const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, bar.end, tStart, tEnd);
                   const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
-                  const x = (diffD(tStart, firstBarSeg.start) / nDays * 100) + "%";
-                  const w = (Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100) + "%";
+                  const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
+                  const _baseWPct = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100;
+                  const isSingleDayPartial = tMode === "month" && bar.type === "task" && bar.start === bar.end && (bar.task?.hpd || 0) > 0 && (bar.task?.hpd || productiveHoursPerDay) < productiveHoursPerDay;
+                  const proportionalFactor = isSingleDayPartial ? Math.max(0.1, (bar.task.hpd || productiveHoursPerDay) / productiveHoursPerDay) : 1;
+                  const stackIdx = isSingleDayPartial ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
+                  const stackShift = isSingleDayPartial && stackIdx > 0 ? stackIdx * 0.1 / nDays * 100 : 0;
+                  const x = (_baseXPct + stackShift) + "%";
+                  const w = (isSingleDayPartial ? proportionalFactor * _baseWPct : _baseWPct) + "%";
                   // Engineering chip — render as compact pill, opens job detail
                   if (bar.type === "eng-chip") {
                     const chipJob = tasks.find(j => j.id === bar.jobId);
@@ -12154,20 +12171,22 @@ ${jobsCtx || "No jobs found."}`;
         const newStart = addBD(op.end, 1);
         const newEnd = addBD(newStart, Math.max(0, Math.ceil(part2 / productiveHoursPerDay) - 1));
         const newOp = { ...op, id: uid(), title: op.title + " (2)", hpd: part2, start: newStart, end: newEnd, status: "Not Started", deps: [], loggedHours: 0 };
-        const updated = tasks.map(j => {
-          if (j.id !== parentJob.id) return j;
-          return { ...j, subs: (j.subs || []).map(pnl => {
-            if (pnl.id !== panel.id) return pnl;
-            const idx = pnl.subs.findIndex(o => o.id === op.id);
-            const newSubs = [...pnl.subs];
-            newSubs[idx] = { ...newSubs[idx], hpd: part1 };
-            newSubs.splice(idx + 1, 0, newOp);
-            return { ...pnl, subs: newSubs };
-          })};
+        setTasks(prev => {
+          const updated = prev.map(j => {
+            if (j.id !== parentJob.id) return j;
+            return { ...j, subs: (j.subs || []).map(pnl => {
+              if (pnl.id !== panel.id) return pnl;
+              const idx = pnl.subs.findIndex(o => o.id === op.id);
+              const newSubs = [...pnl.subs];
+              newSubs[idx] = { ...newSubs[idx], hpd: part1 };
+              newSubs.splice(idx + 1, 0, newOp);
+              return { ...pnl, subs: newSubs };
+            })};
+          });
+          const newTasks = recalcBounds(updated, loggedInUser?.name || "Split");
+          saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+          return newTasks;
         });
-        const newTasks = recalcBounds(updated, loggedInUser?.name || "Split");
-        setTasks(newTasks);
-        saveTasks(newTasks, getToken, orgCode).catch(console.warn);
         setSplitModal(null);
       };
       return <div style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setSplitModal(null)}>
@@ -12197,7 +12216,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={() => setSplitModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={doSplit} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Split</button>
+            <button onClick={doSplit} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Split</button>
           </div>
         </div>
       </div>;
