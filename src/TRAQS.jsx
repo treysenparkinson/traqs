@@ -7145,7 +7145,6 @@ ${jobsCtx || "No jobs found."}`;
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   const barKey = bar.id + "_0_" + bar.start;
-                  if (['t22isapb4','ttq9o7pyl','t76tc6gah'].includes(bar.id)) console.log("=== BAR KEY ===", bar.id, "key:", barKey, "start:", bar.start);
                   const spliceStatus = bar.spliceSegment?.status ?? null;
                   const spliceSegOpacity = spliceStatus === "remaining" ? 0.75 : 1.0;
                   const spliceSegAnim = spliceStatus === "active" ? "splicePulse 1.5s ease-in-out infinite" : undefined;
@@ -8114,7 +8113,7 @@ ${jobsCtx || "No jobs found."}`;
             spliceJustOccurredRef.current = true;
             await new Promise(resolve => setTimeout(resolve, 500));
             const freshTasks = await fetchTasks(orgCode);
-            if (freshTasks && freshTasks.length > 0) setTasks(freshTasks);
+            if (freshTasks && freshTasks.length > 0) setTasks(normalizeTasks(freshTasks));
             setTimeout(() => { spliceJustOccurredRef.current = false; }, 30000);
           } else {
             setTasks(prev => {

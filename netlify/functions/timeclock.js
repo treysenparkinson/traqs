@@ -73,6 +73,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
     ? addWorkingDays(fromOp.start, Math.floor(daysCompleted))
     : fromOp.start;
   const nowIso = new Date().toISOString();
+  const today = new Date().toISOString().slice(0, 10);
   const spliceId = `splice_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   const snapshotBefore = {
@@ -87,8 +88,8 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   const seg0 = {
     segmentId: `seg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     workerId: switchingWorkerId,
-    start: fromOp.start,
-    end: splitDate,
+    start: today,
+    end: today,
     hoursPlanned: hoursCompleted,
     hoursLogged: hoursCompleted,
     status: "complete",
@@ -112,9 +113,10 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   if (!toOp) return null;
 
   // STEP 6 — toOp insertion position (anchored to today, not the past job start)
-  const today = new Date().toISOString().slice(0, 10);
   const insertStart = today;
-  const toOpDuration = Math.max(1, Math.ceil((toOp.hpd || productiveHoursPerDay) / productiveHoursPerDay));
+  const toOpLoggedHours = toOp.loggedHours || 0;
+  const toOpRemainingHours = Math.max(productiveHoursPerDay * 0.1, (toOp.hpd || productiveHoursPerDay) - toOpLoggedHours);
+  const toOpDuration = Math.max(1, Math.ceil(toOpRemainingHours / productiveHoursPerDay));
   const insertEnd = toOpDuration > 1 ? addWorkingDays(insertStart, toOpDuration - 1) : insertStart;
 
   // STEP 7 — Remaining fromOp segment placed after toOp
@@ -194,6 +196,8 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         if (op.id === fromOpId) {
           return {
             ...op,
+            start: seg0.start,
+            end: seg0.end,
             segments: [...(op.segments || []), seg0, seg1],
             spliceLog: [...(op.spliceLog || []), spliceLogEntry],
           };
