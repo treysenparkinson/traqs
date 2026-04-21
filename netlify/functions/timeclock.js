@@ -153,8 +153,8 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         const owSeg0 = {
           segmentId: `seg_${Date.now()}_ow0_${Math.random().toString(36).slice(2, 7)}`,
           workerId: owId,
-          start: today,
-          end: today,
+          start: workingToday,
+          end: workingToday,
           hoursPlanned: owLoggedHours,
           hoursLogged: owLoggedHours,
           status: "complete",
