@@ -26,16 +26,6 @@ function addWorkingDays(dateStr, days) {
   return date.toISOString().slice(0, 10);
 }
 
-function subtractWorkingDays(dateStr, days) {
-  let date = new Date(dateStr + "T12:00:00Z");
-  let subtracted = 0;
-  while (subtracted < days) {
-    date.setUTCDate(date.getUTCDate() - 1);
-    const dow = date.getUTCDay();
-    if (dow !== 0 && dow !== 6) subtracted++;
-  }
-  return date.toISOString().slice(0, 10);
-}
 
 async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPanelId, fromJobId, toOpId, toPanelId, toJobId, activeJobClock) {
   const tasksKey = `orgs/${orgCode}/tasks.json`;

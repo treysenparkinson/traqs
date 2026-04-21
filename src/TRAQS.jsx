@@ -6073,6 +6073,7 @@ ${jobsCtx || "No jobs found."}`;
                 if (workerSegs.length > 0) {
                   workerSegs.forEach(seg => {
                     if (!seg.start || !seg.end || seg.end < tStart || seg.start > tEnd) return;
+                    if ((seg.hoursPlanned || 0) === 0) return;
                     const ss = seg.start < tStart ? tStart : seg.start;
                     const se = seg.end > tEnd ? tEnd : seg.end;
                     const workerSegCount = workerSegs.length;
