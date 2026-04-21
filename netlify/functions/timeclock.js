@@ -72,6 +72,8 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   // STEP 4 — Split the interrupted sub-op
   const nowIso = new Date().toISOString();
   const today = new Date().toISOString().slice(0, 10);
+  const todayDow = new Date(today + "T12:00:00Z").getUTCDay();
+  const workingToday = todayDow === 0 ? addWorkingDays(today, 1) : todayDow === 6 ? addWorkingDays(today, 2) : today;
   const spliceId = `splice_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 
   const snapshotBefore = {
@@ -86,8 +88,8 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   const seg0 = {
     segmentId: `seg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     workerId: switchingWorkerId,
-    start: today,
-    end: today,
+    start: workingToday,
+    end: workingToday,
     hoursPlanned: hoursCompleted,
     hoursLogged: hoursCompleted,
     status: "complete",
@@ -111,7 +113,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
   if (!toOp) return null;
 
   // STEP 6 — toOp insertion position (anchored to today, not the past job start)
-  const insertStart = today;
+  const insertStart = workingToday;
   const toOpLoggedHours = toOp.loggedHours || 0;
   const toOpRemainingHours = Math.max(productiveHoursPerDay * 0.1, (toOp.hpd || productiveHoursPerDay) - toOpLoggedHours);
   const toOpDuration = Math.max(1, Math.ceil(toOpRemainingHours / productiveHoursPerDay));
@@ -174,7 +176,7 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
         hoursPlanned: owRemHours,
         hoursLogged: 0,
         status: "remaining",
-        segmentIndex: 1,
+        segmentIndex: owLoggedHours > 0 ? 1 : 0,
       };
 
       owSegmentsForToOp.push(owSeg1);
@@ -261,18 +263,26 @@ async function runSpliceAlgorithm(orgCode, switchingWorkerId, fromOpId, fromPane
 
   // STEP 11 — Apply status update and write to S3 in a single pass
   const finalTasks = updatedTasks.map(job => {
-    if (job.id !== toJobId) return job;
-    return {
-      ...job,
-      status: job.status === "In Progress" ? job.status : "In Progress",
-      subs: (job.subs || []).map(panel => ({
-        ...panel,
-        subs: (panel.subs || []).map(op => {
-          if (op.id !== toOpId) return op;
-          return { ...op, status: "In Progress" };
-        }),
-      })),
-    };
+    if (job.id === toJobId) {
+      return {
+        ...job,
+        status: job.status === "In Progress" ? job.status : "In Progress",
+        subs: (job.subs || []).map(panel => ({
+          ...panel,
+          subs: (panel.subs || []).map(op => {
+            if (op.id !== toOpId) return op;
+            return { ...op, status: "In Progress" };
+          }),
+        })),
+      };
+    }
+    if (job.id === fromJobId) {
+      return {
+        ...job,
+        status: job.status === "In Progress" ? job.status : "In Progress",
+      };
+    }
+    return job;
   });
   try { await writeJson(tasksKey, finalTasks); } catch { return null; }
 
