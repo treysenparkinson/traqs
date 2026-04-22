@@ -12168,9 +12168,12 @@ ${jobsCtx || "No jobs found."}`;
       const part2 = Math.round((totalHours - splitHour) * 100) / 100;
       const workerNames = (op.team || []).map(id => { const p = people.find(x => x.id === id); return p ? p.name : null; }).filter(Boolean);
       const doSplit = () => {
-        const newStart = addBD(op.end, 1);
-        const newEnd = addBD(newStart, Math.max(0, Math.ceil(part2 / productiveHoursPerDay) - 1));
-        const newOp = { ...op, id: uid(), title: op.title + " (2)", hpd: part2, start: newStart, end: newEnd, status: "Not Started", deps: [], loggedHours: 0 };
+        const part1Days = Math.max(1, Math.ceil(part1 / productiveHoursPerDay));
+        const part1End = addBD(op.start, part1Days - 1);
+        const part2Start = addBD(part1End, 1);
+        const part2Days = Math.max(1, Math.ceil(part2 / productiveHoursPerDay));
+        const part2End = addBD(part2Start, part2Days - 1);
+        const newOp = { ...op, id: uid(), title: op.title + " (2)", hpd: part2, start: part2Start, end: part2End, status: "Not Started", deps: [], loggedHours: 0 };
         setTasks(prev => {
           const updated = prev.map(j => {
             if (j.id !== parentJob.id) return j;
@@ -12178,7 +12181,7 @@ ${jobsCtx || "No jobs found."}`;
               if (pnl.id !== panel.id) return pnl;
               const idx = pnl.subs.findIndex(o => o.id === op.id);
               const newSubs = [...pnl.subs];
-              newSubs[idx] = { ...newSubs[idx], hpd: part1 };
+              newSubs[idx] = { ...newSubs[idx], hpd: part1, end: part1End };
               newSubs.splice(idx + 1, 0, newOp);
               return { ...pnl, subs: newSubs };
             })};
