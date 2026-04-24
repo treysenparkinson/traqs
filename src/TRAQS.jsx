@@ -1582,7 +1582,7 @@ Rules:
         });
       });
     });
-    return Math.min(latest, workEndH);
+    return latest;
   };
   const [roleInput, setRoleInput] = useState("");
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
@@ -6648,15 +6648,17 @@ ${jobsCtx || "No jobs found."}`;
                   const { snapStart, snapEnd, hasOverlap, barColor, groupSnaps } = teamDragInfo;
                   const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
                   const ghosts = [];
-                  if (teamDragInfo.targetPersonId === p.id) {
+                  if (teamDragInfo.targetPersonId === p.id && teamDragInfo.translateX != null && (Math.abs(teamDragInfo.translateX) > 4 || Math.abs(teamDragInfo.translateY || 0) > 4)) {
                     const _liveRef = teamDragLiveRef.current;
                     const _liveSnapDay = _liveRef?.snapStart || snapStart;
                     const _liveSnapEnd = _liveRef?.snapEnd || snapEnd;
                     const _ghostLeft = _liveRef?.ghostLeftPct != null
                       ? _liveRef.ghostLeftPct
                       : (days.indexOf(_liveSnapDay) >= 0 ? (days.indexOf(_liveSnapDay) / nDays * 100) : (diffD(tStart, _liveSnapDay) / nDays * 100));
-                    const _ghostSegs = weekdaySegments(_liveSnapDay, _liveSnapEnd, tStart, tEnd);
-                    const _ghostFirstSeg = _ghostSegs[0] || { start: _liveSnapDay, end: _liveSnapEnd };
+                    const _ghostOrigDur = Math.max(0, diffBD(teamDragInfo.origStart, teamDragInfo.origEnd));
+                    const _ghostEndDay = addBD(_liveSnapDay, _ghostOrigDur);
+                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd);
+                    const _ghostFirstSeg = _ghostSegs[0] || { start: _liveSnapDay, end: _ghostEndDay };
                     const _ghostWidth = Math.max(diffD(_ghostFirstSeg.start, _ghostFirstSeg.end) + 1, 1) / nDays * 100;
                     ghosts.push(<div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${_ghostLeft}% + 2px)`, width: `calc(${_ghostWidth}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
                   }
@@ -6687,11 +6689,12 @@ ${jobsCtx || "No jobs found."}`;
                   const _oneDayPct = 1 / nDays * 100;
                   const _hourOffsetPct = (isSingleDayPartial || isHourPositioned) ? ((_barStartH - workStartH) / totalWorkH) * _oneDayPct : 0;
                   const x = (_baseXPct + _hourOffsetPct + stackShift) + "%";
-                  const w = (isSingleDayPartial
-                    ? proportionalFactor * _baseWPct
-                    : (!isSingleDayPartial && isHourPositioned)
-                      ? Math.max(0.5, _baseWPct - _hourOffsetPct)
-                      : _baseWPct) + "%";
+                  const _wFull = isSingleDayPartial ? proportionalFactor * _baseWPct : _baseWPct;
+                  const _segRightPct = (diffD(tStart, firstBarSeg.end) + 1) / nDays * 100;
+                  const _xNum = _baseXPct + _hourOffsetPct + stackShift;
+                  const w = (isHourPositioned && !isSingleDayPartial && isWeekend(addD(firstBarSeg.end, 1)) && _xNum + _wFull > _segRightPct)
+                    ? Math.max(0.5, _segRightPct - _xNum) + "%"
+                    : _wFull + "%";
                   // Engineering chip — render as compact pill, opens job detail
                   if (bar.type === "eng-chip") {
                     const chipJob = tasks.find(j => j.id === bar.jobId);
@@ -6895,7 +6898,7 @@ ${jobsCtx || "No jobs found."}`;
                             const _colFrac = Math.min(0.9999, Math.max(0, _rawDayIdx - _origDi));
                             const _rawHour = workStartH + _colFrac * totalWorkH;
                             const _snappedHour = Math.round(_rawHour * 2) / 2;
-                            dropHour = Math.max(workStartH, Math.min(workEndH - 0.5, _snappedHour));
+                            dropHour = Math.max(0, _snappedHour);
                           } else {
                             dropHour = workStartH;
                           }
@@ -6926,7 +6929,8 @@ ${jobsCtx || "No jobs found."}`;
                       if (snapS === null) return;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
-                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: bar.task?.hpd || productiveHoursPerDay, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct };
+                      const _liveSnapE = addBD(snapS, Math.max(0, diffBD(os, oe)));
+                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: _liveSnapE, dropHour, barHpd: bar.task?.hpd || productiveHoursPerDay, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct };
                       setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null, dropHour, barHpd: bar.task?.hpd || productiveHoursPerDay });
                     };
                     const onU = me => {
@@ -6966,7 +6970,7 @@ ${jobsCtx || "No jobs found."}`;
                         const _col = !isWeekend(days[_dayIdx]) ? ((_cxDrop / liveCW) - _dayIdx) : 0;
                         const _raw = workStartH + _col * totalWorkH;
                         const _snap = Math.round(_raw * 2) / 2;
-                        let finalHour = Math.max(workStartH, Math.min(workEndH - 0.5, _snap));
+                        let finalHour = Math.max(0, _snap);
                         const _origSpan = Math.max(0, diffBD(bar.task.start, bar.task.end));
                         const _finalEnd = addBD(effStart, _origSpan);
                         setTasks(prev => {
@@ -6976,7 +6980,7 @@ ${jobsCtx || "No jobs found."}`;
                               ...panel,
                               subs: (panel.subs || []).map(op => {
                                 if (op.id !== bar.task.id) return op;
-                                return { ...op, start: effStart, end: _finalEnd, startHour: finalHour };
+                                return { ...op, start: effStart, end: _finalEnd, startHour: finalHour, ...(lastDropPid && lastDropPid !== origPerson ? { team: (op.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}) };
                               })
                             }))
                           }));
@@ -7429,11 +7433,23 @@ ${jobsCtx || "No jobs found."}`;
         const M = Math.round((h % 1) * 60);
         const ampm = H >= 12 ? "PM" : "AM";
         const h12 = H > 12 ? H - 12 : H === 0 ? 12 : H;
-        const _endH = teamDragInfo.dropHour + (teamDragInfo.barHpd || productiveHoursPerDay);
-        const _eHraw = Math.min(_endH, workEndH);
-        const _eH = Math.floor(_eHraw); const _eM = Math.round((_eHraw % 1) * 60);
-        const _eAmpm = _eH >= 12 ? "PM" : "AM"; const _eH12 = _eH > 12 ? _eH - 12 : _eH === 0 ? 12 : _eH;
-        label = `${d}  ·  ${h12}:${String(M).padStart(2, "0")} ${ampm} – ${_eH12}:${String(_eM).padStart(2, "0")} ${_eAmpm}`;
+        const _hpd = teamDragInfo.barHpd || productiveHoursPerDay;
+        const _startH = teamDragInfo.dropHour ?? workStartH;
+        const _origDur = Math.max(0, diffBD(teamDragInfo.origStart, teamDragInfo.origEnd));
+        const _firstDayH = Math.max(0, totalWorkH - (_startH - workStartH));
+        const _remainH = Math.max(0, _hpd - _firstDayH);
+        const _extraDays = _remainH > 0 ? Math.ceil(_remainH / totalWorkH) : 0;
+        const _endDayStr = _extraDays > 0
+          ? addBD(teamDragInfo.snapStart || d, _extraDays) : (teamDragInfo.snapStart || d);
+        const _endDayLabel = new Date(_endDayStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        const _endHourRaw = _extraDays > 0
+          ? workStartH + (_remainH % totalWorkH || totalWorkH)
+          : _startH + _hpd;
+        const _eH = Math.floor(_endHourRaw);
+        const _eM = Math.round((_endHourRaw % 1) * 60);
+        const _eAmpm = _eH >= 12 ? "PM" : "AM";
+        const _eH12 = _eH > 12 ? _eH - 12 : _eH === 0 ? 12 : _eH;
+        label = `${d}  ·  ${h12}:${String(M).padStart(2, "0")} ${ampm}  →  ${_endDayLabel}  ·  ${_eH12}:${String(_eM).padStart(2, "0")} ${_eAmpm}`;
       }
       return <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 8, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{label}</div>;
     })()}
