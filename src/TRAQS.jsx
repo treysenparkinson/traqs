@@ -2235,6 +2235,7 @@ Rules:
   const [rowDragOver, setRowDragOver] = useState(null); // { type:"person"|"group", id, pos:"before"|"after" }
   const [ganttDragInfo, setGanttDragInfo] = useState(null); // { itemId, snapStart, snapEnd, hasOverlap }
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
+  const teamDragLiveRef = useRef(null);
   const ganttRef = useRef(null);
   const ganttContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
@@ -6648,17 +6649,16 @@ ${jobsCtx || "No jobs found."}`;
                   const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
                   const ghosts = [];
                   if (teamDragInfo.targetPersonId === p.id) {
-                    const snapX = (diffD(tStart, snapStart) / nDays * 100);
-                    const gw = (Math.max(diffD(snapStart, snapEnd) + 1, 1) / nDays * 100) + "%";
-                    const _ghostBarHpd = teamDragInfo.barHpd || productiveHoursPerDay;
-                    const _ghostHourOffset = (tMode === "month" && teamDragInfo.dropHour != null)
-                      ? ((teamDragInfo.dropHour - workStartH) / totalWorkH) * (1 / nDays) * 100
-                      : 0;
-                    const _ghostOrigDur = Math.max(0, diffBD(teamDragInfo.origStart, teamDragInfo.origEnd));
-                    const _ghostW = (tMode === "month" && teamDragInfo.dropHour != null)
-                      ? ((_ghostOrigDur + 1) / nDays * 100) + "%"
-                      : gw;
-                    ghosts.push(<div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${snapX + _ghostHourOffset}% + 2px)`, width: `calc(${_ghostW} - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                    const _liveRef = teamDragLiveRef.current;
+                    const _liveSnapDay = _liveRef?.snapStart || snapStart;
+                    const _liveSnapEnd = _liveRef?.snapEnd || snapEnd;
+                    const _ghostLeft = _liveRef?.ghostLeftPct != null
+                      ? _liveRef.ghostLeftPct
+                      : (days.indexOf(_liveSnapDay) >= 0 ? (days.indexOf(_liveSnapDay) / nDays * 100) : (diffD(tStart, _liveSnapDay) / nDays * 100));
+                    const _ghostSegs = weekdaySegments(_liveSnapDay, _liveSnapEnd, tStart, tEnd);
+                    const _ghostFirstSeg = _ghostSegs[0] || { start: _liveSnapDay, end: _liveSnapEnd };
+                    const _ghostWidth = Math.max(diffD(_ghostFirstSeg.start, _ghostFirstSeg.end) + 1, 1) / nDays * 100;
+                    ghosts.push(<div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${_ghostLeft}% + 2px)`, width: `calc(${_ghostWidth}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
                   }
                   (groupSnaps || []).forEach(gs => {
                     if ((gs.personIds || []).includes(p.id)) {
@@ -6733,6 +6733,10 @@ ${jobsCtx || "No jobs found."}`;
                     e.preventDefault();
                     e.stopPropagation();
                     let sx = e.clientX; const sy = e.clientY;
+                    const _barClientRect = e.currentTarget?.getBoundingClientRect();
+                    const _grabPx = _barClientRect ? Math.max(0, e.clientX - _barClientRect.left) : 0;
+                    const _barRect = e.currentTarget?.getBoundingClientRect();
+                    const _grabOffsetPct = _barRect ? (e.clientX - _barRect.left) / _barRect.width : 0.5;
                     const os = bar.task.start, oe = bar.task.end;
                     const wdDuration = getWorkingDayDuration(os, oe);
                     const taskPid = bar.task.pid || null;
@@ -6880,16 +6884,21 @@ ${jobsCtx || "No jobs found."}`;
                       if (tMode === "month") {
                         const _mRect = gridAreaEl?.getBoundingClientRect();
                         if (_mRect) {
-                          const _mcx = me.clientX - _mRect.left;
+                          const _mcx = (me.clientX - _grabPx) - _mRect.left;
                           const _rawDayIdx = _mcx / liveCW;
                           let _di = Math.max(0, Math.min(days.length - 1, Math.floor(_rawDayIdx)));
+                          const _origDi = _di;
                           while (_di < days.length - 1 && isWeekend(days[_di])) _di++;
                           const _snapDay = (!isWeekend(days[_di])) ? days[_di] : snapS;
                           snapS = _snapDay;
-                          const _colFrac = _rawDayIdx - Math.floor(_rawDayIdx);
-                          const _rawHour = workStartH + _colFrac * totalWorkH;
-                          const _snappedHour = Math.round(_rawHour * 2) / 2;
-                          dropHour = Math.max(workStartH, Math.min(workEndH - 0.5, _snappedHour));
+                          if (!isWeekend(days[_origDi])) {
+                            const _colFrac = Math.min(0.9999, Math.max(0, _rawDayIdx - _origDi));
+                            const _rawHour = workStartH + _colFrac * totalWorkH;
+                            const _snappedHour = Math.round(_rawHour * 2) / 2;
+                            dropHour = Math.max(workStartH, Math.min(workEndH - 0.5, _snappedHour));
+                          } else {
+                            dropHour = workStartH;
+                          }
                         }
                       }
                       // Unlocked: clamp preview ghost to dep boundaries so bar physically stops at constraint
@@ -6904,26 +6913,20 @@ ${jobsCtx || "No jobs found."}`;
                       });
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
-                      const newHpd = (bar.task?.hpd || 7.5) / Math.max(1, (bar.task?.team || []).length);
-                      const personCap = (people.find(x => x.id === targetPid) || {}).cap || 8;
                       let hasOverlap = false;
-                      let chk = snapS;
-                      while (chk <= snapE) {
-                        let dayH = 0;
-                        for (const job of tasks) {
-                          for (const panel of (job.subs || [])) {
-                            for (const op of (panel.subs || [])) {
-                              if (op.id === movingTaskId || op.status === "Finished") continue;
-                              if (!(op.team || []).includes(targetPid)) continue;
-                              if (chk >= op.start && chk <= op.end)
-                                dayH += (op.hpd || 7.5) / Math.max(1, (op.team || []).length);
-                            }
+                      outer: for (const job of tasks) {
+                        for (const panel of (job.subs || [])) {
+                          for (const op of (panel.subs || [])) {
+                            if (op.id === movingTaskId || op.status === "Finished") continue;
+                            if (!(op.team || []).includes(targetPid)) continue;
+                            if (op.start <= snapE && op.end >= snapS) { hasOverlap = true; break outer; }
                           }
                         }
-                        if (dayH + newHpd > personCap) { hasOverlap = true; break; }
-                        chk = addD(chk, 1);
                       }
                       if (snapS === null) return;
+                      const _mRectForRef = gridAreaEl?.getBoundingClientRect();
+                      const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
+                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: bar.task?.hpd || productiveHoursPerDay, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct };
                       setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null, dropHour, barHpd: bar.task?.hpd || productiveHoursPerDay });
                     };
                     const onU = me => {
@@ -6954,13 +6957,13 @@ ${jobsCtx || "No jobs found."}`;
                       if (tMode === "month" && bar.task && !isPto) {
                         const _gRect = gridAreaEl?.getBoundingClientRect();
                         if (!_gRect) return;
-                        const _cxDrop = me.clientX - _gRect.left;
+                        const _cxDrop = (me.clientX - _grabPx) - _gRect.left;
                         const _dayIdx = Math.max(0, Math.min(days.length - 1, Math.floor(_cxDrop / liveCW)));
                         let _di2 = _dayIdx;
                         while (_di2 < days.length - 1 && isWeekend(days[_di2])) _di2++;
                         effStart = (!isWeekend(days[_di2])) ? days[_di2] : null;
                         if (!effStart) return;
-                        const _col = (_cxDrop / liveCW) % 1;
+                        const _col = !isWeekend(days[_dayIdx]) ? ((_cxDrop / liveCW) - _dayIdx) : 0;
                         const _raw = workStartH + _col * totalWorkH;
                         const _snap = Math.round(_raw * 2) / 2;
                         let finalHour = Math.max(workStartH, Math.min(workEndH - 0.5, _snap));
