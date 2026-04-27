@@ -6656,11 +6656,27 @@ ${jobsCtx || "No jobs found."}`;
                       ? _liveRef.ghostLeftPct
                       : (days.indexOf(_liveSnapDay) >= 0 ? (days.indexOf(_liveSnapDay) / nDays * 100) : (diffD(tStart, _liveSnapDay) / nDays * 100));
                     const _ghostOrigDur = Math.max(0, diffBD(teamDragInfo.origStart, teamDragInfo.origEnd));
+                    const _dropHour = _liveRef?.dropHour ?? workStartH;
+                    const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
                     const _ghostEndDay = addBD(_liveSnapDay, _ghostOrigDur);
-                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd);
-                    const _ghostFirstSeg = _ghostSegs[0] || { start: _liveSnapDay, end: _ghostEndDay };
-                    const _ghostWidth = Math.max(diffD(_ghostFirstSeg.start, _ghostFirstSeg.end) + 1, 1) / nDays * 100;
-                    ghosts.push(<div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${_ghostLeft}% + 2px)`, width: `calc(${_ghostWidth}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                    const _ghostNeedsExtra = _ghostOffsetH > 0 && _ghostOrigDur >= 4;
+                    const _ghostSegsEnd = _ghostNeedsExtra ? addBD(_ghostEndDay, 1) : _ghostEndDay;
+                    const _ghostExtraDays = _ghostNeedsExtra ? 1 : 0;
+                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostSegsEnd, tStart, tEnd);
+                    const _oneDayW = 1 / nDays * 100;
+                    const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
+                    _ghostSegs.forEach((seg, gi) => {
+                      const isFirst = gi === 0;
+                      const isLast = gi === _ghostSegs.length - 1;
+                      const segLeft = diffD(tStart, seg.start) / nDays * 100 + (isFirst ? _ghostHourOffW : 0);
+                      const segFullW = Math.max(diffD(seg.start, seg.end) + 1, 1) * _oneDayW;
+                      const segW = (isLast && _ghostExtraDays > 0)
+                        ? _ghostHourOffW
+                        : isFirst
+                          ? segFullW - _ghostHourOffW
+                          : segFullW;
+                      ghosts.push(<div key={`team-ghost-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${Math.max(segW, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                    });
                   }
                   (groupSnaps || []).forEach(gs => {
                     if ((gs.personIds || []).includes(p.id)) {
@@ -6674,15 +6690,18 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Task/PTO bars */}
                 {bars.map(bar => {
                   const nDays = days.length;
-                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, bar.end, tStart, tEnd);
-                  const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
-                  const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
-                  const _baseWPct = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100;
                   const _opStart = bar.task?.start; const _opEnd = bar.task?.end;
                   const _barHpd = bar.task?.hpd || productiveHoursPerDay;
                   const _barStartH = bar.task?.startHour ?? workStartH;
                   const isSingleDayPartial = (tMode === "month" || tMode === "week") && bar.type === "task" && _opStart && _opEnd && _opStart === _opEnd && _barHpd < totalWorkH;
                   const isHourPositioned = (tMode === "month" || tMode === "week") && bar.type === "task" && bar.task?.startHour != null && bar.task.startHour > workStartH;
+                  const _segsEnd = (isHourPositioned && !isSingleDayPartial)
+                    ? addBD(bar.end, Math.ceil((bar.task.startHour - workStartH) / productiveHoursPerDay))
+                    : bar.end;
+                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd);
+                  const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
+                  const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
+                  const _baseWPct = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100;
                   const proportionalFactor = isSingleDayPartial ? Math.max(0.03, _barHpd / totalWorkH) : 1;
                   const stackIdx = isSingleDayPartial ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
                   const stackShift = isSingleDayPartial && stackIdx > 0 ? stackIdx * proportionalFactor * _baseWPct : 0;
@@ -7239,10 +7258,13 @@ ${jobsCtx || "No jobs found."}`;
                   </div>,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
-                    const tailW = ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
+                    const isLastSeg = si === barSegs.length - 2;
+                    const _overflowH = isHourPositioned ? Math.max(0, (_barStartH - workStartH)) : 0;
+                    const tailW = (isLastSeg && isHourPositioned && _overflowH > 0)
+                      ? ((_overflowH / totalWorkH) / nDays * 100) + "%"
+                      : ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
                     const isPto2 = bar.type === "pto";
                     const bc2 = bar.color;
-                    const isLastSeg = si === barSegs.length - 2;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
