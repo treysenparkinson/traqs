@@ -6718,8 +6718,8 @@ ${jobsCtx || "No jobs found."}`;
                   const _barClockH = (_barHpd / productiveHoursPerDay) * totalWorkH;
                   const _firstDayCapacity = isHourPositioned ? Math.max(0, (totalWorkH - _offsetH) / totalWorkH * productiveHoursPerDay) : productiveHoursPerDay;
                   const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && isWeekend(addD(bar.end, 1));
-                  const _visualWorkDays = (!isSingleDayPartial && bar.type === "task" && _barHpd > 0)
-                    ? Math.max(1, Math.ceil(_barHpd / productiveHoursPerDay))
+                  const _visualWorkDays = (!isSingleDayPartial && bar.type === "task" && _opStart && _opEnd && _opStart !== _opEnd)
+                    ? diffBD(_opStart, _opEnd) + 1
                     : null;
                   const _segsEnd = _visualWorkDays != null
                     ? addBD(bar.start, _visualWorkDays - 1)
@@ -6730,8 +6730,8 @@ ${jobsCtx || "No jobs found."}`;
                   const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
                   const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
                   const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
-                  const _baseWPct = (!isSingleDayPartial && bar.type === "task" && _barHpd > 0)
-                    ? Math.min(_barHpd / productiveHoursPerDay, _calDays0) / nDays * 100
+                  const _baseWPct = (!isSingleDayPartial && bar.type === "task" && _opStart && _opEnd && _opStart !== _opEnd)
+                    ? (_visualWorkDays / nDays * 100)
                     : _calDays0 / nDays * 100;
                   const proportionalFactor = isSingleDayPartial ? Math.max(0.03, _barHpd / productiveHoursPerDay) : 1;
                   const stackIdx = isSingleDayPartial ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
