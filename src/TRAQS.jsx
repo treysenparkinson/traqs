@@ -6697,10 +6697,34 @@ ${jobsCtx || "No jobs found."}`;
                     }
                   }
                   (groupSnaps || []).forEach(gs => {
-                    if ((gs.personIds || []).includes(p.id)) {
-                      const snapX = (diffD(tStart, gs.snapStart) / nDays * 100);
-                      const gw = (Math.max(diffD(gs.snapStart, gs.snapEnd) + 1, 1) / nDays * 100) + "%";
-                      ghosts.push(<div key={`ghost-grp-${gs.id}`} style={{ position: "absolute", top: 4, left: `calc(${snapX}% + 2px)`, width: `calc(${gw} - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                    if (!(gs.personIds || []).includes(p.id)) return;
+                    const _gsOneDayW = 1 / nDays * 100;
+                    const _gsHourOffW = gs.dropHour != null ? (Math.max(0, gs.dropHour - workStartH) / totalWorkH) * _gsOneDayW : 0;
+                    const _gsSegs = weekdaySegments(gs.snapStart, gs.snapEnd, tStart, tEnd);
+                    let _gsPending = 0;
+                    _gsSegs.forEach((seg, gi) => {
+                      const isFirst = gi === 0;
+                      const segLeft = diffD(tStart, seg.start) / nDays * 100 + (isFirst ? _gsHourOffW : 0);
+                      const segFullW = isFirst ? gs.wdDur * _gsOneDayW : 0;
+                      const targetW = segFullW + _gsPending;
+                      _gsPending = 0;
+                      const _segRight = (diffD(tStart, seg.end) + 1) / nDays * 100;
+                      let segW;
+                      if (isWeekend(addD(seg.end, 1)) && segLeft + targetW > _segRight + 0.0001) {
+                        segW = Math.max(0, _segRight - segLeft);
+                        _gsPending = Math.max(0, targetW - segW);
+                      } else {
+                        segW = targetW;
+                      }
+                      if (segW <= 0) return;
+                      ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                    });
+                    if (_gsPending > 0 && _gsSegs.length > 0) {
+                      const _gsOvfDay = addBD(_gsSegs[_gsSegs.length - 1].end, 1);
+                      if (_gsOvfDay <= tEnd && (_gsPending / _gsOneDayW) * cW >= 4) {
+                        const _gsOvfLeft = diffD(tStart, _gsOvfDay) / nDays * 100;
+                        ghosts.push(<div key={`ghost-grp-${gs.id}-ovf`} style={{ position: "absolute", top: 4, left: `calc(${_gsOvfLeft}% + 2px)`, width: `calc(${_gsPending}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                      }
                     }
                   });
                   return ghosts.length ? <>{ghosts}</> : null;
@@ -6967,8 +6991,9 @@ ${jobsCtx || "No jobs found."}`;
                       const groupSnaps = [
                         ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
                       ].map(m => {
-                        const mSnap = nextBD(addD(m.origStart, dx));
-                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: countWorkingDays(mSnap, m.wdDur), color: bar.color };
+                        const _mOffset = m.origStart >= os ? diffBD(os, m.origStart) : -diffBD(m.origStart, os);
+                        const mSnap = addBD(snapS, _mOffset);
+                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, m.wdDur - 1), wdDur: m.wdDur, color: bar.color, dropHour };
                       });
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
@@ -7038,14 +7063,24 @@ ${jobsCtx || "No jobs found."}`;
                         let finalHour = Math.max(0, _snap);
                         const _origSpan = Math.max(0, diffBD(bar.task.start, bar.task.end));
                         const _finalEnd = addBD(effStart, _origSpan);
+                        const _mWdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
+                        const groupMonthMoves = (isGroupDrag && depsMode === "locked") ? groupMembers.map(m => {
+                          const mNewStart = addBD(m.origStart, _mWdDelta);
+                          const mNewEnd = countWorkingDays(mNewStart, m.wdDur);
+                          return { id: m.id, newStart: mNewStart, newEnd: mNewEnd };
+                        }) : [];
                         setTasks(prev => {
                           const next = prev.map(job => ({
                             ...job,
                             subs: (job.subs || []).map(panel => ({
                               ...panel,
                               subs: (panel.subs || []).map(op => {
-                                if (op.id !== bar.task.id) return op;
-                                return { ...op, start: effStart, end: _finalEnd, startHour: finalHour, ...(lastDropPid && lastDropPid !== origPerson ? { team: (op.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}) };
+                                if (op.id === bar.task.id) {
+                                  return { ...op, start: effStart, end: _finalEnd, startHour: finalHour, ...(lastDropPid && lastDropPid !== origPerson ? { team: (op.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}) };
+                                }
+                                const gm = groupMonthMoves.find(m => m.id === op.id);
+                                if (gm) return { ...op, start: gm.newStart, end: gm.newEnd, startHour: finalHour };
+                                return op;
                               })
                             }))
                           }));
