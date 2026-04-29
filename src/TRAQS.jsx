@@ -6974,21 +6974,17 @@ ${jobsCtx || "No jobs found."}`;
                       const movingTaskId = bar.task?.id;
                       for (let _si = 0; _si < 50; _si++) {
                         let conflict = null;
-                        let conflictVisualEnd = null;
                         outer: for (const job of tasks) {
                           for (const panel of (job.subs || [])) {
                             for (const op of (panel.subs || [])) {
                               if (op.id === movingTaskId || op.status === "Finished") continue;
                               if (!(op.team || []).includes(targetPid)) continue;
-                              const _opTeamSz = Math.max(1, (op.team || []).length);
-                              const _opHpd = (op.hpd || 0) > 0 ? op.hpd / _opTeamSz : productiveHoursPerDay;
-                              const _opVisualEnd = addBD(op.start, Math.max(1, Math.ceil(_opHpd / productiveHoursPerDay)) - 1);
-                              if (op.start <= snapE && _opVisualEnd >= snapS) { conflict = op; conflictVisualEnd = _opVisualEnd; break outer; }
+                              if (op.start <= snapE && op.end >= snapS) { conflict = op; break outer; }
                             }
                           }
                         }
                         if (!conflict) break;
-                        snapS = addBD(conflictVisualEnd, 1);
+                        snapS = addBD(conflict.end, 1);
                         snapE = addBD(snapS, _liveVWD - 1);
                       }
                       if (snapS === null) return;
