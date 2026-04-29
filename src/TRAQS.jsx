@@ -6612,7 +6612,7 @@ ${jobsCtx || "No jobs found."}`;
             // Precompute stacking order for single-day partial-hour bars (month view only)
             const singleDayStacking = {};
             if (tMode === "month" || tMode === "week") {
-              const _dayBars = bars.filter(b => b.type === "task" && b.task?.start && b.task?.end && b.task.start === b.task.end && (b.task?.hpd || 0) > 0 && (b.task.hpd || productiveHoursPerDay) < totalWorkH);
+              const _dayBars = bars.filter(b => { const _tsz = Math.max(1, (b.task?.team || []).length); const _phd = (b.task?.hpd || 0) > 0 ? b.task.hpd / _tsz : productiveHoursPerDay; return b.type === "task" && b.task?.start && b.task?.end && b.task.start === b.task.end && _phd > 0 && _phd < productiveHoursPerDay; });
               _dayBars.sort((a, b) => (a.task?.startHour ?? workStartH) - (b.task?.startHour ?? workStartH));
               _dayBars.forEach(bar => {
                 if (!singleDayStacking[bar.start]) singleDayStacking[bar.start] = [];
@@ -6658,15 +6658,18 @@ ${jobsCtx || "No jobs found."}`;
                     const _ghostOrigDur = Math.max(0, diffBD(teamDragInfo.origStart, teamDragInfo.origEnd));
                     const _dropHour = _liveRef?.dropHour ?? workStartH;
                     const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
-                    const _ghostEndDay = addBD(_liveSnapDay, _ghostOrigDur);
-                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd);
                     const _oneDayW = 1 / nDays * 100;
                     const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
+                    const _ghostHpd = teamDragInfo.barHpd || productiveHoursPerDay;
+                    const _ghostTotalDays = _ghostHpd > 0 ? Math.max(0.03, _ghostHpd / productiveHoursPerDay) : (_ghostOrigDur + 1);
+                    const _ghostVisualWD = _ghostHpd > 0 ? Math.max(1, Math.ceil(_ghostHpd / productiveHoursPerDay)) : _ghostOrigDur + 1;
+                    const _ghostEndDay = addBD(_liveSnapDay, _ghostVisualWD - 1);
+                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd);
                     let _pendingExtra = 0;
                     _ghostSegs.forEach((seg, gi) => {
                       const isFirst = gi === 0;
                       const segLeft = diffD(tStart, seg.start) / nDays * 100 + (isFirst ? _ghostHourOffW : 0);
-                      const segFullW = Math.max(diffD(seg.start, seg.end) + 1, 1) * _oneDayW;
+                      const segFullW = isFirst ? _ghostTotalDays * _oneDayW : 0;
                       const targetW = segFullW + _pendingExtra;
                       _pendingExtra = 0;
                       const _segRight = (diffD(tStart, seg.end) + 1) / nDays * 100;
@@ -6701,27 +6704,40 @@ ${jobsCtx || "No jobs found."}`;
                 {bars.map(bar => {
                   const nDays = days.length;
                   const _opStart = bar.task?.start; const _opEnd = bar.task?.end;
-                  const _barHpd = bar.task?.hpd || productiveHoursPerDay;
+                  const _barTeamSz = Math.max(1, (bar.task?.team || []).length);
+                  const _barHpd = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay;
                   const _barStartH = bar.task?.startHour ?? workStartH;
-                  const isSingleDayPartial = (tMode === "month" || tMode === "week") && bar.type === "task" && _opStart && _opEnd && _opStart === _opEnd && _barHpd < totalWorkH;
+                  const isSingleDayPartial = (tMode === "month" || tMode === "week") && bar.type === "task" && _opStart && _opEnd && _opStart === _opEnd && _barHpd < productiveHoursPerDay;
                   const isHourPositioned = (tMode === "month" || tMode === "week") && bar.type === "task" && bar.task?.startHour != null && bar.task.startHour > workStartH;
-                  const _segsEnd = (isHourPositioned && !isSingleDayPartial)
-                    ? addBD(bar.end, Math.ceil((bar.task.startHour - workStartH) / productiveHoursPerDay))
-                    : bar.end;
+                  const _offsetH = _barStartH - workStartH;
+                  const _barClockH = (_barHpd / productiveHoursPerDay) * totalWorkH;
+                  const _firstDayCapacity = isHourPositioned ? Math.max(0, (totalWorkH - _offsetH) / totalWorkH * productiveHoursPerDay) : productiveHoursPerDay;
+                  const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && isWeekend(addD(bar.end, 1));
+                  const _visualWorkDays = (!isSingleDayPartial && bar.type === "task" && _barHpd > 0)
+                    ? Math.max(1, Math.ceil(_barHpd / productiveHoursPerDay))
+                    : null;
+                  const _segsEnd = _visualWorkDays != null
+                    ? addBD(bar.start, _visualWorkDays - 1)
+                    : _willOverflowWeekend
+                      ? addBD(bar.end, 1)
+                      : bar.end;
                   const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd);
                   const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
                   const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
-                  const _baseWPct = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1) / nDays * 100;
-                  const proportionalFactor = isSingleDayPartial ? Math.max(0.03, _barHpd / totalWorkH) : 1;
+                  const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
+                  const _baseWPct = (!isSingleDayPartial && bar.type === "task" && _barHpd > 0)
+                    ? Math.min(_barHpd / productiveHoursPerDay, _calDays0) / nDays * 100
+                    : _calDays0 / nDays * 100;
+                  const proportionalFactor = isSingleDayPartial ? Math.max(0.03, _barHpd / productiveHoursPerDay) : 1;
                   const stackIdx = isSingleDayPartial ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
-                  const stackShift = isSingleDayPartial && stackIdx > 0 ? stackIdx * proportionalFactor * _baseWPct : 0;
+                  const stackShift = (isSingleDayPartial && stackIdx > 0 && !isHourPositioned) ? stackIdx * proportionalFactor * _baseWPct : 0;
                   const _oneDayPct = 1 / nDays * 100;
                   const _hourOffsetPct = (isSingleDayPartial || isHourPositioned) ? ((_barStartH - workStartH) / totalWorkH) * _oneDayPct : 0;
                   const x = (_baseXPct + _hourOffsetPct + stackShift) + "%";
-                  const _wFull = isSingleDayPartial ? proportionalFactor * _baseWPct : _baseWPct;
+                  const _wFull = proportionalFactor * _baseWPct;
                   const _segRightPct = (diffD(tStart, firstBarSeg.end) + 1) / nDays * 100;
                   const _xNum = _baseXPct + _hourOffsetPct + stackShift;
-                  const w = (isHourPositioned && !isSingleDayPartial && isWeekend(addD(firstBarSeg.end, 1)) && _xNum + _wFull > _segRightPct)
+                  const w = (isHourPositioned && (!isSingleDayPartial || _willOverflowWeekend) && isWeekend(addD(firstBarSeg.end, 1)) && _xNum + _wFull > _segRightPct)
                     ? Math.max(0.5, _segRightPct - _xNum) + "%"
                     : _wFull + "%";
                   // Engineering chip — render as compact pill, opens job detail
@@ -6771,6 +6787,10 @@ ${jobsCtx || "No jobs found."}`;
                     const _grabOffsetPct = _barRect ? (e.clientX - _barRect.left) / _barRect.width : 0.5;
                     const os = bar.task.start, oe = bar.task.end;
                     const wdDuration = getWorkingDayDuration(os, oe);
+                    const _dragTeamSz = Math.max(1, (bar.task?.team || []).length);
+                    const _dragBarHpd = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _dragTeamSz : productiveHoursPerDay;
+                    const _dragOffsetH = Math.max(0, (bar.task?.startHour ?? workStartH) - workStartH);
+                    const _visualWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil(_dragBarHpd / productiveHoursPerDay)) : wdDuration;
                     const taskPid = bar.task.pid || null;
                     const origPerson = p.id;
                     // Dep group — collect all bars in the same dependency chain
@@ -6885,8 +6905,8 @@ ${jobsCtx || "No jobs found."}`;
                           const pxDy2 = lastCY - sy;
                           const dx2 = Math.round(pxDx2 / liveCW);
                           let snapS2 = nextBD(addD(os, dx2));
-                          if (depsMode === "unlocked" && isGroupDrag) snapS2 = clampUnlocked(snapS2, wdDuration);
-                          const snapE2 = countWorkingDays(snapS2, wdDuration);
+                          if (depsMode === "unlocked" && isGroupDrag) snapS2 = clampUnlocked(snapS2, _visualWD);
+                          const snapE2 = addBD(snapS2, _visualWD - 1);
                           setTeamDragInfo(prev => prev ? { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2 } : prev);
                         }
                       }
@@ -6934,8 +6954,10 @@ ${jobsCtx || "No jobs found."}`;
                         }
                       }
                       // Unlocked: clamp preview ghost to dep boundaries so bar physically stops at constraint
-                      if (depsMode === "unlocked" && isGroupDrag) snapS = clampUnlocked(snapS, wdDuration);
-                      const snapE = countWorkingDays(snapS, wdDuration);
+                      if (depsMode === "unlocked" && isGroupDrag) snapS = clampUnlocked(snapS, _visualWD);
+                      const _dropProdOff = dropHour != null ? Math.max(0, dropHour - workStartH) / totalWorkH * productiveHoursPerDay : 0;
+                      const _liveVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_dropProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
+                      const snapE = addBD(snapS, _liveVWD - 1);
                       // Group member ghost positions — locked moves all together; free/unlocked moves only dragged task
                       const groupSnaps = [
                         ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
@@ -6958,9 +6980,9 @@ ${jobsCtx || "No jobs found."}`;
                       if (snapS === null) return;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
-                      const _liveSnapE = addBD(snapS, Math.max(0, diffBD(os, oe)));
-                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: _liveSnapE, dropHour, barHpd: bar.task?.hpd || productiveHoursPerDay, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct };
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null, dropHour, barHpd: bar.task?.hpd || productiveHoursPerDay });
+                      const _liveSnapE = addBD(snapS, _liveVWD - 1);
+                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: _liveSnapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct };
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, hasOverlap, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null, dropHour, barHpd: _dragBarHpd });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
@@ -6970,10 +6992,13 @@ ${jobsCtx || "No jobs found."}`;
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openDetail(bar.task); } return; }
                       const finalDx = Math.round((me.clientX - sx) / liveCW);
                       const newStart = nextBD(addD(os, finalDx));
-                      const newEnd = countWorkingDays(newStart, wdDuration);
+                      const _finalDropH = teamDragLiveRef.current?.dropHour ?? workStartH;
+                      const _finalProdOff = Math.max(0, _finalDropH - workStartH) / totalWorkH * productiveHoursPerDay;
+                      const _finalVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_finalProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
+                      const newEnd = addBD(newStart, _finalVWD - 1);
                       // Unlocked: clamp drop position to dep boundaries (same rule as drag preview)
-                      let effStart = depsMode === "unlocked" && isGroupDrag ? clampUnlocked(newStart, wdDuration) : newStart;
-                      const effEnd = countWorkingDays(effStart, wdDuration);
+                      let effStart = depsMode === "unlocked" && isGroupDrag ? clampUnlocked(newStart, _finalVWD) : newStart;
+                      const effEnd = addBD(effStart, _finalVWD - 1);
                       const dropPerson = lastDropPid || origPerson;
                       const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
                       const movedByName = loggedInUser ? loggedInUser.name : "Admin";
@@ -7248,10 +7273,12 @@ ${jobsCtx || "No jobs found."}`;
                   const dragTx = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateX || 0) : 0;
                   const dragTy = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateY || 0) : 0;
                   const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
-                  const barOpacity = isDraggingThis ? 0.25 : barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
+                  const _isDragActive = (isDraggingThis || isMultiDragging) && (Math.abs(teamDragInfo?.translateX || 0) > 4 || Math.abs(teamDragInfo?.translateY || 0) > 4);
+                  const barOpacity = _isDragActive ? 0 : barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   const barKey = bar.id + "_0_" + bar.start;
+                  let _contRemainingH = (!isSingleDayPartial && bar.type === "task" && _barHpd > 0) ? Math.max(0, _barHpd - (_firstDayCapacity + Math.max(0, _calDays0 - 1) * productiveHoursPerDay)) : null;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
@@ -7269,10 +7296,14 @@ ${jobsCtx || "No jobs found."}`;
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
                     const isLastSeg = si === barSegs.length - 2;
-                    const _overflowH = isHourPositioned ? Math.max(0, (_barStartH - workStartH)) : 0;
-                    const tailW = (isLastSeg && isHourPositioned && _overflowH > 0)
-                      ? ((_overflowH / totalWorkH) / nDays * 100) + "%"
-                      : ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
+                    const _tailH = _willOverflowWeekend ? Math.max(0, _barHpd - _firstDayCapacity) : 0;
+                    const _segCalDays = diffD(seg.start, seg.end) + 1;
+                    const tailW = (_contRemainingH != null)
+                      ? (Math.min(Math.max(0, _contRemainingH) / productiveHoursPerDay, _segCalDays) / nDays * 100) + "%"
+                      : (isLastSeg && _willOverflowWeekend && _tailH > 0)
+                        ? ((_tailH / productiveHoursPerDay) / nDays * 100) + "%"
+                        : (proportionalFactor * _segCalDays / nDays * 100) + "%";
+                    _contRemainingH = _contRemainingH != null ? Math.max(0, _contRemainingH - _segCalDays * productiveHoursPerDay) : null;
                     const isPto2 = bar.type === "pto";
                     const bc2 = bar.color;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
@@ -7467,7 +7498,13 @@ ${jobsCtx || "No jobs found."}`;
         const timeStr = `${h12}:${String(M).padStart(2, "0")} ${ampm}`;
         const startLabel = teamDragInfo.snapStart ? new Date(teamDragInfo.snapStart + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "";
         const endLabel = teamDragInfo.snapEnd ? new Date(teamDragInfo.snapEnd + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : startLabel;
-        label = `${startLabel}  ·  ${timeStr}  →  ${endLabel}  ·  ${timeStr}`;
+        const _ttDropProdOff = Math.max(0, h - workStartH) / totalWorkH * productiveHoursPerDay;
+        const _endModProd = (_ttDropProdOff + (teamDragInfo.barHpd || productiveHoursPerDay)) % productiveHoursPerDay;
+        const _endH = _endModProd < 0.01 ? workEndH : workStartH + (_endModProd / productiveHoursPerDay) * totalWorkH;
+        const eH = Math.floor(_endH); const eM = Math.round((_endH % 1) * 60);
+        const eAmpm = eH >= 12 ? "PM" : "AM"; const eH12 = eH > 12 ? eH - 12 : eH === 0 ? 12 : eH;
+        const endTimeStr = `${eH12}:${String(eM).padStart(2, "0")} ${eAmpm}`;
+        label = `${startLabel}  ·  ${timeStr}  →  ${endLabel}  ·  ${endTimeStr}`;
       }
       return <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 8, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{label}</div>;
     })()}
