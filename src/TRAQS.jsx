@@ -2681,6 +2681,11 @@ Rules:
           for (const busy of (selfBusy[pid] || [])) {
             if (busy.start > slotEnd) continue;
             if (busy.end < slotStart) continue;
+            // Same-day single-day conflict: check if hours actually overlap before blocking
+            if (busy.start === busy.end && busy.start === slotStart && slotStart === slotEnd && busy.endHour != null) {
+              const _sameDayMaxH = (selfBusy[pid] || []).filter(b => b.start === slotStart && b.endHour != null).reduce((m, b) => Math.max(m, b.endHour), workStartH);
+              if (_sameDayMaxH < workEndH) continue; // room left in the day, don't block
+            }
             slotStart = addBD(busy.end, 1);
             blocked = true;
             break;
@@ -2689,11 +2694,23 @@ Rules:
 
           // Clear — place here
           const finalEnd = addBD(slotStart, duration);
-          const _autoStartH = (op.team || []).length > 0 ? getNextStartHour((op.team || [])[0], slotStart) : workStartH;
+          const _selfDayMaxH = finalEnd === slotStart
+            ? (selfBusy[pid] || []).filter(b => b.start === slotStart && b.endHour != null).reduce((m, b) => Math.max(m, b.endHour), workStartH)
+            : workStartH;
+          const _autoStartH = Math.max(
+            (op.team || []).length > 0 ? getNextStartHour((op.team || [])[0], slotStart) : workStartH,
+            _selfDayMaxH
+          );
+          const _autoClockH = productiveHoursPerDay > 0 ? ((op.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
+          const _autoFirstDayH = workEndH - _autoStartH;
+          let _rawAutoEndH;
+          if (_autoClockH <= _autoFirstDayH) { _rawAutoEndH = _autoStartH + _autoClockH; }
+          else { let _ar = _autoClockH - _autoFirstDayH; while (_ar > totalWorkH) _ar -= totalWorkH; _rawAutoEndH = workStartH + _ar; }
+          const _autoEndH = Math.round(_rawAutoEndH * 2) / 2;
           newSubs[pi].subs[oi] = { ...newSubs[pi].subs[oi], start: slotStart, end: finalEnd, startHour: _autoStartH };
           if (!selfBusy[pid]) selfBusy[pid] = [];
-          selfBusy[pid].push({ start: slotStart, end: finalEnd });
-          cursor = addBD(finalEnd, 1);
+          selfBusy[pid].push({ start: slotStart, end: finalEnd, startHour: _autoStartH, endHour: _autoEndH });
+          cursor = (finalEnd === slotStart && _autoEndH < workEndH) ? slotStart : addBD(finalEnd, 1);
           break;
         }
       });
@@ -3295,16 +3312,12 @@ ${jobsCtx || "No jobs found."}`;
             while (_rem > totalWorkH) _rem -= totalWorkH;
             _rawEndH = workStartH + _rem;
           }
-          let _opEnd = op.end;
-          if (op.start) {
-            if (_totalClockH <= _firstDayAvailH) {
-              _opEnd = op.start;
-            } else {
-              let _remDays = _totalClockH - _firstDayAvailH;
-              let _extra = 0;
-              while (_remDays > totalWorkH) { _remDays -= totalWorkH; _extra++; }
-              _opEnd = addBD(op.start, _extra + 1);
-            }
+          let _opEnd = op.start || op.end;
+          if (op.start && _totalClockH > _firstDayAvailH) {
+            let _rem0 = _totalClockH - _firstDayAvailH;
+            let _day0 = op.start;
+            while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = addBD(_day0, 1); }
+            _opEnd = addBD(_day0, 1);
           }
           return { ...op, id: op.id || uid(), end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
         }) }
