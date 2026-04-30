@@ -1011,7 +1011,16 @@ Rules:
         if (newPeopleListAI.length)  setPeople(prev  => [...prev, ...newPeopleListAI]);
         if (newClientsListAI.length) setClients(prev => [...prev, ...newClientsListAI]);
         if (importedJobsAI.length) {
-          importedJobsAI.forEach(j => protectedJobIds.current.add(j.id));
+          importedJobsAI.forEach(j => {
+            (j.subs || []).forEach(panel => {
+              (panel.subs || []).forEach(op => {
+                if (op.start && (op.team || []).length > 0 && op.startHour == null) {
+                  op.startHour = getNextStartHour((op.team || [])[0], op.start, op.id);
+                }
+              });
+            });
+            protectedJobIds.current.add(j.id);
+          });
           setTasks(prev => [...prev, ...importedJobsAI]);
         }
 
@@ -3286,7 +3295,18 @@ ${jobsCtx || "No jobs found."}`;
             while (_rem > totalWorkH) _rem -= totalWorkH;
             _rawEndH = workStartH + _rem;
           }
-          return { ...op, id: op.id || uid(), startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
+          let _opEnd = op.end;
+          if (op.start) {
+            if (_totalClockH <= _firstDayAvailH) {
+              _opEnd = op.start;
+            } else {
+              let _remDays = _totalClockH - _firstDayAvailH;
+              let _extra = 0;
+              while (_remDays > totalWorkH) { _remDays -= totalWorkH; _extra++; }
+              _opEnd = addBD(op.start, _extra + 1);
+            }
+          }
+          return { ...op, id: op.id || uid(), end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
         }) }
     ) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
@@ -10643,22 +10663,30 @@ ${jobsCtx || "No jobs found."}`;
           const findWindows = (deadline) => {
             const results = [];
             const maxScan = 200;
+            const baseDate = (ed.isReschedule && ed._rescheduleStartDate) ? ed._rescheduleStartDate : TD;
+            let slotDate = sNextBD(baseDate);
+            let slotH = workStartH;
+
             for (let attempt = 0; attempt < maxScan && results.length < 3; attempt++) {
-              const baseDate = (ed.isReschedule && ed._rescheduleStartDate) ? ed._rescheduleStartDate : TD;
-              const wStart = sAddBD(sNextBD(baseDate), attempt);
+              const wStart = slotDate;
 
               // Simulate scheduling all panels in batches from wStart
-              // Direct pipeline estimate:
-              // For each op phase: days needed = ceil(numPanels / crewAvailable) * opDuration
-              // Phases run sequentially in the worst case, giving a reliable upper-bound total.
               let opPhaseStart = wStart;
               let totalBDCalc = 0;
               let failed = false;
               let firstPhaseCrew = null;
               for (const rawOp of rawOps) {
                 const opEnd = sAddBD(opPhaseStart, Math.max(0, rawOp.durationBD - 1));
-                const opCrew = crewForOp(rawOp).filter(p => isPersonFree(p.id, opPhaseStart, opEnd));
-                if (opCrew.length === 0) { failed = true; break; }
+                const candidateH = opPhaseStart === wStart ? slotH : workStartH;
+                const opCrew = crewForOp(rawOp).filter(p => isPersonFree(p.id, opPhaseStart, opEnd, candidateH));
+                if (opCrew.length === 0) {
+                  // Single-day phase: check if crew is free later in the day before skipping to tomorrow
+                  if (opPhaseStart === opEnd) {
+                    const nextHs = crewForOp(rawOp).map(p => getNextStartHour(p.id, opPhaseStart, null)).filter(h => h < workEndH);
+                    if (nextHs.length > 0) { slotH = Math.min(...nextHs); failed = true; break; }
+                  }
+                  slotDate = sAddBD(slotDate, 1); slotH = workStartH; failed = true; break;
+                }
                 if (!firstPhaseCrew) firstPhaseCrew = opCrew;
                 const phaseDays = Math.ceil(numPanels / opCrew.length) * rawOp.durationBD;
                 totalBDCalc += phaseDays;
@@ -10669,11 +10697,11 @@ ${jobsCtx || "No jobs found."}`;
 
               const totalEnd = sAddBD(wStart, totalBDCalc - 1);
               const firstBatchEnd = sAddBD(wStart, batchBD - 1);
-              const available = crew.filter(p => isPersonFree(p.id, wStart, firstBatchEnd));
-              const busy = crew.filter(p => !isPersonFree(p.id, wStart, firstBatchEnd));
+              const available = crew.filter(p => isPersonFree(p.id, wStart, firstBatchEnd, slotH));
+              const busy = crew.filter(p => !isPersonFree(p.id, wStart, firstBatchEnd, slotH));
 
               // Skip windows where nobody is actually free — scheduler would push dates anyway
-              if (available.length === 0) continue;
+              if (available.length === 0) { slotDate = sAddBD(slotDate, 1); slotH = workStartH; continue; }
 
               const totalBD = totalBDCalc;
               const panelsAtOnce = firstPhaseCrew ? firstPhaseCrew.length : 1;
@@ -10686,6 +10714,7 @@ ${jobsCtx || "No jobs found."}`;
                   totalBD, staggered: numPanels > panelsAtOnce
                 });
               }
+              slotDate = sAddBD(slotDate, 1); slotH = workStartH;
             }
             return results;
           };
