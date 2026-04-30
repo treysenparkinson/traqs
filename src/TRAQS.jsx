@@ -1377,11 +1377,13 @@ Rules:
   const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
   const [collapsedSections, setCollapsedSections] = useState({});
   const [tasks, _setTasks] = useState([]);
-  const [people, setPeople] = useState([]);
+  const [people, _setPeople] = useState([]);
   const [saveStatus, setSaveStatus] = useState("saved");
   const lastSaveTime = useRef(Date.now());
   const saveTimerRef = useRef(null);
   const dataRef = useRef({ tasks: null, people: null, clients: null });
+  const latestTasksRef = useRef(null);
+  const latestPeopleRef = useRef(null);
   const protectedJobIds = useRef(new Set());
   const pollUpdateRef = useRef(false);
   const saveStatusRef = useRef("saved");
@@ -1409,6 +1411,14 @@ Rules:
         redoStack.current = []; // clear redo on new action
       }
       skipHistory.current = false;
+      latestTasksRef.current = next;
+      return next;
+    });
+  }, []);
+  const setPeople = useCallback((updater) => {
+    _setPeople(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      latestPeopleRef.current = next;
       return next;
     });
   }, []);
@@ -2172,22 +2182,23 @@ Rules:
   const doSave = useCallback(async () => {
     try {
       setSaveStatus("saving");
-      await new Promise(r => setTimeout(r, 0));
-      const d = dataRef.current;
-      if (!d.tasks || d.tasks.length === 0) {
+      const tasks = latestTasksRef.current ?? dataRef.current.tasks;
+      const people = latestPeopleRef.current ?? dataRef.current.people;
+      const clients = dataRef.current.clients;
+      if (!tasks || tasks.length === 0) {
         console.warn("doSave blocked — tasks is empty, skipping save to prevent data loss");
         setSaveStatus("unsaved");
         return;
       }
-      if (!d.people || d.people.length === 0) {
+      if (!people || people.length === 0) {
         console.warn("doSave blocked — people is empty, skipping save to prevent data loss");
         setSaveStatus("unsaved");
         return;
       }
       await Promise.all([
-        saveTasks(d.tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i), getTokenRef.current, orgCode),
-        savePeople(d.people, getTokenRef.current, orgCode),
-        saveClients(d.clients, getTokenRef.current, orgCode),
+        saveTasks(tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i), getTokenRef.current, orgCode),
+        savePeople(people, getTokenRef.current, orgCode),
+        saveClients(clients, getTokenRef.current, orgCode),
       ]);
       lastSaveTime.current = Date.now();
       protectedJobIds.current.clear();
