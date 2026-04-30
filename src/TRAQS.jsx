@@ -1010,7 +1010,10 @@ Rules:
         const newClientsListAI = Object.values(pendingClientsAI);
         if (newPeopleListAI.length)  setPeople(prev  => [...prev, ...newPeopleListAI]);
         if (newClientsListAI.length) setClients(prev => [...prev, ...newClientsListAI]);
-        if (importedJobsAI.length)   setTasks(prev   => [...prev, ...importedJobsAI]);
+        if (importedJobsAI.length) {
+          importedJobsAI.forEach(j => protectedJobIds.current.add(j.id));
+          setTasks(prev => [...prev, ...importedJobsAI]);
+        }
 
         if (aiTotalJobs === 0 && aiTotalUpdated === 0) {
           setUploadResult({ success: false, message: "Could not extract any jobs from the description. Try being more specific (e.g. include job name, due date, assigned person)." });
@@ -1335,7 +1338,10 @@ Rules:
       const newClientsList = Object.values(pendingClients);
       if (newPeopleList.length)  setPeople(prev  => [...prev, ...newPeopleList]);
       if (newClientsList.length) setClients(prev => [...prev, ...newClientsList]);
-      if (importedJobs.length)   setTasks(prev   => [...prev, ...importedJobs]);
+      if (importedJobs.length) {
+        importedJobs.forEach(j => protectedJobIds.current.add(j.id));
+        setTasks(prev => [...prev, ...importedJobs]);
+      }
 
       const totalPeople  = newPeopleList.length;
       const totalClients = newClientsList.length;
@@ -2104,7 +2110,8 @@ Rules:
         pollUpdateRef.current = true;
         setTasks(prev => {
           if (JSON.stringify(prev) === JSON.stringify(newTasks)) return prev;
-          const missingProtected = [...protectedJobIds.current].some(id => !newTasks.find(t => t.id === id));
+          const _findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
+          const missingProtected = [...protectedJobIds.current].some(id => !_findId(id, newTasks));
           if (missingProtected) return prev;
           return normalizeTasks(newTasks);
         });
@@ -2117,8 +2124,8 @@ Rules:
       }
     };
     const id = setInterval(refetch, 30000);
-    const onFocus = () => refetch();
-    const onVisibility = () => { if (!document.hidden) refetch(); };
+    const onFocus = () => { if (Date.now() - lastSaveTime.current >= 5000) refetch(); };
+    const onVisibility = () => { if (!document.hidden && Date.now() - lastSaveTime.current >= 5000) refetch(); };
     window.addEventListener("focus", onFocus);
     document.addEventListener("visibilitychange", onVisibility);
     return () => {
@@ -2165,6 +2172,7 @@ Rules:
   const doSave = useCallback(async () => {
     try {
       setSaveStatus("saving");
+      await new Promise(r => setTimeout(r, 0));
       const d = dataRef.current;
       if (!d.tasks || d.tasks.length === 0) {
         console.warn("doSave blocked — tasks is empty, skipping save to prevent data loss");
@@ -7106,10 +7114,9 @@ ${jobsCtx || "No jobs found."}`;
                               })
                             }))
                           }));
-                          const bounded = recalcBounds(next, loggedInUser?.name || "Drag");
-                          saveTasks(bounded, getToken, orgCode).catch(console.warn);
-                          return bounded;
+                          return recalcBounds(next, loggedInUser?.name || "Drag");
                         });
+                        setTimeout(() => doSaveRef.current(), 0);
                         return;
                       }
                       // Compute final positions for all group members + multi-selected bars (same delta)
