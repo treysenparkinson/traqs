@@ -1382,8 +1382,8 @@ Rules:
   const lastSaveTime = useRef(Date.now());
   const saveTimerRef = useRef(null);
   const dataRef = useRef({ tasks: null, people: null, clients: null });
-  const latestTasksRef = useRef([]);
-  const latestPeopleRef = useRef([]);
+  const latestTasksRef = useRef(tasks);
+  const latestPeopleRef = useRef(people);
   const protectedJobIds = useRef(new Set());
   const pollUpdateRef = useRef(false);
   const saveStatusRef = useRef("saved");
