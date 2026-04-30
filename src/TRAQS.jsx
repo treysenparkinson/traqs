@@ -1382,8 +1382,8 @@ Rules:
   const lastSaveTime = useRef(Date.now());
   const saveTimerRef = useRef(null);
   const dataRef = useRef({ tasks: null, people: null, clients: null });
-  const latestTasksRef = useRef(null);
-  const latestPeopleRef = useRef(null);
+  const latestTasksRef = useRef([]);
+  const latestPeopleRef = useRef([]);
   const protectedJobIds = useRef(new Set());
   const pollUpdateRef = useRef(false);
   const saveStatusRef = useRef("saved");
@@ -2182,8 +2182,8 @@ Rules:
   const doSave = useCallback(async () => {
     try {
       setSaveStatus("saving");
-      const tasks = latestTasksRef.current ?? dataRef.current.tasks;
-      const people = latestPeopleRef.current ?? dataRef.current.people;
+      const tasks = latestTasksRef.current;
+      const people = latestPeopleRef.current;
       const clients = dataRef.current.clients;
       if (!tasks || tasks.length === 0) {
         console.warn("doSave blocked — tasks is empty, skipping save to prevent data loss");
