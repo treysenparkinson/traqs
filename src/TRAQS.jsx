@@ -1339,7 +1339,16 @@ Rules:
       if (newPeopleList.length)  setPeople(prev  => [...prev, ...newPeopleList]);
       if (newClientsList.length) setClients(prev => [...prev, ...newClientsList]);
       if (importedJobs.length) {
-        importedJobs.forEach(j => protectedJobIds.current.add(j.id));
+        importedJobs.forEach(j => {
+          (j.subs || []).forEach(panel => {
+            (panel.subs || []).forEach(op => {
+              if (op.start && (op.team || []).length > 0 && op.startHour == null) {
+                op.startHour = getNextStartHour((op.team || [])[0], op.start, op.id);
+              }
+            });
+          });
+          protectedJobIds.current.add(j.id);
+        });
         setTasks(prev => [...prev, ...importedJobs]);
       }
 
@@ -1626,7 +1635,7 @@ Rules:
         });
       });
     });
-    return latest;
+    return Math.round(latest * 2) / 2;
   };
   const [roleInput, setRoleInput] = useState("");
   const [rolesSettingsOpen, setRolesSettingsOpen] = useState(false);
@@ -3263,13 +3272,22 @@ ${jobsCtx || "No jobs found."}`;
     const isGeneralTask = (ed.jobType || "panel") !== "panel";
     const withIds = { ...ed, subs: (ed.subs || []).map(panel => isGeneralTask
       ? { ...panel, id: panel.id || uid() }
-      : { ...panel, id: panel.id || uid(), subs: (panel.subs || []).map(op => ({
-          ...op,
-          id: op.id || uid(),
-          startHour: op.startHour ?? (op.start && (op.team || []).length > 0
+      : { ...panel, id: panel.id || uid(), subs: (panel.subs || []).map(op => {
+          const _sh = op.startHour ?? (op.start && (op.team || []).length > 0
             ? getNextStartHour((op.team || [])[0], op.start, op.id)
-            : workStartH)
-        })) }
+            : workStartH);
+          const _totalClockH = productiveHoursPerDay > 0 ? ((op.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
+          const _firstDayAvailH = workEndH - _sh;
+          let _rawEndH;
+          if (_totalClockH <= _firstDayAvailH) {
+            _rawEndH = _sh + _totalClockH;
+          } else {
+            let _rem = _totalClockH - _firstDayAvailH;
+            while (_rem > totalWorkH) _rem -= totalWorkH;
+            _rawEndH = workStartH + _rem;
+          }
+          return { ...op, id: op.id || uid(), startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
+        }) }
     ) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
     else { const nw = { ...withIds, id: uid() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
@@ -10595,7 +10613,7 @@ ${jobsCtx || "No jobs found."}`;
           const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
 
           // Overlap-based free check: person must have no existing assignments that overlap the range
-          const isPersonFree = (pid, checkStart, checkEnd) => {
+          const isPersonFree = (pid, checkStart, checkEnd, candidateStartH = workStartH) => {
             const pp = people.find(x => x.id === pid);
             if (pp) for (const to of (pp.timeOff || [])) {
               if (to.start <= checkEnd && to.end >= checkStart) return false;
@@ -10608,7 +10626,13 @@ ${jobsCtx || "No jobs found."}`;
                     && (pnl.subs || []).length === 0) return false;
                 for (const op of (pnl.subs || [])) {
                   if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
-                  if (op.start && op.end && op.start <= checkEnd && op.end >= checkStart) return false;
+                  if (!op.start || !op.end || op.start > checkEnd || op.end < checkStart) continue;
+                  if (op.start === op.end && op.start === checkStart && checkStart === checkEnd && op.startHour != null) {
+                    const _opClockH = productiveHoursPerDay > 0 ? ((op.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
+                    const _opEndH = op.endHour ?? Math.min(op.startHour + _opClockH, workEndH);
+                    if (_opEndH <= candidateStartH) continue;
+                  }
+                  return false;
                 }
               }
             }
