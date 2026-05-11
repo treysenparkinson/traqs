@@ -6783,7 +6783,7 @@ ${jobsCtx || "No jobs found."}`;
                       const _segAvailW = _segRightPct - segLeft;
                       const segW = isLast ? Math.max(0, _ghostWRemaining) : Math.max(0.5, Math.min(_ghostWRemaining, _segAvailW));
                       _ghostWRemaining = Math.max(0, _ghostWRemaining - segW);
-                      ghosts.push(<div key={`team-ghost-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "18", boxShadow: `0 0 16px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                      ghosts.push(<div key={`team-ghost-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   }
                   (groupSnaps || []).forEach(gs => {
@@ -7071,27 +7071,78 @@ ${jobsCtx || "No jobs found."}`;
                       });
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
-                      for (let _si = 0; _si < 50; _si++) {
-                        let conflict = null;
-                        outer: for (const job of tasks) {
-                          for (const panel of (job.subs || [])) {
-                            for (const op of (panel.subs || [])) {
-                              if (op.id === movingTaskId || op.status === "Finished") continue;
-                              if (!(op.team || []).includes(targetPid)) continue;
-                              if (op.start <= snapE && op.end >= snapS) { conflict = op; break outer; }
+                      // FREE DRAG — ghost follows cursor; turns red over conflicts; drop rejected if red.
+                      // Visual extent of an op (date + hour) — matches bar render using team-divided hpd
+                      const _opVisual = (op) => {
+                        if (!op.start || !op.end) return { endDate: op.end || op.start, endHour: workEndH };
+                        const _tSz = Math.max(1, (op.team || []).length);
+                        const _h = (op.hpd || 0) > 0 ? op.hpd / _tSz : productiveHoursPerDay;
+                        const _sH = op.startHour ?? workStartH;
+                        const _clockH = productiveHoursPerDay > 0 ? (_h / productiveHoursPerDay) * totalWorkH : 0;
+                        const _isHourPositioned = op.startHour != null && op.startHour > workStartH;
+                        const _hasStoredEnd = op.endHour != null && op.start !== op.end;
+                        const _singleDayPartial = op.start === op.end && _h <= productiveHoursPerDay;
+                        if (_singleDayPartial) return { endDate: op.start, endHour: _sH + _clockH };
+                        if (op.start === op.end) {
+                          if (op.endHour != null) return { endDate: op.start, endHour: op.endHour };
+                          return { endDate: op.start, endHour: Math.min(workEndH, _sH + _clockH) };
+                        }
+                        if (!_isHourPositioned && _hasStoredEnd) return { endDate: op.end, endHour: op.endHour };
+                        if (_isHourPositioned) {
+                          const _firstAvail = workEndH - _sH;
+                          if (_clockH <= _firstAvail) return { endDate: op.start, endHour: _sH + _clockH };
+                          let _rem = _clockH - _firstAvail;
+                          let _days = 1;
+                          while (_rem > totalWorkH) { _rem -= totalWorkH; _days++; }
+                          return { endDate: addBD(op.start, _days), endHour: workStartH + _rem };
+                        }
+                        const _baseDays = Math.max(1, Math.ceil(_h / productiveHoursPerDay));
+                        const _lastDayProd = _h - (_baseDays - 1) * productiveHoursPerDay;
+                        const _lastDayClock = productiveHoursPerDay > 0 ? (_lastDayProd / productiveHoursPerDay) * totalWorkH : totalWorkH;
+                        return { endDate: addBD(op.start, _baseDays - 1), endHour: workStartH + _lastDayClock };
+                      };
+                      // Ghost's own visual end (date + hour) from current snapS/dropHour/hpd
+                      const _ghostDH = dropHour ?? workStartH;
+                      const _ghostClockH = productiveHoursPerDay > 0 ? (_dragBarHpd / productiveHoursPerDay) * totalWorkH : 0;
+                      const _ghostFirstAvail = workEndH - _ghostDH;
+                      let _ghostED, _ghostEH;
+                      if (_ghostClockH <= _ghostFirstAvail) {
+                        _ghostED = snapS;
+                        _ghostEH = _ghostDH + _ghostClockH;
+                      } else {
+                        let _rem = _ghostClockH - _ghostFirstAvail;
+                        let _days = 1;
+                        while (_rem > totalWorkH) { _rem -= totalWorkH; _days++; }
+                        _ghostED = addBD(snapS, _days);
+                        _ghostEH = workStartH + _rem;
+                      }
+                      snapE = _ghostED;
+                      // Lex-order interval overlap on (date, hour) — A overlaps B iff A.start < B.end AND A.end > B.start
+                      let hasOverlap = false;
+                      let overlapInfo = null;
+                      outer: for (const job of tasks) {
+                        for (const panel of (job.subs || [])) {
+                          for (const op of (panel.subs || [])) {
+                            if (op.id === movingTaskId || op.status === "Finished") continue;
+                            if (!(op.team || []).includes(targetPid)) continue;
+                            if (!op.start || !op.end) continue;
+                            const _v = _opVisual(op);
+                            const _opSH = op.startHour ?? workStartH;
+                            const _aBeforeB = (snapS < _v.endDate) || (snapS === _v.endDate && _ghostDH < _v.endHour);
+                            const _aAfterB = (_ghostED > op.start) || (_ghostED === op.start && _ghostEH > _opSH);
+                            if (_aBeforeB && _aAfterB) {
+                              hasOverlap = true;
+                              overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: _v.endDate };
+                              break outer;
                             }
                           }
                         }
-                        if (!conflict) break;
-                        snapS = addBD(conflict.end, 1);
-                        snapE = addBD(snapS, _liveVWD - 1);
                       }
                       if (snapS === null) return;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
-                      const _liveSnapE = addBD(snapS, _liveVWD - 1);
-                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: _liveSnapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct };
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null, dropHour, barHpd: _dragBarHpd });
+                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo };
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null, dropHour, barHpd: _dragBarHpd, hasOverlap });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
@@ -7122,6 +7173,13 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
+                      // Reject drop if the ghost was red (overlapping another job) — show error, no auto-push
+                      if (teamDragLiveRef.current?.hasOverlap) {
+                        const _info = teamDragLiveRef.current.overlapInfo;
+                        const _personName = person?.name || "";
+                        showOverlapIfAny([{ person: _personName, opTitle: _info?.opTitle || "", panelTitle: _info?.panelTitle || "", jobTitle: _info?.jobTitle || "", start: _info?.start, end: _info?.end, isPto: false }]);
+                        return;
+                      }
                       if (tMode === "month" && bar.task && !isPto) {
                         const _gRect = gridAreaEl?.getBoundingClientRect();
                         if (!_gRect) return;
@@ -7131,10 +7189,9 @@ ${jobsCtx || "No jobs found."}`;
                         while (_di2 < days.length - 1 && isWeekend(days[_di2])) _di2++;
                         effStart = (!isWeekend(days[_di2])) ? days[_di2] : null;
                         if (!effStart) return;
-                        const _col = !isWeekend(days[_dayIdx]) ? ((_cxDrop / liveCW) - _dayIdx) : 0;
-                        const _raw = workStartH + _col * totalWorkH;
-                        const _snap = Math.round(_raw * 2) / 2;
-                        let finalHour = Math.max(Math.max(0, _snap), getNextStartHour(dropPerson, effStart, bar.task.id));
+                        // Use the ghost's exact position — free movement, no auto-snap (overlap was already rejected above)
+                        effStart = teamDragLiveRef.current?.snapStart || effStart;
+                        let finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
                         const _totalClockH0 = productiveHoursPerDay > 0 ? ((bar.task.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
                         const _firstDayAvailH0 = workEndH - finalHour;
                         let _newEnd = effStart;
