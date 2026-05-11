@@ -6841,7 +6841,9 @@ ${jobsCtx || "No jobs found."}`;
                   const x = (_baseXPct + _hourOffsetPct + stackShift) + "%";
                   const _segRightPct = (diffD(tStart, firstBarSeg.end) + 1) / nDays * 100;
                   const _xNum = _baseXPct + _hourOffsetPct + stackShift;
-                  const _wFirst = Math.max(0.5, Math.min(_wBudget, _segRightPct - _xNum));
+                  // No 0.5% min floor — it would expand the first segment past _segRightPct (the column's right edge),
+                  // causing the bar to bleed into the next column (e.g., the weekend gap after Friday).
+                  const _wFirst = Math.max(0, Math.min(_wBudget, _segRightPct - _xNum));
                   const w = _wFirst + "%";
                   // Engineering chip — render as compact pill, opens job detail
                   if (bar.type === "eng-chip") {
@@ -7396,27 +7398,129 @@ ${jobsCtx || "No jobs found."}`;
                     }
                     if (!bar.task) return;
                     e.preventDefault(); e.stopPropagation();
-                    const sx = e.clientX, os = bar.task.start, oe = bar.task.end; let lastDx = 0;
+                    const sx = e.clientX;
+                    const os = bar.task.start, oe = bar.task.end;
+                    const osH = bar.task.startHour ?? workStartH;
+                    const _origHpd = bar.task.hpd || 0;
+                    // Derive original endHour from stored value or from start/hpd
+                    let oeH;
+                    if (bar.task.endHour != null) {
+                      oeH = bar.task.endHour;
+                    } else {
+                      const _origClockH = productiveHoursPerDay > 0 ? (_origHpd / productiveHoursPerDay) * totalWorkH : 0;
+                      if (os === oe) {
+                        oeH = osH + _origClockH;
+                      } else {
+                        const _firstAvail = workEndH - osH;
+                        if (_origClockH <= _firstAvail) { oeH = osH + _origClockH; }
+                        else {
+                          let _rem = _origClockH - _firstAvail;
+                          while (_rem > totalWorkH) _rem -= totalWorkH;
+                          oeH = workStartH + _rem;
+                        }
+                      }
+                    }
+                    oeH = Math.round(oeH * 2) / 2;
                     const taskPid2 = bar.task.pid || null;
+                    const pending = { start: os, end: oe, startHour: osH, endHour: oeH, hpd: _origHpd };
+                    let lastDx = 0;
+                    // Compute total productive hpd from a (sDay, sH) → (eDay, eH) span (clock-hours scaled to productive)
+                    const _computeHpd = (sDay, sH, eDay, eH) => {
+                      let clockH;
+                      if (sDay === eDay) {
+                        clockH = Math.max(0.5, eH - sH);
+                      } else {
+                        const n = diffBD(sDay, eDay) + 1;
+                        clockH = (workEndH - sH) + Math.max(0, n - 2) * totalWorkH + (eH - workStartH);
+                      }
+                      return Math.max(0.5, clockH / totalWorkH * productiveHoursPerDay);
+                    };
+                    // Find the grid area for month-mode (date, hour) positioning — bar.parentElement is the row's day-grid
+                    const _barEl = e.currentTarget.parentElement;
+                    const _gridAreaEl = _barEl?.parentElement || null;
                     const onM = me => {
-                      const rawDx3 = (me.clientX - sx) / cW;
-                      const dx = rawDx3 >= 0 ? Math.floor(rawDx3) : Math.ceil(rawDx3);
-                      if (dx === lastDx) return; lastDx = dx;
-                      if (side === "left") { const ns = addD(os, dx); if (ns <= oe) updTask(bar.task.id, { start: ns }, taskPid2); }
-                      else { const ne = addD(oe, dx); if (ne >= os) updTask(bar.task.id, { end: ne }, taskPid2); }
+                      if (tMode === "month" && _gridAreaEl) {
+                        const rect = _gridAreaEl.getBoundingClientRect();
+                        const cxRel = me.clientX - rect.left;
+                        const dayW = rect.width / Math.max(1, days.length);
+                        const rawDayIdx = cxRel / dayW;
+                        const _origDi = Math.max(0, Math.min(days.length - 1, Math.floor(rawDayIdx)));
+                        // Walk forward through weekends (same as move ghost) — keeps clock-time continuous across weekend
+                        let dIdx = _origDi;
+                        while (dIdx < days.length - 1 && isWeekend(days[dIdx])) dIdx++;
+                        const targetDay = days[dIdx];
+                        if (!targetDay || isWeekend(targetDay)) return;
+                        // On a workday cursor, use the column fraction; on a weekend cursor, snap to workStartH of the resolved workday.
+                        // Left handle caps startHour at workEndH - 0.5 — startHour === workEndH would put the bar's first segment
+                        // at the next column's left edge (visual overflow into the weekend gap).
+                        const _maxH = side === "left" ? workEndH - 0.5 : workEndH;
+                        let clampedHour;
+                        if (!isWeekend(days[_origDi])) {
+                          const colFrac = Math.min(0.9999, Math.max(0, rawDayIdx - _origDi));
+                          const rawHour = workStartH + colFrac * totalWorkH;
+                          const snapHour = Math.round(rawHour * 2) / 2;
+                          clampedHour = Math.max(workStartH, Math.min(_maxH, snapHour));
+                        } else {
+                          clampedHour = workStartH;
+                        }
+                        if (side === "left") {
+                          let _finalDay = targetDay, _finalHour = clampedHour;
+                          // Weekend-boundary case only: if cursor lands in the last hour of a workday AND the next day is a weekend,
+                          // the first segment would be a sub-hour sliver visually adjacent to the weekend gap (where overflow is most
+                          // visible). Advance the start to the workday after the weekend instead — keeps the bar's first segment from
+                          // ever needing to be that narrow against a visible day boundary.
+                          const _nextDayIdx = dIdx + 1;
+                          const _nextDay = _nextDayIdx < days.length ? days[_nextDayIdx] : null;
+                          if (_finalHour > workEndH - 1 && _nextDay && isWeekend(_nextDay)) {
+                            let _ni = _nextDayIdx;
+                            while (_ni < days.length && isWeekend(days[_ni])) _ni++;
+                            if (_ni < days.length && !isWeekend(days[_ni]) && days[_ni] <= oe) {
+                              _finalDay = days[_ni];
+                              _finalHour = workStartH;
+                            }
+                          }
+                          if (_finalDay > oe) return;
+                          if (_finalDay === oe && _finalHour >= oeH) return;
+                          if (_finalDay === pending.start && _finalHour === pending.startHour) return;
+                          pending.start = _finalDay;
+                          pending.startHour = _finalHour;
+                          pending.hpd = _computeHpd(_finalDay, _finalHour, oe, oeH);
+                        } else {
+                          if (targetDay < os) return;
+                          if (targetDay === os && clampedHour <= osH) return;
+                          if (targetDay === pending.end && clampedHour === pending.endHour) return;
+                          pending.end = targetDay;
+                          pending.endHour = clampedHour;
+                          pending.hpd = _computeHpd(os, osH, targetDay, clampedHour);
+                        }
+                        updTask(bar.task.id, { start: pending.start, end: pending.end, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd }, taskPid2);
+                      } else {
+                        // Non-month mode: day-level resize
+                        const rawDx3 = (me.clientX - sx) / cW;
+                        const dx = rawDx3 >= 0 ? Math.floor(rawDx3) : Math.ceil(rawDx3);
+                        if (dx === lastDx) return; lastDx = dx;
+                        if (side === "left") {
+                          const ns = addD(os, dx);
+                          if (ns <= oe) { pending.start = ns; updTask(bar.task.id, { start: ns }, taskPid2); }
+                        } else {
+                          const ne = addD(oe, dx);
+                          if (ne >= os) { pending.end = ne; updTask(bar.task.id, { end: ne }, taskPid2); }
+                        }
+                      }
                     };
                     const onU = () => {
                       document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU);
                       const personId = bar.task.team[0];
                       if (!personId) return;
-                      const newStart = side === "left" ? nextBD(addD(os, lastDx)) : os;
-                      const newEnd = side === "right" ? nextBD(addD(oe, lastDx)) : oe;
+                      const isMonth = tMode === "month";
+                      const newStart = isMonth ? pending.start : (side === "left" ? nextBD(addD(os, lastDx)) : os);
+                      const newEnd = isMonth ? pending.end : (side === "right" ? nextBD(addD(oe, lastDx)) : oe);
                       const movedByName = loggedInUser ? loggedInUser.name : "Admin";
                       setTasks(prev => {
                         let reverted = prev.map(t => {
                           if (taskPid2) {
                             const pi2 = (t.subs || []).findIndex(s => s.id === taskPid2);
-                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === bar.task.id ? { ...op, start: os, end: oe } : op) }; return { ...t, subs: ns }; }
+                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === bar.task.id ? { ...op, start: os, end: oe, startHour: osH, endHour: bar.task.endHour ?? null, hpd: _origHpd } : op) }; return { ...t, subs: ns }; }
                           }
                           return t;
                         });
@@ -7429,7 +7533,9 @@ ${jobsCtx || "No jobs found."}`;
                             if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => {
                               if (op.id === bar.task.id) {
                                 const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual resize" };
-                                return { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] };
+                                return isMonth
+                                  ? { ...op, start: newStart, end: newEnd, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd, moveLog: [...(op.moveLog || []), logEntry] }
+                                  : { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] };
                               }
                               return op;
                             }) }; return { ...t, subs: ns }; }
@@ -7484,7 +7590,7 @@ ${jobsCtx || "No jobs found."}`;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: `calc(${w} - 8px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -7500,7 +7606,9 @@ ${jobsCtx || "No jobs found."}`;
                     const isLastSeg = si === barSegs.length - 2;
                     const _segCalDays = diffD(seg.start, seg.end) + 1;
                     const _segAvailW = _segCalDays / nDays * 100;
-                    const _tailWNum = Math.max(0, isLastSeg ? ((_barEndHour - workStartH) / totalWorkH) * _oneDayPct : Math.min(_wRemainingBudget, _segAvailW));
+                    // Last-segment width must include any full workdays preceding the end day in the segment
+                    // (weekdaySegments groups contiguous workdays into one range, e.g., Mon-Tue is one segment).
+                    const _tailWNum = Math.max(0, isLastSeg ? ((_segCalDays - 1) + (_barEndHour - workStartH) / totalWorkH) * _oneDayPct : Math.min(_wRemainingBudget, _segAvailW));
                     const tailW = _tailWNum + "%";
                     _wRemainingBudget = Math.max(0, _wRemainingBudget - _tailWNum);
                     const isPto2 = bar.type === "pto";
@@ -7508,7 +7616,7 @@ ${jobsCtx || "No jobs found."}`;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${tailX} + 2px)`, width: `calc(${tailW} - 8px)`, height: rH - 8, borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: isBarSelected ? `2px solid #fff` : `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: isBarSelected ? `2px solid #fff` : `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                       {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
