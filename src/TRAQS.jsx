@@ -114,6 +114,23 @@ const STATUSES = ["Not Started","Pending","In Progress","On Hold","Finished"];
 const PRI_C = { Low: "#10b981", Medium: "#f59e0b", High: "#f43f5e" };
 const STA_C = { "Not Started": "#94a3b8", Pending: "#a78bfa", "In Progress": "#3b82f6", "On Hold": "#f59e0b", Finished: "#10b981", Paused: "#f59e0b" };
 const STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "On Hold": "⏸", Finished: "●", Paused: "⏸" };
+// Striped overlay used to render the "worked / locked" portion of a bar across all views.
+const WORKED_STRIPE = "repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 5px, rgba(0,0,0,0.28) 5px, rgba(0,0,0,0.28) 10px)";
+// True when an op is locked — either by manual toggle OR by being fully worked (loggedHours >= hpd).
+const isOpLocked = (op) => !!op?.locked || ((op?.hpd || 0) > 0 && (op?.loggedHours || 0) >= op.hpd);
+// Derives the worked / remaining state of an op for rendering + drag gating.
+const deriveWorkedState = (t) => {
+  const hpd = t?.hpd || 0;
+  const logged = Math.min(Math.max(0, t?.loggedHours || 0), hpd);
+  return {
+    workedHpd: logged,
+    remainingHpd: Math.max(0, hpd - logged),
+    workedFraction: hpd > 0 ? logged / hpd : 0,
+    isFullyWorked: hpd > 0 && logged >= hpd,
+    isPartiallyWorked: logged > 0 && logged < hpd,
+    displayLocked: !!t?.locked || (hpd > 0 && logged >= hpd),
+  };
+};
 const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,"0"); const d = String(dt.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; };
 const NOW = new Date(); const TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
@@ -2527,7 +2544,7 @@ Rules:
     });
     const overlapping = allOps.filter(a => a.op.start <= newEnd && a.op.end >= newStart);
     if (overlapping.length === 0) return { pushes: [], blocked: false, lockedOps: [] };
-    const locked = overlapping.filter(a => a.op.locked);
+    const locked = overlapping.filter(a => isOpLocked(a.op));
     if (locked.length > 0) return { pushes: [], blocked: true, lockedOps: locked.map(l => ({ opTitle: l.op.title, panelTitle: l.panel.title })) };
     overlapping.sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
     let pushDate = newEnd;
@@ -2538,7 +2555,7 @@ Rules:
       const opBizDays = diffBD(item.op.start, item.op.end);
       const newOpStart = addBD(pushDate, 1);
       const newOpEnd = addBD(newOpStart, opBizDays);
-      if (item.op.locked) return { pushes: [], blocked: true, lockedOps: [{ opTitle: item.op.title, panelTitle: item.panel.title }] };
+      if (isOpLocked(item.op)) return { pushes: [], blocked: true, lockedOps: [{ opTitle: item.op.title, panelTitle: item.panel.title }] };
       const daysPushed = diffBD(item.op.start, newOpStart);
       pushes.push({ opId: item.op.id, opTitle: item.op.title, panelTitle: item.panel.title, jobTitle: item.job.title, oldStart: item.op.start, oldEnd: item.op.end, newStart: newOpStart, newEnd: newOpEnd, daysPushed, personId: item.op.team[0] });
       pushDate = newOpEnd;
@@ -2746,7 +2763,7 @@ Rules:
       taskList.forEach(job => {
         (job.subs || []).forEach(panel => {
           (panel.subs || []).forEach(op => {
-            if ((op.team || []).includes(personId) && op.status !== "Finished" && !(excludeOpIds && excludeOpIds.has(op.id)) && !op.locked) {
+            if ((op.team || []).includes(personId) && op.status !== "Finished" && !(excludeOpIds && excludeOpIds.has(op.id)) && !isOpLocked(op)) {
               personOps.push({ op, panel, job });
             }
           });
@@ -2844,7 +2861,7 @@ Rules:
       newTasks.forEach(job => {
         (job.subs || []).forEach(panel => {
           (panel.subs || []).forEach(op => {
-            if (!(op.team || []).includes(pid) || op.status === "Finished" || op.locked) return;
+            if (!(op.team || []).includes(pid) || op.status === "Finished" || isOpLocked(op)) return;
             personOps.push({ op, jobPri: priOrder[job.pri] ?? 1, jobDue: job.dueDate || job.end, jobTitle: job.title, panelTitle: panel.title });
           });
         });
@@ -4010,8 +4027,14 @@ ${jobsCtx || "No jobs found."}`;
       // Working days are read from current org settings (single source of truth).
       const itemWorkDays = orgSettings.workDays;
       const itemBDOpts = { workDays: itemWorkDays, holidays: orgSettings.holidays };
-      // Capture working-day duration once at drag start so the end date is always preserved correctly across non-working days
-      const wdDuration = getWorkingDayDuration(os, oe, itemWorkDays);
+      // If this is a partially-worked op being moved, the drag preview represents only the
+      // remaining hours (worked portion stays anchored; commit will split the op).
+      const _dragItemWS = item.level === 2 ? deriveWorkedState(item) : null;
+      const _isPartialDrag = !!(_dragItemWS && _dragItemWS.isPartiallyWorked && mode === "move");
+      // Capture working-day duration once at drag start. For partial-drag, use remaining-hours duration.
+      const wdDuration = _isPartialDrag
+        ? Math.max(1, Math.ceil(_dragItemWS.remainingHpd / productiveHoursPerDay))
+        : getWorkingDayDuration(os, oe, itemWorkDays);
       let moved = false, lastDx = 0, finalDx = 0;
       const origRow = ri4[item.id];
       const pidArg = item.isSub ? item.pid : null;
@@ -4052,6 +4075,8 @@ ${jobsCtx || "No jobs found."}`;
           }
         }
         setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap });
+        // Skip live mutation for partial-drag — original op stays put until commit, where it splits.
+        if (_isPartialDrag) return;
         // For moves, use the working-day end so the bar never shrinks as it crosses a non-working day
         if (mode === "move") updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration, itemWorkDays) }, pidArg);
         else if (mode === "left") { if (rawS <= oe) updTask(item.id, { start: rawS }, pidArg); }
@@ -4078,6 +4103,68 @@ ${jobsCtx || "No jobs found."}`;
           : (snapDelta > 0 ? addWorkingDays(rawNewEnd, snapDelta, itemWorkDays) : rawNewEnd);
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
         const actualDelta = diffD(os, newStart);
+
+        // ── Auto-split on drag-end for partially-worked ops (Gantt) ──
+        // Only when moving an op (level 2) with logged hours, to a new position.
+        if (mode === "move" && item.level === 2 && newStart !== os) {
+          const _splitWS = deriveWorkedState(item);
+          if (_splitWS.isPartiallyWorked) {
+            const osH = item.startHour ?? workStartH;
+            const _calcEnd = (startDate, startHourArg, hpdAmt) => {
+              const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
+              const _firstAvail = workEndH - startHourArg;
+              if (_clkH <= _firstAvail) {
+                return { end: startDate, endHour: Math.round((startHourArg + _clkH) * 2) / 2 };
+              }
+              let _rem = _clkH - _firstAvail;
+              let _day = startDate;
+              while (_rem > totalWorkH) { _rem -= totalWorkH; _day = sAddBD(_day, 1); }
+              return { end: sAddBD(_day, 1), endHour: Math.round((workStartH + _rem) * 2) / 2 };
+            };
+            const workedEnds = _calcEnd(os, osH, _splitWS.workedHpd);
+            const remStartH = item.startHour ?? workStartH;
+            const remEnds = _calcEnd(newStart, remStartH, _splitWS.remainingHpd);
+            const newOpId = uid();
+            setTasks(prev => {
+              const next = prev.map(job => ({
+                ...job,
+                subs: (job.subs || []).map(panel => {
+                  const idx = (panel.subs || []).findIndex(o => o.id === item.id);
+                  if (idx < 0) return panel;
+                  const orig = panel.subs[idx];
+                  const updatedOrig = {
+                    ...orig,
+                    hpd: _splitWS.workedHpd,
+                    end: workedEnds.end,
+                    endHour: workedEnds.endHour,
+                    locked: true,
+                  };
+                  const { actualHours: _drop, ...origMinusActual } = orig;
+                  const newOp = {
+                    ...origMinusActual,
+                    id: newOpId,
+                    hpd: _splitWS.remainingHpd,
+                    loggedHours: 0,
+                    locked: false,
+                    status: "Not Started",
+                    deps: [],
+                    start: newStart,
+                    end: remEnds.end,
+                    startHour: remStartH,
+                    endHour: remEnds.endHour,
+                    moveLog: [],
+                  };
+                  const nextSubs = [...panel.subs];
+                  nextSubs.splice(idx, 1, updatedOrig, newOp);
+                  return { ...panel, subs: nextSubs };
+                }),
+              }));
+              return recalcBounds(next, movedByName + " (split-on-drag)");
+            });
+            setTimeout(() => doSaveRef.current(), 0);
+            return;
+          }
+        }
 
         // Gather all operations that would be affected (for overlap/push checks)
         const getOpsToCheck = () => {
@@ -4197,7 +4284,7 @@ ${jobsCtx || "No jobs found."}`;
           const opsMoving = getOpsToCheck();
           let lockedFound = [];
           reverted.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => {
-            if (op.locked && opsMoving.some(m => m.opId === op.id)) lockedFound.push({ opTitle: op.title, panelTitle: pnl.title });
+            if (isOpLocked(op) && opsMoving.some(m => m.opId === op.id)) lockedFound.push({ opTitle: op.title, panelTitle: pnl.title });
           })));
           if (lockedFound.length > 0) { setTimeout(() => showLockedError(lockedFound), 0); return reverted; }
 
@@ -4511,15 +4598,23 @@ ${jobsCtx || "No jobs found."}`;
                 const barColor = r.color || T.accent;
                 const barBg = r.level === 1 ? barColor + "cc" : barColor;
                 const barTextColor = isLight(barColor) ? '#000000' : '#ffffff';
+                const ws = deriveWorkedState(r);
+                const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
+                let _workedRemainingDays = ws.workedFraction * _totalCalDays;
                 return segs.map((seg, si) => {
                   const x = dToX(seg.start), xE = dToX(seg.end) + cW - 6, w = Math.max(xE - x, cW - 6);
                   const isFirst = si === 0, isLast = si === segs.length - 1;
                   const label = r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (r.panelTitle ? `${r.panelTitle}  ·  ${r.title}` : r.title) : r.title;
+                  const _segCalDays = diffD(seg.start, seg.end) + 1;
+                  const _segWorkedDays = Math.max(0, Math.min(_workedRemainingDays, _segCalDays));
+                  _workedRemainingDays = Math.max(0, _workedRemainingDays - _segWorkedDays);
+                  const _workedPctOfSeg = _segCalDays > 0 ? (_segWorkedDays / _segCalDays) * 100 : 0;
                   return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
+                    {_workedPctOfSeg > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${_workedPctOfSeg}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: isFirst ? T.radiusXs : 0, borderBottomLeftRadius: isFirst ? T.radiusXs : 0, zIndex: 2 }} />}
                     {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
-                    {isFirst && can("moveJobs") && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {isLast && can("moveJobs") && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isFirst && can("moveJobs") && ws.workedHpd === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isLast && can("moveJobs") && !ws.isFullyWorked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{isFirst && hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{(isFirst || w > 80) ? label : ""}</span>
                   </div>;
                 });
@@ -4694,17 +4789,27 @@ ${jobsCtx || "No jobs found."}`;
                     <div key={d} style={{ minWidth: cW, maxWidth: cW, borderRight: `1px solid ${T.border}18`, flexShrink: 0, background: d === TD ? T.accent + "08" : !isWorkDay(d, orgSettings.workDays) ? T.bg + "88" : "transparent" }} />
                   ))}
                   {/* Bar — split at non-working days */}
-                  {inRange && weekdaySegments(r.start, r.end, gStart, gEnd, orgSettings.workDays).map((seg, si, allSegs) => {
+                  {inRange && (() => {
+                    const segs = weekdaySegments(r.start, r.end, gStart, gEnd, orgSettings.workDays);
+                    const ws = deriveWorkedState(r);
+                    const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
+                    let _workedRemainingDays = ws.workedFraction * _totalCalDays;
+                    return segs.map((seg, si, allSegs) => {
                     const sL = Math.max(0, dToX(seg.start));
                     const sR = Math.min(dToX(seg.end) + cW - 2, totalWidth);
                     const sW = Math.max(barH, sR - sL);
                     const isFirst = si === 0, isLast = si === allSegs.length - 1;
+                    const _segCalDays = diffD(seg.start, seg.end) + 1;
+                    const _segWorkedDays = Math.max(0, Math.min(_workedRemainingDays, _segCalDays));
+                    _workedRemainingDays = Math.max(0, _workedRemainingDays - _segWorkedDays);
+                    const _workedPctOfSeg = _segCalDays > 0 ? (_segWorkedDays / _segCalDays) * 100 : 0;
                     return (
                       <div
                         key={si}
                         onClick={hasSubs ? () => toggleRow(r.id) : undefined}
                         style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: level === 0 ? 4 : 3, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed rgba(255,255,255,0.4)` : undefined, borderLeft: !isFirst ? `2px dashed rgba(255,255,255,0.4)` : undefined, zIndex: 3 }}
                       >
+                        {_workedPctOfSeg > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${_workedPctOfSeg}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />}
                         {isFirst && hasSubs && (
                           <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: "rgba(255,255,255,0.85)", flexShrink: 0, marginLeft: 5 }}>
                             <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -4725,7 +4830,8 @@ ${jobsCtx || "No jobs found."}`;
                         )}
                       </div>
                     );
-                  })}
+                  });
+                  })()}
                 </div>
               );
             })}
@@ -6908,7 +7014,11 @@ ${jobsCtx || "No jobs found."}`;
                     const barBDOpts = { workDays: barWorkDays, holidays: orgSettings.holidays };
                     const wdDuration = getWorkingDayDuration(os, oe, barWorkDays);
                     const _dragTeamSz = Math.max(1, (bar.task?.team || []).length);
-                    const _dragBarHpd = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _dragTeamSz : productiveHoursPerDay;
+                    // If the bar is partially worked, the drag ghost represents only the remaining hours —
+                    // the worked portion stays anchored visually and is split off on commit.
+                    const _dragWS = deriveWorkedState(bar.task);
+                    const _effectiveHpdForDrag = _dragWS.isPartiallyWorked ? _dragWS.remainingHpd : (bar.task?.hpd || 0);
+                    const _dragBarHpd = _effectiveHpdForDrag > 0 ? _effectiveHpdForDrag / _dragTeamSz : productiveHoursPerDay;
                     const _dragOffsetH = Math.max(0, (bar.task?.startHour ?? workStartH) - workStartH);
                     const _visualWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil(_dragBarHpd / productiveHoursPerDay)) : wdDuration;
                     const taskPid = bar.task.pid || null;
@@ -7232,6 +7342,67 @@ ${jobsCtx || "No jobs found."}`;
                             effStart = _walk;
                             finalHour = workStartH;
                           }
+                        }
+                        // ── Auto-split on drag-end for partially-worked ops ──
+                        // If the bar has worked hours and the user moved it, leave the worked portion
+                        // anchored (locked) and spawn a new op for the remaining hours at the drop.
+                        const _splitWS = deriveWorkedState(bar.task);
+                        if (_splitWS.isPartiallyWorked && effStart !== os) {
+                          // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
+                          const _calcEnd = (startDate, startHourArg, hpdAmt) => {
+                            const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
+                            const _firstAvail = workEndH - startHourArg;
+                            if (_clkH <= _firstAvail) {
+                              return { end: startDate, endHour: Math.round((startHourArg + _clkH) * 2) / 2 };
+                            }
+                            let _rem = _clkH - _firstAvail;
+                            let _day = startDate;
+                            while (_rem > totalWorkH) { _rem -= totalWorkH; _day = sAddBD(_day, 1); }
+                            return { end: sAddBD(_day, 1), endHour: Math.round((workStartH + _rem) * 2) / 2 };
+                          };
+                          const osH = bar.task.startHour ?? workStartH;
+                          const workedEnds = _calcEnd(os, osH, _splitWS.workedHpd);
+                          const remEnds   = _calcEnd(effStart, finalHour, _splitWS.remainingHpd);
+                          const newOpId = uid();
+                          setTasks(prev => {
+                            const next = prev.map(job => ({
+                              ...job,
+                              subs: (job.subs || []).map(panel => {
+                                const idx = (panel.subs || []).findIndex(o => o.id === bar.task.id);
+                                if (idx < 0) return panel;
+                                const orig = panel.subs[idx];
+                                const updatedOrig = {
+                                  ...orig,
+                                  hpd: _splitWS.workedHpd,
+                                  end: workedEnds.end,
+                                  endHour: workedEnds.endHour,
+                                  locked: true,
+                                };
+                                const { actualHours: _drop, ...origMinusActual } = orig;
+                                const newOp = {
+                                  ...origMinusActual,
+                                  id: newOpId,
+                                  hpd: _splitWS.remainingHpd,
+                                  loggedHours: 0,
+                                  locked: false,
+                                  status: "Not Started",
+                                  deps: [],
+                                  start: effStart,
+                                  end: remEnds.end,
+                                  startHour: finalHour,
+                                  endHour: remEnds.endHour,
+                                  moveLog: [],
+                                  ...(lastDropPid && lastDropPid !== origPerson ? { team: (orig.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}),
+                                };
+                                const nextSubs = [...panel.subs];
+                                nextSubs.splice(idx, 1, updatedOrig, newOp);
+                                return { ...panel, subs: nextSubs };
+                              }),
+                            }));
+                            return recalcBounds(next, loggedInUser?.name || "Split-on-drag");
+                          });
+                          setTimeout(() => doSaveRef.current(), 0);
+                          return;
                         }
                         const _totalClockH0 = productiveHoursPerDay > 0 ? ((bar.task.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
                         const _firstDayAvailH0 = workEndH - finalHour;
@@ -7581,7 +7752,7 @@ ${jobsCtx || "No jobs found."}`;
                           return t;
                         });
                         let isLocked = false;
-                        reverted.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && op.locked) isLocked = true; })));
+                        reverted.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && isOpLocked(op)) isLocked = true; })));
                         if (isLocked) { setTimeout(() => showLockedError([{ opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]), 0); return reverted; }
                         const applyResize = (tl) => tl.map(t => {
                           if (taskPid2) {
@@ -7619,7 +7790,12 @@ ${jobsCtx || "No jobs found."}`;
                     };
                     document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                   };
-                  const barLocked = !isPto && bar.task && bar.task.locked;
+                  const ws = !isPto ? deriveWorkedState(bar.task) : null;
+                  const barLocked = !isPto && bar.task && ws && ws.displayLocked;
+                  // Worked-overlay budget: percent-of-timeline width covered by the striped portion.
+                  // Distributes across multi-segment bars in lockstep with the bar's own width budget.
+                  const _workedCellsTotal = ws ? ws.workedFraction * _wBudget : 0;
+                  let _workedRemainingBudget = _workedCellsTotal;
                   const hasMoveLog = !isPto && bar.task && (bar.task.moveLog || []).length > 0;
                   const bc = bar.color;
                   const iconColor = isLight(bc) ? '#000000' : '#ffffff';
@@ -7648,7 +7824,14 @@ ${jobsCtx || "No jobs found."}`;
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
-                    {can("moveJobs") && !barLocked && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
+                      const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
+                      _workedRemainingBudget = Math.max(0, _workedRemainingBudget - _segWorked);
+                      const pctOfDiv = _wFirst > 0 ? (_segWorked / _wFirst) * 100 : 0;
+                      if (pctOfDiv <= 0) return null;
+                      return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: T.radiusXs, borderBottomLeftRadius: T.radiusXs, zIndex: 2 }} />;
+                    })()}
+                    {can("moveJobs") && !barLocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
@@ -7674,6 +7857,13 @@ ${jobsCtx || "No jobs found."}`;
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
                       style={{ position: "absolute", top: 4, left: tailX, width: tailW, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: isBarSelected ? `2px solid #fff` : `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
+                      {!isPto2 && ws && _workedRemainingBudget > 0 && _tailWNum > 0 && (() => {
+                        const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _tailWNum));
+                        _workedRemainingBudget = Math.max(0, _workedRemainingBudget - _segWorked);
+                        const pctOfDiv = _tailWNum > 0 ? (_segWorked / _tailWNum) * 100 : 0;
+                        if (pctOfDiv <= 0) return null;
+                        return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />;
+                      })()}
                       {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];
