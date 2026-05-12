@@ -1053,7 +1053,9 @@ Extraction rules:
         aiRes = await callAI({
           system: systemPrompt,
           messages: [{ role: "user", content: userContent }],
-          max_tokens: 8192,
+          // Generous budget: full-Excel extractions can produce a lot of structured JSON.
+          // The backend uses Sonnet 4's output-128k beta so this won't be capped.
+          max_tokens: 32000,
           tools: [EXTRACT_TOOL],
           tool_choice: { type: "tool", name: "submit_extraction" },
         }, getToken);

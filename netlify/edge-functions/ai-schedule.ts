@@ -53,9 +53,13 @@ export default async (req: Request): Promise<Response> => {
   const { system, messages, max_tokens, tools, tool_choice } = payload;
   if (!messages || !Array.isArray(messages)) return jsonResp(400, { error: "messages array is required" });
 
+  // Cap output tokens. With the output-128k beta header below, Sonnet 4 supports up to 128K.
+  // Real-world Fast TRAQS extractions of full Excel schedules often need >8K output tokens
+  // (the old default), which is why the user was hitting stop_reason: "max_tokens".
+  const MAX_OUTPUT = 64000;
   const anthropicBody = {
     model: DEFAULT_MODEL,
-    max_tokens: Math.min(Number(max_tokens) || 4000, 8192),
+    max_tokens: Math.min(Number(max_tokens) || 4000, MAX_OUTPUT),
     system: typeof system === "string" ? system : undefined,
     messages,
     stream: true,
@@ -71,6 +75,8 @@ export default async (req: Request): Promise<Response> => {
         "Content-Type": "application/json",
         "x-api-key": ANTHROPIC_API_KEY!,
         "anthropic-version": "2023-06-01",
+        // Extended output (Sonnet 4): allows max_tokens up to 128K instead of 8K.
+        "anthropic-beta": "output-128k-2025-02-19",
       },
       body: JSON.stringify(anthropicBody),
     });
