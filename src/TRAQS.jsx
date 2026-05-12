@@ -7071,6 +7071,19 @@ ${jobsCtx || "No jobs found."}`;
                           } else {
                             dropHour = workStartH;
                           }
+                          // Snap-forward: if the drop would leave only a sliver on the first day
+                          // (less than 2h before workEnd) AND the next day is non-working, advance
+                          // to the next workday's start so the bar doesn't begin with a tiny piece
+                          // right before a non-working day gap.
+                          if (dropHour > workEndH - 2) {
+                            let _walk = addD(snapS, 1);
+                            const _max = addD(snapS, 30);
+                            if (!isWorkDay(_walk, barWorkDays)) {
+                              while (_walk <= _max && !isWorkDay(_walk, barWorkDays)) _walk = addD(_walk, 1);
+                              snapS = _walk;
+                              dropHour = workStartH;
+                            }
+                          }
                         }
                       }
                       // Unlocked: clamp preview ghost to dep boundaries so bar physically stops at constraint
@@ -7209,6 +7222,17 @@ ${jobsCtx || "No jobs found."}`;
                         // Use the ghost's exact position — free movement, no auto-snap (overlap was already rejected above)
                         effStart = teamDragLiveRef.current?.snapStart || effStart;
                         let finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
+                        // Snap-forward (final guard, mirrors onM): if drop would leave only a sliver
+                        // on the first day before a non-working day, advance to next workday start.
+                        if (finalHour > workEndH - 2) {
+                          let _walk = addD(effStart, 1);
+                          const _max = addD(effStart, 30);
+                          if (!isWorkDay(_walk, barWorkDays)) {
+                            while (_walk <= _max && !isWorkDay(_walk, barWorkDays)) _walk = addD(_walk, 1);
+                            effStart = _walk;
+                            finalHour = workStartH;
+                          }
+                        }
                         const _totalClockH0 = productiveHoursPerDay > 0 ? ((bar.task.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
                         const _firstDayAvailH0 = workEndH - finalHour;
                         let _newEnd = effStart;
