@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, jobPauseAction, jobResumeAction, fetchOrgConfig, updateOrgCode } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, jobPauseAction, jobResumeAction, fetchOrgConfig, updateOrgCode } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
@@ -1617,6 +1617,8 @@ Rules:
   const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
+  const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
+  const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
     catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; }
@@ -9367,7 +9369,10 @@ ${jobsCtx || "No jobs found."}`;
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                                 <div style={{ width: 9, height: 9, borderRadius: 5, background: T.textDim, flexShrink: 0 }} />
                                 <span style={{ fontSize: 15, fontWeight: 700, color: T.text, flex: 1 }}>{p.name}</span>
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}` }}>
+                                <div
+                                  onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.right - 168, y: r.bottom + 4 }); }) : undefined}
+                                  title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
                                   <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? "#22c55e" : T.textDim }} />
                                   <span style={{ fontSize: 11, fontWeight: 700, color: clocked ? "#22c55e" : T.textDim }}>{clocked ? "In" : "Out"}</span>
                                 </div>
@@ -9395,7 +9400,6 @@ ${jobsCtx || "No jobs found."}`;
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: 8, padding: "0 14px 12px" }} onClick={e => e.stopPropagation()}>
-                              {clocked && <button onClick={() => adminClockOut(p.id)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusXs, border: "1px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>}
                               <button onClick={() => openPersonEditModal(p)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Entries</button>
                             </div>
                             {isExp && recentEntries.length > 0 && (
@@ -9712,7 +9716,10 @@ ${jobsCtx || "No jobs found."}`;
                                 ); })()}
                               </td>
                               <td style={{ padding: "10px 10px" }}>
-                                <div style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}` }}>
+                                <div
+                                  onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.left, y: r.bottom + 4 }); }) : undefined}
+                                  title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
                                   <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? "#22c55e" : T.textDim }} />
                                   <span style={{ fontSize: 11, fontWeight: 600, color: clocked ? "#22c55e" : T.textDim }}>{clocked ? "In" : "Out"}</span>
                                 </div>
@@ -12905,6 +12912,82 @@ ${jobsCtx || "No jobs found."}`;
         })}
       </div>
     </>}
+
+    {/* ── Admin Clock-In/Out Popover (press a person's status badge) ── */}
+    {clockPopover && <>
+      <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setClockPopover(null)} />
+      <div style={{ position: "fixed", left: clockPopover.x, top: clockPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 180, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+        {[
+          { key: "in", label: "Clock In", color: "#22c55e", icon: "▶" },
+          { key: "out", label: "Clock Out", color: "#ef4444", icon: "■" },
+        ].map((opt, oi) => {
+          const isCurrent = opt.key !== clockPopover.action; // the "current" state is the OPPOSITE of the action (e.g., if action is "in", they're currently "out")
+          const fk = `clockPop-${opt.key}`;
+          return (
+            <div key={opt.key} onClick={() => {
+              if (isCurrent) return;
+              setDropFlashKey(fk);
+              const d = new Date();
+              const tsLocal = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}T${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+              setTimeout(() => {
+                setClockTimeModal({ personId: clockPopover.personId, personName: clockPopover.personName, action: opt.key, ts: tsLocal });
+                setClockPopover(null);
+                setDropFlashKey(null);
+              }, 150);
+            }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${oi * 38}ms both ease-out`, opacity: isCurrent ? 0.5 : 1, background: isCurrent ? opt.color + "12" : "transparent" }}
+            onMouseEnter={e => { if (!isCurrent && !dropFlashKey) e.currentTarget.style.background = opt.color + "18"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? opt.color + "12" : "transparent"; }}>
+              <span style={{ fontSize: 11, color: opt.color, flexShrink: 0, width: 10, textAlign: "center" }}>{opt.icon}</span>
+              <span style={{ fontSize: 13, fontWeight: isCurrent ? 600 : 500, color: isCurrent ? opt.color : T.text, flex: 1 }}>{opt.label}</span>
+              {isCurrent && <span style={{ fontSize: 10, color: opt.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Current</span>}
+            </div>
+          );
+        })}
+      </div>
+    </>}
+
+    {/* ── Admin Clock-In/Out Time-Picker Confirm Modal ── */}
+    {clockTimeModal && <div style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClockTimeModal(null)}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(380px, calc(100vw - 32px))", padding: "24px", animation: "slideUp 0.22s ease-out" }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>
+          {clockTimeModal.action === "in" ? "Clock In" : "Clock Out"} {clockTimeModal.personName}
+        </div>
+        <div style={{ fontSize: 12, color: T.textDim, marginBottom: 18 }}>Pick the time this should take effect.</div>
+        <input
+          type="datetime-local"
+          value={clockTimeModal.ts}
+          onChange={e => setClockTimeModal(m => ({ ...m, ts: e.target.value }))}
+          style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", marginBottom: 18 }}
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button onClick={() => setClockTimeModal(null)} style={{ padding: "9px 18px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={async () => {
+            const { personId, action, ts } = clockTimeModal;
+            if (!ts) return;
+            const iso = new Date(ts).toISOString();
+            try {
+              if (action === "in") {
+                const res = await adminClockInAction({ personId, clockInTime: iso }, getToken, orgCode);
+                if (res.ok) {
+                  setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeClockIn: res.activeClockIn } : p));
+                  setClockTimeModal(null);
+                } else { alert(res.error || "Clock-in failed"); }
+              } else {
+                const res = await adminClockOutAction({ personId, clockOutTime: iso }, getToken, orgCode);
+                if (res.ok) {
+                  setTimeclock(tc => [...tc, res.entry]);
+                  setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeClockIn: null } : p));
+                  setClockTimeModal(null);
+                } else { alert(res.error || "Clock-out failed"); }
+              }
+            } catch { alert("Network error"); }
+          }} style={{ padding: "9px 20px", borderRadius: T.radiusXs, border: "none", background: clockTimeModal.action === "in" ? "#22c55e" : "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            Confirm {clockTimeModal.action === "in" ? "Clock In" : "Clock Out"}
+          </button>
+        </div>
+      </div>
+    </div>}
+
     {/* ── Request Finish Approval Confirmation Modal ── */}
     {finishApproval && <div style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setFinishApproval(null)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(440px, calc(100vw - 32px))", padding: "28px 28px 24px", animation: "slideUp 0.22s ease-out" }}>

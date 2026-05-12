@@ -283,6 +283,15 @@ export const adminClockOutAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+export const adminClockInAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminClockIn", ...payload }),
+  }).then(r => r.json());
+};
+
 export const adminEditEntryAction = async (payload, getToken, orgCode) => {
   const token = await getToken();
   return fetch(`${BASE}/timeclock`, {

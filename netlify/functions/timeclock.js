@@ -50,8 +50,29 @@ export async function handler(event) {
     if (!action) return err(400, "Missing action");
 
     // ── Admin actions (Bearer token, no PIN) ──────────────────────────────
-    if (action === "adminClockOut" || action === "adminEditEntry") {
+    if (action === "adminClockOut" || action === "adminClockIn" || action === "adminEditEntry") {
       try { await validateToken(event); } catch (e) { return err(401, e.message); }
+
+      // ── Admin Clock In ─────────────────────────────────────────────────
+      if (action === "adminClockIn") {
+        const { personId, clockInTime } = body;
+        if (!personId) return err(400, "Missing personId");
+
+        let people;
+        try { people = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+
+        const personIdx = people.findIndex(p => p.id === personId);
+        if (personIdx === -1) return err(404, "Person not found");
+
+        const person = people[personIdx];
+        if (person.activeClockIn) return err(409, "Already clocked in");
+
+        const clockIn = clockInTime || new Date().toISOString();
+        people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs: [], events: [] } };
+        try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save people"); }
+
+        return json(200, { ok: true, activeClockIn: people[personIdx].activeClockIn });
+      }
 
       // ── Admin Clock Out ────────────────────────────────────────────────
       if (action === "adminClockOut") {
