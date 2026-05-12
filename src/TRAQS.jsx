@@ -1518,6 +1518,7 @@ Rules:
   const [dayDragInfo, setDayDragInfo] = useState(null);
   const [dayDragTarget, setDayDragTarget] = useState(null); // personId being hovered during team-day drag
   const [teamDayGhost, setTeamDayGhost] = useState(null); // { left, top, width, height, color, label }
+  const [resizeTooltip, setResizeTooltip] = useState(null); // { x, y, time, date, side } shown while dragging team-Gantt resize handle
   const [uploadModal, setUploadModal] = useState(false);
   const [fastTraqsPhase, setFastTraqsPhase] = useState("intro"); // "intro" | "input"
   const [fastTraqsExiting, setFastTraqsExiting] = useState(false);
@@ -7398,6 +7399,7 @@ ${jobsCtx || "No jobs found."}`;
                     }
                     if (!bar.task) return;
                     e.preventDefault(); e.stopPropagation();
+                    isDraggingRef.current = true;
                     const sx = e.clientX;
                     const os = bar.task.start, oe = bar.task.end;
                     const osH = bar.task.startHour ?? workStartH;
@@ -7494,6 +7496,14 @@ ${jobsCtx || "No jobs found."}`;
                           pending.hpd = _computeHpd(os, osH, targetDay, clampedHour);
                         }
                         updTask(bar.task.id, { start: pending.start, end: pending.end, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd }, taskPid2);
+                        // Floating tooltip showing the edge being dragged
+                        const _tipDay = side === "left" ? pending.start : pending.end;
+                        const _tipHour = side === "left" ? pending.startHour : pending.endHour;
+                        const _tipH = Math.floor(_tipHour);
+                        const _tipM = Math.round((_tipHour - _tipH) * 60);
+                        const _tipTime = `${_tipH > 12 ? _tipH - 12 : _tipH === 0 ? 12 : _tipH}:${String(_tipM).padStart(2, "0")} ${_tipH >= 12 ? "PM" : "AM"}`;
+                        const _tipDate = new Date(_tipDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                        setResizeTooltip({ x: me.clientX, y: me.clientY, time: _tipTime, date: _tipDate, side });
                       } else {
                         // Non-month mode: day-level resize
                         const rawDx3 = (me.clientX - sx) / cW;
@@ -7506,10 +7516,15 @@ ${jobsCtx || "No jobs found."}`;
                           const ne = addD(oe, dx);
                           if (ne >= os) { pending.end = ne; updTask(bar.task.id, { end: ne }, taskPid2); }
                         }
+                        const _tipDay = side === "left" ? pending.start : pending.end;
+                        const _tipDate = new Date(_tipDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                        setResizeTooltip({ x: me.clientX, y: me.clientY, time: "", date: _tipDate, side });
                       }
                     };
                     const onU = () => {
                       document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU);
+                      isDraggingRef.current = false;
+                      setResizeTooltip(null);
                       const personId = bar.task.team[0];
                       if (!personId) return;
                       const isMonth = tMode === "month";
@@ -12338,6 +12353,10 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       {teamDayGhost.time && <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top - 24, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${teamDayGhost.color}88`, backdropFilter: "blur(4px)", fontFamily: T.mono }}>{teamDayGhost.time}</div>}
     </>}
+    {resizeTooltip && <div style={{ position: "fixed", left: resizeTooltip.x + 10, top: resizeTooltip.y - 18, background: "rgba(10,10,20,0.95)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "4px 8px", borderRadius: 6, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}88`, backdropFilter: "blur(4px)", fontFamily: T.font, lineHeight: 1.3 }}>
+      <span style={{ fontSize: 9, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, fontFamily: T.font, marginRight: 6 }}>{resizeTooltip.side === "left" ? "Start" : "End"}</span>
+      <span style={{ fontFamily: T.font }}>{resizeTooltip.date}{resizeTooltip.time ? ` · ${resizeTooltip.time}` : ""}</span>
+    </div>}
     {/* Customization Modal */}
     {customizationOpen && (() => {
       return <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}
