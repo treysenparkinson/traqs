@@ -359,11 +359,20 @@ export async function callAI(payload, getToken) {
     }
   };
 
+  const _streamStartTs = Date.now();
+  let _chunkCount = 0;
+  let _byteCount = 0;
+  let _firstByteTs = null;
+  let _lastByteTs = null;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       resetIdle();
+      _chunkCount++;
+      _byteCount += value?.length || 0;
+      if (_firstByteTs == null) _firstByteTs = Date.now();
+      _lastByteTs = Date.now();
       buffer += decoder.decode(value, { stream: true });
       flushBuffer();
     }
@@ -377,6 +386,13 @@ export async function callAI(payload, getToken) {
     if (e.name === "AbortError") throw new Error("Connection idle for 45 seconds — the AI may have stalled. Try again or simplify the input.");
     throw e;
   }
+  console.log("[callAI] stream timing", {
+    chunks: _chunkCount,
+    bytes: _byteCount,
+    msToFirstByte: _firstByteTs ? _firstByteTs - _streamStartTs : null,
+    msToLastByte: _lastByteTs ? _lastByteTs - _streamStartTs : null,
+    streamDurationMs: _firstByteTs && _lastByteTs ? _lastByteTs - _firstByteTs : null,
+  });
   clearTimeout(inactivityTimer);
 
   if (streamError) throw new Error(streamError);
