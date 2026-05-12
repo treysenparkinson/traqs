@@ -177,15 +177,12 @@ const EXTRACT_TOOL = {
                         durationDays: { type: "number" },
                         hpd:          { type: "number" },
                       },
-                      required: ["title"],
                     },
                   },
                 },
-                required: ["title"],
               },
             },
           },
-          required: ["title"],
         },
       },
       updates: {
@@ -1018,7 +1015,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       const dayNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
       const workDayList = orgSettings.workDays.map(d => dayNames[d]).join("/");
       const systemPrompt = `You are a job scheduling data extractor for TRAQS, a manufacturing job tracker.
-Call the submit_extraction tool with everything you can identify in the user's text and attached files.
+Call the submit_extraction tool with EVERY work item you can identify in the user's text and attached files. Be aggressive — the user reviews everything before it's imported, so it's much better to over-extract than to miss rows.
 
 Today's date: ${today}
 Work schedule: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd}h/day, working days: ${workDayList})
@@ -1026,15 +1023,18 @@ Holidays (skip these dates): ${orgSettings.holidays.join(", ") || "none"}
 Existing team members: ${peopleCtx}
 Existing clients: ${clientCtx}
 
-Rules:
+Extraction rules:
+- Any row, line, or paragraph that mentions a job/project/work item should become a "job". Job titles can be a project name, job number, customer name, or description — whatever is most identifying.
+- If the file is a tabular schedule (rows of jobs with columns like title/dates/person/client), treat each non-header row as a job. Don't worry if some columns are blank.
+- If the file is calendar-style (tasks down rows, dates across columns), pull the row labels as job titles and the date columns as start/end where they have entries.
+- If a row has named sub-tasks (Wire, Cut, Layout, Engineering, etc.) grouped under a parent, put the parent as a "panel" inside the job and the sub-tasks as "ops" inside the panel.
+- For Excel/CSV input you'll see "### File: name" then "### Sheet: name" headers — treat each sheet as a separate source. Multiple sheets in one file may describe one job (use updates) or many jobs.
+- title is encouraged but not required. If you can't find a clear title, use the job number, the row's most distinctive value, or any short descriptor. Don't drop a row just because the title field is empty.
+- Match assignedTo to existing team members by name when possible; otherwise spell the full name as written and the system will create them. Same for client.
 - If relative dates ("next week", "in 2 weeks") are given, compute from today.
-- Match assignedTo to existing team members by name when possible; otherwise spell the full name as written and the system will create them.
-- Match client similarly.
-- If the input describes named sub-tasks (Wire, Cut, Layout, etc.), put them under a panel.
-- For Excel/CSV input you'll see "### File: name" headers — treat each as a separate source.
 - When computing end dates, count only working days. A 40-hour op at ${orgSettings.hpd}h/day spans ${Math.ceil(40 / Math.max(1, orgSettings.hpd))} working days.
-- If unsure about a field, omit it rather than guess.
-- ALWAYS call the submit_extraction tool. Even if zero jobs are found, call it with empty arrays.`;
+- For "updates" only include entries when you're confident the row refers to an existing job (its jobNumber matches a known job).
+- ALWAYS call submit_extraction. If you genuinely cannot find any work item after considering the rules above, call it with empty arrays and the user will see a clear error.`;
 
       const userContent = [];
       if (hasText) userContent.push({ type: "text", text: uploadText.trim() });
@@ -1043,6 +1043,10 @@ Rules:
         setUploadResult({ success: false, message: "No usable input. " + (fileErrors.length ? "Skipped: " + fileErrors.join(", ") : "") });
         setUploadProcessing(false); return;
       }
+
+      // Diagnostic logging — open dev tools console to see what Claude received vs. returned.
+      console.log("[FastTRAQS] User content blocks:", userContent.map(b => b.type === "text" ? { type: "text", textLen: b.text.length, preview: b.text.slice(0, 400) } : { type: b.type, mediaType: b.source?.media_type, dataLen: b.source?.data?.length }));
+      console.log("[FastTRAQS] System prompt length:", systemPrompt.length);
 
       let aiRes;
       try {
@@ -1059,7 +1063,9 @@ Rules:
         setUploadProcessing(false); return;
       }
 
+      console.log("[FastTRAQS] AI response:", aiRes);
       const extraction = findToolUse(aiRes, "submit_extraction");
+      console.log("[FastTRAQS] Extracted:", extraction);
       if (!extraction) {
         setUploadResult({ success: false, message: "AI did not return structured data. Try simplifying or splitting the input." });
         setUploadProcessing(false); return;
