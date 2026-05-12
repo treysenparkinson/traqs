@@ -216,7 +216,7 @@ export async function uploadAttachment(payload, getToken, orgCode) {
 export async function callAI(payload, getToken) {
   const headers = await authHeaders(getToken);
   const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), 35000); // 35s client timeout
+  const tid = setTimeout(() => controller.abort(), 60000); // 60s client timeout (raised from 35s for Fast TRAQS large-file extractions)
   try {
     const res = await fetch(`${BASE}/ai-schedule`, {
       method: "POST",
@@ -232,7 +232,7 @@ export async function callAI(payload, getToken) {
     return res.json(); // returns Anthropic response shape { content: [...] }
   } catch (e) {
     clearTimeout(tid);
-    if (e.name === "AbortError") throw new Error("Request timed out — try a smaller file or add context in the text box.");
+    if (e.name === "AbortError") throw new Error("Request timed out after 60 seconds — try splitting the input into smaller pieces, or simplifying the text.");
     throw e;
   }
 }

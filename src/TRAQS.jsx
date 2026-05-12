@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
+﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, jobPauseAction, jobResumeAction, fetchOrgConfig, updateOrgCode } from "./api.js";
@@ -130,6 +130,125 @@ const deriveWorkedState = (t) => {
     isPartiallyWorked: logged > 0 && logged < hpd,
     displayLocked: !!t?.locked || (hpd > 0 && logged >= hpd),
   };
+};
+// ─── Fast TRAQS (AI import) helpers ────────────────────────────────────────
+const FAST_TRAQS_MAX_FILE_MB = 10;
+const FAST_TRAQS_MAX_TOTAL_MB = 25;
+// Anthropic tool schema for the unified AI import — Claude must call this tool with the structured extraction.
+const EXTRACT_TOOL = {
+  name: "submit_extraction",
+  description: "Submit the parsed jobs, panels/ops, and updates extracted from the user's input. ALWAYS call this tool, even if both arrays end up empty.",
+  input_schema: {
+    type: "object",
+    properties: {
+      jobs: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title:        { type: "string" },
+            jobNumber:    { type: "string" },
+            start:        { type: "string", description: "YYYY-MM-DD" },
+            end:          { type: "string", description: "YYYY-MM-DD" },
+            dueDate:      { type: "string", description: "YYYY-MM-DD" },
+            client:       { type: "string" },
+            assignedTo:   { type: "string" },
+            poNumber:     { type: "string" },
+            notes:        { type: "string" },
+            hpd:          { type: "number" },
+            panels: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title:      { type: "string" },
+                  start:      { type: "string", description: "YYYY-MM-DD" },
+                  end:        { type: "string", description: "YYYY-MM-DD" },
+                  assignedTo: { type: "string" },
+                  ops: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        title:        { type: "string" },
+                        assignedTo:   { type: "string" },
+                        start:        { type: "string", description: "YYYY-MM-DD" },
+                        end:          { type: "string", description: "YYYY-MM-DD" },
+                        durationDays: { type: "number" },
+                        hpd:          { type: "number" },
+                      },
+                      required: ["title"],
+                    },
+                  },
+                },
+                required: ["title"],
+              },
+            },
+          },
+          required: ["title"],
+        },
+      },
+      updates: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            jobNumber: { type: "string" },
+            patch: {
+              type: "object",
+              properties: {
+                dueDate:  { type: "string", description: "YYYY-MM-DD" },
+                poNumber: { type: "string" },
+                status:   { type: "string", enum: ["Not Started","Pending","In Progress","On Hold","Finished"] },
+                notes:    { type: "string" },
+              },
+            },
+          },
+          required: ["jobNumber", "patch"],
+        },
+      },
+    },
+    required: ["jobs", "updates"],
+  },
+};
+const findToolUse = (aiRes, toolName) => {
+  const block = (aiRes?.content || []).find(b => b.type === "tool_use" && b.name === toolName);
+  return block?.input ?? null;
+};
+const fileToBase64 = (file) => new Promise((res, rej) => {
+  const r = new FileReader();
+  r.onload = () => res((r.result || "").split(",")[1] || "");
+  r.onerror = () => rej(new Error(`Could not read ${file.name}`));
+  r.readAsDataURL(file);
+});
+const excelToText = async (file) => {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { cellDates: true });
+  return wb.SheetNames.map(name => {
+    const ws = wb.Sheets[name];
+    return `### Sheet: ${name}\n${XLSX.utils.sheet_to_csv(ws)}`;
+  }).join("\n\n");
+};
+const fileToContentBlock = async (file) => {
+  const ext = (file.name.toLowerCase().split(".").pop() || "");
+  if (["xlsx", "xls", "csv"].includes(ext)) {
+    return { type: "text", text: `### File: ${file.name}\n${await excelToText(file)}` };
+  }
+  if (ext === "txt") {
+    return { type: "text", text: `### File: ${file.name}\n${await file.text()}` };
+  }
+  if (ext === "pdf") {
+    return { type: "document", source: { type: "base64", media_type: "application/pdf", data: await fileToBase64(file) } };
+  }
+  if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) {
+    const mt = ext === "jpg" ? "jpeg" : ext;
+    return { type: "image", source: { type: "base64", media_type: `image/${mt}`, data: await fileToBase64(file) } };
+  }
+  return null;
+};
+const nameFromEmail = (raw) => {
+  const local = (raw || "").split("@")[0];
+  return local.replace(/[._\-+]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
 };
 const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,"0"); const d = String(dt.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; };
 const NOW = new Date(); const TD = toDS(NOW);
@@ -855,554 +974,329 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     if (v !== "tasks") setTaskSubView("list");
   };
 
+  // ─── Fast TRAQS: unified AI import ────────────────────────────────────────
+  // Single pipeline for text + any combination of Excel/CSV/PDF/image/.txt files.
+  // Everything goes through Claude with the submit_extraction tool for strict, validated output.
+  // The user then reviews the extraction in the preview phase before committing to state.
   const processUpload = async () => {
     setUploadProcessing(true);
     setUploadResult(null);
     try {
-      const excelFiles = uploadFiles.filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
       const hasText = uploadText.trim().length > 0;
-
-      // ── Text-only AI path ─────────────────────────────────────────────────
-      if (excelFiles.length === 0) {
-        if (!hasText) {
-          setUploadResult({ success: false, message: "Please enter a description or upload an Excel/CSV file." });
-          setUploadProcessing(false); return;
+      const hasFiles = uploadFiles.length > 0;
+      if (!hasText && !hasFiles) {
+        setUploadResult({ success: false, message: "Add text describing your jobs or attach a file." });
+        setUploadProcessing(false); return;
+      }
+      // Size caps
+      const oversized = uploadFiles.filter(f => f.size > FAST_TRAQS_MAX_FILE_MB * 1024 * 1024);
+      if (oversized.length) {
+        setUploadResult({ success: false, message: `These files exceed ${FAST_TRAQS_MAX_FILE_MB}MB and can't be processed: ${oversized.map(f => f.name).join(", ")}` });
+        setUploadProcessing(false); return;
+      }
+      const totalSize = uploadFiles.reduce((s, f) => s + f.size, 0);
+      if (totalSize > FAST_TRAQS_MAX_TOTAL_MB * 1024 * 1024) {
+        setUploadResult({ success: false, message: `Total file size exceeds ${FAST_TRAQS_MAX_TOTAL_MB}MB. Try fewer or smaller files.` });
+        setUploadProcessing(false); return;
+      }
+      // Convert files to Anthropic content blocks (Excel → CSV text, PDF/image → base64 block, txt → text)
+      const fileBlocks = [];
+      const fileErrors = [];
+      for (const f of uploadFiles) {
+        try {
+          const block = await fileToContentBlock(f);
+          if (block) fileBlocks.push(block);
+          else fileErrors.push(`${f.name} (unsupported file type)`);
+        } catch (e) {
+          console.error("Failed to read file", f.name, e);
+          fileErrors.push(`${f.name} (${e.message || "read failed"})`);
         }
-        // Build context so AI can match names to existing records
-        const today = new Date().toISOString().split("T")[0];
-        const peopleCtx = people.map(p => `${p.name}`).join(", ") || "none";
-        const clientCtx = clients.map(c => c.name).join(", ") || "none";
-        const systemPrompt = `You are a job scheduling data extractor for TRAQS, a manufacturing job tracker.
-Extract structured job/schedule data from the user's text and return ONLY a JSON object.
+      }
+      const today = TD;
+      const peopleCtx = people.map(p => p.name).join(", ") || "none";
+      const clientCtx = clients.map(c => c.name).join(", ") || "none";
+      const dayNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+      const workDayList = orgSettings.workDays.map(d => dayNames[d]).join("/");
+      const systemPrompt = `You are a job scheduling data extractor for TRAQS, a manufacturing job tracker.
+Call the submit_extraction tool with everything you can identify in the user's text and attached files.
 
 Today's date: ${today}
-Work schedule: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd} working hours/day, working days: ${orgSettings.workDays.map(d => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]).join("/")})
+Work schedule: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd}h/day, working days: ${workDayList})
 Holidays (skip these dates): ${orgSettings.holidays.join(", ") || "none"}
-When computing end dates: count only working days. A 40-hour op at ${orgSettings.hpd}h/day = ${Math.ceil(40 / orgSettings.hpd)} working days.
-Set durationDays as working days needed = ceil(estHours / ${orgSettings.hpd}).
 Existing team members: ${peopleCtx}
 Existing clients: ${clientCtx}
 
-Return this JSON structure (all fields optional, use empty string if unknown):
-{
-  "jobs": [
-    {
-      "title": "Job title",
-      "jobNumber": "e.g. 401999 or WO-123",
-      "start": "YYYY-MM-DD",
-      "end": "YYYY-MM-DD",
-      "dueDate": "YYYY-MM-DD",
-      "client": "Client name",
-      "assignedTo": "Person name (match existing team members when possible)",
-      "notes": "Any notes or special instructions",
-      "poNumber": "PO number",
-      "panels": [
-        {
-          "title": "Panel or operation group title",
-          "start": "YYYY-MM-DD",
-          "end": "YYYY-MM-DD",
-          "assignedTo": "Person name",
-          "ops": [
-            {
-              "title": "Sub-operation name (Wire, Cut, Layout, etc.)",
-              "assignedTo": "Person name",
-              "start": "YYYY-MM-DD",
-              "end": "YYYY-MM-DD",
-              "durationDays": 1
-            }
-          ]
-        }
-      ]
-    }
-  ],
-  "updates": [
-    {
-      "jobNumber": "existing job number to update",
-      "patch": { "dueDate": "YYYY-MM-DD", "poNumber": "", "status": "In Progress", "notes": "" }
-    }
-  ]
-}
-
 Rules:
-- If relative dates given (e.g. "next week", "in 2 weeks"), calculate from today ${today}
-- Match assignedTo to existing team members by name when possible
-- If a job has named sub-tasks like Wire/Cut/Layout, put them as ops under a panel
-- If no panels/ops mentioned, leave panels array empty
-- Return ONLY the JSON object, no explanation text`;
+- If relative dates ("next week", "in 2 weeks") are given, compute from today.
+- Match assignedTo to existing team members by name when possible; otherwise spell the full name as written and the system will create them.
+- Match client similarly.
+- If the input describes named sub-tasks (Wire, Cut, Layout, etc.), put them under a panel.
+- For Excel/CSV input you'll see "### File: name" headers — treat each as a separate source.
+- When computing end dates, count only working days. A 40-hour op at ${orgSettings.hpd}h/day spans ${Math.ceil(40 / Math.max(1, orgSettings.hpd))} working days.
+- If unsure about a field, omit it rather than guess.
+- ALWAYS call the submit_extraction tool. Even if zero jobs are found, call it with empty arrays.`;
 
-        let aiData;
-        try {
-          const aiRes = await callAI({ system: systemPrompt, messages: [{ role: "user", content: uploadText.trim() }], max_tokens: 4000 }, getToken);
-          const textBlock = (aiRes.content || []).find(b => b.type === "text")?.text || "";
-          const jsonMatch = textBlock.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) throw new Error("AI response did not contain JSON");
-          aiData = JSON.parse(jsonMatch[0]);
-        } catch (e) {
-          setUploadResult({ success: false, message: "Could not parse AI response: " + e.message });
-          setUploadProcessing(false); return;
-        }
-
-        // ── Build objects from AI JSON ─────────────────────────────────────
-        const addDaysAI = (d, n) => { const dt = new Date((d || today) + "T12:00:00"); dt.setDate(dt.getDate() + n); return dt.toISOString().split("T")[0]; };
-        const pendingPeopleAI = {};
-        const pendingClientsAI = {};
-        function resolvePersonAI(raw) {
-          if (!raw) return null;
-          const name = raw.trim();
-          const lo = name.toLowerCase();
-          const exact = people.find(p => p.name.toLowerCase() === lo);
-          if (exact) return exact.id;
-          const partial = people.find(p => p.name.toLowerCase().startsWith(lo) || lo.startsWith(p.name.toLowerCase()));
-          if (partial) return partial.id;
-          if (pendingPeopleAI[lo]) return pendingPeopleAI[lo].id;
-          pendingPeopleAI[lo] = { id: uid(), name, department: "Shop", cap: 8, timeOff: [], userRole: "user" };
-          return pendingPeopleAI[lo].id;
-        }
-        function resolveClientAI(name) {
-          if (!name) return null;
-          const lo = name.toLowerCase().trim();
-          const ex = clients.find(c => c.name.toLowerCase() === lo);
-          if (ex) return ex.id;
-          if (!pendingClientsAI[lo]) pendingClientsAI[lo] = { id: "c" + uid(), name: name.trim(), contact: "", email: "", phone: "", color: COLORS[(clients.length + Object.keys(pendingClientsAI).length) % COLORS.length], notes: "" };
-          return pendingClientsAI[lo].id;
-        }
-
-        const importedJobsAI = [];
-        let aiTotalJobs = 0, aiTotalUpdated = 0;
-
-        // Handle updates to existing jobs
-        for (const upd of (aiData.updates || [])) {
-          const existing = tasks.find(t => t.jobNumber === upd.jobNumber || t.title === upd.jobNumber);
-          if (existing && upd.patch) { updTask(existing.id, upd.patch); aiTotalUpdated++; }
-        }
-
-        // Handle new jobs
-        for (const j of (aiData.jobs || [])) {
-          const startD = j.start || today;
-          const endD   = j.end   || addDaysAI(startD, 14);
-          const personId = resolvePersonAI(j.assignedTo);
-          const clientId = resolveClientAI(j.client);
-
-          // Check if job already exists
-          const existing = j.jobNumber ? tasks.find(t => t.jobNumber === j.jobNumber) : null;
-          if (existing) {
-            const patch = {};
-            if (j.dueDate)  patch.dueDate  = j.dueDate;
-            if (j.poNumber) patch.poNumber = j.poNumber;
-            if (j.notes)    patch.notes    = j.notes;
-            if (clientId)   patch.clientId = clientId;
-            if (Object.keys(patch).length) updTask(existing.id, patch);
-            aiTotalUpdated++; continue;
-          }
-
-          const subs = (j.panels || []).map(pan => {
-            const panStart = pan.start || startD;
-            const panEnd   = pan.end   || addDaysAI(panStart, 7);
-            const panPerson = resolvePersonAI(pan.assignedTo) || personId;
-            const ops = (pan.ops || []).map(op => {
-              const opStart = op.start || panStart;
-              const opEnd   = op.end   || addDaysAI(opStart, op.durationDays || 1);
-              const opPerson = resolvePersonAI(op.assignedTo) || panPerson;
-              return { id: uid(), title: op.title || "Operation", start: opStart, end: opEnd,
-                pri: "Medium", status: "Not Started", team: opPerson ? [opPerson] : [],
-                hpd: 0, notes: "", deps: [], locked: false, subs: [] };
-            });
-            return { id: uid(), title: pan.title || "Panel", start: panStart, end: panEnd,
-              pri: "Medium", status: "Not Started",
-              team: panPerson ? [panPerson] : [],
-              hpd: 0, notes: "", deps: [], subs: ops };
-          });
-
-          const job = {
-            id: uid(), title: j.title || j.jobNumber || "Imported Job",
-            jobNumber: j.jobNumber || "", start: startD, end: endD,
-            dueDate: j.dueDate || "", pri: "Medium", status: "Not Started",
-            team: personId ? [personId] : (subs[0]?.team || []),
-            color: "#3b82f6", hpd: 0, notes: j.notes || "",
-            clientId: clientId || null, poNumber: j.poNumber || "",
-            deps: [], subs,
-          };
-          importedJobsAI.push(job);
-          aiTotalJobs++;
-        }
-
-        const newPeopleListAI  = Object.values(pendingPeopleAI);
-        const newClientsListAI = Object.values(pendingClientsAI);
-        if (newPeopleListAI.length)  setPeople(prev  => [...prev, ...newPeopleListAI]);
-        if (newClientsListAI.length) setClients(prev => [...prev, ...newClientsListAI]);
-        if (importedJobsAI.length) {
-          importedJobsAI.forEach(j => {
-            (j.subs || []).forEach(panel => {
-              (panel.subs || []).forEach(op => {
-                if (op.start && (op.team || []).length > 0 && op.startHour == null) {
-                  op.startHour = getNextStartHour((op.team || [])[0], op.start, op.id);
-                }
-              });
-            });
-            protectedJobIds.current.add(j.id);
-          });
-          setTasks(prev => [...prev, ...importedJobsAI]);
-        }
-
-        if (aiTotalJobs === 0 && aiTotalUpdated === 0) {
-          setUploadResult({ success: false, message: "Could not extract any jobs from the description. Try being more specific (e.g. include job name, due date, assigned person)." });
-        } else {
-          const parts = [];
-          if (aiTotalJobs > 0)    parts.push(`Imported ${aiTotalJobs} job${aiTotalJobs !== 1 ? "s" : ""}`);
-          if (aiTotalUpdated > 0) parts.push(`Updated ${aiTotalUpdated} existing`);
-          if (newPeopleListAI.length > 0) parts.push(`Added ${newPeopleListAI.length} team member${newPeopleListAI.length !== 1 ? "s" : ""}`);
-          if (newClientsListAI.length > 0) parts.push(`Added ${newClientsListAI.length} client${newClientsListAI.length !== 1 ? "s" : ""}`);
-          setUploadResult({ success: true, message: parts.join(" · ") + "." });
-          setUploadText("");
-          setUploadFiles([]);
-        }
+      const userContent = [];
+      if (hasText) userContent.push({ type: "text", text: uploadText.trim() });
+      userContent.push(...fileBlocks);
+      if (userContent.length === 0) {
+        setUploadResult({ success: false, message: "No usable input. " + (fileErrors.length ? "Skipped: " + fileErrors.join(", ") : "") });
         setUploadProcessing(false); return;
       }
 
-      // ── Column scoring ─────────────────────────────────────────────────────
-      function scoreCol(header, high, med) {
-        const h = String(header || "").toLowerCase().replace(/[_.\\/\-]/g, " ").trim();
-        let s = 0;
-        for (const t of high) { if (h === t) s += 20; else if (h.includes(t) || t.includes(h)) s += 10; }
-        for (const t of med)  { if (h === t) s += 6;  else if (h.includes(t)) s += 3; else if (t.includes(h) && h.length > 2) s += 1; }
-        return s;
-      }
-      function detectCols(headers) {
-        const FIELDS = {
-          jobNumber:  { high: ["work order","wo #","job #","job number","mtx project","project number","wo number"], med: ["job","order","wo","number"] },
-          title:      { high: ["job name","job title","project name","mtx project","project title","description"], med: ["title","name","project","scope","task"] },
-          startDate:  { high: ["start date","begin date","planned start","date start","start date","scheduled start"], med: ["start","begin","from"] },
-          endDate:    { high: ["end date","finish date","completion date","scheduled end","date end","scheduled finish"], med: ["end","finish","complete"] },
-          dueDate:    { high: ["ship date","due date","required date","delivery date","target date","must ship","need by"], med: ["due","ship","delivery","deadline","required"] },
-          client:     { high: ["customer name","client name","end user","sold to","bill to"], med: ["client","customer","cust","company","account"] },
-          assignedTo: { high: ["assigned to","project manager","responsible party","lead tech","tech","email"], med: ["assign","engineer","pm","manager","worker","team","lead","owner"] },
-          notes:      { high: ["special instructions","additional notes","job notes","comments"], med: ["note","comment","remark","memo","instruction"] },
-          poNumber:   { high: ["purchase order","po #","po#","po number","po"], med: ["purchase"] },
-          level:      { high: ["sh","level","lvl","lv","indent","hierarchy","tier","type"], med: [] },
-          hpd:        { high: ["hours per day","hpd","hrs/day","hours/day","daily hours","h/day","hrs per day"], med: ["hours","hrs","hour"] },
-        };
-        const claimed = new Set();
-        const map = {};
-        for (const [field, { high, med }] of Object.entries(FIELDS)) {
-          const ranked = headers.map((h, i) => ({ col: i, s: scoreCol(h, high, med) }))
-            .filter(x => x.s > 0).sort((a, b) => b.s - a.s);
-          const best = ranked.find(x => !claimed.has(x.col));
-          if (best) { claimed.add(best.col); map[field] = best.col; }
-        }
-        return map;
+      let aiRes;
+      try {
+        aiRes = await callAI({
+          system: systemPrompt,
+          messages: [{ role: "user", content: userContent }],
+          max_tokens: 8192,
+          tools: [EXTRACT_TOOL],
+          tool_choice: { type: "tool", name: "submit_extraction" },
+        }, getToken);
+      } catch (e) {
+        console.error("Fast TRAQS AI call failed:", e);
+        setUploadResult({ success: false, message: e.message || "AI request failed. Try again or simplify the input." });
+        setUploadProcessing(false); return;
       }
 
-      // ── Value helpers ──────────────────────────────────────────────────────
-      const today = new Date().toISOString().split("T")[0];
-      const addDays = (d, n) => { const dt = new Date(d + "T12:00:00"); dt.setDate(dt.getDate() + n); return dt.toISOString().split("T")[0]; };
-      function getV(row, col) { return col !== undefined ? String(row[col] ?? "").trim() : ""; }
-      function parseDate(v) {
-        if (!v) return "";
-        if (v instanceof Date) return isNaN(v) ? "" : v.toISOString().split("T")[0];
-        const d = new Date(v);
-        return isNaN(d.getTime()) ? "" : d.toISOString().split("T")[0];
+      const extraction = findToolUse(aiRes, "submit_extraction");
+      if (!extraction) {
+        setUploadResult({ success: false, message: "AI did not return structured data. Try simplifying or splitting the input." });
+        setUploadProcessing(false); return;
       }
-      // "401964 - Thacker pass" → { num:"401964", title:"Thacker pass" }
-      // "401944" → { num:"401944", title:"" }
-      function splitJobVal(v) {
-        const m = v.match(/^([A-Z]{0,4}\d{3,})\s*[-–]\s*(.+)$/);
-        if (m) return { num: m[1].trim(), title: m[2].trim() };
-        if (/^[A-Z]{0,4}\d{4,}$/.test(v.replace(/\s/g, ""))) return { num: v.trim(), title: "" };
-        return null;
-      }
-      // 401999-01 or 401999-01 (2) or 401999-01A
-      function isPanelVal(v) { return /^[A-Z]{0,4}\d{4,}-\d+/i.test(v.replace(/\s/g, "")); }
-      // Extract parent job number: 401999-01 → 401999
-      function parentJobNum(v) { return v.replace(/\s*\(.*\).*$/, "").trim().replace(/-\d+[A-Z]?$/i, ""); }
-      // Strip trailing "(2)" from panel title
-      function cleanPanel(v) { return v.replace(/\s*\(\d+\).*$/, "").trim(); }
-      const OP_NAMES = new Set(["wire","cut","layout","labels","engineering","programming","assembly","test","inspection","paint","ship","install","startup","wiring","cutting","prep","testing","punch"]);
 
-      // ── People / clients resolver (closes over component state) ───────────
-      const pendingPeople  = {};
-      const pendingClients = {};
-      function nameFromEmail(raw) {
-        // draven@matrixpci.com → "Draven"   john.smith@co.com → "John Smith"
-        const local = raw.split("@")[0];
-        return local.replace(/[._\-+]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
-      }
-      function resolvePerson(raw) {
-        if (!raw) return null;
-        // Extract display name from email if needed
+      const aiJobs = Array.isArray(extraction.jobs) ? extraction.jobs : [];
+      const aiUpdates = Array.isArray(extraction.updates) ? extraction.updates : [];
+
+      // Identify which named people/clients are new vs existing (case-insensitive, token-boundary partial match)
+      const lowerExistingPeople = new Set(people.map(p => p.name.toLowerCase()));
+      const lowerExistingClients = new Set(clients.map(c => c.name.toLowerCase()));
+      const newPeopleMap = new Map();   // lowerName → displayName
+      const newClientsMap = new Map();
+      const noteNewPerson = (raw) => {
+        if (!raw) return;
         const name = raw.includes("@") ? nameFromEmail(raw) : raw.trim();
-        if (!name) return null;
+        if (!name) return;
         const lo = name.toLowerCase();
-        // Exact match first
-        const exact = people.find(p => p.name.toLowerCase() === lo);
-        if (exact) return exact.id;
-        // Partial match — e.g. "Draven" matches "Draven Doe"
-        const partial = people.find(p => p.name.toLowerCase().startsWith(lo + " ") || p.name.toLowerCase() === lo);
-        if (partial) return partial.id;
-        // Check pending
-        if (pendingPeople[lo]) return pendingPeople[lo].id;
-        // Also check if already pending under a slightly different casing
-        const pendingPartial = Object.values(pendingPeople).find(p => p.name.toLowerCase().startsWith(lo + " ") || p.name.toLowerCase() === lo);
-        if (pendingPartial) return pendingPartial.id;
-        pendingPeople[lo] = { id: uid(), name, department: "Shop", cap: 8, timeOff: [], userRole: "user" };
-        return pendingPeople[lo].id;
-      }
-      function resolveClient(name) {
-        if (!name) return null;
-        const lo = name.toLowerCase().trim();
-        const ex = clients.find(c => c.name.toLowerCase() === lo);
-        if (ex) return ex.id;
-        if (!pendingClients[lo]) pendingClients[lo] = { id: "c" + uid(), name: name.trim(), contact: "", email: "", phone: "", color: COLORS[(clients.length + Object.keys(pendingClients).length) % COLORS.length], notes: "" };
-        return pendingClients[lo].id;
-      }
-
-      // ── Parse files ────────────────────────────────────────────────────────
-      const importedJobs = [];
-      const jobByNum = {}; // jobNumber → job obj
-      let totalJobs = 0, totalUpdated = 0;
-
-      for (const file of excelFiles) {
-        const ab = await new Promise((res, rej) => {
-          const r = new FileReader();
-          r.onload  = () => res(r.result);
-          r.onerror = () => rej(new Error("Failed to read " + file.name));
-          r.readAsArrayBuffer(file);
+        if (lowerExistingPeople.has(lo)) return;
+        const tokenPartial = people.find(p => {
+          const pn = p.name.toLowerCase();
+          return pn.startsWith(lo + " ") || pn.endsWith(" " + lo);
         });
-        const wb = XLSX.read(ab, { type: "array", cellDates: true });
-
-        for (const sheetName of wb.SheetNames) {
-          const ws   = wb.Sheets[sheetName];
-          const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
-          const data = rows.filter(r => r.some(v => String(v).trim() !== ""));
-          if (data.length < 2) continue;
-
-          const headers  = data[0];
-          const bodyRows = data.slice(1);
-          const C = detectCols(headers);
-          console.log("[FastTRAQS] Sheet:", sheetName, "| Headers:", headers.map((h,i)=>`${i}:${h}`).join(", "));
-          console.log("[FastTRAQS] Column map:", JSON.stringify(Object.fromEntries(Object.entries(C).map(([k,v])=>[k, headers[v]]))));
-
-          // Pre-pass: build level-value → rowType map dynamically from SH/level column
-          // This avoids hardcoded conflicts (e.g. "1" meaning job vs panel)
-          const levelMap = {};
-          if (C.level !== undefined) {
-            const seenNums = [];
-            for (const r of bodyRows) {
-              const v = getV(r, C.level);
-              if (!v) continue;
-              const n = parseFloat(v);
-              if (!isNaN(n) && !seenNums.includes(n)) seenNums.push(n);
-            }
-            seenNums.sort((a, b) => a - b);
-            // smallest → job, next → panel, rest → op
-            seenNums.forEach((n, i) => {
-              if (i === 0) levelMap[String(n)] = "job";
-              else if (i === 1) levelMap[String(n)] = "panel";
-              else levelMap[String(n)] = "op";
-            });
-            // Also handle string level values
-            for (const r of bodyRows) {
-              const v = getV(r, C.level);
-              if (!v || levelMap[v]) continue;
-              const lv = v.toLowerCase();
-              if (["job","project","main","wbs"].includes(lv)) levelMap[v] = "job";
-              else if (["panel","sub","subproject","section"].includes(lv)) levelMap[v] = "panel";
-              else if (["op","operation","task","step","activity"].includes(lv)) levelMap[v] = "op";
-            }
-            console.log("[FastTRAQS] Level map:", levelMap);
-          }
-
-          let curJob   = null;
-          let curPanel = null;
-
-          for (const row of bodyRows) {
-            const titleRaw  = getV(row, C.title);
-            const jobNumRaw = getV(row, C.jobNumber);
-            const mainId    = jobNumRaw || titleRaw;
-            if (!mainId) continue;
-
-            const startRaw = parseDate(getV(row, C.startDate)) || today;
-            const hpdRaw   = C.hpd !== undefined ? (parseFloat(getV(row, C.hpd)) || 0) : 0;
-            const durationBD = hpdRaw > 0 ? Math.max(1, Math.ceil(hpdRaw / orgSettings.hpd)) - 1 : 0;
-            const endRaw   = parseDate(getV(row, C.endDate))   || (hpdRaw > 0 ? sAddBD(startRaw, durationBD) : addDays(startRaw, 14));
-            const dueRaw   = parseDate(getV(row, C.dueDate))   || ""; // details only
-            const personId = resolvePerson(getV(row, C.assignedTo));
-            const clientId = resolveClient(getV(row, C.client));
-            const notes    = getV(row, C.notes);
-            const poNum    = getV(row, C.poNumber);
-
-            // ── Detect row type ────────────────────────────────────────────
-            let rowType = null;
-            let opTitle = titleRaw || mainId; // label used when rowType="op"
-
-            // 1. Level/SH column (most reliable when present)
-            if (C.level !== undefined) {
-              const lv = getV(row, C.level);
-              rowType = levelMap[lv] ?? null;
-            }
-
-            // 2. Value pattern matching (runs if no level column or value not mapped)
-            if (!rowType) {
-              const numId = jobNumRaw || mainId;
-              if (isPanelVal(numId)) {
-                // Panel ID in number col — but if title is an op name, this is an op row
-                // (common when panel number repeats for each op: "401988-01 | Wire")
-                if (titleRaw && OP_NAMES.has(titleRaw.toLowerCase())) {
-                  rowType = "op";
-                  opTitle = titleRaw;
-                } else {
-                  rowType = "panel";
-                }
-              } else if (splitJobVal(numId)) {
-                rowType = "job";
-              } else if (OP_NAMES.has(mainId.toLowerCase())) {
-                rowType = "op";
-              } else if (titleRaw && OP_NAMES.has(titleRaw.toLowerCase())) {
-                rowType = "op";
-                opTitle = titleRaw;
-              }
-            }
-
-            // 3. Context fallback — don't force everything to "job"
-            if (!rowType) {
-              if (curPanel) rowType = "op";      // unknown under panel → treat as op
-              else if (!curJob) rowType = "job"; // very first row, no context → job
-              // else: unknown row under a job with no panel — skip it
-            }
-
-            console.log(`[FastTRAQS] "${mainId}" / "${titleRaw}" → ${rowType}`);
-
-            // ── Build objects ──────────────────────────────────────────────
-            if (rowType === "job") {
-              const split  = splitJobVal(mainId);
-              const jNum   = split ? split.num : (jobNumRaw || mainId);
-              const jTitle = split && split.title ? split.title
-                           : (titleRaw && titleRaw !== jNum && !isPanelVal(titleRaw) ? titleRaw : jNum);
-
-              const existing = tasks.find(t => t.jobNumber && t.jobNumber === jNum);
-              if (existing) {
-                const patch = {};
-                if (dueRaw)   patch.dueDate   = dueRaw;
-                if (poNum)    patch.poNumber  = poNum;
-                if (clientId) patch.clientId  = clientId;
-                if (notes)    patch.notes     = notes;
-                if (Object.keys(patch).length) updTask(existing.id, patch);
-                curJob = { ...existing, _existing: true };
-                jobByNum[jNum] = curJob;
-                totalUpdated++;
-                curPanel = null;
-              } else if (!jobByNum[jNum]) {
-                curJob = { id: uid(), title: jTitle, jobNumber: jNum, start: startRaw, end: endRaw,
-                  dueDate: dueRaw, pri: "Medium", status: "Not Started",
-                  team: personId ? [personId] : [], hpd: hpdRaw,
-                  notes, clientId: clientId || null, poNumber: poNum, deps: [], subs: [] };
-                importedJobs.push(curJob);
-                jobByNum[jNum] = curJob;
-                totalJobs++;
-                curPanel = null;
-              } else {
-                curJob = jobByNum[jNum];
-                curPanel = null;
-              }
-
-            } else if (rowType === "panel") {
-              const rawPanelId = cleanPanel(jobNumRaw || titleRaw);
-              const pJobNum    = parentJobNum(rawPanelId);
-
-              if (!curJob || curJob.jobNumber !== pJobNum) {
-                const found = jobByNum[pJobNum] || tasks.find(t => t.jobNumber === pJobNum);
-                if (found) {
-                  curJob = found;
-                } else {
-                  curJob = { id: uid(), title: pJobNum, jobNumber: pJobNum,
-                    start: startRaw, end: endRaw, dueDate: dueRaw,
-                    pri: "Medium", status: "Not Started", team: [],
-                    hpd: hpdRaw, notes: "", clientId: null, poNumber: "", deps: [], subs: [] };
-                  importedJobs.push(curJob);
-                  jobByNum[pJobNum] = curJob;
-                  totalJobs++;
-                }
-              }
-
-              curPanel = { id: uid(), title: rawPanelId, start: startRaw, end: endRaw,
-                pri: "Medium", status: "Not Started",
-                team: personId ? [personId] : [], hpd: hpdRaw, notes, deps: [], subs: [],
-                color: COLORS[(curJob.subs?.length || 0) % COLORS.length] };
-              if (!curJob._existing) curJob.subs.push(curPanel);
-
-            } else if (rowType === "op") {
-              // If op was detected from a repeated panel ID (e.g. "401988-01 | Wire"),
-              // auto-create/find the panel object so we can attach to it
-              if (!curPanel && jobNumRaw && isPanelVal(jobNumRaw)) {
-                const rawPanelId = cleanPanel(jobNumRaw);
-                const pJobNum    = parentJobNum(rawPanelId);
-                if (!curJob || curJob.jobNumber !== pJobNum) {
-                  curJob = jobByNum[pJobNum] || tasks.find(t => t.jobNumber === pJobNum) || null;
-                }
-                if (curJob) {
-                  const already = curJob.subs?.find(p => p.title === rawPanelId);
-                  if (already) {
-                    curPanel = already;
-                  } else {
-                    curPanel = { id: uid(), title: rawPanelId, start: startRaw, end: endRaw,
-                      pri: "Medium", status: "Not Started", team: [], hpd: hpdRaw,
-                      notes: "", deps: [], subs: [],
-                      color: COLORS[(curJob.subs?.length || 0) % COLORS.length] };
-                    if (!curJob._existing) curJob.subs.push(curPanel);
-                  }
-                }
-              }
-              if (curPanel) {
-                curPanel.subs.push({ id: uid(), title: opTitle,
-                  start: startRaw, end: endRaw, pri: "Medium", status: "Not Started",
-                  team: personId ? [personId] : [], hpd: hpdRaw, notes,
-                  deps: [], locked: false, subs: [] });
-              }
-            }
-            // Unknown row type → skip (no fallback job creation)
-          }
-        }
-      }
-
-      const newPeopleList  = Object.values(pendingPeople);
-      const newClientsList = Object.values(pendingClients);
-      if (newPeopleList.length)  setPeople(prev  => [...prev, ...newPeopleList]);
-      if (newClientsList.length) setClients(prev => [...prev, ...newClientsList]);
-      if (importedJobs.length) {
-        importedJobs.forEach(j => {
-          (j.subs || []).forEach(panel => {
-            (panel.subs || []).forEach(op => {
-              if (op.start && (op.team || []).length > 0 && op.startHour == null) {
-                op.startHour = getNextStartHour((op.team || [])[0], op.start, op.id);
-              }
-            });
-          });
-          protectedJobIds.current.add(j.id);
+        if (tokenPartial) return;
+        if (!newPeopleMap.has(lo)) newPeopleMap.set(lo, name);
+      };
+      const noteNewClient = (raw) => {
+        if (!raw) return;
+        const name = raw.trim();
+        if (!name) return;
+        const lo = name.toLowerCase();
+        if (lowerExistingClients.has(lo)) return;
+        if (!newClientsMap.has(lo)) newClientsMap.set(lo, name);
+      };
+      aiJobs.forEach(j => {
+        noteNewPerson(j.assignedTo);
+        noteNewClient(j.client);
+        (j.panels || []).forEach(p => {
+          noteNewPerson(p.assignedTo);
+          (p.ops || []).forEach(o => noteNewPerson(o.assignedTo));
         });
-        setTasks(prev => [...prev, ...importedJobs]);
-      }
+      });
 
-      const totalPeople  = newPeopleList.length;
-      const totalClients = newClientsList.length;
+      // Build preview state — every node is checkbox-toggleable and editable
+      const previewJobs = aiJobs.map(j => {
+        const jStart = j.start || today;
+        const jEnd = j.end || addD(jStart, 14);
+        return {
+          _checked: true,
+          _id: uid(),
+          title: j.title || j.jobNumber || "Imported Job",
+          jobNumber: j.jobNumber || "",
+          start: jStart,
+          end: jEnd,
+          dueDate: j.dueDate || "",
+          clientName: j.client || "",
+          assigneeName: j.assignedTo || "",
+          poNumber: j.poNumber || "",
+          notes: j.notes || "",
+          hpd: typeof j.hpd === "number" ? j.hpd : 7.5,
+          panels: (j.panels || []).map(p => ({
+            _checked: true,
+            _id: uid(),
+            title: p.title || "Panel",
+            start: p.start || jStart,
+            end: p.end || jEnd,
+            assigneeName: p.assignedTo || "",
+            ops: (p.ops || []).map(o => ({
+              _checked: true,
+              _id: uid(),
+              title: o.title || "Operation",
+              start: o.start || p.start || jStart,
+              end: o.end || p.end || jEnd,
+              assigneeName: o.assignedTo || "",
+              hpd: typeof o.hpd === "number" ? o.hpd : (o.durationDays ? o.durationDays * (orgSettings.hpd || 8) : 8),
+            })),
+          })),
+        };
+      });
 
-      if (totalJobs === 0 && totalUpdated === 0) {
-        setUploadResult({ success: false, message: "No jobs found. Make sure the file has job numbers starting with 40 (e.g. 401999 or 401999-01)." });
+      const previewUpdates = aiUpdates
+        .map(u => {
+          const jn = u.jobNumber || "";
+          const existing = tasks.find(t => (t.jobNumber || "") === jn);
+          return { _checked: true, jobNumber: jn, patch: u.patch || {}, _existingJobTitle: existing?.title || "", _exists: !!existing };
+        })
+        .filter(u => u._exists);
+
+      const previewNewPeople = Array.from(newPeopleMap.values()).map(name => ({ _checked: true, name }));
+      const previewNewClients = Array.from(newClientsMap.values()).map(name => ({ _checked: true, name }));
+
+      if (previewJobs.length === 0 && previewUpdates.length === 0) {
+        setUploadResult({ success: false, message: "No jobs extracted. Try clarifying the input, splitting it into smaller pieces, or describing the work explicitly." + (fileErrors.length ? " Skipped files: " + fileErrors.join(", ") : "") });
         setUploadProcessing(false); return;
       }
 
-      const parts = [];
-      if (totalJobs    > 0) parts.push(`Imported ${totalJobs} job${totalJobs !== 1 ? "s" : ""}`);
-      if (totalUpdated > 0) parts.push(`Updated ${totalUpdated} existing`);
-      if (totalPeople  > 0) parts.push(`Added ${totalPeople} team member${totalPeople !== 1 ? "s" : ""}`);
-      if (totalClients > 0) parts.push(`Added ${totalClients} client${totalClients !== 1 ? "s" : ""}`);
-      setUploadResult({ success: true, message: parts.join(" · ") + "." });
-      setUploadText("");
-      setUploadFiles([]);
+      setPreviewData({ jobs: previewJobs, updates: previewUpdates, newPeople: previewNewPeople, newClients: previewNewClients });
+      setFastTraqsPhase("preview");
+      setUploadProcessing(false);
     } catch (err) {
-      console.error(err);
-      setUploadResult({ success: false, message: "Error reading file: " + err.message });
+      console.error("Fast TRAQS error:", err);
+      setUploadResult({ success: false, message: err.message || "Something went wrong." });
+      setUploadProcessing(false);
     }
-    setUploadProcessing(false);
   };
+
+  // ─── Fast TRAQS: commit the previewed extraction to state ──────────────────
+  const commitImport = () => {
+    if (!previewData) return;
+    const { jobs, updates, newPeople, newClients } = previewData;
+
+    // Pre-resolve new people/clients (with fresh IDs) so we can map names → IDs uniformly below.
+    const keptNewPeople = newPeople.filter(p => p._checked).map(p => ({
+      id: uid(), name: p.name, department: "Shop", cap: 8, timeOff: [], userRole: "user",
+    }));
+    const keptNewClients = newClients.filter(c => c._checked).map((c, i) => {
+      const idx = clients.length + i;
+      return { id: "c" + uid(), name: c.name, contact: "", email: "", phone: "", color: COLORS[idx % COLORS.length], notes: "" };
+    });
+    const allPeople = [...people, ...keptNewPeople];
+    const allClients = [...clients, ...keptNewClients];
+    const resolvePersonName = (raw) => {
+      if (!raw) return null;
+      const name = raw.includes("@") ? nameFromEmail(raw) : raw.trim();
+      if (!name) return null;
+      const lo = name.toLowerCase();
+      const exact = allPeople.find(p => p.name.toLowerCase() === lo);
+      if (exact) return exact.id;
+      const tokenPartial = allPeople.find(p => {
+        const pn = p.name.toLowerCase();
+        return pn.startsWith(lo + " ") || pn.endsWith(" " + lo);
+      });
+      return tokenPartial ? tokenPartial.id : null;
+    };
+    const resolveClientName = (raw) => {
+      if (!raw) return null;
+      const lo = raw.trim().toLowerCase();
+      if (!lo) return null;
+      return allClients.find(c => c.name.toLowerCase() === lo)?.id || null;
+    };
+
+    // Build kept jobs by filtering unchecked nodes and resolving names → IDs.
+    const keptJobs = jobs.filter(j => j._checked).map(j => {
+      const clientId = resolveClientName(j.clientName);
+      const jobTeamId = resolvePersonName(j.assigneeName);
+      const subs = (j.panels || []).filter(p => p._checked).map(p => {
+        const panelTeamId = resolvePersonName(p.assigneeName) || jobTeamId;
+        const ops = (p.ops || []).filter(o => o._checked).map(o => {
+          const opTeamId = resolvePersonName(o.assigneeName) || panelTeamId || jobTeamId;
+          return {
+            id: uid(),
+            title: o.title || "Operation",
+            start: o.start || p.start || j.start,
+            end: o.end || p.end || j.end,
+            pri: "High",
+            status: "Not Started",
+            team: opTeamId ? [opTeamId] : [],
+            hpd: typeof o.hpd === "number" ? o.hpd : 8,
+            notes: "",
+            deps: [],
+            locked: false,
+            subs: [],
+          };
+        });
+        return {
+          id: uid(),
+          title: p.title || "Panel",
+          start: p.start || j.start,
+          end: p.end || j.end,
+          pri: "Medium",
+          status: "Not Started",
+          team: panelTeamId ? [panelTeamId] : [],
+          hpd: 0,
+          notes: "",
+          deps: [],
+          engineering: { designed: null, verified: null, sentToPerforex: null },
+          subs: ops,
+        };
+      });
+      return {
+        id: uid(),
+        title: j.title || j.jobNumber || "Imported Job",
+        jobNumber: j.jobNumber || "",
+        start: j.start || TD,
+        end: j.end || addD(TD, 14),
+        dueDate: j.dueDate || "",
+        pri: "Medium",
+        status: "Not Started",
+        team: jobTeamId ? [jobTeamId] : (subs[0]?.team || []),
+        color: COLORS[(tasks.length) % COLORS.length],
+        hpd: typeof j.hpd === "number" ? j.hpd : 7.5,
+        notes: j.notes || "",
+        clientId: clientId || null,
+        poNumber: j.poNumber || "",
+        deps: [],
+        subs,
+      };
+    });
+
+    // Compute startHour for ops to avoid same-day overlap with existing schedule
+    keptJobs.forEach(j => {
+      (j.subs || []).forEach(panel => {
+        (panel.subs || []).forEach(op => {
+          if (op.start && (op.team || []).length > 0 && op.startHour == null) {
+            op.startHour = getNextStartHour((op.team || [])[0], op.start, op.id);
+          }
+        });
+      });
+      protectedJobIds.current.add(j.id);
+    });
+
+    // Apply updates to existing jobs
+    const keptUpdates = updates.filter(u => u._checked);
+    keptUpdates.forEach(u => {
+      const existing = tasks.find(t => (t.jobNumber || "") === (u.jobNumber || ""));
+      if (existing && u.patch) updTask(existing.id, u.patch);
+    });
+
+    if (keptNewPeople.length) setPeople(prev => [...prev, ...keptNewPeople]);
+    if (keptNewClients.length) setClients(prev => [...prev, ...keptNewClients]);
+    if (keptJobs.length) setTasks(prev => [...prev, ...keptJobs]);
+
+    const parts = [];
+    if (keptJobs.length) parts.push(`Imported ${keptJobs.length} job${keptJobs.length !== 1 ? "s" : ""}`);
+    if (keptUpdates.length) parts.push(`Updated ${keptUpdates.length} existing`);
+    if (keptNewPeople.length) parts.push(`Added ${keptNewPeople.length} team member${keptNewPeople.length !== 1 ? "s" : ""}`);
+    if (keptNewClients.length) parts.push(`Added ${keptNewClients.length} client${keptNewClients.length !== 1 ? "s" : ""}`);
+
+    // Reset modal
+    setUploadModal(false);
+    setFastTraqsPhase("intro");
+    setUploadText("");
+    setUploadFiles([]);
+    setPreviewData(null);
+    setUploadResult(parts.length ? { success: true, message: parts.join(" · ") + "." } : null);
+  };
+
   const currentUser = loggedInUser ? loggedInUser.id : null;
   const isAdmin = loggedInUser ? loggedInUser.userRole === "admin" : false;
   const can = perm => isAdmin && (loggedInUser?.adminPerms == null || loggedInUser.adminPerms[perm] === true);
@@ -1544,12 +1438,15 @@ Rules:
   const [teamDayGhost, setTeamDayGhost] = useState(null); // { left, top, width, height, color, label }
   const [resizeTooltip, setResizeTooltip] = useState(null); // { x, y, time, date, side } shown while dragging team-Gantt resize handle
   const [uploadModal, setUploadModal] = useState(false);
-  const [fastTraqsPhase, setFastTraqsPhase] = useState("intro"); // "intro" | "input"
+  const [fastTraqsPhase, setFastTraqsPhase] = useState("intro"); // "intro" | "input" | "preview"
   const [fastTraqsExiting, setFastTraqsExiting] = useState(false);
   const [uploadText, setUploadText] = useState("");
   const [uploadFiles, setUploadFiles] = useState([]);
   const [uploadProcessing, setUploadProcessing] = useState(false);
   const [uploadResult, setUploadResult] = useState(null);
+  // Fast TRAQS preview state — populated after AI extraction; user can edit/uncheck before commit.
+  // Shape: { jobs: [{ _checked, _id, title, jobNumber, start, end, dueDate, clientName, assigneeName, panels: [{ _checked, _id, title, start, end, assigneeName, ops: [{ _checked, _id, title, assigneeName, start, end, hpd }] }], poNumber, notes, hpd }], updates: [{ _checked, jobNumber, patch, _existingJobTitle }], newPeople: [{ _checked, name }], newClients: [{ _checked, name }] }
+  const [previewData, setPreviewData] = useState(null);
   const settingsRef = useRef(null);
   const navPillRef  = useRef(null);
   const navBtnRefs  = useRef({});
@@ -13762,7 +13659,7 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* Footer */}
           <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>Review imported jobs — column mapping may need adjustment.</span>
+            <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>You'll review extracted jobs before they're added.</span>
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <Btn size="sm" variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
               <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || (uploadFiles.length === 0 && !uploadText.trim())}>
@@ -13772,6 +13669,155 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       )}
+
+      {/* ─── Preview phase: review AI extraction before committing ─────── */}
+      {fastTraqsPhase === "preview" && previewData && (() => {
+        const _checkedJobs = previewData.jobs.filter(j => j._checked);
+        const _checkedUpdates = previewData.updates.filter(u => u._checked);
+        const _checkedPeople = previewData.newPeople.filter(p => p._checked);
+        const _checkedClients = previewData.newClients.filter(c => c._checked);
+        const _setJob = (id, patch) => setPreviewData(p => ({ ...p, jobs: p.jobs.map(j => j._id === id ? { ...j, ...patch } : j) }));
+        const _setPanel = (jobId, panelId, patch) => setPreviewData(p => ({ ...p, jobs: p.jobs.map(j => j._id === jobId ? { ...j, panels: j.panels.map(pn => pn._id === panelId ? { ...pn, ...patch } : pn) } : j) }));
+        const _setOp = (jobId, panelId, opId, patch) => setPreviewData(p => ({ ...p, jobs: p.jobs.map(j => j._id === jobId ? { ...j, panels: j.panels.map(pn => pn._id === panelId ? { ...pn, ops: pn.ops.map(o => o._id === opId ? { ...o, ...patch } : o) } : pn) } : j) }));
+        const _setUpdate = (i, patch) => setPreviewData(p => ({ ...p, updates: p.updates.map((u, idx) => idx === i ? { ...u, ...patch } : u) }));
+        const _setNewPerson = (i, patch) => setPreviewData(p => ({ ...p, newPeople: p.newPeople.map((np, idx) => idx === i ? { ...np, ...patch } : np) }));
+        const _setNewClient = (i, patch) => setPreviewData(p => ({ ...p, newClients: p.newClients.map((nc, idx) => idx === i ? { ...nc, ...patch } : nc) }));
+        const inpStyle = { padding: "5px 7px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
+        const labelStyle = { fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 };
+        return (
+          <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 760, maxHeight: "90vh", overflow: "hidden", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14`, display: "flex", flexDirection: "column" }}>
+            {/* Header */}
+            <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+              <Tip label="Back to input"><button onClick={() => setFastTraqsPhase("input")} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "0.04em" }}>REVIEW EXTRACTION</div>
+                <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>
+                  {_checkedJobs.length} job{_checkedJobs.length !== 1 ? "s" : ""}
+                  {_checkedUpdates.length > 0 && ` · ${_checkedUpdates.length} update${_checkedUpdates.length !== 1 ? "s" : ""}`}
+                  {_checkedPeople.length > 0 && ` · ${_checkedPeople.length} new ${_checkedPeople.length !== 1 ? "people" : "person"}`}
+                  {_checkedClients.length > 0 && ` · ${_checkedClients.length} new client${_checkedClients.length !== 1 ? "s" : ""}`}
+                </div>
+              </div>
+              <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); setPreviewData(null); }} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>✕</button>
+            </div>
+
+            {/* Body */}
+            <div style={{ padding: "16px 24px", overflowY: "auto", flex: 1 }}>
+              {/* Jobs */}
+              {previewData.jobs.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Jobs to Import</div>
+                  {previewData.jobs.map(j => (
+                    <div key={j._id} style={{ marginBottom: 10, padding: 12, borderRadius: T.radiusSm, border: `1px solid ${j._checked ? T.border : T.border + "55"}`, background: j._checked ? T.bg : T.bg + "88", opacity: j._checked ? 1 : 0.55, transition: "opacity 0.15s" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <input type="checkbox" checked={j._checked} onChange={e => _setJob(j._id, { _checked: e.target.checked })} style={{ width: 16, height: 16, cursor: "pointer", accentColor: T.accent }} />
+                        <input value={j.title} onChange={e => _setJob(j._id, { title: e.target.value })} placeholder="Job title" style={{ ...inpStyle, flex: 1, fontSize: 13, fontWeight: 600 }} />
+                        <input value={j.jobNumber} onChange={e => _setJob(j._id, { jobNumber: e.target.value })} placeholder="Job #" style={{ ...inpStyle, width: 110, fontFamily: T.mono, fontSize: 12 }} />
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
+                        <div><div style={labelStyle}>Start</div><input type="date" value={j.start} onChange={e => _setJob(j._id, { start: e.target.value })} style={{ ...inpStyle, width: "100%" }} /></div>
+                        <div><div style={labelStyle}>End</div><input type="date" value={j.end} onChange={e => _setJob(j._id, { end: e.target.value })} style={{ ...inpStyle, width: "100%" }} /></div>
+                        <div><div style={labelStyle}>Due</div><input type="date" value={j.dueDate} onChange={e => _setJob(j._id, { dueDate: e.target.value })} style={{ ...inpStyle, width: "100%" }} /></div>
+                        <div><div style={labelStyle}>PO #</div><input value={j.poNumber} onChange={e => _setJob(j._id, { poNumber: e.target.value })} style={{ ...inpStyle, width: "100%" }} /></div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                        <div><div style={labelStyle}>Client</div><input value={j.clientName} onChange={e => _setJob(j._id, { clientName: e.target.value })} placeholder="(none)" style={{ ...inpStyle, width: "100%" }} /></div>
+                        <div><div style={labelStyle}>Assignee</div><input value={j.assigneeName} onChange={e => _setJob(j._id, { assigneeName: e.target.value })} placeholder="(none)" style={{ ...inpStyle, width: "100%" }} /></div>
+                      </div>
+                      {j.panels.length > 0 && (
+                        <details style={{ marginTop: 10 }}>
+                          <summary style={{ cursor: "pointer", fontSize: 11, color: T.textDim, fontWeight: 600 }}>
+                            {j.panels.length} panel{j.panels.length !== 1 ? "s" : ""}, {j.panels.reduce((s, pn) => s + pn.ops.length, 0)} op{j.panels.reduce((s, pn) => s + pn.ops.length, 0) !== 1 ? "s" : ""}
+                          </summary>
+                          <div style={{ marginTop: 8, paddingLeft: 8, borderLeft: `2px solid ${T.border}` }}>
+                            {j.panels.map(pn => (
+                              <div key={pn._id} style={{ marginBottom: 8, opacity: pn._checked ? 1 : 0.5 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                  <input type="checkbox" checked={pn._checked} onChange={e => _setPanel(j._id, pn._id, { _checked: e.target.checked })} style={{ width: 14, height: 14, cursor: "pointer", accentColor: T.accent }} />
+                                  <input value={pn.title} onChange={e => _setPanel(j._id, pn._id, { title: e.target.value })} style={{ ...inpStyle, flex: 1, fontSize: 12, fontWeight: 600 }} />
+                                  <input value={pn.assigneeName} onChange={e => _setPanel(j._id, pn._id, { assigneeName: e.target.value })} placeholder="Assignee" style={{ ...inpStyle, width: 130 }} />
+                                </div>
+                                {pn.ops.length > 0 && (
+                                  <div style={{ paddingLeft: 22, display: "flex", flexDirection: "column", gap: 3 }}>
+                                    {pn.ops.map(op => (
+                                      <div key={op._id} style={{ display: "flex", alignItems: "center", gap: 6, opacity: op._checked ? 1 : 0.5 }}>
+                                        <input type="checkbox" checked={op._checked} onChange={e => _setOp(j._id, pn._id, op._id, { _checked: e.target.checked })} style={{ width: 13, height: 13, cursor: "pointer", accentColor: T.accent }} />
+                                        <input value={op.title} onChange={e => _setOp(j._id, pn._id, op._id, { title: e.target.value })} style={{ ...inpStyle, flex: 1, fontSize: 11 }} />
+                                        <input value={op.assigneeName} onChange={e => _setOp(j._id, pn._id, op._id, { assigneeName: e.target.value })} placeholder="Assignee" style={{ ...inpStyle, width: 120, fontSize: 11 }} />
+                                        <input type="number" min="0" step="0.5" value={op.hpd} onChange={e => _setOp(j._id, pn._id, op._id, { hpd: parseFloat(e.target.value) || 0 })} placeholder="hrs" style={{ ...inpStyle, width: 56, fontSize: 11, fontFamily: T.mono }} />
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Updates */}
+              {previewData.updates.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Updates to Existing Jobs</div>
+                  {previewData.updates.map((u, i) => (
+                    <div key={i} style={{ marginBottom: 8, padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", alignItems: "flex-start", gap: 10, opacity: u._checked ? 1 : 0.55 }}>
+                      <input type="checkbox" checked={u._checked} onChange={e => _setUpdate(i, { _checked: e.target.checked })} style={{ width: 16, height: 16, marginTop: 2, cursor: "pointer", accentColor: T.accent }} />
+                      <div style={{ flex: 1, fontSize: 12 }}>
+                        <div style={{ fontWeight: 600, color: T.text }}>{u._existingJobTitle} <span style={{ color: T.textDim, fontFamily: T.mono, fontWeight: 400 }}>#{u.jobNumber}</span></div>
+                        <div style={{ marginTop: 3, color: T.textSec }}>
+                          {Object.entries(u.patch).filter(([, v]) => v !== "" && v != null).map(([k, v]) => <span key={k} style={{ display: "inline-block", marginRight: 10 }}>{k}: <strong style={{ color: T.text }}>{String(v)}</strong></span>)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* New people */}
+              {previewData.newPeople.length > 0 && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>New Team Members</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {previewData.newPeople.map((np, i) => (
+                      <label key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 999, border: `1px solid ${T.border}`, background: np._checked ? T.accent + "12" : T.bg, fontSize: 12, cursor: "pointer", opacity: np._checked ? 1 : 0.55 }}>
+                        <input type="checkbox" checked={np._checked} onChange={e => _setNewPerson(i, { _checked: e.target.checked })} style={{ width: 13, height: 13, cursor: "pointer", accentColor: T.accent }} />
+                        <span style={{ color: T.text, fontWeight: 500 }}>{np.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* New clients */}
+              {previewData.newClients.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>New Clients</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {previewData.newClients.map((nc, i) => (
+                      <label key={i} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "5px 10px", borderRadius: 999, border: `1px solid ${T.border}`, background: nc._checked ? T.accent + "12" : T.bg, fontSize: 12, cursor: "pointer", opacity: nc._checked ? 1 : 0.55 }}>
+                        <input type="checkbox" checked={nc._checked} onChange={e => _setNewClient(i, { _checked: e.target.checked })} style={{ width: 13, height: 13, cursor: "pointer", accentColor: T.accent }} />
+                        <span style={{ color: T.text, fontWeight: 500 }}>{nc.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexShrink: 0 }}>
+              <Btn size="sm" variant="ghost" onClick={() => { setFastTraqsPhase("input"); setPreviewData(null); }}>Back</Btn>
+              <Btn size="sm" onClick={commitImport} disabled={_checkedJobs.length === 0 && _checkedUpdates.length === 0}>
+                {`Import ${_checkedJobs.length} Job${_checkedJobs.length !== 1 ? "s" : ""}${_checkedUpdates.length > 0 ? ` + ${_checkedUpdates.length} update${_checkedUpdates.length !== 1 ? "s" : ""}` : ""}`}
+              </Btn>
+            </div>
+          </div>
+        );
+      })()}
     </div>}
     {/* ─── Clear/Delete chat confirmation ─── */}
     {confirmClearChat && <div onClick={() => setConfirmClearChat(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
