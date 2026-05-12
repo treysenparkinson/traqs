@@ -117,41 +117,44 @@ const STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "
 const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,"0"); const d = String(dt.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; };
 const NOW = new Date(); const TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
-const addWorkingDays = (ds, n) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); const dow = d.getDay(); if (dow !== 0 && dow !== 6) count++; } return toDS(d); };
+const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
+const addWorkingDays = (ds, n, workDays = DEFAULT_WORK_DAYS) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) count++; } return toDS(d); };
 const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
-const weekdaySegments = (start, end, clampStart, clampEnd) => {
+const isWorkDay = (ds, workDays = DEFAULT_WORK_DAYS) => workDays.includes(new Date(ds + "T12:00:00").getDay());
+const weekdaySegments = (start, end, clampStart, clampEnd, workDays = DEFAULT_WORK_DAYS) => {
   const s = start < clampStart ? clampStart : start;
   const e = end > clampEnd ? clampEnd : end;
   if (s > e) return [];
   const segs = []; let segStart = null; let d = s;
   while (d <= e) {
-    if (!isWeekend(d) && segStart === null) segStart = d;
-    else if (isWeekend(d) && segStart !== null) { segs.push({ start: segStart, end: addD(d, -1) }); segStart = null; }
+    const wd = isWorkDay(d, workDays);
+    if (wd && segStart === null) segStart = d;
+    else if (!wd && segStart !== null) { segs.push({ start: segStart, end: addD(d, -1) }); segStart = null; }
     d = addD(d, 1);
   }
   if (segStart !== null) segs.push({ start: segStart, end: e });
   return segs;
 };
-// Returns the number of working days (Mon–Fri) spanned by a date range, inclusive of both ends.
-const getWorkingDayDuration = (startDate, endDate) => {
+// Returns the number of working days spanned by a date range, inclusive of both ends.
+const getWorkingDayDuration = (startDate, endDate, workDays = DEFAULT_WORK_DAYS) => {
   let count = 0;
   let d = new Date(startDate + "T12:00:00");
   const end = new Date(endDate + "T12:00:00");
-  while (d <= end) { const dow = d.getDay(); if (dow !== 0 && dow !== 6) count++; d.setDate(d.getDate() + 1); }
+  while (d <= end) { if (workDays.includes(d.getDay())) count++; d.setDate(d.getDate() + 1); }
   return count;
 };
 // Given a start date and a count of working days, returns the end date after stepping
-// through exactly numDays working days (Mon–Fri), starting from and including startDate.
-const countWorkingDays = (startDate, numDays) => {
+// through exactly numDays working days, starting from and including startDate.
+const countWorkingDays = (startDate, numDays, workDays = DEFAULT_WORK_DAYS) => {
   if (numDays <= 0) return startDate;
   let count = 0;
   let d = new Date(startDate + "T12:00:00");
-  while (true) { const dow = d.getDay(); if (dow !== 0 && dow !== 6) { count++; if (count >= numDays) break; } d.setDate(d.getDate() + 1); }
+  while (true) { if (workDays.includes(d.getDay())) { count++; if (count >= numDays) break; } d.setDate(d.getDate() + 1); }
   return toDS(d);
 };
-const addBD = (ds, n, { weekends = false, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); let remaining = Math.abs(n); const dir = n >= 0 ? 1 : -1; while (remaining > 0) { d.setDate(d.getDate() + dir); const dow = d.getDay(); const ds2 = toDS(d); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) remaining--; } return toDS(d); };
-const nextBD = (ds, { weekends = false, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); while (true) { const dow = d.getDay(); const ds2 = toDS(d); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) break; d.setDate(d.getDate() + 1); } return toDS(d); };
-const diffBD = (a, b, { weekends = false, holidays = [] } = {}) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); const dow = c.getDay(); const ds2 = toDS(c); if ((weekends || (dow !== 0 && dow !== 6)) && !holidays.includes(ds2)) count++; } return count; };
+const addBD = (ds, n, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); let remaining = Math.abs(n); const dir = n >= 0 ? 1 : -1; while (remaining > 0) { d.setDate(d.getDate() + dir); const ds2 = toDS(d); if (workDays.includes(d.getDay()) && !holidays.includes(ds2)) remaining--; } return toDS(d); };
+const nextBD = (ds, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); while (true) { const ds2 = toDS(d); if (workDays.includes(d.getDay()) && !holidays.includes(ds2)) break; d.setDate(d.getDate() + 1); } return toDS(d); };
+const diffBD = (a, b, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); const ds2 = toDS(c); if (workDays.includes(c.getDay()) && !holidays.includes(ds2)) count++; } return count; };
 const diffD = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5);
 const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
@@ -856,7 +859,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
 Extract structured job/schedule data from the user's text and return ONLY a JSON object.
 
 Today's date: ${today}
-Work schedule: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd} working hours/day, ${orgSettings.weekends ? "Mon–Sun" : "Mon–Fri"})
+Work schedule: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd} working hours/day, working days: ${orgSettings.workDays.map(d => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]).join("/")})
 Holidays (skip these dates): ${orgSettings.holidays.join(", ") || "none"}
 When computing end dates: count only working days. A 40-hour op at ${orgSettings.hpd}h/day = ${Math.ceil(40 / orgSettings.hpd)} working days.
 Set durationDays as working days needed = ceil(estHours / ${orgSettings.hpd}).
@@ -1409,6 +1412,10 @@ Rules:
   // Keep ref in sync for save functions
   useEffect(() => { dataRef.current.tasks = tasks; }, [tasks]);
   useEffect(() => { dataRef.current.people = people; }, [people]);
+  // Mirror tasks/people state into the latest*Ref so doSave never reads a stale empty array
+  // after initial load (which uses _setTasks directly and bypasses the wrapped setter).
+  useEffect(() => { latestTasksRef.current = tasks; }, [tasks]);
+  useEffect(() => { latestPeopleRef.current = people; }, [people]);
   useEffect(() => {
     console.log("=== TASKS UPDATED ===", tasks.flatMap(t =>
       [t, ...(t.subs || []).flatMap(s => [s, ...(s.subs || [])])]
@@ -1594,8 +1601,8 @@ Rules:
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [orgSettings, setOrgSettings] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
-    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; }
+    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
+    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; }
   });
   const productiveHoursPerDay = (() => {
     const parseT = t => { const [h, m] = (t || "08:00").split(":").map(Number); return h * 60 + m; };
@@ -1691,8 +1698,8 @@ Rules:
   const [rowDragOverId, setRowDragOverId] = useState(null);
   const [conditionsOpen, setConditionsOpen] = useState(false);
   const [condWizard, setCondWizard] = useState(null); // null | { step, id, name, triggerField, triggerOp, triggerValue, applyTo, formatBgColor, formatTextColor, formatBold, formatStrike }
-  // Scheduling opts shorthand — respects weekends toggle and holidays
-  const schedOpts = { weekends: orgSettings.weekends, holidays: orgSettings.holidays };
+  // Scheduling opts shorthand — respects workDays config and holidays
+  const schedOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
   const sAddBD  = (ds, n) => addBD(ds, n, schedOpts);
   const sNextBD = ds      => nextBD(ds, schedOpts);
   const sDiffBD = (a, b)  => diffBD(a, b, schedOpts);
@@ -2052,9 +2059,10 @@ Rules:
         if (!server || Object.keys(server).length === 0) return;
         skipNextOrgSave.current = true;
         setOrgSettings(() => {
-          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", weekends: false, holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } };
+          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } };
           const merged = { ...base, ...server };
           if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
+          if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = server.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
           if (server.workStart && server.workEnd) {
             const [sh, sm] = server.workStart.split(":").map(Number);
             const [eh, em] = server.workEnd.split(":").map(Number);
@@ -3113,7 +3121,7 @@ Rules:
       return `Job "${t.title}" [job_id:${t.id}]${t.jobNumber ? ` (#${t.jobNumber})` : ""}${client ? ` [client:${client}]` : ""}: status=${t.status}, priority=${t.pri || "Medium"}, dates=${t.start}–${t.end}${t.dueDate ? `, due:${t.dueDate}` : ""}${team ? `, team: ${team}` : ""}${panels.length > 0 ? `\n${panels.join("\n")}` : ""}`;
     }).join("\n\n");
     return `You are TRAQS AI — a full-featured project management assistant. Today is ${todayStr}.
-Working hours: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd}h/day, ${orgSettings.weekends ? "weekends on" : "Mon–Fri only"}, holidays: ${orgSettings.holidays.join(", ") || "none"}).
+Working hours: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd}h/day, working days: ${orgSettings.workDays.map(d => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]).join("/")}, holidays: ${orgSettings.holidays.join(", ") || "none"}).
 
 You have full control. You can:
 - Create, update, or delete jobs (status, priority, dates, job number, notes, due date)
@@ -3317,8 +3325,8 @@ ${jobsCtx || "No jobs found."}`;
           if (op.start && _totalClockH > _firstDayAvailH) {
             let _rem0 = _totalClockH - _firstDayAvailH;
             let _day0 = op.start;
-            while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = addBD(_day0, 1); }
-            _opEnd = addBD(_day0, 1);
+            while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = sAddBD(_day0, 1); }
+            _opEnd = sAddBD(_day0, 1);
           }
           return { ...op, id: op.id || uid(), end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
         }) }
@@ -3999,8 +4007,11 @@ ${jobsCtx || "No jobs found."}`;
       if (linkingFrom) return;
       e.preventDefault();
       const sx = e.clientX, sy = e.clientY, os = item.start, oe = item.end;
-      // Capture working-day duration once at drag start so the end date is always preserved correctly across weekends
-      const wdDuration = getWorkingDayDuration(os, oe);
+      // Working days are read from current org settings (single source of truth).
+      const itemWorkDays = orgSettings.workDays;
+      const itemBDOpts = { workDays: itemWorkDays, holidays: orgSettings.holidays };
+      // Capture working-day duration once at drag start so the end date is always preserved correctly across non-working days
+      const wdDuration = getWorkingDayDuration(os, oe, itemWorkDays);
       let moved = false, lastDx = 0, finalDx = 0;
       const origRow = ri4[item.id];
       const pidArg = item.isSub ? item.pid : null;
@@ -4011,12 +4022,12 @@ ${jobsCtx || "No jobs found."}`;
         // Compute live + snapped ghost positions
         const rawS = mode !== "right" ? addD(os, dx) : os;
         const rawE = mode !== "left"  ? addD(oe, dx) : oe;
-        const snapS = nextBD(rawS);
+        const snapS = nextBD(rawS, itemBDOpts);
         const snapDelta = diffD(rawS, snapS);
         // For moves: end is always wdDuration working days from snapped start — never calendar days
         const snapE = mode === "move"
-          ? countWorkingDays(snapS, wdDuration)
-          : (snapDelta > 0 ? addWorkingDays(rawE, snapDelta) : rawE);
+          ? countWorkingDays(snapS, wdDuration, itemWorkDays)
+          : (snapDelta > 0 ? addWorkingDays(rawE, snapDelta, itemWorkDays) : rawE);
         // Lightweight overlap check against other ops for same person(s)
         const personIds = new Set();
         const movingOpIds = new Set();
@@ -4041,8 +4052,8 @@ ${jobsCtx || "No jobs found."}`;
           }
         }
         setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap });
-        // For moves, use the working-day end so the bar never shrinks as it crosses a weekend
-        if (mode === "move") updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration) }, pidArg);
+        // For moves, use the working-day end so the bar never shrinks as it crosses a non-working day
+        if (mode === "move") updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration, itemWorkDays) }, pidArg);
         else if (mode === "left") { if (rawS <= oe) updTask(item.id, { start: rawS }, pidArg); }
         else { if (rawE >= os) updTask(item.id, { end: rawE }, pidArg); }
       };
@@ -4058,13 +4069,13 @@ ${jobsCtx || "No jobs found."}`;
         }
         const rawNewStart = mode !== "right" ? addD(os, finalDx) : os;
         const rawNewEnd = mode !== "left" ? addD(oe, finalDx) : oe;
-        const newStart = nextBD(rawNewStart);
+        const newStart = nextBD(rawNewStart, itemBDOpts);
         const snapDelta = diffD(rawNewStart, newStart);
         // For moves: count forward exactly wdDuration working days from the snapped start.
-        // countWorkingDays steps Mon–Fri only, so weekends are never included in the span.
+        // countWorkingDays steps through the task's workDays only, so non-working days are never included.
         const newEnd = mode === "move"
-          ? countWorkingDays(newStart, wdDuration)
-          : (snapDelta > 0 ? addWorkingDays(rawNewEnd, snapDelta) : rawNewEnd);
+          ? countWorkingDays(newStart, wdDuration, itemWorkDays)
+          : (snapDelta > 0 ? addWorkingDays(rawNewEnd, snapDelta, itemWorkDays) : rawNewEnd);
         const movedByName = loggedInUser ? loggedInUser.name : "Admin";
         const actualDelta = diffD(os, newStart);
 
@@ -4458,7 +4469,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* Day number row */}
             <div style={{ display: "flex" }}>
               <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", padding: "0 20px", display: "flex", alignItems: "center", fontSize: 13, color: T.textSec, fontWeight: 600, height: hH / 2, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, letterSpacing: "0.04em", textTransform: "uppercase" }}>Task</div>
-              {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = [0, 6].includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ minWidth: cW, maxWidth: cW, height: hH / 2, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: gMode === "month" ? 12 : 13, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textSec : T.text, fontWeight: isT ? 700 : wk ? 400 : 500, background: wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}`, gap: 0 }}><span style={{ fontSize: 10, textTransform: "uppercase", lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}
+              {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ minWidth: cW, maxWidth: cW, height: hH / 2, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: gMode === "month" ? 12 : 13, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textSec : T.text, fontWeight: isT ? 700 : wk ? 400 : 500, background: wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}`, gap: 0 }}><span style={{ fontSize: 10, textTransform: "uppercase", lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}
             </div>
           </div>
           {rows.map((r) => { const indent = r.level || 0; return <div key={r.id} style={{ display: "flex", height: rH, borderBottom: `1px solid ${T.bg}55` }}>
@@ -4479,7 +4490,7 @@ ${jobsCtx || "No jobs found."}`;
               const dur = Math.max(diffD(clipboard.item.start, clipboard.item.end), 0);
               setPasteConfirm({ x: e.clientX, y: e.clientY, startDate, endDate: addD(startDate, dur) });
             }}>
-              {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = [0, 6].includes(dt.getDay()); const isMonStart = dt.getDate() === 1; return <div key={day} style={{ minWidth: cW, maxWidth: cW, height: "100%", background: day === TD ? T.accent + "0a" : wk ? T.bg + "aa" : "transparent", borderRight: isMonStart ? `2px solid ${T.border}` : `1px solid ${T.bg}33` }} />; })}
+              {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isMonStart = dt.getDate() === 1; return <div key={day} style={{ minWidth: cW, maxWidth: cW, height: "100%", background: day === TD ? T.accent + "0a" : wk ? T.bg + "aa" : "transparent", borderRight: isMonStart ? `2px solid ${T.border}` : `1px solid ${T.bg}33` }} />; })}
               {/* Drag ghost overlay — snapped destination with overlap coloring */}
               {ganttDragInfo?.itemId === r.id && (() => {
                 const { snapStart, snapEnd, hasOverlap } = ganttDragInfo;
@@ -4491,7 +4502,7 @@ ${jobsCtx || "No jobs found."}`;
                 return <div style={{ position: "absolute", top: 3, left: gx - 2, width: gw + 4, height: rH - 6, borderRadius: T.radiusXs + 2, border: `2px solid ${gc}`, background: gc + "18", boxShadow: `0 0 24px ${gc}77, 0 0 8px ${gc}55, 0 0 48px ${gc}33`, pointerEvents: "none", zIndex: 3, animation: "ghost-fade-in 0.22s cubic-bezier(0.34,1.56,0.64,1)" }} />;
               })()}
               {r.start <= gEnd && r.end >= gStart && (() => {
-                const segs = weekdaySegments(r.start, r.end, gStart, gEnd);
+                const segs = weekdaySegments(r.start, r.end, gStart, gEnd, orgSettings.workDays);
                 if (segs.length === 0) return null;
                 const pct = r.status === "Finished" ? 100 : r.status === "In Progress" ? 50 : r.status === "Pending" ? 15 : r.status === "On Hold" ? 25 : 0;
                 const hasSubs = (r.subs || []).length > 0;
@@ -4650,7 +4661,7 @@ ${jobsCtx || "No jobs found."}`;
               {days.map(d => {
                 const isToday = d === TD;
                 return (
-                  <div key={d} style={{ minWidth: cW, maxWidth: cW, overflow: "hidden", borderRight: `1px solid ${T.border}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isToday ? T.accent : isWeekend(d) ? T.textDim + "55" : T.textDim, fontWeight: isToday ? 800 : 400, background: isToday ? T.accent + "12" : isWeekend(d) ? T.bg + "88" : "transparent" }}>
+                  <div key={d} style={{ minWidth: cW, maxWidth: cW, overflow: "hidden", borderRight: `1px solid ${T.border}18`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isToday ? T.accent : !isWorkDay(d, orgSettings.workDays) ? T.textDim + "55" : T.textDim, fontWeight: isToday ? 800 : 400, background: isToday ? T.accent + "12" : !isWorkDay(d, orgSettings.workDays) ? T.bg + "88" : "transparent" }}>
                     {cW > 20 ? new Date(d + "T12:00:00").getDate() : ""}
                   </div>
                 );
@@ -4680,10 +4691,10 @@ ${jobsCtx || "No jobs found."}`;
                   {level === 2 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, background: jobColor + "33", zIndex: 2 }} />}
                   {/* Day cells */}
                   {days.map(d => (
-                    <div key={d} style={{ minWidth: cW, maxWidth: cW, borderRight: `1px solid ${T.border}18`, flexShrink: 0, background: d === TD ? T.accent + "08" : isWeekend(d) ? T.bg + "88" : "transparent" }} />
+                    <div key={d} style={{ minWidth: cW, maxWidth: cW, borderRight: `1px solid ${T.border}18`, flexShrink: 0, background: d === TD ? T.accent + "08" : !isWorkDay(d, orgSettings.workDays) ? T.bg + "88" : "transparent" }} />
                   ))}
-                  {/* Bar — split at weekends */}
-                  {inRange && weekdaySegments(r.start, r.end, gStart, gEnd).map((seg, si, allSegs) => {
+                  {/* Bar — split at non-working days */}
+                  {inRange && weekdaySegments(r.start, r.end, gStart, gEnd, orgSettings.workDays).map((seg, si, allSegs) => {
                     const sL = Math.max(0, dToX(seg.start));
                     const sR = Math.min(dToX(seg.end) + cW - 2, totalWidth);
                     const sW = Math.max(barH, sR - sL);
@@ -6140,7 +6151,7 @@ ${jobsCtx || "No jobs found."}`;
       days.forEach(day => {
         const p = people.find(x => x.id === pid);
         if (!p) return;
-        if (!isOff(pid, day) && ![0, 6].includes(new Date(day + "T12:00:00").getDay())) {
+        if (!isOff(pid, day) && orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay())) {
           totalCap += p.cap;
           totalBooked += Math.min(p.cap, bookedHrs(pid, day));
         }
@@ -6507,12 +6518,11 @@ ${jobsCtx || "No jobs found."}`;
                   }
                   const p = row.person;
                   const dayOfWeek = new Date(tStart + "T12:00:00").getDay();
-                  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                   const todayBars = row.bars.filter(b => {
                     if (b.type === "eng-chip") return false;
                     if (b.start > tStart || b.end < tStart) return false;
                     const bIsMultiDay = b.task?.start && b.task?.end && b.task.start !== b.task.end && b.task?.startHour == null;
-                    if (bIsMultiDay && isWeekend) return false;
+                    if (bIsMultiDay && !orgSettings.workDays.includes(dayOfWeek)) return false;
                     return true;
                   });
                   const pOff = isOff(p.id, tStart);
@@ -6637,7 +6647,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <div style={{ display: "flex" }}>
               <div style={{ minWidth: lW, maxWidth: lW, height: 28, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15 }} />
-              <div style={{ display: "flex", flex: 1 }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = [0, 6].includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textDim + "66" : T.textDim, fontWeight: isT ? 700 : 400, background: wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}`, gap: 0 }}><span style={{ fontSize: 9, opacity: 0.7, lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}</div>
+              <div style={{ display: "flex", flex: 1 }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textDim + "66" : T.textDim, fontWeight: isT ? 700 : 400, background: wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}`, gap: 0 }}><span style={{ fontSize: 9, opacity: 0.7, lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}</div>
             </div>
           </div>
           {/* Rows */}
@@ -6653,7 +6663,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono }}>{row.util}%</span>
                   {isAdmin && <button onClick={e => { e.stopPropagation(); setPersonModal({ id: null, name: "", role: row.role, email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" }); }} title={`Add member to ${row.role}`} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.textDim, fontSize: 14, lineHeight: 1, padding: "1px 6px", cursor: "pointer", flexShrink: 0 }}>+</button>}
                 </div>
-                <div style={{ flex: 1, display: "flex" }}>{days.map(day => { const wk = [0, 6].includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? T.bg + "cc" : T.bg + "44", borderRight: `1px solid ${T.bg}33` }} />; })}</div>
+                <div style={{ flex: 1, display: "flex" }}>{days.map(day => { const wk = !orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? T.bg + "cc" : T.bg + "44", borderRight: `1px solid ${T.bg}33` }} />; })}</div>
               </div>;
             }
             if (row.type === "subtask") {
@@ -6669,9 +6679,9 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
                 </div>
                 <div style={{ flex: 1, position: "relative", display: "flex" }}>
-                  {days.map(day => { const wk = [0, 6].includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? T.bg + "88" : "transparent", borderRight: `1px solid ${T.bg}22` }} />; })}
+                  {days.map(day => { const wk = !orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? T.bg + "88" : "transparent", borderRight: `1px solid ${T.bg}22` }} />; })}
                   {sub.start <= tEnd && sub.end >= tStart && (() => {
-                    const subSegs = weekdaySegments(sub.start, sub.end, tStart, tEnd);
+                    const subSegs = weekdaySegments(sub.start, sub.end, tStart, tEnd, orgSettings.workDays);
                     return subSegs.map((seg, si) => {
                       const segSx = (diffD(tStart, seg.start) / nDays * 100) + "%";
                       const segSw = ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
@@ -6741,7 +6751,7 @@ ${jobsCtx || "No jobs found."}`;
                 {!teamSelectMode && can("manageTeam") && <Btn variant="ghost" size="sm" style={{ padding: "4px 6px", fontSize: 11 }} onClick={() => setPersonModal({ ...p })}>Edit</Btn>}
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
-                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = [0, 6].includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
+                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
                 {/* Ghost: dragged bar + dep-group member previews */}
                 {teamDragInfo && (() => {
                   const nDays = days.length;
@@ -6769,8 +6779,8 @@ ${jobsCtx || "No jobs found."}`;
                       return _ghDays + 1;
                     })();
                     const _ghostWBudget = _ghostBarHpd > 0 ? Math.max(0.03 / nDays * 100, (_ghostBarHpd / productiveHoursPerDay) / nDays * 100) : _ghostVisualDays / nDays * 100;
-                    const _ghostEndDay = addBD(_liveSnapDay, _ghostVisualDays - 1);
-                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd);
+                    const _ghostEndDay = addBD(_liveSnapDay, _ghostVisualDays - 1, { workDays: orgSettings.workDays, holidays: orgSettings.holidays });
+                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd, orgSettings.workDays);
                     const _oneDayW = 1 / nDays * 100;
                     const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
                     let _ghostWRemaining = _ghostWBudget;
@@ -6808,9 +6818,11 @@ ${jobsCtx || "No jobs found."}`;
                   const _offsetH = _barStartH - workStartH;
                   const _barClockH = (_barHpd / productiveHoursPerDay) * totalWorkH;
                   const _firstDayCapacity = isHourPositioned ? Math.max(0, (totalWorkH - _offsetH) / totalWorkH * productiveHoursPerDay) : productiveHoursPerDay;
-                  const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && isWeekend(addD(bar.end, 1));
-                  const _hasStoredEnd = bar.type === "task" && bar.task?.endHour != null && _opStart && _opEnd && _opStart !== _opEnd;
-                  const _visualWorkDays = ((isHourPositioned || !_hasStoredEnd) && !isSingleDayPartial && bar.type === "task" && _opStart && _opEnd && _opStart !== _opEnd)
+                  const _barWorkDays = orgSettings.workDays;
+                  const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && !isWorkDay(addD(bar.end, 1), _barWorkDays);
+                  // Always derive the bar's visual end from hpd + current workDays so the bar adapts
+                  // when the org's working-days set changes, regardless of what the task's stored end says.
+                  const _visualWorkDays = (!isSingleDayPartial && bar.type === "task" && _opStart && _opEnd && _opStart !== _opEnd)
                     ? (() => {
                         if (!isHourPositioned) return Math.max(1, Math.ceil(_barHpd / productiveHoursPerDay));
                         const _vClockH = productiveHoursPerDay > 0 ? (_barHpd / productiveHoursPerDay) * totalWorkH : 0;
@@ -6823,14 +6835,13 @@ ${jobsCtx || "No jobs found."}`;
                       })()
                     : null;
                   const _effectiveSingleDay = isSingleDayPartial || (_visualWorkDays === 1 && _barHpd <= productiveHoursPerDay);
-                  const _segsEnd = (!isHourPositioned && _hasStoredEnd)
-                    ? bar.task.end
-                    : _visualWorkDays != null
-                      ? addBD(bar.start, _visualWorkDays - 1)
-                      : _willOverflowWeekend
-                        ? addBD(bar.end, 1)
-                        : bar.end;
-                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd);
+                  const _barBDOpts = { workDays: _barWorkDays, holidays: orgSettings.holidays };
+                  const _segsEnd = _visualWorkDays != null
+                    ? addBD(bar.start, _visualWorkDays - 1, _barBDOpts)
+                    : _willOverflowWeekend
+                      ? addBD(bar.end, 1, _barBDOpts)
+                      : bar.end;
+                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd, _barWorkDays);
                   const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
                   const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
                   const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
@@ -6892,7 +6903,10 @@ ${jobsCtx || "No jobs found."}`;
                     const _barRect = e.currentTarget?.getBoundingClientRect();
                     const _grabOffsetPct = _barRect ? (e.clientX - _barRect.left) / _barRect.width : 0.5;
                     const os = bar.task.start, oe = bar.task.end;
-                    const wdDuration = getWorkingDayDuration(os, oe);
+                    // Working days are read from current org settings (single source of truth).
+                    const barWorkDays = orgSettings.workDays;
+                    const barBDOpts = { workDays: barWorkDays, holidays: orgSettings.holidays };
+                    const wdDuration = getWorkingDayDuration(os, oe, barWorkDays);
                     const _dragTeamSz = Math.max(1, (bar.task?.team || []).length);
                     const _dragBarHpd = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _dragTeamSz : productiveHoursPerDay;
                     const _dragOffsetH = Math.max(0, (bar.task?.startHour ?? workStartH) - workStartH);
@@ -7010,9 +7024,9 @@ ${jobsCtx || "No jobs found."}`;
                           const pxDx2 = lastCX - sx;
                           const pxDy2 = lastCY - sy;
                           const dx2 = Math.round(pxDx2 / liveCW);
-                          let snapS2 = nextBD(addD(os, dx2));
+                          let snapS2 = nextBD(addD(os, dx2), barBDOpts);
                           if (depsMode === "unlocked" && isGroupDrag) snapS2 = clampUnlocked(snapS2, _visualWD);
-                          const snapE2 = addBD(snapS2, _visualWD - 1);
+                          const snapE2 = addBD(snapS2, _visualWD - 1, barBDOpts);
                           setTeamDragInfo(prev => prev ? { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2 } : prev);
                         }
                       }
@@ -7038,7 +7052,7 @@ ${jobsCtx || "No jobs found."}`;
                       // Use live-measured column width so overlap preview matches actual render
                       const dx = Math.round(pxDx / liveCW);
                       let dropHour = null;
-                      let snapS = nextBD(addD(os, dx));
+                      let snapS = nextBD(addD(os, dx), barBDOpts);
                       if (tMode === "month") {
                         const _mRect = gridAreaEl?.getBoundingClientRect();
                         if (_mRect) {
@@ -7046,10 +7060,10 @@ ${jobsCtx || "No jobs found."}`;
                           const _rawDayIdx = _mcx / liveCW;
                           let _di = Math.max(0, Math.min(days.length - 1, Math.floor(_rawDayIdx)));
                           const _origDi = _di;
-                          while (_di < days.length - 1 && isWeekend(days[_di])) _di++;
-                          const _snapDay = (!isWeekend(days[_di])) ? days[_di] : snapS;
+                          while (_di < days.length - 1 && !isWorkDay(days[_di], barWorkDays)) _di++;
+                          const _snapDay = isWorkDay(days[_di], barWorkDays) ? days[_di] : snapS;
                           snapS = _snapDay;
-                          if (!isWeekend(days[_origDi])) {
+                          if (isWorkDay(days[_origDi], barWorkDays)) {
                             const _colFrac = Math.min(0.9999, Math.max(0, _rawDayIdx - _origDi));
                             const _rawHour = workStartH + _colFrac * totalWorkH;
                             const _snappedHour = Math.round(_rawHour * 2) / 2;
@@ -7063,14 +7077,14 @@ ${jobsCtx || "No jobs found."}`;
                       if (depsMode === "unlocked" && isGroupDrag) snapS = clampUnlocked(snapS, _visualWD);
                       const _dropProdOff = dropHour != null ? Math.max(0, dropHour - workStartH) / totalWorkH * productiveHoursPerDay : 0;
                       const _liveVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_dropProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
-                      let snapE = addBD(snapS, _liveVWD - 1);
+                      let snapE = addBD(snapS, _liveVWD - 1, barBDOpts);
                       // Group member ghost positions — locked moves all together; free/unlocked moves only dragged task
                       const groupSnaps = [
                         ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
                       ].map(m => {
-                        const _mOffset = m.origStart >= os ? diffBD(os, m.origStart) : -diffBD(m.origStart, os);
-                        const mSnap = addBD(snapS, _mOffset);
-                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, m.wdDur - 1), wdDur: m.wdDur, color: bar.color, dropHour };
+                        const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
+                        const mSnap = addBD(snapS, _mOffset, barBDOpts);
+                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, m.wdDur - 1, barBDOpts), wdDur: m.wdDur, color: bar.color, dropHour };
                       });
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
@@ -7189,8 +7203,8 @@ ${jobsCtx || "No jobs found."}`;
                         const _cxDrop = (me.clientX - _grabPx) - _gRect.left;
                         const _dayIdx = Math.max(0, Math.min(days.length - 1, Math.floor(_cxDrop / liveCW)));
                         let _di2 = _dayIdx;
-                        while (_di2 < days.length - 1 && isWeekend(days[_di2])) _di2++;
-                        effStart = (!isWeekend(days[_di2])) ? days[_di2] : null;
+                        while (_di2 < days.length - 1 && !isWorkDay(days[_di2], barWorkDays)) _di2++;
+                        effStart = isWorkDay(days[_di2], barWorkDays) ? days[_di2] : null;
                         if (!effStart) return;
                         // Use the ghost's exact position — free movement, no auto-snap (overlap was already rejected above)
                         effStart = teamDragLiveRef.current?.snapStart || effStart;
@@ -7404,6 +7418,9 @@ ${jobsCtx || "No jobs found."}`;
                     const os = bar.task.start, oe = bar.task.end;
                     const osH = bar.task.startHour ?? workStartH;
                     const _origHpd = bar.task.hpd || 0;
+                    // Working days are read from current org settings (single source of truth).
+                    const barWorkDays = orgSettings.workDays;
+                    const barBDOpts = { workDays: barWorkDays, holidays: orgSettings.holidays };
                     // Derive original endHour from stored value or from start/hpd
                     let oeH;
                     if (bar.task.endHour != null) {
@@ -7432,7 +7449,7 @@ ${jobsCtx || "No jobs found."}`;
                       if (sDay === eDay) {
                         clockH = Math.max(0.5, eH - sH);
                       } else {
-                        const n = diffBD(sDay, eDay) + 1;
+                        const n = diffBD(sDay, eDay, barBDOpts) + 1;
                         clockH = (workEndH - sH) + Math.max(0, n - 2) * totalWorkH + (eH - workStartH);
                       }
                       return Math.max(0.5, clockH / totalWorkH * productiveHoursPerDay);
@@ -7447,17 +7464,17 @@ ${jobsCtx || "No jobs found."}`;
                         const dayW = rect.width / Math.max(1, days.length);
                         const rawDayIdx = cxRel / dayW;
                         const _origDi = Math.max(0, Math.min(days.length - 1, Math.floor(rawDayIdx)));
-                        // Walk forward through weekends (same as move ghost) — keeps clock-time continuous across weekend
+                        // Walk forward through non-working days (same as move ghost) — keeps clock-time continuous across gaps
                         let dIdx = _origDi;
-                        while (dIdx < days.length - 1 && isWeekend(days[dIdx])) dIdx++;
+                        while (dIdx < days.length - 1 && !isWorkDay(days[dIdx], barWorkDays)) dIdx++;
                         const targetDay = days[dIdx];
-                        if (!targetDay || isWeekend(targetDay)) return;
-                        // On a workday cursor, use the column fraction; on a weekend cursor, snap to workStartH of the resolved workday.
+                        if (!targetDay || !isWorkDay(targetDay, barWorkDays)) return;
+                        // On a workday cursor, use the column fraction; on a non-workday cursor, snap to workStartH of the resolved workday.
                         // Left handle caps startHour at workEndH - 0.5 — startHour === workEndH would put the bar's first segment
-                        // at the next column's left edge (visual overflow into the weekend gap).
+                        // at the next column's left edge (visual overflow into the non-workday gap).
                         const _maxH = side === "left" ? workEndH - 0.5 : workEndH;
                         let clampedHour;
-                        if (!isWeekend(days[_origDi])) {
+                        if (isWorkDay(days[_origDi], barWorkDays)) {
                           const colFrac = Math.min(0.9999, Math.max(0, rawDayIdx - _origDi));
                           const rawHour = workStartH + colFrac * totalWorkH;
                           const snapHour = Math.round(rawHour * 2) / 2;
@@ -7473,10 +7490,10 @@ ${jobsCtx || "No jobs found."}`;
                           // ever needing to be that narrow against a visible day boundary.
                           const _nextDayIdx = dIdx + 1;
                           const _nextDay = _nextDayIdx < days.length ? days[_nextDayIdx] : null;
-                          if (_finalHour > workEndH - 1 && _nextDay && isWeekend(_nextDay)) {
+                          if (_finalHour > workEndH - 1 && _nextDay && !isWorkDay(_nextDay, barWorkDays)) {
                             let _ni = _nextDayIdx;
-                            while (_ni < days.length && isWeekend(days[_ni])) _ni++;
-                            if (_ni < days.length && !isWeekend(days[_ni]) && days[_ni] <= oe) {
+                            while (_ni < days.length && !isWorkDay(days[_ni], barWorkDays)) _ni++;
+                            if (_ni < days.length && isWorkDay(days[_ni], barWorkDays) && days[_ni] <= oe) {
                               _finalDay = days[_ni];
                               _finalHour = workStartH;
                             }
@@ -12819,14 +12836,49 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 12, color: T.textDim }}>min</span>
             </div>
           </div>
-          {/* Weekends */}
+          {/* Working Days */}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Weekends</div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ fontSize: 13, color: T.text, flex: 1 }}>Include weekends in scheduling</div>
-              <button onClick={() => setOrgSettings(s => ({ ...s, weekends: !s.weekends }))} style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: orgSettings.weekends ? T.accent : T.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                <div style={{ width: 18, height: 18, borderRadius: 9, background: "#fff", position: "absolute", top: 3, left: orgSettings.weekends ? 23 : 3, transition: "left 0.2s" }} />
-              </button>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Working Days</div>
+            <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>Days that can be scheduled. Existing jobs are unaffected — only new jobs use the current selection.</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[
+                { idx: 0, label: "Sun" },
+                { idx: 1, label: "Mon" },
+                { idx: 2, label: "Tue" },
+                { idx: 3, label: "Wed" },
+                { idx: 4, label: "Thu" },
+                { idx: 5, label: "Fri" },
+                { idx: 6, label: "Sat" },
+              ].map(({ idx, label }) => {
+                const on = orgSettings.workDays.includes(idx);
+                const isLast = on && orgSettings.workDays.length === 1;
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setOrgSettings(s => {
+                      const has = s.workDays.includes(idx);
+                      if (has && s.workDays.length === 1) return s; // refuse to leave zero working days
+                      const next = has ? s.workDays.filter(d => d !== idx) : [...s.workDays, idx].sort((a, b) => a - b);
+                      return { ...s, workDays: next };
+                    })}
+                    title={isLast ? "At least one working day is required" : (on ? "Click to disable" : "Click to enable")}
+                    style={{
+                      flex: 1,
+                      padding: "10px 0",
+                      borderRadius: T.radiusSm,
+                      border: `1px solid ${on ? T.accent : T.border}`,
+                      background: on ? T.accent : T.surface,
+                      color: on ? "#fff" : T.textDim,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: isLast ? "not-allowed" : "pointer",
+                      fontFamily: T.font,
+                      transition: "all 0.15s",
+                      letterSpacing: "0.04em",
+                    }}
+                  >{label}</button>
+                );
+              })}
             </div>
           </div>
           {/* Holidays */}
