@@ -1,19 +1,24 @@
-// Netlify Functions v2 — streams the Anthropic SSE response straight back to the client.
-// Why v2: the previous Lambda-style handler awaited the full response, so the connection
-// went idle while Anthropic generated. Anthropic with tool_use can easily take 30–60s,
-// which tripped Netlify's 10–26s sync-function timeout and the edge's inactivity timeout
-// (the user-visible 504 with the "Inactivity Timeout" HTML page).
-// With stream:true and a piped response, bytes flow continuously and the connection
-// stays alive for as long as Anthropic is generating.
+// Netlify Edge Function — streams Anthropic SSE to the client.
+//
+// Why Edge: regular Netlify Functions v2 streaming worked initially but the stream
+// was being cut off mid-response by the function execution-time limit. Edge Functions
+// run on Deno Deploy with a 50s default timeout (extendable to 240s) and have
+// first-class streaming support, so Anthropic generations that take 30-60s complete
+// reliably.
+//
+// This handler replaces the prior `netlify/functions/ai-schedule.js`. The Edge
+// route below claims the same URL the client already calls, so no client change.
 
-import { createRemoteJWKSet, jwtVerify } from "jose";
+import { jwtVerify, createRemoteJWKSet } from "https://esm.sh/jose@5.9.6";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
 const DEFAULT_MODEL = "claude-sonnet-4-20250514";
-const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
-const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
 
-let JWKS;
+const AUTH0_DOMAIN = Netlify.env.get("AUTH0_DOMAIN");
+const AUTH0_AUDIENCE = Netlify.env.get("AUTH0_AUDIENCE");
+const ANTHROPIC_API_KEY = Netlify.env.get("ANTHROPIC_API_KEY");
+
+let JWKS: ReturnType<typeof createRemoteJWKSet> | undefined;
 function getJWKS() {
   if (!JWKS) JWKS = createRemoteJWKSet(new URL(`https://${AUTH0_DOMAIN}/.well-known/jwks.json`));
   return JWKS;
@@ -24,12 +29,12 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Org-Code",
 };
-const jsonResp = (status, obj) => new Response(JSON.stringify(obj), {
+const jsonResp = (status: number, obj: unknown) => new Response(JSON.stringify(obj), {
   status,
   headers: { "Content-Type": "application/json", ...CORS_HEADERS },
 });
 
-export default async (req) => {
+export default async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") return new Response("", { status: 204, headers: CORS_HEADERS });
   if (req.method !== "POST") return jsonResp(405, { error: "Method not allowed" });
 
@@ -39,11 +44,11 @@ export default async (req) => {
   try {
     await jwtVerify(authHeader.slice(7), getJWKS(), { issuer: `https://${AUTH0_DOMAIN}/`, audience: AUTH0_AUDIENCE });
   } catch (e) {
-    return jsonResp(401, { error: e.message || "Token validation failed" });
+    return jsonResp(401, { error: (e as Error).message || "Token validation failed" });
   }
 
   // ── Payload ─────────────────────────────────────────────────────────────
-  let payload;
+  let payload: any;
   try { payload = await req.json(); } catch { return jsonResp(400, { error: "Invalid JSON body" }); }
   const { system, messages, max_tokens, tools, tool_choice } = payload;
   if (!messages || !Array.isArray(messages)) return jsonResp(400, { error: "messages array is required" });
@@ -58,19 +63,19 @@ export default async (req) => {
     ...(tool_choice ? { tool_choice } : {}),
   };
 
-  let upstream;
+  let upstream: Response;
   try {
     upstream = await fetch(ANTHROPIC_API, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "x-api-key": ANTHROPIC_API_KEY!,
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify(anthropicBody),
     });
   } catch (e) {
-    console.error("ai-schedule proxy error:", e);
+    console.error("ai-schedule edge proxy error:", e);
     return jsonResp(502, { error: "Failed to reach Anthropic API" });
   }
 
@@ -81,8 +86,6 @@ export default async (req) => {
   }
 
   // ── Pipe the SSE body straight back to the client ──────────────────────
-  // Anthropic returns text/event-stream when stream:true. We forward the body unchanged
-  // so the client can parse SSE events the same way it would talking to Anthropic directly.
   return new Response(upstream.body, {
     status: 200,
     headers: {
@@ -94,5 +97,7 @@ export default async (req) => {
   });
 };
 
-// Mark this function as runnable on Netlify Edge if desired. By default Netlify will run
-// it as a Node serverless function. Streaming via the standard Response works in both.
+// Route this edge function at the same URL the client already calls.
+export const config = {
+  path: "/.netlify/functions/ai-schedule",
+};
