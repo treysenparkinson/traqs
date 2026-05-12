@@ -7036,7 +7036,16 @@ ${jobsCtx || "No jobs found."}`;
                           let snapS2 = nextBD(addD(os, dx2), barBDOpts);
                           if (depsMode === "unlocked" && isGroupDrag) snapS2 = clampUnlocked(snapS2, _visualWD);
                           const snapE2 = addBD(snapS2, _visualWD - 1, barBDOpts);
-                          setTeamDragInfo(prev => prev ? { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2 } : prev);
+                          setTeamDragInfo(prev => {
+                            if (!prev) return prev;
+                            // Recompute dep-group ghost positions so they don't lag the dragged bar during auto-scroll.
+                            const groupSnaps2 = (isGroupDrag && depsMode !== "unlocked" ? groupMembers : []).map(m => {
+                              const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
+                              const mSnap = addBD(snapS2, _mOffset, barBDOpts);
+                              return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, m.wdDur - 1, barBDOpts), wdDur: m.wdDur, color: bar.color, dropHour: prev.dropHour };
+                            });
+                            return { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2, groupSnaps: groupSnaps2 };
+                          });
                         }
                       }
                       autoScrollRaf = requestAnimationFrame(autoScrollStep);
@@ -7181,7 +7190,12 @@ ${jobsCtx || "No jobs found."}`;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
                       teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo };
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: isMultiDrag ? new Set(multiDragMembers.map(m => m.id)) : null, dropHour, barHpd: _dragBarHpd, hasOverlap });
+                      // Bars that should visually move + fade together with the dragged bar:
+                      // multi-select members, plus dep-group members when the group is locked.
+                      const _movingBarIds = new Set();
+                      if (isMultiDrag) multiDragMembers.forEach(m => _movingBarIds.add(m.id));
+                      if (isGroupDrag && depsMode === "locked") groupMembers.forEach(m => _movingBarIds.add(m.id));
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;

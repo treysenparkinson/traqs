@@ -212,29 +212,177 @@ export async function uploadAttachment(payload, getToken, orgCode) {
 }
 
 // ─── AI (proxied to keep Anthropic API key server-side) ──────────────────────
-// payload: { system: string, messages: array, max_tokens: number }
+// The proxy now streams Anthropic's SSE response. We read the stream, accumulate
+// content blocks (text + tool_use), and return the same { content: [...] } shape
+// as the non-streaming response so callers don't need to change.
+// payload: { system: string, messages: array, max_tokens: number, tools?, tool_choice? }
 export async function callAI(payload, getToken) {
   const headers = await authHeaders(getToken);
   const controller = new AbortController();
-  const tid = setTimeout(() => controller.abort(), 60000); // 60s client timeout (raised from 35s for Fast TRAQS large-file extractions)
+  // Inactivity-style timeout: reset whenever bytes arrive. Anthropic generation can take
+  // 60s+ for big tool-use; this keeps us from giving up while data is still flowing.
+  let inactivityTimer;
+  const IDLE_MS = 45000; // 45s without ANY chunk → bail
+  const resetIdle = () => {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = setTimeout(() => controller.abort(), IDLE_MS);
+  };
+  resetIdle();
+
+  let res;
   try {
-    const res = await fetch(`${BASE}/ai-schedule`, {
+    res = await fetch(`${BASE}/ai-schedule`, {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
-    clearTimeout(tid);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`callAI failed: ${res.status} — ${text}`);
-    }
-    return res.json(); // returns Anthropic response shape { content: [...] }
   } catch (e) {
-    clearTimeout(tid);
-    if (e.name === "AbortError") throw new Error("Request timed out after 60 seconds — try splitting the input into smaller pieces, or simplifying the text.");
+    clearTimeout(inactivityTimer);
+    if (e.name === "AbortError") throw new Error("Request stalled — the AI did not respond in time. Try simplifying or splitting the input.");
     throw e;
   }
+
+  if (!res.ok) {
+    clearTimeout(inactivityTimer);
+    const text = await res.text().catch(() => "");
+    // Surface the readable error message from the proxy if it's JSON; otherwise pass through.
+    try {
+      const j = JSON.parse(text);
+      throw new Error(j.error || `AI request failed (${res.status})`);
+    } catch (parseErr) {
+      if (parseErr instanceof SyntaxError) {
+        throw new Error(text || `AI request failed (${res.status})`);
+      }
+      throw parseErr;
+    }
+  }
+
+  // ── Stream parser ──────────────────────────────────────────────────────
+  // Anthropic SSE event types we care about:
+  //   message_start          → init usage
+  //   content_block_start    → new block at index N (text or tool_use)
+  //   content_block_delta    → append text (text_delta.text) or JSON chunk (input_json_delta.partial_json)
+  //   content_block_stop     → finalize block (parse accumulated JSON for tool_use)
+  //   message_delta          → final stop_reason / usage tweak
+  //   message_stop           → done
+  //   ping                   → keep-alive, ignore
+  //   error                  → upstream error mid-stream
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  const blocks = []; // accumulated content blocks at their respective indices
+  const partialJson = {}; // index → partial JSON string awaiting parse at content_block_stop
+  let stopReason = null;
+  let usage = null;
+  let streamError = null;
+
+  const handleEvent = (evt) => {
+    if (!evt.data) return;
+    let data;
+    try { data = JSON.parse(evt.data); } catch { return; }
+    switch (data.type) {
+      case "content_block_start": {
+        const idx = data.index;
+        blocks[idx] = { ...(data.content_block || {}) };
+        if (blocks[idx].type === "text" && blocks[idx].text == null) blocks[idx].text = "";
+        if (blocks[idx].type === "tool_use") partialJson[idx] = "";
+        break;
+      }
+      case "content_block_delta": {
+        const idx = data.index;
+        const delta = data.delta || {};
+        if (!blocks[idx]) blocks[idx] = {};
+        if (delta.type === "text_delta") {
+          blocks[idx].text = (blocks[idx].text || "") + (delta.text || "");
+        } else if (delta.type === "input_json_delta") {
+          partialJson[idx] = (partialJson[idx] || "") + (delta.partial_json || "");
+        }
+        break;
+      }
+      case "content_block_stop": {
+        const idx = data.index;
+        if (blocks[idx] && blocks[idx].type === "tool_use") {
+          const raw = partialJson[idx] || "";
+          if (raw.trim()) {
+            try { blocks[idx].input = JSON.parse(raw); }
+            catch { blocks[idx].input = {}; /* upstream sent malformed JSON; preserve {} */ }
+          } else {
+            blocks[idx].input = {};
+          }
+          delete partialJson[idx];
+        }
+        break;
+      }
+      case "message_delta":
+        if (data.delta?.stop_reason) stopReason = data.delta.stop_reason;
+        if (data.usage) usage = { ...(usage || {}), ...data.usage };
+        break;
+      case "message_stop":
+        break;
+      case "error":
+        streamError = data.error?.message || "AI stream error";
+        break;
+      default:
+        // message_start, ping — ignore
+        break;
+    }
+  };
+
+  const flushBuffer = () => {
+    // SSE messages are separated by a blank line. Each message has lines like
+    // "event: foo" / "data: bar". Normalize CRLF → LF so proxies that rewrite
+    // line endings don't break event boundary detection.
+    buffer = buffer.replace(/\r\n/g, "\n");
+    let sepIdx;
+    while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
+      const raw = buffer.slice(0, sepIdx);
+      buffer = buffer.slice(sepIdx + 2);
+      const evt = { event: null, data: "" };
+      let dataLines = 0;
+      for (const line of raw.split("\n")) {
+        if (line.startsWith(":")) continue; // SSE comment (used for keep-alives)
+        if (line.startsWith("event:")) evt.event = line.slice(6).trim();
+        else if (line.startsWith("data:")) {
+          // Per SSE spec, multiple data: lines are joined with "\n". Strip a single
+          // leading space ("data: value") but otherwise keep the value as-is.
+          const v = line.slice(5).replace(/^ /, "");
+          evt.data = dataLines === 0 ? v : evt.data + "\n" + v;
+          dataLines++;
+        }
+      }
+      handleEvent(evt);
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      resetIdle();
+      buffer += decoder.decode(value, { stream: true });
+      flushBuffer();
+    }
+    // Handle any trailing buffered event
+    if (buffer.trim()) {
+      buffer += "\n\n";
+      flushBuffer();
+    }
+  } catch (e) {
+    clearTimeout(inactivityTimer);
+    if (e.name === "AbortError") throw new Error("Connection idle for 45 seconds — the AI may have stalled. Try again or simplify the input.");
+    throw e;
+  }
+  clearTimeout(inactivityTimer);
+
+  if (streamError) throw new Error(streamError);
+
+  // Return the same shape the non-streaming response had so callers don't need to change.
+  return {
+    content: blocks.filter(Boolean),
+    stop_reason: stopReason,
+    usage,
+  };
 }
 
 // ─── Upload & Parse (alias kept for future direct-upload flows) ───────────────
