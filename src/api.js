@@ -277,10 +277,14 @@ export async function callAI(payload, getToken) {
   let usage = null;
   let streamError = null;
 
+  let _evtCount = 0;
+  const _evtCounters = {};
   const handleEvent = (evt) => {
     if (!evt.data) return;
     let data;
     try { data = JSON.parse(evt.data); } catch { return; }
+    _evtCount++;
+    _evtCounters[data.type] = (_evtCounters[data.type] || 0) + 1;
     switch (data.type) {
       case "content_block_start": {
         const idx = data.index;
@@ -306,7 +310,7 @@ export async function callAI(payload, getToken) {
           const raw = partialJson[idx] || "";
           if (raw.trim()) {
             try { blocks[idx].input = JSON.parse(raw); }
-            catch { blocks[idx].input = {}; /* upstream sent malformed JSON; preserve {} */ }
+            catch (e) { console.warn("[callAI] tool_use JSON parse failed:", e.message, "raw:", raw.slice(0, 200)); blocks[idx].input = {}; }
           } else {
             blocks[idx].input = {};
           }
@@ -376,6 +380,23 @@ export async function callAI(payload, getToken) {
   clearTimeout(inactivityTimer);
 
   if (streamError) throw new Error(streamError);
+
+  // Fallback: if the stream was cut off after content_block_delta but before content_block_stop,
+  // tool_use blocks still have their initial empty input from content_block_start. Try to parse
+  // whatever partial_json accumulated so we don't lose the work.
+  for (const idx of Object.keys(partialJson)) {
+    const b = blocks[idx];
+    if (b && b.type === "tool_use" && (!b.input || Object.keys(b.input || {}).length === 0)) {
+      const raw = partialJson[idx];
+      if (raw && raw.trim()) {
+        try { b.input = JSON.parse(raw); console.warn("[callAI] recovered partial tool_use from premature stream end"); }
+        catch (e) { console.warn("[callAI] partial tool_use JSON unparseable on fallback:", e.message, "len:", raw.length); }
+      }
+    }
+  }
+
+  // Diagnostic: log event counts so we can see whether the stream was truncated.
+  console.log("[callAI] stream done — events seen:", _evtCounters, "stop_reason:", stopReason);
 
   // Return the same shape the non-streaming response had so callers don't need to change.
   return {
