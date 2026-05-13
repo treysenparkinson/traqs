@@ -35,7 +35,6 @@ export async function handler(event) {
     try {
       const tasks = JSON.parse(event.body);
       if (!Array.isArray(tasks)) return err(400, "Invalid tasks data");
-      if (tasks.length === 0) return err(400, "Refusing to overwrite tasks with empty array");
       await writeJson(s3Key, tasks);
       return json(200, { ok: true });
     } catch (e) {

@@ -155,7 +155,7 @@ const EXTRACT_TOOL = {
             assignedTo:   { type: "string" },
             poNumber:     { type: "string" },
             notes:        { type: "string" },
-            hpd:          { type: "number" },
+            hpd:          { type: "number", description: "Hours per day (daily allocation, typically 4–8). NOT total hours." },
             panels: {
               type: "array",
               items: {
@@ -174,8 +174,8 @@ const EXTRACT_TOOL = {
                         assignedTo:   { type: "string" },
                         start:        { type: "string", description: "YYYY-MM-DD" },
                         end:          { type: "string", description: "YYYY-MM-DD" },
-                        durationDays: { type: "number" },
-                        hpd:          { type: "number" },
+                        durationDays: { type: "number", description: "Total working days this op should span. Used to compute end if end is not given." },
+                        hpd:          { type: "number", description: "Hours per day this op consumes (daily rate, typically 4–8). NOT total hours. If the source shows total hours, divide by the working day length." },
                       },
                     },
                   },
@@ -868,6 +868,66 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…" }) {
     </div>}
   </div>;
 }
+// Assignee picker dropdown — cascading animation matching SearchSelect/CustomDrop, sized for inline preview rows.
+function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, compact = false }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const hm = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQ(""); } };
+    const hk = e => { if (e.key === "Escape") { setOpen(false); setQ(""); } };
+    document.addEventListener("mousedown", hm);
+    document.addEventListener("keydown", hk);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
+  }, [open]);
+  const opts = (() => {
+    const out = [...personOptions];
+    if (value && !out.some(o => o.name.toLowerCase() === value.toLowerCase())) out.push({ name: value, isNew: false });
+    return out;
+  })();
+  const filtered = q ? opts.filter(o => o.name.toLowerCase().includes(q.toLowerCase())) : opts;
+  const showSearch = opts.length > 5;
+  const fs = compact ? 11 : 12;
+  return <div ref={ref} style={{ position: "relative", ...(extraStyle || {}) }}>
+    <div onClick={() => setOpen(o => !o)}
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "5px 7px", borderRadius: T.radiusXs, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", userSelect: "none", fontFamily: T.font, boxSizing: "border-box", transition: "border-color 0.15s" }}>
+      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: value ? T.text : T.textDim, fontSize: fs }}>
+        {value || "(unassigned)"}
+      </span>
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 1000, minWidth: Math.max(200, ref.current?.offsetWidth || 0), maxWidth: 300, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 12px 32px rgba(0,0,0,0.45)", overflow: "hidden", animation: "menuIn 0.15s ease-out" }}>
+      {showSearch && <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…" autoFocus
+          style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+      </div>}
+      <div style={{ maxHeight: 220, overflow: "auto" }}>
+        <div onClick={() => { onChange(""); setOpen(false); setQ(""); }}
+          style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: !value ? T.accent : T.textSec, fontWeight: !value ? 600 : 400, background: !value ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
+          onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"}
+          onMouseLeave={e => e.currentTarget.style.background = !value ? T.accent + "10" : "transparent"}>
+          <div style={{ width: 8, height: 8, borderRadius: 4, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
+          (unassigned)
+        </div>
+        {filtered.length === 0 && <div style={{ padding: "16px 12px", textAlign: "center", fontSize: 12, color: T.textDim }}>No matches</div>}
+        {filtered.map((o, oi) => {
+          const personObj = people.find(p => p.name.toLowerCase() === o.name.toLowerCase());
+          const dotColor = personObj?.color || T.accent;
+          const isOn = value && value.toLowerCase() === o.name.toLowerCase();
+          return <div key={o.name} onClick={() => { onChange(o.name); setOpen(false); setQ(""); }}
+            style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: isOn ? dotColor : T.text, fontWeight: isOn ? 600 : 400, background: isOn ? dotColor + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
+            onMouseEnter={e => e.currentTarget.style.background = dotColor + "18"}
+            onMouseLeave={e => e.currentTarget.style.background = isOn ? dotColor + "12" : "transparent"}>
+            <div style={{ width: 8, height: 8, borderRadius: 4, background: dotColor, flexShrink: 0 }} />
+            <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.name}</span>
+            {o.isNew && <span style={{ fontSize: 10, color: T.textDim, fontWeight: 700, letterSpacing: "0.05em" }}>NEW</span>}
+          </div>;
+        })}
+      </div>
+    </div>}
+  </div>;
+}
 // Template loader dropdown — cascading animation + per-item delete button
 function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
   const [open, setOpen] = useState(false);
@@ -1032,7 +1092,11 @@ Extraction rules:
 - title is encouraged but not required. If you can't find a clear title, use the job number, the row's most distinctive value, or any short descriptor. Don't drop a row just because the title field is empty.
 - Match assignedTo to existing team members by name when possible; otherwise spell the full name as written and the system will create them. Same for client.
 - If relative dates ("next week", "in 2 weeks") are given, compute from today.
+- DATE FORMAT: source dates use MM/DD/YY (US format). "05/03/26" means May 3, 2026 — NOT March 5. "11/04/25" means November 4, 2025. Always output as YYYY-MM-DD.
+- PRESERVE THE YEAR EXACTLY as written in the source. Do NOT shift past dates (e.g. 2025) forward to the current year. A row dated 09/24/25 stays 2025-09-24 even if today is in 2026. Historical and in-progress jobs are normal.
+- If a year is an obvious typo (e.g. 2030 in a schedule otherwise full of 2026 dates) you may correct it, but be conservative — only fix dates that are clearly impossible.
 - When computing end dates, count only working days. A 40-hour op at ${orgSettings.hpd}h/day spans ${Math.ceil(40 / Math.max(1, orgSettings.hpd))} working days.
+- hpd is ALWAYS a daily rate (hours per day), never total hours. Realistic values are 4–8. If the source shows "Hours: 40" for an op, return durationDays=${Math.ceil(40 / Math.max(1, orgSettings.hpd))} and hpd=${orgSettings.hpd} — NOT hpd=40. If unsure, omit hpd and only return durationDays.
 - For "updates" only include entries when you're confident the row refers to an existing job (its jobNumber matches a known job).
 - ALWAYS call submit_extraction. If you genuinely cannot find any work item after considering the rules above, call it with empty arrays and the user will see a clear error.`;
 
@@ -1102,6 +1166,30 @@ Extraction rules:
         if (lowerExistingClients.has(lo)) return;
         if (!newClientsMap.has(lo)) newClientsMap.set(lo, name);
       };
+      // hpd in the data model is a *daily rate* (hours per day), not total hours.
+      // Clamp any extracted hpd to a sane window to prevent total-hours-mistaken-for-rate from inflating job-card totals.
+      const defaultHpd = orgSettings.hpd || 8;
+      const sanitizeHpd = (raw, fallback = defaultHpd) => {
+        if (typeof raw !== "number" || !isFinite(raw) || raw <= 0) return fallback;
+        if (raw > 24) return fallback;
+        return Math.max(0.5, raw);
+      };
+      // Normalize an extracted assignee name to its canonical form: an existing person's
+      // exact name when matched (exact or token-boundary partial), otherwise the trimmed/email-derived name.
+      // This ensures the preview dropdown can pre-select the right option.
+      const canonicalPersonName = (raw) => {
+        if (!raw) return "";
+        const name = raw.includes("@") ? nameFromEmail(raw) : raw.trim();
+        if (!name) return "";
+        const lo = name.toLowerCase();
+        const exact = people.find(p => p.name.toLowerCase() === lo);
+        if (exact) return exact.name;
+        const tokenPartial = people.find(p => {
+          const pn = p.name.toLowerCase();
+          return pn.startsWith(lo + " ") || pn.endsWith(" " + lo);
+        });
+        return tokenPartial ? tokenPartial.name : name;
+      };
       aiJobs.forEach(j => {
         noteNewPerson(j.assignedTo);
         noteNewClient(j.client);
@@ -1124,26 +1212,35 @@ Extraction rules:
           end: jEnd,
           dueDate: j.dueDate || "",
           clientName: j.client || "",
-          assigneeName: j.assignedTo || "",
+          assigneeName: canonicalPersonName(j.assignedTo),
           poNumber: j.poNumber || "",
           notes: j.notes || "",
-          hpd: typeof j.hpd === "number" ? j.hpd : 7.5,
+          hpd: sanitizeHpd(j.hpd, 7.5),
           panels: (j.panels || []).map(p => ({
             _checked: true,
             _id: uid(),
             title: p.title || "Panel",
             start: p.start || jStart,
             end: p.end || jEnd,
-            assigneeName: p.assignedTo || "",
-            ops: (p.ops || []).map(o => ({
-              _checked: true,
-              _id: uid(),
-              title: o.title || "Operation",
-              start: o.start || p.start || jStart,
-              end: o.end || p.end || jEnd,
-              assigneeName: o.assignedTo || "",
-              hpd: typeof o.hpd === "number" ? o.hpd : (o.durationDays ? o.durationDays * (orgSettings.hpd || 8) : 8),
-            })),
+            assigneeName: canonicalPersonName(p.assignedTo),
+            ops: (p.ops || []).map(o => {
+              const opStart = o.start || p.start || jStart;
+              // If Claude returned durationDays but no end date, compute end from start + working days.
+              let opEnd = o.end;
+              if (!opEnd && typeof o.durationDays === "number" && o.durationDays > 0 && o.durationDays < 3650) {
+                opEnd = addWorkingDays(opStart, Math.max(0, Math.floor(o.durationDays) - 1), orgSettings.workDays);
+              }
+              if (!opEnd) opEnd = p.end || jEnd;
+              return {
+                _checked: true,
+                _id: uid(),
+                title: o.title || "Operation",
+                start: opStart,
+                end: opEnd,
+                assigneeName: canonicalPersonName(o.assignedTo),
+                hpd: sanitizeHpd(o.hpd),
+              };
+            }),
           })),
         };
       });
@@ -1178,6 +1275,24 @@ Extraction rules:
   const commitImport = () => {
     if (!previewData) return;
     const { jobs, updates, newPeople, newClients } = previewData;
+    // Clamp Claude's daily rate to a sane window. We'll multiply by working days when storing.
+    const safeHpd = (v, fallback) => {
+      const d = orgSettings.hpd || 8;
+      const f = fallback != null ? fallback : d;
+      if (typeof v !== "number" || !isFinite(v) || v <= 0) return f;
+      if (v > 24) return f;
+      return Math.max(0.5, v);
+    };
+    // The schedule renderer treats op.hpd as TOTAL productive hours for the op
+    // (it computes _visualWorkDays = ceil(hpd / productiveHpd) to size the bar).
+    // To make the bar fill the imported date range, we set hpd = workingDays × productiveHpd.
+    // (Claude's per-day rate is ignored for sizing — Excel dates are the source of truth.)
+    const totalHoursForRange = (start, end) => {
+      const productiveHpd = productiveHoursPerDay || 8;
+      if (!start || !end) return productiveHpd;
+      const days = Math.max(1, getWorkingDayDuration(start, end, orgSettings.workDays));
+      return Math.round(days * productiveHpd * 10) / 10;
+    };
 
     // Pre-resolve new people/clients (with fresh IDs) so we can map names → IDs uniformly below.
     const keptNewPeople = newPeople.filter(p => p._checked).map(p => ({
@@ -1210,22 +1325,30 @@ Extraction rules:
     };
 
     // Build kept jobs by filtering unchecked nodes and resolving names → IDs.
-    const keptJobs = jobs.filter(j => j._checked).map(j => {
+    const keptJobs = jobs.filter(j => j._checked).map((j, jobIdx) => {
       const clientId = resolveClientName(j.clientName);
       const jobTeamId = resolvePersonName(j.assigneeName);
+      // One random color per imported job; panels and ops inherit it so everything
+      // affiliated with the job is visually grouped on the schedule.
+      const jobColor = randomJobColor();
       const subs = (j.panels || []).filter(p => p._checked).map(p => {
         const panelTeamId = resolvePersonName(p.assigneeName) || jobTeamId;
         const ops = (p.ops || []).filter(o => o._checked).map(o => {
           const opTeamId = resolvePersonName(o.assigneeName) || panelTeamId || jobTeamId;
+          const opStart = o.start || p.start || j.start;
+          const opEnd = o.end || p.end || j.end;
           return {
             id: uid(),
             title: o.title || "Operation",
-            start: o.start || p.start || j.start,
-            end: o.end || p.end || j.end,
+            start: opStart,
+            end: opEnd,
             pri: "High",
             status: "Not Started",
             team: opTeamId ? [opTeamId] : [],
-            hpd: typeof o.hpd === "number" ? o.hpd : 8,
+            // Total productive hours = working_days × productiveHpd, so the schedule renderer
+            // sizes the bar to fill the imported date range as one continuous block.
+            hpd: totalHoursForRange(opStart, opEnd),
+            color: jobColor,
             notes: "",
             deps: [],
             locked: false,
@@ -1241,12 +1364,19 @@ Extraction rules:
           status: "Not Started",
           team: panelTeamId ? [panelTeamId] : [],
           hpd: 0,
+          color: jobColor,
           notes: "",
           deps: [],
           engineering: { designed: null, verified: null, sentToPerforex: null },
           subs: ops,
         };
       });
+      // Project Manager: prefer the job-level extracted assignee; fall back to the first op or panel
+      // assignee so the job at minimum has a PM and doesn't show "Unassigned" on the Jobs page.
+      // (The Jobs view groups by projectManagerId; manual job creation requires it.)
+      const firstOpPerson = subs[0]?.subs?.[0]?.team?.[0] || null;
+      const firstPanelPerson = subs[0]?.team?.[0] || null;
+      const pmId = jobTeamId || firstOpPerson || firstPanelPerson || null;
       return {
         id: uid(),
         title: j.title || j.jobNumber || "Imported Job",
@@ -1257,8 +1387,9 @@ Extraction rules:
         pri: "Medium",
         status: "Not Started",
         team: jobTeamId ? [jobTeamId] : (subs[0]?.team || []),
-        color: COLORS[(tasks.length) % COLORS.length],
-        hpd: typeof j.hpd === "number" ? j.hpd : 7.5,
+        projectManagerId: pmId,
+        color: jobColor,
+        hpd: safeHpd(j.hpd, 7.5),
         notes: j.notes || "",
         clientId: clientId || null,
         poNumber: j.poNumber || "",
@@ -1267,12 +1398,28 @@ Extraction rules:
       };
     });
 
-    // Compute startHour for ops to avoid same-day overlap with existing schedule
+    // Compute startHour for ops to avoid same-day overlap.
+    // getNextStartHour accounts for *existing* tasks. We also have to stack newly-imported ops
+    // against each other (same person + same start date), since they're not in `tasks` yet.
+    const importEndClockByKey = new Map(); // `${personId}|${start}` → next free clock hour
     keptJobs.forEach(j => {
       (j.subs || []).forEach(panel => {
         (panel.subs || []).forEach(op => {
           if (op.start && (op.team || []).length > 0 && op.startHour == null) {
-            op.startHour = getNextStartHour((op.team || [])[0], op.start, op.id);
+            const person = (op.team || [])[0];
+            const key = `${person}|${op.start}`;
+            const seeded = importEndClockByKey.has(key)
+              ? importEndClockByKey.get(key)
+              : getNextStartHour(person, op.start, op.id);
+            op.startHour = seeded;
+            // How many clock-hours this op consumes on its START day.
+            // Single-day op: total hours converted from productive to clock-time.
+            // Multi-day op: occupies the rest of the work day.
+            const totalClockH = (op.hpd / Math.max(1, productiveHoursPerDay)) * totalWorkH;
+            const endClockH = op.start === op.end
+              ? Math.min(workEndH, seeded + totalClockH)
+              : workEndH;
+            importEndClockByKey.set(key, endClockH);
           }
         });
       });
@@ -1630,7 +1777,7 @@ Extraction rules:
   // Duration of an operation in working days given org's hrs/day
   const opDurBD = op => Math.max(1, Math.ceil((op?.hpd || orgSettings.hpd) / orgSettings.hpd));
   // Job hours/progress helpers — used by both renderTasks and the export modal
-  const _opHrs = (op) => Math.round((op.hpd || 7.5) * (diffBD(op.start, op.end) + 1) * 10) / 10;
+  const _opHrs = (op) => Math.round((op.hpd || 7.5) * 10) / 10;
   const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
   const _jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + _panelHrs(p), 0) * 10) / 10;
   // getCurrentPayPeriod(startDate, periodType, today?)
@@ -2136,16 +2283,11 @@ Extraction rules:
       const tasks = latestTasksRef.current;
       const people = latestPeopleRef.current;
       const clients = dataRef.current.clients;
-      if (!tasks || tasks.length === 0) {
-        console.warn("doSave blocked — tasks is empty, skipping save to prevent data loss");
-        setSaveStatus("unsaved");
-        return;
-      }
-      if (!people || people.length === 0) {
-        console.warn("doSave blocked — people is empty, skipping save to prevent data loss");
-        setSaveStatus("unsaved");
-        return;
-      }
+      // Defend against unloaded state only — null/undefined means "data isn't ready yet".
+      // An empty array is a legitimate state (user deleted everything) and must be allowed to save,
+      // otherwise the 30s poll fetches stale S3 data and resurrects the deleted items.
+      if (!tasks) { console.warn("doSave blocked — tasks ref not initialized"); setSaveStatus("unsaved"); return; }
+      if (!people) { console.warn("doSave blocked — people ref not initialized"); setSaveStatus("unsaved"); return; }
       await Promise.all([
         saveTasks(tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i), getTokenRef.current, orgCode),
         savePeople(people, getTokenRef.current, orgCode),
@@ -2988,17 +3130,22 @@ Extraction rules:
       return t;
     }));
   };
-  const delTask = (id, pid = null) => setTasks(p => {
-    const removeFromTree = (nodes) =>
-      nodes
-        .filter(n => n.id !== id)
-        .map(n => ({
-          ...n,
-          deps: (n.deps || []).filter(d => d !== id),
-          subs: n.subs ? removeFromTree(n.subs) : n.subs,
-        }));
-    return removeFromTree(p);
-  });
+  const delTask = (id, pid = null) => {
+    // Drop poll protection so a Fast-TRAQS-imported job stays deleted instead of being revived
+    // by the 30s S3 refetch (which otherwise rejects fetches missing protected IDs).
+    protectedJobIds.current.delete(id);
+    setTasks(p => {
+      const removeFromTree = (nodes) =>
+        nodes
+          .filter(n => n.id !== id)
+          .map(n => ({
+            ...n,
+            deps: (n.deps || []).filter(d => d !== id),
+            subs: n.subs ? removeFromTree(n.subs) : n.subs,
+          }));
+      return removeFromTree(p);
+    });
+  };
   const cascadeDeps = (movedId, delta) => setTasks(p => p.map(t => { let nt = { ...t, subs: [...(t.subs || [])] }; if ((t.deps || []).includes(movedId)) { nt.start = addD(t.start, delta); nt.end = addD(t.end, delta); nt.subs = nt.subs.map(s => ({ ...s, start: addD(s.start, delta), end: addD(s.end, delta) })); } else nt.subs = nt.subs.map(s => (s.deps || []).includes(movedId) ? { ...s, start: addD(s.start, delta), end: addD(s.end, delta) } : s); return nt; }));
   const toggleDep = (taskId, depId) => setTasks(p => p.map(t => { if (t.id === taskId) { const d = t.deps || []; return { ...t, deps: d.includes(depId) ? d.filter(x => x !== depId) : [...d, depId] }; } return { ...t, subs: (t.subs || []).map(s => { if (s.id === taskId) { const d = s.deps || []; return { ...s, deps: d.includes(depId) ? d.filter(x => x !== depId) : [...d, depId] }; } return s; }) }; }));
   const pName = id => { const p = people.find(x => x.id === id); return p ? (p.teamNumber ? `${p.teamNumber} - ${p.name.split(" ")[0]}` : p.name.split(" ")[0]) : "?"; };
@@ -5322,7 +5469,10 @@ ${jobsCtx || "No jobs found."}`;
         const startEdit = (e, id, col) => { e.stopPropagation(); setGridCell({ id, col }); };
         const commitEdit = (id, col, val, pid) => { updTask(id, { [col]: val }, pid || null); setGridCell(null); };
 
-        const opHrs = (op) => Math.round((op.hpd || 7.5) * (diffBD(op.start, op.end) + 1) * 10) / 10;
+        // op.hpd is the TOTAL productive hours for the op (same interpretation the schedule renderer
+        // and saveTask use). Display it directly — no multiplication by days, which was the legacy
+        // "daily rate × days" formula that inflated multi-day ops.
+        const opHrs = (op) => Math.round((op.hpd || 7.5) * 10) / 10;
         const panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + opHrs(op), 0) * 10) / 10;
         const jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + panelHrs(p), 0) * 10) / 10;
         const opPct = (op) => op.status === "Finished" ? 100 : op.status === "In Progress" ? 50 : op.status === "Pending" ? 15 : op.status === "On Hold" ? 25 : 0;
@@ -13706,6 +13856,20 @@ ${jobsCtx || "No jobs found."}`;
         const _setNewClient = (i, patch) => setPreviewData(p => ({ ...p, newClients: p.newClients.map((nc, idx) => idx === i ? { ...nc, ...patch } : nc) }));
         const inpStyle = { padding: "5px 7px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
         const labelStyle = { fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 2 };
+        // Unified person options for assignee dropdowns: existing team + names proposed for creation by Fast TRAQS.
+        const personOptions = (() => {
+          const seen = new Set();
+          const out = [];
+          for (const p of people) {
+            const lo = p.name.toLowerCase();
+            if (!seen.has(lo)) { seen.add(lo); out.push({ name: p.name, isNew: false }); }
+          }
+          for (const np of previewData.newPeople) {
+            const lo = np.name.toLowerCase();
+            if (!seen.has(lo)) { seen.add(lo); out.push({ name: np.name, isNew: true }); }
+          }
+          return out;
+        })();
         return (
           <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 760, maxHeight: "90vh", overflow: "hidden", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14`, display: "flex", flexDirection: "column" }}>
             {/* Header */}
@@ -13744,7 +13908,7 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                         <div><div style={labelStyle}>Client</div><input value={j.clientName} onChange={e => _setJob(j._id, { clientName: e.target.value })} placeholder="(none)" style={{ ...inpStyle, width: "100%" }} /></div>
-                        <div><div style={labelStyle}>Assignee</div><input value={j.assigneeName} onChange={e => _setJob(j._id, { assigneeName: e.target.value })} placeholder="(none)" style={{ ...inpStyle, width: "100%" }} /></div>
+                        <div><div style={labelStyle}>Assignee</div><AssigneeSelect value={j.assigneeName} onChange={v => _setJob(j._id, { assigneeName: v })} personOptions={personOptions} people={people} extraStyle={{ width: "100%" }} /></div>
                       </div>
                       {j.panels.length > 0 && (
                         <details style={{ marginTop: 10 }}>
@@ -13757,7 +13921,7 @@ ${jobsCtx || "No jobs found."}`;
                                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                                   <input type="checkbox" checked={pn._checked} onChange={e => _setPanel(j._id, pn._id, { _checked: e.target.checked })} style={{ width: 14, height: 14, cursor: "pointer", accentColor: T.accent }} />
                                   <input value={pn.title} onChange={e => _setPanel(j._id, pn._id, { title: e.target.value })} style={{ ...inpStyle, flex: 1, fontSize: 12, fontWeight: 600 }} />
-                                  <input value={pn.assigneeName} onChange={e => _setPanel(j._id, pn._id, { assigneeName: e.target.value })} placeholder="Assignee" style={{ ...inpStyle, width: 130 }} />
+                                  <AssigneeSelect value={pn.assigneeName} onChange={v => _setPanel(j._id, pn._id, { assigneeName: v })} personOptions={personOptions} people={people} extraStyle={{ width: 130 }} compact />
                                 </div>
                                 {pn.ops.length > 0 && (
                                   <div style={{ paddingLeft: 22, display: "flex", flexDirection: "column", gap: 3 }}>
@@ -13765,7 +13929,7 @@ ${jobsCtx || "No jobs found."}`;
                                       <div key={op._id} style={{ display: "flex", alignItems: "center", gap: 6, opacity: op._checked ? 1 : 0.5 }}>
                                         <input type="checkbox" checked={op._checked} onChange={e => _setOp(j._id, pn._id, op._id, { _checked: e.target.checked })} style={{ width: 13, height: 13, cursor: "pointer", accentColor: T.accent }} />
                                         <input value={op.title} onChange={e => _setOp(j._id, pn._id, op._id, { title: e.target.value })} style={{ ...inpStyle, flex: 1, fontSize: 11 }} />
-                                        <input value={op.assigneeName} onChange={e => _setOp(j._id, pn._id, op._id, { assigneeName: e.target.value })} placeholder="Assignee" style={{ ...inpStyle, width: 120, fontSize: 11 }} />
+                                        <AssigneeSelect value={op.assigneeName} onChange={v => _setOp(j._id, pn._id, op._id, { assigneeName: v })} personOptions={personOptions} people={people} extraStyle={{ width: 120 }} compact />
                                         <input type="number" min="0" step="0.5" value={op.hpd} onChange={e => _setOp(j._id, pn._id, op._id, { hpd: parseFloat(e.target.value) || 0 })} placeholder="hrs" style={{ ...inpStyle, width: 56, fontSize: 11, fontFamily: T.mono }} />
                                       </div>
                                     ))}

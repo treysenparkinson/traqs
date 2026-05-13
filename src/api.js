@@ -25,8 +25,8 @@ export async function fetchTasks(orgCode) {
 }
 
 export async function saveTasks(tasks, getToken, orgCode) {
-  if (!Array.isArray(tasks) || tasks.length === 0) {
-    console.warn("saveTasks blocked — empty or invalid array", tasks);
+  if (!Array.isArray(tasks)) {
+    console.warn("saveTasks blocked — not an array", tasks);
     return { ok: true };
   }
   const headers = await authHeaders(getToken, orgCode);
@@ -47,8 +47,8 @@ export async function fetchPeople(orgCode) {
 }
 
 export async function savePeople(people, getToken, orgCode) {
-  if (!Array.isArray(people) || people.length === 0) {
-    console.warn("savePeople blocked — empty or invalid array", people);
+  if (!Array.isArray(people)) {
+    console.warn("savePeople blocked — not an array", people);
     return { ok: true };
   }
   const headers = await authHeaders(getToken, orgCode);
