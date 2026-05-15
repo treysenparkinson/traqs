@@ -430,6 +430,10 @@ animStyle.textContent = `
   60%  { opacity: 1; transform: translateY(2px)  scale(1.01); filter: blur(0);   }
   100% { opacity: 1; transform: translateY(0)    scale(1);    filter: blur(0);   }
 }
+@keyframes fadeOutDrop {
+  0%   { opacity: 1; transform: translateY(0)    scale(1);    }
+  100% { opacity: 0; transform: translateY(-4px) scale(0.98); }
+}
 @keyframes fadeScale {
   0%   { opacity: 0; transform: scale(0.97); }
   100% { opacity: 1; transform: scale(1);    }
@@ -631,6 +635,35 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
   const vars = { primary: { background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, color: T.accentText, boxShadow: 'none' }, ghost: { background: T.glass, color: T.textSec, border: `1px solid ${T.glassBorder}` }, danger: { background: "transparent", color: T.danger, border: `1px solid ${T.danger}33` }, teal: { background: "transparent", color: "#14b8a6", border: `1px solid #14b8a633` }, warn: { background: "transparent", color: "#f59e0b", border: `1px solid #f59e0b33` } };
   return <button className="anim-btn" onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
 };
+// Wrapper that keeps a dropdown mounted long enough to fade out cleanly after `open` toggles false.
+// Retains a snapshot of children during the fade so dropdowns driven by object state
+// (e.g. {x, y, ...} that gets set to null on close) don't crash mid-animation.
+const FadeOnClose = ({ open, children, duration = 180 }) => {
+  const [mounted, setMounted] = useState(!!open);
+  const [closing, setClosing] = useState(false);
+  const stableRef = useRef(children);
+  const prevOpen = useRef(!!open);
+  if (open && children) stableRef.current = children;
+  useEffect(() => {
+    let t;
+    if (open && !prevOpen.current) {
+      setMounted(true);
+      setClosing(false);
+    } else if (!open && prevOpen.current && mounted) {
+      setClosing(true);
+      t = setTimeout(() => { setMounted(false); setClosing(false); }, duration);
+    }
+    prevOpen.current = !!open;
+    return () => { if (t) clearTimeout(t); };
+  }, [open, mounted, duration]);
+  if (!mounted) return null;
+  const kids = closing ? stableRef.current : children;
+  if (!kids) return null;
+  if (!closing) return kids;
+  return cloneElement(kids, {
+    style: { ...(kids.props.style || {}), animation: `fadeOutDrop ${duration}ms ease-out both`, pointerEvents: "none" },
+  });
+};
 const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div className="anim-card anim-card-wrap" onClick={onClick}
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
   onMouseLeave={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.glassBorder}`; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = "none"; } : undefined}
@@ -786,13 +819,13 @@ function StatusDrop({ value, onChange, size = "sm" }) {
     <span onClick={e => { e.stopPropagation(); setOpen(!open); }} style={{ ...sz, borderRadius: 14, fontWeight: 600, fontFamily: T.font, background: c + "18", color: c, border: `1px solid ${c}33`, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4, userSelect: "none" }}>
       {value} <span style={{ fontSize: 9, opacity: 0.6 }}>▼</span>
     </span>
-    {open && <div className="anim-drop" style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 999, background: T.glass, border: `1px solid ${T.glassBorder}`, borderRadius: T.radiusSm, padding: "4px 0", boxShadow: "0 12px 40px rgba(0,0,0,0.4)", minWidth: 140 }}>
+    <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 999, background: T.glass, border: `1px solid ${T.glassBorder}`, borderRadius: T.radiusSm, padding: "4px 0", boxShadow: "0 12px 40px rgba(0,0,0,0.4)", minWidth: 140 }}>
       {STATUSES.map(s => <div key={s} onClick={e => { e.stopPropagation(); onChange(s); setOpen(false); }}
         style={{ padding: "8px 14px", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: value === s ? STA_C[s] : T.text, fontWeight: value === s ? 600 : 400, background: value === s ? STA_C[s] + "12" : "transparent" }}
         onMouseEnter={e => e.currentTarget.style.background = STA_C[s] + "18"} onMouseLeave={e => e.currentTarget.style.background = value === s ? STA_C[s] + "12" : "transparent"}>
         <div style={{ width: 8, height: 8, borderRadius: 4, background: STA_C[s] }} />{s}
       </div>)}
-    </div>}
+    </div></FadeOnClose>
   </div>;
 }
 function SearchSelect({ label, value, onChange, options, placeholder = "Search..." }) {
@@ -808,7 +841,7 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
       {selected ? <><div style={{ width: 10, height: 10, borderRadius: 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 500 }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: 14, color: T.textDim }}>No client selected</span>}
       <span style={{ fontSize: 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
     </div>
-    {open && <div className="anim-drop" style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out" }}>
+    <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out" }}>
       <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} autoFocus style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
       </div>
@@ -827,7 +860,7 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
           {o.sub && <span style={{ fontSize: 12, color: T.textDim }}>{o.sub}</span>}
         </div>)}
       </div>
-    </div>}
+    </div></FadeOnClose>
   </div>;
 }
 function AnimatedView({ viewKey, children, style }) {
@@ -854,7 +887,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…" }) {
       <span style={{ fontSize: 14, color: value ? T.text : T.textDim, fontFamily: T.font, flex: 1 }}>{value || placeholder}</span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
+    <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
       {options.map((r, ri) => {
         const isOn = value === r;
         return <div key={r} onClick={() => { onChange(r); setOpen(false); }}
@@ -865,7 +898,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…" }) {
           <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, fontFamily: T.font }}>{r}</span>
         </div>;
       })}
-    </div>}
+    </div></FadeOnClose>
   </div>;
 }
 // Assignee picker dropdown — cascading animation matching SearchSelect/CustomDrop, sized for inline preview rows.
@@ -897,7 +930,7 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
       </span>
       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 1000, minWidth: Math.max(200, ref.current?.offsetWidth || 0), maxWidth: 300, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 12px 32px rgba(0,0,0,0.45)", overflow: "hidden", animation: "menuIn 0.15s ease-out" }}>
+    <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 1000, minWidth: Math.max(200, ref.current?.offsetWidth || 0), maxWidth: 300, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 12px 32px rgba(0,0,0,0.45)", overflow: "hidden", animation: "menuIn 0.15s ease-out" }}>
       {showSearch && <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…" autoFocus
           style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
@@ -925,7 +958,7 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
           </div>;
         })}
       </div>
-    </div>}
+    </div></FadeOnClose>
   </div>;
 }
 // Template loader dropdown — cascading animation + per-item delete button
@@ -946,7 +979,7 @@ function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
       Load Template
       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </button>
-    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", minWidth: 220, padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
+    <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", minWidth: 220, padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
       {templates.map((tpl, ti) => (
         <div key={tpl.id} style={{ display: "flex", alignItems: "center", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}>
           <div onClick={() => { onLoad(tpl); setOpen(false); }} style={{ flex: 1, padding: "9px 14px", cursor: "pointer", fontSize: 13, color: T.text, fontWeight: 500, fontFamily: T.font, borderRadius: "4px 0 0 4px" }}
@@ -964,7 +997,7 @@ function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
           </Tip>
         </div>
       ))}
-    </div>}
+    </div></FadeOnClose>
   </div>;
 }
 function autoEmail(name, domain) {
@@ -4499,7 +4532,7 @@ ${jobsCtx || "No jobs found."}`;
               {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
             </button>
             </Tip>
-            {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
+            <FadeOnClose open={filterOpen}><div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fStat === s || (s === "All" && fStat === "All") ? T.accent : T.border}`, background: fStat === s || (s === "All" && fStat === "All") ? T.accent + "22" : "transparent", color: fStat === s || (s === "All" && fStat === "All") ? T.accent : T.text, fontSize: 11, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>)}
@@ -4538,7 +4571,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
               </div>
               {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-            </div>}
+            </div></FadeOnClose>
           </div>
         </div>
         {/* Right side: Clipboard + Zoom + FAST TRAQS + New Task button */}
@@ -5022,14 +5055,14 @@ ${jobsCtx || "No jobs found."}`;
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                 Filter {activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
-              {taskFilterOpen && <div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+              <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}><option value="All">All Clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
                 <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
-              </div>}
+              </div></FadeOnClose>
             </div>
             {/* Alignment — single cycling toggle */}
             {(() => {
@@ -5066,7 +5099,7 @@ ${jobsCtx || "No jobs found."}`;
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 Column
               </button>
-              {colPickerOpen && <div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 300 }}>
+              <FadeOnClose open={colPickerOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 300 }}>
                 {/* Section: Link to Job Field */}
                 <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Link to Job Field</div>
@@ -5127,7 +5160,7 @@ ${jobsCtx || "No jobs found."}`;
                     <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? ["—", "Option 1", "Option 2"] : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
                   </div>
                 </div>
-              </div>}
+              </div></FadeOnClose>
             </div>
           </>}
           <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
@@ -6605,7 +6638,7 @@ ${jobsCtx || "No jobs found."}`;
             {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
           </button>
           </Tip>
-          {filterOpen && <div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
+          <FadeOnClose open={filterOpen}><div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sort By</div>
               <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
                 {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
@@ -6635,7 +6668,7 @@ ${jobsCtx || "No jobs found."}`;
                 {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 11, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
               </div>
               {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-            </div>}
+            </div></FadeOnClose>
           </div>
         </div>}
         <div style={{ position: isAdmin ? "absolute" : "relative", left: isAdmin ? "50%" : "auto", transform: isAdmin ? "translateX(-50%)" : "none", display: "flex", gap: 12, alignItems: "center" }}>
@@ -12641,7 +12674,7 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{unreadByThread.length > 9 ? "9+" : unreadMessages.length}</span>}
           </button></Tip>
-          {notifOpen && <div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
+          <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
             <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Notifications</div>
               {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
@@ -12667,14 +12700,14 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>;
             })}
-          </div>}
+          </div></FadeOnClose>
         </div>
         {/* Settings Gear */}
         <div ref={settingsRef} style={{ position: "relative" }}>
           <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ background: settingsOpen ? T.accent + "15" : "transparent", border: `1px solid ${settingsOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={settingsOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.3s", transform: settingsOpen ? "rotate(90deg)" : "none" }}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </button>
-          {settingsOpen && <div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 32, top: 60, width: 520, maxHeight: "85vh", overflowY: settingsScrollable ? "auto" : "hidden", overflowX: "hidden", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, fontFamily: T.font }}>
+          <FadeOnClose open={settingsOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 32, top: 60, width: 520, maxHeight: "85vh", overflowY: settingsScrollable ? "auto" : "hidden", overflowX: "hidden", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, fontFamily: T.font }}>
             <div style={{ padding: "12px 16px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
               {(prefOpen || settingsTab === "org") && <button onClick={() => { setPrefOpen(false); setSettingsTab("main"); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 18, lineHeight: 1, padding: "0 4px 0 0" }}>←</button>}
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>{prefOpen ? "Preferences" : settingsTab === "org" ? "Organization" : "Settings"}</div>
@@ -12779,7 +12812,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </button>
             </>}
-          </div>}
+          </div></FadeOnClose>
         </div>
       </div>
     </div>}
@@ -13062,7 +13095,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
     })()}
     {/* ── Column header context menu ── */}
-    {colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => setColCtxMenu(null)}>
+    <FadeOnClose open={!!colCtxMenu}>{colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => setColCtxMenu(null)}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
         {colCtxMenu.isCustom && <button onClick={() => { setEditingColHeader(colCtxMenu.colId); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -13152,10 +13185,10 @@ ${jobsCtx || "No jobs found."}`;
           Reset Column Order
         </button>}
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ── Status Popover ── */}
-    {statusPopover && <>
+    <FadeOnClose open={!!statusPopover}>{statusPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setStatusPopover(null)} />
       <div style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
         {STATUSES.map((s, si) => {
@@ -13178,10 +13211,10 @@ ${jobsCtx || "No jobs found."}`;
           );
         })}
       </div>
-    </>}
+    </div>}</FadeOnClose>
 
     {/* ── Admin Clock-In/Out Popover (press a person's status badge) ── */}
-    {clockPopover && <>
+    <FadeOnClose open={!!clockPopover}>{clockPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setClockPopover(null)} />
       <div style={{ position: "fixed", left: clockPopover.x, top: clockPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 180, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
         {[
@@ -13211,7 +13244,7 @@ ${jobsCtx || "No jobs found."}`;
           );
         })}
       </div>
-    </>}
+    </div>}</FadeOnClose>
 
     {/* ── Admin Clock-In/Out Time-Picker Confirm Modal ── */}
     {clockTimeModal && <div style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClockTimeModal(null)}>
@@ -14321,7 +14354,7 @@ ${jobsCtx || "No jobs found."}`;
     </div>}
 
     {/* ─── Group context menu ─── */}
-    {groupCtxMenu && <div onClick={() => setGroupCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
+    <FadeOnClose open={!!groupCtxMenu}>{groupCtxMenu && <div onClick={() => setGroupCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: Math.min(groupCtxMenu.x, window.innerWidth - 220), top: Math.min(groupCtxMenu.y, window.innerHeight - 260), zIndex: 9999, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>👥 {groupCtxMenu.groupName}</div>
@@ -14348,10 +14381,10 @@ ${jobsCtx || "No jobs found."}`;
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Group</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this group and its messages</div></div>
         </div>}
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ─── Job thread context menu ─── */}
-    {threadCtxMenu && <div onClick={() => setThreadCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
+    <FadeOnClose open={!!threadCtxMenu}>{threadCtxMenu && <div onClick={() => setThreadCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: Math.min(threadCtxMenu.x, window.innerWidth - 220), top: Math.min(threadCtxMenu.y, window.innerHeight - 140), zIndex: 9999, minWidth: 210, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{threadCtxMenu.scope === "op" ? "🔧" : threadCtxMenu.scope === "panel" ? "📦" : "🏗"} {threadCtxMenu.title}</div>
@@ -14370,10 +14403,10 @@ ${jobsCtx || "No jobs found."}`;
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Clear Chat</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this thread</div></div>
         </div>}
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* Shared context menu */}
-    {ctxMenu && (() => {
+    <FadeOnClose open={!!ctxMenu}>{ctxMenu && (() => {
       const spaceBelow = window.innerHeight - ctxMenu.y - 12;
       const spaceAbove = ctxMenu.y - 12;
       const flipUp = spaceBelow < 300 && spaceAbove > spaceBelow;
@@ -14487,7 +14520,7 @@ ${jobsCtx || "No jobs found."}`;
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Permanently remove this item</div></div>
       </div>}
     </div>;
-    })()}
+    })()}</FadeOnClose>
     {/* Reassign Operation Modal */}
     {reassignModal && (() => {
       const it = reassignModal.item;
@@ -14591,7 +14624,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
     })()}
     {/* Quick add subtask popup */}
-    {quickAddSub && <div onClick={() => setQuickAddSub(null)} style={{ position: "fixed", inset: 0, zIndex: 9997 }}>
+    <FadeOnClose open={!!quickAddSub}>{quickAddSub && <div onClick={() => setQuickAddSub(null)} style={{ position: "fixed", inset: 0, zIndex: 9997 }}>
       <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(quickAddSub.x, window.innerWidth - 320), top: Math.min(quickAddSub.y, window.innerHeight - 320), zIndex: 9998, width: 308, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>
           {quickAddSub.type === "panel" ? "➕ Add Panel" : "➕ Add Operation"}
@@ -14659,10 +14692,10 @@ ${jobsCtx || "No jobs found."}`;
           </button>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* PTO context menu */}
-    {ptoCtx && <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(ptoCtx.x, window.innerWidth - 260), top: Math.min(ptoCtx.y, window.innerHeight - 200), zIndex: 9999, minWidth: 240, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
+    <FadeOnClose open={!!ptoCtx}>{ptoCtx && <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(ptoCtx.x, window.innerWidth - 260), top: Math.min(ptoCtx.y, window.innerHeight - 200), zIndex: 9999, minWidth: 240, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
       <div style={{ padding: "12px 18px 10px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: "#f59e0b", display: "flex", alignItems: "center", gap: 5 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{ptoCtx.bar.title}</div>
         <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>{fm(ptoCtx.bar.fullStart)} → {fm(ptoCtx.bar.fullEnd)}</div>
@@ -14679,7 +14712,7 @@ ${jobsCtx || "No jobs found."}`;
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Time Off</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this entry</div></div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* Client edit modal */}
     {clientModal && (() => {
       const [ed, setEd] = [clientModal, d => setClientModal(typeof d === "function" ? d(clientModal) : d)];
