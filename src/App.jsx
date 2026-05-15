@@ -125,7 +125,7 @@ const HINT = {
 function LogoHeader({ subtitle }) {
   return (
     <div style={CARD_HEADER}>
-      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 36, objectFit: "contain", marginBottom: 8 }} />
+      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 72, objectFit: "contain", marginBottom: 14 }} />
       {subtitle && (
         <p style={{ margin: 0, fontSize: 13, color: "rgba(255,255,255,0.75)", letterSpacing: "0.06em" }}>
           {subtitle}

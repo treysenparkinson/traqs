@@ -413,9 +413,8 @@ animStyle.textContent = `
   80%     { transform: translateX(6px); }
 }
 @keyframes slideUp {
-  0%   { opacity: 0; transform: translateY(24px) scale(0.96); filter: blur(4px); }
-  60%  { opacity: 1; transform: translateY(-3px) scale(1.01); filter: blur(0);   }
-  100% { opacity: 1; transform: translateY(0)    scale(1);    filter: blur(0);   }
+  from { opacity: 0; transform: scale(0.97); filter: blur(6px); }
+  to   { opacity: 1; transform: scale(1);    filter: blur(0); }
 }
 @keyframes headerSlide {
   0%   { opacity: 0; transform: translateY(-14px); filter: blur(3px); }
@@ -515,8 +514,8 @@ animStyle.textContent = `
 /* ── Animation classes ─────────────────────────────────────────────── */
 .anim-view-enter  { animation: viewEnter   0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-card        { animation: cardPop     0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.anim-modal-overlay { opacity: 1; }
-.anim-modal-box   { animation: modalBoxIn  0.48s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.anim-modal-overlay { animation: fadeIn 0.22s ease-out both; }
+.anim-modal-box   { animation: bcPageIn 0.30s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-delete-box  { animation: deleteShake 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-ctx         { animation: ctxMenuIn   0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-header      { animation: headerSlide 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
@@ -649,7 +648,7 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
 // Retains a snapshot of children during the fade so dropdowns driven by object state
 // (e.g. {x, y, ...} that gets set to null on close) don't crash mid-animation. Re-opening
 // during a close suppresses the entry animation so the dropdown doesn't visibly restart.
-const FadeOnClose = ({ open, children, duration = 180 }) => {
+const FadeOnClose = ({ open, children, duration = 180, outAnim = "fadeOutDrop", outEasing = "ease-out" }) => {
   const [mounted, setMounted] = useState(!!open);
   const [suppressEntry, setSuppressEntry] = useState(false);
   const stableRef = useRef(children);
@@ -674,7 +673,7 @@ const FadeOnClose = ({ open, children, duration = 180 }) => {
   if (!kids) return null;
   if (!open) {
     return cloneElement(kids, {
-      style: { ...(kids.props.style || {}), animation: `fadeOutDrop ${duration}ms ease-out both`, pointerEvents: "none" },
+      style: { ...(kids.props.style || {}), animation: `${outAnim} ${duration}ms ${outEasing} both`, pointerEvents: "none" },
     });
   }
   if (suppressEntry) {
@@ -1801,6 +1800,7 @@ Extraction rules:
   const [bcModalState, setBcModalState] = useState("closed"); // "closed" | "open" | "closing"
   const [exportSelRows, setExportSelRows] = useState(new Set());
   const [exportSelSearch, setExportSelSearch] = useState("");
+  const [exportPreview, setExportPreview] = useState(null); // { html, filename, mime, kind }
   const [customColLabel, setCustomColLabel] = useState("");
   const [customColType, setCustomColType] = useState("text");
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
@@ -9009,7 +9009,7 @@ ${jobsCtx || "No jobs found."}`;
     const renderPinModal = () => {
       if (pinState === "closed") return null;
       return createPortal(
-        <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closePin}>
+        <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closePin}>
           <div style={{ background: T.card, borderRadius: 20, padding: 32, width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closePin} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
 
@@ -9138,7 +9138,7 @@ ${jobsCtx || "No jobs found."}`;
       };
 
       return createPortal(
-        <div style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setTsPersonEditModal(null)}>
+        <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setTsPersonEditModal(null)}>
           <div style={{ background: T.card, borderRadius: 16, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
@@ -9387,7 +9387,7 @@ ${jobsCtx || "No jobs found."}`;
       };
 
       return createPortal(
-        <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closeStartJobPicker}>
+        <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closeStartJobPicker}>
           <div style={{ background: T.card, borderRadius: 20, padding: 28, width: "100%", maxWidth: 520, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closeStartJobPicker} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>Start Job</div>
@@ -12666,83 +12666,84 @@ ${jobsCtx || "No jobs found."}`;
   const shopPeople = people.filter(p => p.userRole === "user");
 
   return <TooltipCtx.Provider value={tipCtx}><div className={`traqs-${themeMode}`} style={{ height: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-    {/* Slim search bar */}
-    {!isMobile && <div style={{ padding: "10px 32px 8px", display: "flex", alignItems: "center", justifyContent: "center", background: T.surface, borderBottom: `1px solid ${T.border}22`, gap: 8 }}>
-      <div ref={searchRef} style={{ position: "relative", flex: 1, maxWidth: askExpanded ? 360 : 480, transition: "max-width 0.28s cubic-bezier(0.22,1,0.36,1)", minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 16px", borderRadius: 20, border: `1px solid ${searchOpen ? T.accent + "66" : T.border}`, background: T.bg, transition: "all 0.2s" }}>
-          <span style={{ lineHeight: 0, color: T.textDim }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
-          <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search jobs, clients, team members..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
-          {searchQ && <span onClick={() => { setSearchQ(""); setSearchOpen(false); }} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 4, background: T.border + "44" }}>✕</span>}
-        </div>
-        {searchOpen && searchQ.length > 0 && (() => {
-          const q = searchQ.toLowerCase();
-          const jobResults = allItems.filter(t => t.title.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q));
-          const clientResults = clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q) || (c.email || "").toLowerCase().includes(q));
-          const personResults = people.filter(p => p.name.toLowerCase().includes(q) || (p.department || "").toLowerCase().includes(q));
-          const hasResults = jobResults.length > 0 || clientResults.length > 0 || personResults.length > 0;
-          return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.25)", maxHeight: 380, overflow: "auto" }}>
-            {!hasResults && <div style={{ padding: "24px 16px", textAlign: "center", color: T.textDim, fontSize: 14 }}>No results for \"{searchQ}\"</div>}
-            {personResults.length > 0 && <div>
-              <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Members</div>
-              {personResults.slice(0, 5).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
-                <span style={{ fontWeight: 500 }}>{p.name}</span>
-                <span style={{ fontSize: 12, color: T.textDim }}>{p.department}</span>
-              </div>)}
-            </div>}
-            {clientResults.length > 0 && <div>
-              <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", borderTop: personResults.length > 0 ? `1px solid ${T.border}` : "none" }}>Clients</div>
-              {clientResults.slice(0, 5).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("clients"); setSelClient(c.id); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <div style={{ width: 8, height: 8, borderRadius: 4, background: c.color }} />
-                <span style={{ fontWeight: 500 }}>{c.name}</span>
-                {c.contact && <span style={{ fontSize: 12, color: T.textDim }}>{c.contact}</span>}
-              </div>)}
-            </div>}
-            {jobResults.length > 0 && <div>
-              <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", borderTop: (personResults.length > 0 || clientResults.length > 0) ? `1px solid ${T.border}` : "none" }}>Jobs</div>
-              {jobResults.slice(0, 8).map(t => { const owner = people.find(p => p.id === (t.team || [])[0]); return <div key={t.id} onClick={() => { setSearchQ(""); setSearchOpen(false); openDetail(t); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <HealthIcon t={t} size={10} />
-                <span style={{ fontWeight: 500, flex: 1 }}>{t.title}</span>
-                {owner && <span style={{ fontSize: 12, color: T.textDim }}>{owner.name}</span>}
-                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
-              </div>; })}
-            </div>}
-          </div>;
-        })()}
-      </div>
-      {/* Ask TRAQS companion bar */}
-      <div ref={askBarRef} style={{ position: "relative", flexShrink: 0, width: askExpanded ? 300 : 130, transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
-        {!askExpanded
-          ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "6px 16px", borderRadius: 20, border: `1px solid ${T.accent}44`, background: `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.02em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}10)`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-              Ask TRAQS
-            </button>
-          : <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 14px", borderRadius: 20, border: `1px solid ${T.accent}66`, background: T.bg, boxShadow: `0 0 0 2px ${T.accent}18` }}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill={T.accent} style={{ flexShrink: 0 }}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-              <input ref={askBarInputRef} value={askBarQ} onChange={e => setAskBarQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && askBarQ.trim()) { const q = askBarQ.trim(); setAskBarQ(""); setAskExpanded(false); setAskHistory(h => [...h, { role: "user", content: q }]); setAskOpen(true); setAskLoading(true); handleAskTraqs(q); } if (e.key === "Escape") { setAskExpanded(false); setAskBarQ(""); } }} placeholder="Ask anything…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font, minWidth: 0 }} />
-              {askBarQ && <span onClick={() => setAskBarQ("")} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 4, background: T.border + "44", flexShrink: 0 }}>✕</span>}
-            </div>
-        }
-      </div>
-    </div>}
-    {/* Main nav bar */}
-    {!isMobile && <div className="anim-header" style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "12px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, position: "relative", zIndex: 100 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 32, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
+    {/* Main header — logo on left (tall), search+nav stacked center, actions right, all vertically centered together */}
+    {!isMobile && <div className="anim-header" style={{ background: T.surface, borderBottom: `1px solid ${T.border}`, padding: "18px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 24, position: "relative", zIndex: 100 }}>
+      {/* LEFT: Logo + undo/redo */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 56, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
         <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
           <Tip label="Undo (Ctrl+Z)"><button onClick={undo} disabled={!canUndo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canUndo ? T.border : "transparent"}`, background: canUndo ? T.bg : "transparent", cursor: canUndo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canUndo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↩</button></Tip>
           <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canRedo ? T.border : "transparent"}`, background: canRedo ? T.bg : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↪</button></Tip>
         </div>
       </div>
-      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", display: "flex", gap: 4, background: T.bg, borderRadius: T.radiusSm, padding: 3, isolation: "isolate" }}>
-        {/* Sliding pill — repositioned via refs, animates on view change */}
-        <div ref={navPillRef} style={{ position: "absolute", top: 3, bottom: 3, left: 0, borderRadius: T.radiusXs, background: T.accent, boxShadow: `0 4px 18px ${T.accent}55`, zIndex: 0, pointerEvents: "none" }} />
-        {views.map(v => (
-          <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
-            style={{ position: "relative", zIndex: 1, padding: "8px 16px", borderRadius: T.radiusXs, border: "none", fontSize: 13, fontWeight: view === v.id ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: view === v.id ? T.accentText : T.text, transition: "color 0.3s ease, font-weight 0.2s ease", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
-            {v.icon}{v.label}
-          </button>
-        ))}
+      {/* CENTER: search+ask on top, nav on bottom — stacked and centered */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", width: "100%" }}>
+        <div ref={searchRef} style={{ position: "relative", width: "min(440px, 70%)", minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", borderRadius: 22, border: `1px solid ${searchOpen ? T.accent + "66" : T.border}`, background: T.bg, transition: "all 0.2s" }}>
+            <span style={{ lineHeight: 0, color: T.textDim }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
+            <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search jobs, clients, team members..." style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.font }} />
+            {searchQ && <span onClick={() => { setSearchQ(""); setSearchOpen(false); }} style={{ cursor: "pointer", fontSize: 11, color: T.textDim, padding: "1px 6px", borderRadius: 4, background: T.border + "44" }}>✕</span>}
+          </div>
+          {searchOpen && searchQ.length > 0 && (() => {
+            const q = searchQ.toLowerCase();
+            const jobResults = allItems.filter(t => t.title.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q));
+            const clientResults = clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q) || (c.email || "").toLowerCase().includes(q));
+            const personResults = people.filter(p => p.name.toLowerCase().includes(q) || (p.department || "").toLowerCase().includes(q));
+            const hasResults = jobResults.length > 0 || clientResults.length > 0 || personResults.length > 0;
+            return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.25)", maxHeight: 380, overflow: "auto" }}>
+              {!hasResults && <div style={{ padding: "24px 16px", textAlign: "center", color: T.textDim, fontSize: 14 }}>No results for \"{searchQ}\"</div>}
+              {personResults.length > 0 && <div>
+                <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Members</div>
+                {personResults.slice(0, 5).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+                  <span style={{ fontWeight: 500 }}>{p.name}</span>
+                  <span style={{ fontSize: 12, color: T.textDim }}>{p.department}</span>
+                </div>)}
+              </div>}
+              {clientResults.length > 0 && <div>
+                <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", borderTop: personResults.length > 0 ? `1px solid ${T.border}` : "none" }}>Clients</div>
+                {clientResults.slice(0, 5).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("clients"); setSelClient(c.id); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <div style={{ width: 8, height: 8, borderRadius: 4, background: c.color }} />
+                  <span style={{ fontWeight: 500 }}>{c.name}</span>
+                  {c.contact && <span style={{ fontSize: 12, color: T.textDim }}>{c.contact}</span>}
+                </div>)}
+              </div>}
+              {jobResults.length > 0 && <div>
+                <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", borderTop: (personResults.length > 0 || clientResults.length > 0) ? `1px solid ${T.border}` : "none" }}>Jobs</div>
+                {jobResults.slice(0, 8).map(t => { const owner = people.find(p => p.id === (t.team || [])[0]); return <div key={t.id} onClick={() => { setSearchQ(""); setSearchOpen(false); openDetail(t); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  <HealthIcon t={t} size={10} />
+                  <span style={{ fontWeight: 500, flex: 1 }}>{t.title}</span>
+                  {owner && <span style={{ fontSize: 12, color: T.textDim }}>{owner.name}</span>}
+                  <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
+                </div>; })}
+              </div>}
+            </div>;
+          })()}
+        </div>
+        <div ref={askBarRef} style={{ position: "relative", flexShrink: 0, width: askExpanded ? 240 : 110, transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+          {!askExpanded
+            ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 14px", borderRadius: 22, border: `1px solid ${T.accent}44`, background: `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.02em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}10)`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+                Ask TRAQS
+              </button>
+            : <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 22, border: `1px solid ${T.accent}66`, background: T.bg, boxShadow: `0 0 0 2px ${T.accent}18` }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill={T.accent} style={{ flexShrink: 0 }}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+                <input ref={askBarInputRef} value={askBarQ} onChange={e => setAskBarQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && askBarQ.trim()) { const q = askBarQ.trim(); setAskBarQ(""); setAskExpanded(false); setAskHistory(h => [...h, { role: "user", content: q }]); setAskOpen(true); setAskLoading(true); handleAskTraqs(q); } if (e.key === "Escape") { setAskExpanded(false); setAskBarQ(""); } }} placeholder="Ask anything…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font, minWidth: 0 }} />
+                {askBarQ && <span onClick={() => setAskBarQ("")} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 4, background: T.border + "44", flexShrink: 0 }}>✕</span>}
+              </div>
+          }
+        </div>
+        </div>
+        <div style={{ display: "flex", gap: 4, background: T.bg, borderRadius: T.radiusSm, padding: 3, isolation: "isolate", position: "relative" }}>
+          <div ref={navPillRef} style={{ position: "absolute", top: 3, bottom: 3, left: 0, borderRadius: T.radiusXs, background: T.accent, boxShadow: `0 4px 18px ${T.accent}55`, zIndex: 0, pointerEvents: "none" }} />
+          {views.map(v => (
+            <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
+              style={{ position: "relative", zIndex: 1, padding: "8px 16px", borderRadius: T.radiusXs, border: "none", fontSize: 13, fontWeight: view === v.id ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: view === v.id ? T.accentText : T.text, transition: "color 0.3s ease, font-weight 0.2s ease", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }}>
+              {v.icon}{v.label}
+            </button>
+          ))}
+        </div>
       </div>
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -13066,7 +13067,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}
     {/* Clients Modal */}
     {/* ── Export Selection Modal ── */}
-    {exportSelOpen && (() => {
+    <FadeOnClose open={exportSelOpen} duration={220}>{exportSelOpen && (() => {
       const getVal = (job, colId) => {
         if (colId === "title") return job.title || "";
         if (colId === "jobNumber") return job.jobNumber ? `#${job.jobNumber}` : "";
@@ -13098,12 +13099,187 @@ ${jobsCtx || "No jobs found."}`;
       const exportData = selectedJobs.length > 0 ? selectedJobs : visibleJobs;
       const exportRows = exportData.map(job => allCols.map(c => c.col ? String(c.col.fieldKey ? (job[c.col.fieldKey] ?? "") : (job["_cc_" + c.col.id] || "")) : getVal(job, c.id)));
       const downloadFile = (name, mime, content) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: mime })); a.download = name; a.click(); };
-      const doCSV = () => { const rows = [allCols.map(c => c.label), ...exportRows]; downloadFile("jobs_export.csv", "text/csv", rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n")); setExportSelOpen(false); };
-      const doWord = () => { const hdr = allCols.map(c => `<th style="border:1px solid #ccc;padding:6px 10px;background:#f3f4f6;font-size:11px">${c.label}</th>`).join(""); const bdy = exportRows.map(row => `<tr>${row.map(v => `<td style="border:1px solid #ccc;padding:6px 10px;font-size:12px">${v||"—"}</td>`).join("")}</tr>`).join(""); const html = `<html><head><meta charset="utf-8"/></head><body><h2 style="font-family:Arial">Job Queue Export</h2><table style="border-collapse:collapse;font-family:Arial"><thead><tr>${hdr}</tr></thead><tbody>${bdy}</tbody></table></body></html>`; downloadFile("jobs_export.doc", "application/msword", html); setExportSelOpen(false); };
-      const doPDF = () => { const hdr = allCols.map(c => `<th>${c.label}</th>`).join(""); const bdy = exportRows.map(row => `<tr>${row.map(v => `<td>${v||"—"}</td>`).join("")}</tr>`).join(""); const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><style>body{font-family:Arial,sans-serif;font-size:11px;margin:20px}h2{font-size:14px;margin-bottom:12px}table{border-collapse:collapse;width:100%}th{background:#f3f4f6;padding:5px 8px;border:1px solid #ccc;font-size:10px;text-transform:uppercase;letter-spacing:.05em;text-align:left}td{padding:5px 8px;border:1px solid #ccc}tr:nth-child(even){background:#f9fafb}@media print{@page{margin:12mm}}</style></head><body><h2>Job Queue Export</h2><table><thead><tr>${hdr}</tr></thead><tbody>${bdy}</tbody></table></body></html>`; const w = window.open("", "_blank"); w.document.write(html); w.document.close(); w.focus(); setTimeout(() => { w.print(); setExportSelOpen(false); }, 300); };
+      // CSV/Word — flat tabular dump with one row per op (subtask), inheriting job + panel context. Excludes assigned people.
+      const flatRows = (() => {
+        const headers = ["Job #", "Job", "Client", "Job Status", "Job Priority", "Job Start", "Job End", "Job Due", "Job Hours", "Job % Done", "Job Notes", "Panel", "Panel Status", "Panel Start", "Panel End", "Panel Hours", "Op", "Op Status", "Op Priority", "Op Start", "Op End", "Op Hours", "Op % Done", "Op Notes"];
+        const rows = [];
+        exportData.forEach(job => {
+          const cl = clients.find(c => c.id === job.clientId);
+          const jobBase = [
+            job.jobNumber ? "#" + job.jobNumber : "",
+            job.title || "",
+            cl?.name || "",
+            job.status || "",
+            job.pri || "",
+            job.start || "",
+            job.end || "",
+            job.dueDate || "",
+            _jobHrs(job) > 0 ? _jobHrs(job) + "h" : "",
+            _jobPct(job) + "%",
+            (job.notes || "").replace(/\n/g, " "),
+          ];
+          const panels = job.subs || [];
+          if (panels.length === 0) { rows.push([...jobBase, "", "", "", "", "", "", "", "", "", "", "", ""]); return; }
+          panels.forEach(panel => {
+            const panelBase = [panel.title || "", panel.status || "", panel.start || "", panel.end || "", _panelHrs(panel) > 0 ? _panelHrs(panel) + "h" : ""];
+            const ops = panel.subs || [];
+            if (ops.length === 0) { rows.push([...jobBase, ...panelBase, "", "", "", "", "", "", "", ""]); return; }
+            ops.forEach(op => {
+              rows.push([
+                ...jobBase, ...panelBase,
+                op.title || "",
+                op.status || "",
+                op.pri || "",
+                op.start || "",
+                op.end || "",
+                _opHrs(op) > 0 ? _opHrs(op) + "h" : "",
+                _opPct(op) + "%",
+                (op.notes || "").replace(/\n/g, " "),
+              ]);
+            });
+          });
+        });
+        return { headers, rows };
+      })();
+      const csvContent = () => { const all = [flatRows.headers, ...flatRows.rows]; return all.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n"); };
+      const wordContent = () => { const hdr = flatRows.headers.map(c => `<th style="border:1px solid #ccc;padding:6px 10px;background:#f3f4f6;font-size:11px;font-family:'DM Sans',sans-serif">${c}</th>`).join(""); const bdy = flatRows.rows.map(row => `<tr>${row.map(v => `<td style="border:1px solid #ccc;padding:6px 10px;font-size:11px;font-family:'DM Sans',sans-serif">${v||"—"}</td>`).join("")}</tr>`).join(""); return `<html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/></head><body style="font-family:'DM Sans',sans-serif"><h2 style="font-family:'DM Sans',sans-serif">TRAQS Job Export</h2><table style="border-collapse:collapse"><thead><tr>${hdr}</tr></thead><tbody>${bdy}</tbody></table></body></html>`; };
+      const doCSV = () => setExportPreview({ html: null, filename: "jobs_export.csv", mime: "text/csv", kind: "csv", content: csvContent() });
+      const doWord = () => setExportPreview({ html: wordContent(), filename: "jobs_export.doc", mime: "application/msword", kind: "word" });
+      // PDF — TRAQS-branded printable layout with logo, date/time, and full job → panel → op hierarchy.
+      const doPDF = () => {
+        const now = new Date();
+        const dateStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+        const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+        const escapeHtml = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        const totalHoursAll = exportData.reduce((s, j) => s + _jobHrs(j), 0);
+        const totalPanels = exportData.reduce((s, j) => s + (j.subs || []).length, 0);
+        const totalOps = exportData.reduce((s, j) => s + (j.subs || []).reduce((sp, p) => sp + (p.subs || []).length, 0), 0);
+        const ACCENT = T.accent;
+        const jobCards = exportData.map(job => {
+          const cl = clients.find(c => c.id === job.clientId);
+          const stColor = STA_C[job.status] || "#64748b";
+          const jColor = job.color || ACCENT;
+          const panels = (job.subs || []).map(panel => {
+            const ops = (panel.subs || []).map(op => `
+              <tr>
+                <td class="op-title">${escapeHtml(op.title)}</td>
+                <td><span class="status-pill" style="background:${(STA_C[op.status] || "#64748b") + "22"};color:${STA_C[op.status] || "#64748b"}">${escapeHtml(op.status || "—")}</span></td>
+                <td>${escapeHtml(op.pri || "—")}</td>
+                <td class="mono">${escapeHtml(fm(op.start) + " → " + fm(op.end))}</td>
+                <td class="mono">${_opHrs(op) > 0 ? _opHrs(op).toFixed(1) + "h" : "—"}</td>
+                <td class="mono">${_opPct(op)}%</td>
+                ${op.notes ? `<td class="op-notes">${escapeHtml(op.notes)}</td>` : "<td>—</td>"}
+              </tr>`).join("");
+            return `<div class="panel">
+              <div class="panel-header">
+                <div class="panel-title">${escapeHtml(panel.title)}</div>
+                <div class="panel-meta">
+                  <span class="status-pill" style="background:${(STA_C[panel.status] || "#64748b") + "22"};color:${STA_C[panel.status] || "#64748b"}">${escapeHtml(panel.status || "—")}</span>
+                  <span class="mono">${escapeHtml(fm(panel.start) + " → " + fm(panel.end))}</span>
+                  <span class="mono">${_panelHrs(panel) > 0 ? _panelHrs(panel).toFixed(1) + "h" : "—"}</span>
+                  <span>${(panel.subs || []).length} op${(panel.subs || []).length !== 1 ? "s" : ""}</span>
+                </div>
+              </div>
+              ${ops ? `<table class="op-table"><thead><tr><th>Operation</th><th>Status</th><th>Pri</th><th>Dates</th><th>Hours</th><th>Done</th><th>Notes</th></tr></thead><tbody>${ops}</tbody></table>` : `<div class="empty">No operations</div>`}
+            </div>`;
+          }).join("");
+          return `<section class="job-card">
+            <div class="job-bar" style="background:${jColor}"></div>
+            <div class="job-body">
+              <div class="job-head">
+                <div>
+                  ${job.jobNumber ? `<span class="job-num">#${escapeHtml(job.jobNumber)}</span>` : ""}
+                  <span class="job-title">${escapeHtml(job.title)}</span>
+                </div>
+                <span class="status-pill" style="background:${stColor + "22"};color:${stColor}">${escapeHtml(job.status || "—")}</span>
+              </div>
+              <div class="job-meta">
+                ${cl ? `<div><span class="lbl">Client</span><span>${escapeHtml(cl.name)}</span></div>` : ""}
+                <div><span class="lbl">Priority</span><span>${escapeHtml(job.pri || "—")}</span></div>
+                <div><span class="lbl">Start</span><span class="mono">${escapeHtml(fm(job.start))}</span></div>
+                <div><span class="lbl">End</span><span class="mono">${escapeHtml(fm(job.end))}</span></div>
+                <div><span class="lbl">Due</span><span class="mono">${job.dueDate ? escapeHtml(fm(job.dueDate)) : "—"}</span></div>
+                ${job.poNumber ? `<div><span class="lbl">PO #</span><span class="mono">${escapeHtml(job.poNumber)}</span></div>` : ""}
+                <div><span class="lbl">Total Hours</span><span class="mono">${_jobHrs(job).toFixed(1)}h</span></div>
+                <div><span class="lbl">Progress</span><span class="mono">${_jobPct(job)}%</span></div>
+              </div>
+              ${job.notes ? `<div class="job-notes"><span class="lbl">Notes</span>${escapeHtml(job.notes)}</div>` : ""}
+              ${panels ? `<div class="panels-wrap">${panels}</div>` : `<div class="empty">No tasks under this job</div>`}
+            </div>
+          </section>`;
+        }).join("");
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>TRAQS Job Export · ${escapeHtml(dateStr)}</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+          <style>
+            *{margin:0;padding:0;box-sizing:border-box}
+            body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;color:#0f172a;background:#fff;padding:28px 32px}
+            .doc-header{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;border-bottom:2px solid #0f172a;margin-bottom:24px}
+            .logo{height:48px;display:block}
+            .doc-meta{text-align:right}
+            .doc-meta .date{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:2px}
+            .doc-meta .time{font-size:12px;color:#64748b;font-family:'JetBrains Mono',monospace}
+            .summary{display:flex;gap:24px;margin-bottom:24px;padding:14px 18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}
+            .summary .stat{flex:1}
+            .summary .stat .v{font-size:20px;font-weight:700;color:${ACCENT};font-family:'JetBrains Mono',monospace}
+            .summary .stat .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px}
+            h1{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:14px;text-transform:uppercase;letter-spacing:0.05em}
+            .job-card{display:flex;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:18px;overflow:hidden;page-break-inside:avoid;background:#fff}
+            .job-bar{width:6px;flex-shrink:0}
+            .job-body{flex:1;padding:14px 18px}
+            .job-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #f1f5f9}
+            .job-num{font-family:'JetBrains Mono',monospace;font-size:11px;color:${ACCENT};font-weight:700;margin-right:8px;background:${ACCENT}15;padding:2px 7px;border-radius:4px}
+            .job-title{font-size:15px;font-weight:700;color:#0f172a}
+            .job-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px 18px;margin-bottom:10px}
+            .job-meta>div{display:flex;flex-direction:column;gap:2px}
+            .lbl{font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;font-weight:600}
+            .job-notes{margin-bottom:10px;padding:8px 10px;background:#fafbfc;border-left:3px solid ${ACCENT};border-radius:0 4px 4px 0;font-size:10px;color:#475569}
+            .job-notes .lbl{display:block;margin-bottom:2px}
+            .panels-wrap{margin-top:6px}
+            .panel{margin-bottom:10px}
+            .panel-header{padding:6px 10px;background:#f8fafc;border-radius:5px;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap}
+            .panel-title{font-size:12px;font-weight:700;color:#0f172a}
+            .panel-meta{display:flex;gap:10px;align-items:center;font-size:10px;color:#64748b;flex-wrap:wrap}
+            .op-table{width:100%;border-collapse:collapse;margin-top:2px}
+            .op-table th{padding:5px 8px;background:#fff;border-bottom:1px solid #e2e8f0;text-align:left;font-size:9px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.05em}
+            .op-table td{padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:10px;color:#334155;vertical-align:top}
+            .op-table tr:last-child td{border-bottom:none}
+            .op-title{font-weight:600;color:#0f172a}
+            .op-notes{color:#64748b;font-style:italic;max-width:200px}
+            .mono{font-family:'JetBrains Mono',monospace}
+            .status-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em}
+            .empty{padding:8px 10px;font-size:10px;color:#94a3b8;font-style:italic}
+            @media print{
+              @page{margin:14mm}
+              body{padding:0}
+              .doc-header{margin-bottom:16px}
+              .job-card{page-break-inside:avoid}
+            }
+          </style>
+        </head>
+        <body>
+          <div class="doc-header">
+            <img class="logo" src="${TRAQS_LOGO_BLUE}" alt="TRAQS" />
+            <div class="doc-meta">
+              <div class="date">${escapeHtml(dateStr)}</div>
+              <div class="time">${escapeHtml(timeStr)}</div>
+            </div>
+          </div>
+          <div class="summary">
+            <div class="stat"><div class="v">${exportData.length}</div><div class="l">Jobs</div></div>
+            <div class="stat"><div class="v">${totalPanels}</div><div class="l">Tasks</div></div>
+            <div class="stat"><div class="v">${totalOps}</div><div class="l">Operations</div></div>
+            <div class="stat"><div class="v">${totalHoursAll.toFixed(1)}h</div><div class="l">Total Hours</div></div>
+          </div>
+          <h1>Job Queue Export</h1>
+          ${jobCards || `<div class="empty">No jobs selected for export</div>`}
+        </body></html>`;
+        setExportPreview({ html, filename: "jobs_export.pdf", mime: "application/pdf", kind: "pdf" });
+      };
       const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every(j => exportSelRows.has(j.id));
-      return <div style={{ position: "fixed", inset: 0, zIndex: 10004, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "stretch", justifyContent: "center", fontFamily: T.font, padding: "24px 0 0" }} onClick={() => setExportSelOpen(false)}>
-        <div onClick={e => e.stopPropagation()} style={{ width: "min(980px, 100vw)", background: T.bg, display: "flex", flexDirection: "column", borderRadius: "16px 16px 0 0", border: `1px solid ${T.borderLight}`, boxShadow: "0 -24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10004, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "stretch", justifyContent: "center", fontFamily: T.font, padding: "32px 24px" }} onClick={() => setExportSelOpen(false)}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ width: "min(980px, 100%)", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
           {/* Header */}
           <div style={{ padding: "16px 24px 0", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
@@ -13186,7 +13362,45 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
+    {/* ── Export Preview Modal — shows what will be printed / downloaded ── */}
+    <FadeOnClose open={!!exportPreview} duration={220}>{exportPreview && (() => {
+      const ep = exportPreview;
+      const previewIframeRef = { current: null };
+      const downloadIt = () => {
+        const content = ep.kind === "csv" ? ep.content : ep.html;
+        const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: ep.mime })); a.download = ep.filename; a.click();
+        setExportPreview(null); setExportSelOpen(false);
+      };
+      const printIt = () => {
+        const w = window.open("", "_blank");
+        w.document.write(ep.html); w.document.close(); w.focus();
+        setTimeout(() => { w.print(); setExportPreview(null); setExportSelOpen(false); }, 400);
+      };
+      const kindLabel = ep.kind === "pdf" ? "PDF" : ep.kind === "word" ? "Word" : "CSV";
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10006, background: "rgba(0,0,0,0.78)", display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "center", fontFamily: T.font }} onClick={() => setExportPreview(null)}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ margin: "auto", width: "min(1000px, 96vw)", height: "92vh", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ padding: "14px 22px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+            <div style={{ lineHeight: 0, color: T.accent }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{kindLabel} Preview</div>
+              <div style={{ fontSize: 12, color: T.textDim }}>Review the export before sending or downloading</div>
+            </div>
+            <button onClick={() => setExportPreview(null)} style={{ height: 32, padding: "0 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back to Selection</button>
+            {ep.kind === "pdf" && <button onClick={printIt} style={{ height: 32, padding: "0 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print / Save as PDF</button>}
+            {ep.kind !== "pdf" && <button onClick={downloadIt} style={{ height: 32, padding: "0 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download .{ep.kind === "csv" ? "csv" : "doc"}</button>}
+          </div>
+          {/* Preview area */}
+          <div style={{ flex: 1, overflow: "auto", background: "#525659", padding: 24, display: "flex", justifyContent: "center" }}>
+            {ep.kind === "csv"
+              ? <pre style={{ width: "100%", maxWidth: 1000, padding: 24, background: "#fff", color: "#0f172a", fontFamily: T.mono, fontSize: 12, lineHeight: 1.5, borderRadius: 6, boxShadow: "0 10px 32px rgba(0,0,0,0.4)", whiteSpace: "pre", overflow: "auto" }}>{ep.content}</pre>
+              : <iframe ref={el => { previewIframeRef.current = el; }} srcDoc={ep.html} title="Export preview" style={{ width: "100%", maxWidth: 920, height: "100%", border: "none", background: "#fff", borderRadius: 6, boxShadow: "0 10px 32px rgba(0,0,0,0.4)" }} />
+            }
+          </div>
+        </div>
+      </div>;
+    })()}</FadeOnClose>
     {/* ── Column header context menu ── */}
     <FadeOnClose open={!!colCtxMenu}>{colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => setColCtxMenu(null)}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
@@ -13340,7 +13554,7 @@ ${jobsCtx || "No jobs found."}`;
     </div>}</FadeOnClose>
 
     {/* ── Admin Clock-In/Out Time-Picker Confirm Modal ── */}
-    {clockTimeModal && <div style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClockTimeModal(null)}>
+    <FadeOnClose open={!!clockTimeModal} duration={220}>{clockTimeModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClockTimeModal(null)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(380px, calc(100vw - 32px))", padding: "24px", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>
           {clockTimeModal.action === "in" ? "Clock In" : "Clock Out"} {clockTimeModal.personName}
@@ -13379,10 +13593,10 @@ ${jobsCtx || "No jobs found."}`;
           </button>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ── Request Finish Approval Confirmation Modal ── */}
-    {finishApproval && <div style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setFinishApproval(null)}>
+    <FadeOnClose open={!!finishApproval} duration={220}>{finishApproval && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setFinishApproval(null)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(440px, calc(100vw - 32px))", padding: "28px 28px 24px", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ textAlign: "center", marginBottom: 12, lineHeight: 0 }}>
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -13399,7 +13613,7 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={() => { requestFinishApproval(finishApproval.id); setFinishApproval(null); }} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Send Request</button>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* ── Split Job Modal ── */}
     {splitModal && (() => {
       const { op, panel, parentJob } = splitModal;
@@ -13436,7 +13650,7 @@ ${jobsCtx || "No jobs found."}`;
         });
         setSplitModal(null);
       };
-      return <div style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setSplitModal(null)}>
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setSplitModal(null)}>
         <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", padding: "28px 28px 24px", animation: "slideUp 0.22s ease-out" }}>
           <div style={{ fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 4 }}>Split Job</div>
           <div style={{ fontSize: 12, color: T.textDim, marginBottom: 24 }}>{op.title} &nbsp;·&nbsp; <span style={{ color: T.textSec }}>{parentJob.title || parentJob.jobNumber || ""}</span></div>
@@ -13469,7 +13683,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
     })()}
     {/* ── Scheduling / Org Settings Modal ── */}
-    {orgSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setOrgSettingsOpen(false)}>
+    <FadeOnClose open={!!orgSettingsOpen} duration={220}>{orgSettingsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setOrgSettingsOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(460px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
           <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
@@ -13616,9 +13830,9 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={() => setOrgSettingsOpen(false)} style={{ padding: "7px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save &amp; Close</button>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* Departments Settings Modal */}
-    {rolesSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => { setRolesSettingsOpen(false); setRoleEditId(null); setRoleInput(""); }}>
+    <FadeOnClose open={!!rolesSettingsOpen} duration={220}>{rolesSettingsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => { setRolesSettingsOpen(false); setRoleEditId(null); setRoleInput(""); }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", maxHeight: "85vh", display: "flex", flexDirection: "column", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           <span style={{ color: T.textSec, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
@@ -13701,9 +13915,9 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* Sign Off Templates Settings Modal */}
-    {signOffSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => { setSignOffSettingsOpen(false); setSignOffTemplateEditing(null); }}>
+    <FadeOnClose open={!!signOffSettingsOpen} duration={220}>{signOffSettingsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => { setSignOffSettingsOpen(false); setSignOffTemplateEditing(null); }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(520px, calc(100vw - 32px))", maxHeight: "88vh", display: "flex", flexDirection: "column", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           {signOffTemplateEditing ? <button onClick={() => setSignOffTemplateEditing(null)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 18, lineHeight: 1, padding: "0 2px" }}>←</button> : null}
@@ -13778,8 +13992,8 @@ ${jobsCtx || "No jobs found."}`;
           </>}
         </div>
       </div>
-    </div>}
-    {clientsSettingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClientsSettingsOpen(false)}>
+    </div>}</FadeOnClose>
+    <FadeOnClose open={!!clientsSettingsOpen} duration={220}>{clientsSettingsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10000, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClientsSettingsOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(600px, calc(100vw - 32px))", maxHeight: "85vh", display: "flex", flexDirection: "column", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Clients</span>
@@ -13789,7 +14003,7 @@ ${jobsCtx || "No jobs found."}`;
           {renderClients()}
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* Ask TRAQS Panel */}
     {askOpen && <div style={{ position: "fixed", inset: 0, zIndex: 3000, display: "flex", justifyContent: "flex-end" }} onClick={() => setAskOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "95vw", height: "100%", background: T.card, borderLeft: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", animation: "slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
@@ -13877,7 +14091,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}
-    {renderModal()}
+    <FadeOnClose open={!!modal} duration={220}>{renderModal()}</FadeOnClose>
     {Array.isArray(saveTemplateModal) && (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
         zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
@@ -14064,7 +14278,7 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* TRAQS Logo */}
           <div style={{ display: "flex", justifyContent: "center", marginBottom: isMobile ? 12 : 28 }}>
-            <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: isMobile ? 30 : 40, objectFit: "contain", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
+            <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: isMobile ? 56 : 80, objectFit: "contain", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
           </div>
 
           {/* Title */}
@@ -14334,7 +14548,7 @@ ${jobsCtx || "No jobs found."}`;
       })()}
     </div>}
     {/* ─── Clear/Delete chat confirmation ─── */}
-    {confirmClearChat && <div onClick={() => setConfirmClearChat(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <FadeOnClose open={!!confirmClearChat} duration={220}>{confirmClearChat && <div className="anim-modal-overlay" onClick={() => setConfirmClearChat(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16, color: T.danger, opacity: 0.8 }}><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 18, fontWeight: 700, textAlign: "center" }}>
@@ -14365,10 +14579,10 @@ ${jobsCtx || "No jobs found."}`;
           </button>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ─── Attachment lightbox ─── */}
-    {lightboxAtt && <div onClick={() => setLightboxAtt(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <FadeOnClose open={!!lightboxAtt} duration={220}>{lightboxAtt && <div className="anim-modal-overlay" onClick={() => setLightboxAtt(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <button onClick={() => setLightboxAtt(null)} style={{ position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "50%", width: 38, height: 38, color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
       {lightboxAtt.mimeType?.startsWith("image/")
         ? <img src={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} alt={lightboxAtt.filename} onClick={e => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "88vh", borderRadius: 10, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.8)" }} />
@@ -14378,7 +14592,7 @@ ${jobsCtx || "No jobs found."}`;
             <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: T.accent, color: T.accentText, borderRadius: 9, padding: "10px 24px", textDecoration: "none", fontSize: 14, fontWeight: 600, fontFamily: T.font }}>Download</a>
           </div>
       }
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ─── Quick chat sidebar ─── */}
     {quickChat && <div onClick={() => setQuickChat(null)} style={{ position: "fixed", inset: 0, zIndex: 600 }}>
@@ -14625,7 +14839,7 @@ ${jobsCtx || "No jobs found."}`;
       const currentPerson = liveTeam[0];
       const reqDept = it.requiredDepartment || "";
       const shopCrew = people.filter(p => p.userRole === "user" && (!reqDept || (p.department || "") === reqDept));
-      return <div style={{ position: "fixed", inset: 0, zIndex: 10005, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setReassignModal(null)}>
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10005, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setReassignModal(null)}>
         <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(400px, calc(100vw - 32px))", padding: "24px 24px 20px", animation: "slideUp 0.22s ease-out" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <div>
@@ -14831,7 +15045,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
     })()}
     {/* Client delete confirm modal */}
-    {confirmDeleteClient && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <FadeOnClose open={!!confirmDeleteClient} duration={220}>{confirmDeleteClient && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete Client?</h3>
@@ -14843,7 +15057,7 @@ ${jobsCtx || "No jobs found."}`;
           <Btn variant="danger" onClick={() => { delClient(confirmDeleteClient); setConfirmDeleteClient(null); setClientModal(null); setSelClient(null); }}>Delete</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* Person edit modal */}
     {personModal && (() => {
       const ed = personModal;
@@ -14908,7 +15122,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
     })()}
     {/* Time Off edit modal */}
-    {timeOffEdit && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
+    <FadeOnClose open={!!timeOffEdit} duration={220}>{timeOffEdit && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 28, maxWidth: 420, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
         <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit Time Off</h3>
         <div style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "center" }}>
@@ -14942,7 +15156,7 @@ ${jobsCtx || "No jobs found."}`;
           <Btn onClick={() => { updTimeOff(timeOffEdit.personId, timeOffEdit.idx, { start: timeOffEdit.start, end: timeOffEdit.end, reason: timeOffEdit.reason, type: timeOffEdit.type }); setTimeOffEdit(null); }}>Save</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* Time Off modal */}
     {timeOffModal && <TimeOffModal people={people} updPerson={updPerson} onClose={() => setTimeOffModal(false)} />}
     {/* Engineering block error toast */}
@@ -14967,7 +15181,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     )}
     {/* Delete confirmation modal */}
-    {templateDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <FadeOnClose open={!!templateDeleteConfirm} duration={220}>{templateDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="anim-delete-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 48, height: 48, borderRadius: 24, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 18, fontWeight: 700 }}>Delete Template?</h3>
@@ -14980,8 +15194,8 @@ ${jobsCtx || "No jobs found."}`;
           <Btn variant="danger" onClick={() => { deleteTemplate(templateDeleteConfirm.id); setTemplateDeleteConfirm(null); }} style={{ minWidth: 100, background: T.danger, color: "#fff", border: "none" }}>Delete</Btn>
         </div>
       </div>
-    </div>}
-    {confirmDelete && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
+    </div>}</FadeOnClose>
+    <FadeOnClose open={!!confirmDelete} duration={220}>{confirmDelete && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-delete-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 12px", color: T.text, fontSize: 20, fontWeight: 700 }}>Delete Task?</h3>
@@ -14998,10 +15212,10 @@ ${jobsCtx || "No jobs found."}`;
           <Btn variant="danger" onClick={() => { delTask(confirmDelete.id, confirmDelete.pid); if (confirmDelete.extra) confirmDelete.extra(); setConfirmDelete(null); }} style={{ minWidth: 120, background: T.danger, color: "#fff", border: "none" }}>Delete Forever</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* Overlap Error Modal */}
-    {overlapError && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
+    <FadeOnClose open={!!overlapError} duration={220}>{overlapError && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}>{overlapError.message.includes("Locked") ? <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>}</div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>{overlapError.message}</h3>
@@ -15013,11 +15227,11 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <Btn onClick={() => setOverlapError(null)} style={{ minWidth: 140 }}>Got it</Btn>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
 
     {/* Confirm Move Modal */}
-    {confirmMove && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
+    <FadeOnClose open={!!confirmMove} duration={220}>{confirmMove && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 480, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 28, background: T.accent + "15", border: `2px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.accent }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
         <h3 style={{ margin: "0 0 12px", color: T.text, fontSize: 20, fontWeight: 700 }}>{confirmMove.title || "Move Entire Job?"}</h3>
@@ -15027,7 +15241,7 @@ ${jobsCtx || "No jobs found."}`;
           <Btn onClick={() => { if (confirmMove.onConfirm) confirmMove.onConfirm(); }} style={{ minWidth: 120 }}>Yes, Move It</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ── Optimize Schedule Preview Modal ─────────────────────────────────── */}
     {optimizePreview && (() => {
@@ -15119,7 +15333,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}
 
     {/* Edit Notes modal */}
-    {editNotesModal && <div className="anim-modal-overlay" onClick={() => setEditNotesModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <FadeOnClose open={!!editNotesModal} duration={220}>{editNotesModal && <div className="anim-modal-overlay" onClick={() => setEditNotesModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 28, maxWidth: 480, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <h3 style={{ margin: "0 0 4px", color: T.text, fontSize: 18, fontWeight: 700 }}>Edit Notes</h3>
         <p style={{ margin: "0 0 16px", fontSize: 13, color: T.textDim }}>{editNotesModal.op.title}</p>
@@ -15139,7 +15353,7 @@ ${jobsCtx || "No jobs found."}`;
           }}>Save Notes</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* Reschedule modal */}
     {rescheduleModal && (() => {
@@ -15549,7 +15763,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}
     {/* ── TRAQS Conditions Manager ── */}
-    {conditionsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setConditionsOpen(false)}>
+    {conditionsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setConditionsOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(520px, calc(100vw - 32px))", maxHeight: "85vh", display: "flex", flexDirection: "column", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -15605,7 +15819,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}
     {/* ── Condition Wizard ── */}
-    {condWizard && <div style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setCondWizard(null)}>
+    {condWizard && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setCondWizard(null)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(460px, calc(100vw - 32px))", animation: "slideUp 0.22s ease-out", overflow: "hidden" }}>
         {/* Header */}
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
