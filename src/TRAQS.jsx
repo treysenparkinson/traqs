@@ -963,7 +963,7 @@ function AnimatedView({ viewKey, children, style }) {
 }
 
 // Generic cascading dropdown — matches deptDrop/soDrop animation style
-function CustomDrop({ value, onChange, options, placeholder = "Select…" }) {
+function CustomDrop({ value, onChange, options, placeholder = "Select…", compact = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -975,9 +975,9 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…" }) {
     return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
   }, [open]);
   return <div ref={ref} style={{ position: "relative" }}>
-    <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.surface, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
-      <span style={{ fontSize: 14, color: value ? T.text : T.textDim, fontFamily: T.font, flex: 1 }}>{value || placeholder}</span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
+    <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: compact ? "4px 8px" : "10px 14px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.surface, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
+      <span style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: value ? T.text : T.textDim, fontFamily: T.font, flex: 1, lineHeight: compact ? "16px" : "normal" }}>{value || placeholder}</span>
+      <svg width={compact ? 10 : 12} height={compact ? 10 : 12} viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
       {options.map((r, ri) => {
@@ -1121,7 +1121,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     let el = document.querySelector("style[data-traqs-glow]");
     if (!el) { el = document.createElement("style"); el.setAttribute("data-traqs-glow","1"); document.head.appendChild(el); }
     const a = T.accent;
-    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }`;
+    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes fastTraqIn { 0%{opacity:0;transform:translateX(28px) scale(0.7)} 55%{opacity:1;transform:translateX(-4px) scale(1.04)} 80%{transform:translateX(1px) scale(0.99)} 100%{opacity:1;transform:translateX(0) scale(1)} } @keyframes cancelScoot { 0%{transform:translateX(0)} 30%{transform:translateX(-6px)} 70%{transform:translateX(2px)} 100%{transform:translateX(0)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkCircle { 0%{stroke-dashoffset:88;opacity:0.6} 100%{stroke-dashoffset:0;opacity:1} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
   }, [T.accent]);
   // Inject react-colorful overrides once — compact size + TRAQS border-radius
   useEffect(() => {
@@ -2318,7 +2318,11 @@ Extraction rules:
   const [newGroupPeople, setNewGroupPeople] = useState([]);
   const [newGroupSaving, setNewGroupSaving] = useState(false);
   const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, name, memberIds }
-  const [editJobModal, setEditJobModal] = useState(null); // { id, title, jobNumber, poNumber, clientId, projectManagerId, dueDate, notes, requiredDepartment } — simple field-only edit
+  const [editJobModal, setEditJobModal] = useState(null);
+  const [editDrag, setEditDrag] = useState(null); // drag-and-drop state for edit-job hierarchy: { kind:"panel"|"op", panelIdx, opIdx } source / over
+  const [editAddedIds, setEditAddedIds] = useState(() => new Set()); // ids added during current edit session — drives "New" badge
+  const [editToast, setEditToast] = useState(null); // { msg, key } — transient confirmation toast
+  const [editPopBtn, setEditPopBtn] = useState(null); // id of the add button currently doing a pop animation
   const [quickChat, setQuickChat] = useState(null);
   const [quickChatInput, setQuickChatInput] = useState("");
   const [quickChatSending, setQuickChatSending] = useState(false);
@@ -3309,7 +3313,30 @@ Extraction rules:
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
   const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
-  const openEdit = (t) => { console.log("=== EDIT CLICKED ===", { id: t?.id, title: t?.title, level: t?.level, isSub: t?.isSub, pid: t?.pid }); setEditJobModal({ id: t.id, title: t.title || "", jobNumber: t.jobNumber || "", poNumber: t.poNumber || "", clientId: t.clientId || null, projectManagerId: t.projectManagerId || null, dueDate: t.dueDate || "", notes: t.notes || "", requiredDepartment: t.requiredDepartment || "" }); };
+  const openEdit = (t) => {
+    // Locate the freshest copy of the job from tasks so we always edit the latest data
+    const live = tasks.find(x => x.id === t.id) || t;
+    setEditJobModal({
+      id: live.id,
+      title: live.title || "",
+      jobNumber: live.jobNumber || "",
+      poNumber: live.poNumber || "",
+      clientId: live.clientId || null,
+      projectManagerId: live.projectManagerId || null,
+      dueDate: live.dueDate || "",
+      notes: live.notes || "",
+      requiredDepartment: live.requiredDepartment || "",
+      pri: live.pri || "Medium",
+      status: live.status || "Not Started",
+      hpd: live.hpd ?? 7.5,
+      start: live.start || TD,
+      end: live.end || TD,
+      subs: JSON.parse(JSON.stringify(live.subs || [])), // deep clone so edits don't mutate the live tasks state until save
+    });
+    setEditAddedIds(new Set());
+    setEditToast(null);
+    setEditPopBtn(null);
+  };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
@@ -15565,25 +15592,197 @@ ${jobsCtx || "No jobs found."}`;
       const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
       const saveEditJob = () => {
         if (!ej.title.trim()) return;
-        updTask(ej.id, { title: ej.title.trim(), jobNumber: ej.jobNumber, poNumber: ej.poNumber, clientId: ej.clientId, projectManagerId: ej.projectManagerId, dueDate: ej.dueDate || null, notes: ej.notes, requiredDepartment: ej.requiredDepartment });
+        // Recompute the job's start/end from its panels (if any) so it stays bounded by its children
+        const allPanelDates = (ej.subs || []).filter(p => p.start && p.end);
+        const computedStart = allPanelDates.length ? allPanelDates.map(p => p.start).sort()[0] : ej.start;
+        const computedEnd = allPanelDates.length ? allPanelDates.map(p => p.end).sort().slice(-1)[0] : ej.end;
+        updTask(ej.id, {
+          title: ej.title.trim(),
+          jobNumber: ej.jobNumber,
+          poNumber: ej.poNumber,
+          clientId: ej.clientId,
+          projectManagerId: ej.projectManagerId,
+          dueDate: ej.dueDate || null,
+          notes: ej.notes,
+          requiredDepartment: ej.requiredDepartment,
+          pri: ej.pri,
+          status: ej.status,
+          hpd: ej.hpd,
+          start: computedStart,
+          end: computedEnd,
+          subs: ej.subs,
+        });
         setEditJobModal(null);
+      };
+      const flashToast = (msg) => {
+        const key = Date.now() + Math.random();
+        setEditToast({ msg, key });
+        setTimeout(() => setEditToast(t => (t && t.key === key) ? null : t), 1800);
+      };
+      const fastTraqNewJobs = () => {
+        // Build local booking ledger so newly-scheduled ops don't double-book within this pass.
+        const extra = {}; // pid -> { dateStr: hrs }
+        const addExtra = (pid, d, h) => { extra[pid] = extra[pid] || {}; extra[pid][d] = (extra[pid][d] || 0) + h; };
+        const totalH = (pid, d) => bookedHrs(pid, d) + ((extra[pid] || {})[d] || 0);
+        const findSlot = (pid, fromDate, hrs) => {
+          const p = people.find(x => x.id === pid); if (!p) return null;
+          const cap = p.cap || 8;
+          let d = isWorkDay(fromDate) ? fromDate : addBD(fromDate, 1);
+          for (let i = 0; i < 365; i++) {
+            if (isWorkDay(d) && !isOff(pid, d) && totalH(pid, d) + hrs <= cap) return d;
+            d = addBD(d, 1);
+          }
+          return null;
+        };
+        const today = TD;
+        const jobAnchor = ej.start && ej.start > today ? ej.start : today;
+        const newSubs = (ej.subs || []).map(panel => {
+          const ops = panel.subs || [];
+          if (!ops.length) {
+            // Standalone new panel with no children — schedule it directly if it's new
+            if (editAddedIds.has(panel.id)) {
+              const dept = panel.requiredDepartment || ej.requiredDepartment || "";
+              const pool = (dept ? people.filter(p => p.department === dept) : people).filter(p => !p.archived);
+              const candidates = pool.length ? pool : people;
+              const hpd = panel.hpd ?? ej.hpd ?? 7.5;
+              let best = null;
+              for (const c of candidates) {
+                const slot = findSlot(c.id, jobAnchor, hpd);
+                if (slot && (!best || slot < best.date)) best = { pid: c.id, date: slot };
+              }
+              if (best) {
+                addExtra(best.pid, best.date, hpd);
+                return { ...panel, team: Array.from(new Set([...(panel.team || []), best.pid])), start: best.date, end: best.date };
+              }
+            }
+            return panel;
+          }
+          let earliest = null, latest = null;
+          const updated = ops.map(op => {
+            if (!editAddedIds.has(op.id)) {
+              if (op.start && (!earliest || op.start < earliest)) earliest = op.start;
+              if (op.end && (!latest || op.end > latest)) latest = op.end;
+              return op;
+            }
+            const dept = op.requiredDepartment || panel.requiredDepartment || ej.requiredDepartment || "";
+            const pool = (dept ? people.filter(p => p.department === dept) : people).filter(p => !p.archived);
+            const candidates = pool.length ? pool : people;
+            const hpd = op.hpd ?? panel.hpd ?? ej.hpd ?? 7.5;
+            let best = null;
+            for (const c of candidates) {
+              const slot = findSlot(c.id, jobAnchor, hpd);
+              if (slot && (!best || slot < best.date)) best = { pid: c.id, date: slot };
+            }
+            if (!best) {
+              if (op.start && (!earliest || op.start < earliest)) earliest = op.start;
+              if (op.end && (!latest || op.end > latest)) latest = op.end;
+              return op;
+            }
+            addExtra(best.pid, best.date, hpd);
+            const scheduled = { ...op, team: Array.from(new Set([...(op.team || []), best.pid])), start: best.date, end: best.date };
+            if (!earliest || scheduled.start < earliest) earliest = scheduled.start;
+            if (!latest || scheduled.end > latest) latest = scheduled.end;
+            return scheduled;
+          });
+          return { ...panel, subs: updated, start: earliest || panel.start, end: latest || panel.end };
+        });
+        const count = editAddedIds.size;
+        setEj(p => ({ ...p, subs: newSubs }));
+        flashToast(`Fast-TRAQ'd ${count} new item${count === 1 ? "" : "s"}`);
+      };
+      const popBtn = (id) => {
+        setEditPopBtn(id);
+        setTimeout(() => setEditPopBtn(c => c === id ? null : c), 320);
+      };
+      const markNew = (...ids) => setEditAddedIds(s => { const n = new Set(s); ids.forEach(i => n.add(i)); return n; });
+      const addPanel = () => {
+        const pStart = ej.subs?.length ? addBD((ej.subs[ej.subs.length - 1].end || ej.end), 1) : ej.start;
+        const pEnd = addBD(pStart, 4);
+        const newPanel = { id: uid(), title: `Op-${String((ej.subs?.length || 0) + 1).padStart(3, "0")}`, start: pStart, end: pEnd, pri: "Medium", status: "Not Started", team: [], hpd: ej.hpd, notes: "", subs: [], deps: [] };
+        setEj(p => ({ ...p, subs: [...(p.subs || []), newPanel] }));
+        markNew(newPanel.id);
+        flashToast("Operation added");
+        popBtn("addPanel");
+      };
+      const removePanel = (idx) => setEj(p => ({ ...p, subs: p.subs.filter((_, i) => i !== idx) }));
+      const movePanel = (idx, dir) => setEj(p => {
+        const subs = [...p.subs]; const ni = idx + dir; if (ni < 0 || ni >= subs.length) return p;
+        [subs[idx], subs[ni]] = [subs[ni], subs[idx]];
+        return { ...p, subs };
+      });
+      const updPanel = (idx, patch) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => i === idx ? { ...pn, ...patch } : pn) }));
+      const addOp = (panelIdx) => {
+        const newId = uid();
+        setEj(p => ({ ...p, subs: p.subs.map((pn, i) => {
+          if (i !== panelIdx) return pn;
+          const last = (pn.subs || []).slice(-1)[0];
+          const oStart = last ? addBD(last.end, 1) : pn.start;
+          const oEnd = addBD(oStart, 1);
+          const newOp = { id: newId, title: `Op ${(pn.subs?.length || 0) + 1}`, start: oStart, end: oEnd, pri: "Medium", status: "Not Started", team: [], hpd: pn.hpd ?? ej.hpd, notes: "", deps: [] };
+          return { ...pn, subs: [...(pn.subs || []), newOp] };
+        }) }));
+        markNew(newId);
+        flashToast("Task added");
+        popBtn(`addOp-${panelIdx}`);
+      };
+      const removeOp = (panelIdx, opIdx) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => i === panelIdx ? { ...pn, subs: pn.subs.filter((_, j) => j !== opIdx) } : pn) }));
+      const moveOp = (panelIdx, opIdx, dir) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => {
+        if (i !== panelIdx) return pn;
+        const subs = [...(pn.subs || [])]; const ni = opIdx + dir; if (ni < 0 || ni >= subs.length) return pn;
+        [subs[opIdx], subs[ni]] = [subs[ni], subs[opIdx]];
+        return { ...pn, subs };
+      }) }));
+      const updOp = (panelIdx, opIdx, patch) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => i === panelIdx ? { ...pn, subs: pn.subs.map((op, j) => j === opIdx ? { ...op, ...patch } : op) } : pn) }));
+      const loadTemplate = (tpl) => {
+        const newIds = [];
+        setEj(p => {
+          const existing = p.subs || [];
+          const nextIndex = existing.length;
+          const newOps = (tpl.ops || []).map((o, i) => {
+            const pid = uid();
+            newIds.push(pid);
+            return {
+              ...o,
+              id: pid,
+              title: o.title || "Op-" + String(nextIndex + i + 1).padStart(3, "0"),
+              team: o.team || [],
+              subs: (o.subs || []).map(s => { const oid = uid(); newIds.push(oid); return { ...s, id: oid }; }),
+              status: "Not Started",
+              start: "",
+              end: "",
+              notes: o.notes || "",
+              deps: o.deps || [],
+            };
+          });
+          return { ...p, subs: [...existing, ...newOps] };
+        });
+        markNew(...newIds);
+        flashToast(`Template "${tpl.name}" loaded`);
       };
       const fieldLabel = (text) => <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, fontFamily: T.font }}>{text}</label>;
       const fieldInput = (val, onChange, opts = {}) => <input value={val} onChange={e => onChange(e.target.value)} type={opts.type || "text"} placeholder={opts.placeholder || ""} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />;
       const clientOpts = clients.map(c => ({ value: c.id, label: c.name, color: c.color, sub: c.contact || "" }));
       return (
-        <div style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setEditJobModal(null)}>
-          <div style={{ background: T.card, borderRadius: T.radius, width: "100%", minWidth: 680, maxWidth: 720, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+        <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "stretch", justifyContent: "center", padding: 24 }} onClick={() => setEditJobModal(null)}>
+          <div className="anim-modal-box" style={{ position: "relative", background: T.card, borderRadius: T.radius, width: "100%", maxWidth: 1400, maxHeight: "calc(100vh - 48px)", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+            {editToast && <div key={editToast.key} style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 18px 10px 12px", borderRadius: 999, background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "0.02em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 50, animation: "toastInOut 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) both", pointerEvents: "none" }}>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: T.accentText, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, animation: "checkPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="5 12.5 10 17.5 19 7.5" style={{ strokeDasharray: 30, animation: "checkDraw 0.55s 0.2s cubic-bezier(0.65, 0, 0.35, 1) both" }} />
+                </svg>
+              </div>
+              <span>{editToast.msg}</span>
+            </div>}
             {/* Header */}
             <div style={{ padding: "20px 32px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
               <div>
                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Edit Job</h3>
-                <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details — no scheduling changes</div>
+                <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details and edit panels &amp; operations</div>
               </div>
               <button onClick={() => setEditJobModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px", marginLeft: 12 }}>✕</button>
             </div>
             {/* Body */}
-            <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18 }}>
+            <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", flex: 1, minHeight: 0 }}>
               {/* Job Name — full width */}
               <div>
                 {fieldLabel("Job Name")}
@@ -15645,56 +15844,99 @@ ${jobsCtx || "No jobs found."}`;
                   {fieldInput(ej.dueDate, v => setEj({ dueDate: v }), { type: "date" })}
                 </div>
               </div>
-              {/* Department — animated dropdown matching wizard style */}
-              <div>
-                {fieldLabel("Department")}
-                <div style={{ position: "relative" }}>
-                  <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobModal"; setDeptDropId(opening ? "editJobModal" : null); if (opening) { setDeptAddInput(""); setDeptAddMode(false); } }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${ej.requiredDepartment ? T.accent + "55" : T.glassBorder}`, background: ej.requiredDepartment ? T.accent + "10" : T.glass, color: ej.requiredDepartment ? T.accent : T.textDim, fontSize: 14, fontFamily: T.font, fontWeight: ej.requiredDepartment ? 600 : 400, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s" }}>
-                    <span>{ej.requiredDepartment || "— No department —"}</span>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                  </button>
-                  <FadeOnClose open={deptDropId === "editJobModal"}>{deptDropId === "editJobModal" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
-                    {orgSettings.roles.length === 0 && !deptAddMode && <div style={{ padding: "8px 14px", fontSize: 13, color: T.textDim }}>No departments yet</div>}
-                    {/* None option */}
-                    <div onClick={() => { setEj({ requiredDepartment: "" }); setDeptDropId(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                      <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${!ej.requiredDepartment ? T.accent : T.border}`, background: !ej.requiredDepartment ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
-                        {!ej.requiredDepartment && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                      </div>
-                      <span style={{ fontSize: 13, fontWeight: !ej.requiredDepartment ? 600 : 400, color: !ej.requiredDepartment ? T.accent : T.textDim }}>— No department —</span>
-                    </div>
-                    {orgSettings.roles.map((r, ri) => {
-                      const isOn = ej.requiredDepartment === r;
-                      const fk = `editJob-dept-${r}`;
-                      return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ requiredDepartment: isOn ? "" : r }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${(ri + 1) * 38}ms both ease-out` }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
-                        <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
-                          {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                        </div>
-                        <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{r}</span>
-                      </div>;
-                    })}
-                    <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
-                      {deptAddMode
-                        ? <div style={{ display: "flex", gap: 4, padding: "4px 8px 6px" }}>
-                            <input value={deptAddInput} onChange={e => setDeptAddInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { const v = deptAddInput.trim(); if (v && !orgSettings.roles.includes(v)) { setOrgSettings(s => ({ ...s, roles: [...s.roles, v] })); setEj({ requiredDepartment: v }); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if (e.key === "Escape") { setDeptAddMode(false); setDeptAddInput(""); } }} placeholder="Department name…" style={{ flex: 1, padding: "5px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", minWidth: 0 }} autoFocus />
-                            <button onClick={() => { const v = deptAddInput.trim(); if (v && !orgSettings.roles.includes(v)) { setOrgSettings(s => ({ ...s, roles: [...s.roles, v] })); setEj({ requiredDepartment: v }); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: T.accent, color: T.accentText, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Add</button>
-                          </div>
-                        : <div onClick={() => setDeptAddMode(true)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 14px", cursor: "pointer", fontSize: 13, color: T.accent, fontWeight: 600, transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                            <span style={{ fontSize: 15 }}>+</span> Create new Department
-                          </div>
-                      }
-                    </div>
-                  </div>}</FadeOnClose>
-                </div>
-              </div>
               {/* Notes — full width */}
               <div>
                 {fieldLabel("Notes")}
                 <textarea value={ej.notes} onChange={e => setEj({ notes: e.target.value })} rows={3} placeholder="Job notes…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", resize: "vertical", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />
               </div>
+              {/* Panels & Operations — full hierarchy editor */}
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  {fieldLabel(`Panels (${(ej.subs || []).length})`)}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <TemplateDrop templates={templates} onLoad={loadTemplate} onDeleteRequest={tpl => setTemplateDeleteConfirm(tpl)} />
+                    <button onClick={addPanel} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}66`, background: T.accent + "15", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 5, animation: editPopBtn === "addPanel" ? "popBounce 0.32s ease-out" : "none" }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      Add Operation
+                    </button>
+                  </div>
+                </div>
+                {(ej.subs || []).length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim, background: T.surface, borderRadius: T.radiusSm, border: `1px dashed ${T.border}`, fontFamily: T.font }}>No panels yet — click "Add Operation" to start.</div>}
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {(ej.subs || []).map((panel, pi) => {
+                    const isPanelDragOver = editDrag && editDrag.kind === "panel-over" && editDrag.panelIdx === pi;
+                    const isPanelBeingDragged = editDrag && editDrag.kind === "panel" && editDrag.panelIdx === pi;
+                    return (
+                    <div key={panel.id || pi}
+                      onDragOver={e => { if (editDrag && editDrag.kind === "panel") { e.preventDefault(); e.dataTransfer.dropEffect = "move"; setEditDrag({ kind: "panel-over", panelIdx: pi, srcIdx: editDrag.panelIdx }); } }}
+                      onDrop={e => { e.preventDefault(); if (editDrag && (editDrag.kind === "panel" || editDrag.kind === "panel-over")) { const srcIdx = editDrag.srcIdx ?? editDrag.panelIdx; if (srcIdx !== pi) setEj(p => { const subs = [...p.subs]; const [moved] = subs.splice(srcIdx, 1); subs.splice(pi, 0, moved); return { ...p, subs }; }); setEditDrag(null); } }}
+                      onDragLeave={() => { if (isPanelDragOver) setEditDrag(d => d && d.kind === "panel-over" ? { kind: "panel", panelIdx: d.srcIdx } : d); }}
+                      style={{ position: "relative", background: T.surface, border: `1px solid ${isPanelDragOver ? T.accent : T.border}`, borderRadius: T.radiusSm, padding: 12, fontFamily: T.font, opacity: isPanelBeingDragged ? 0.5 : 1, transition: "border-color 0.15s, opacity 0.15s" }}>
+                      {editAddedIds.has(panel.id) && <div style={{ position: "absolute", top: -7, right: -7, padding: "2px 7px", borderRadius: 10, background: T.accent, color: T.accentText, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: T.font, animation: "newBadgePulse 1.6s ease-out infinite", zIndex: 2 }}>New</div>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                        <div
+                          draggable
+                          onDragStart={e => { e.dataTransfer.effectAllowed = "move"; setEditDrag({ kind: "panel", panelIdx: pi }); }}
+                          onDragEnd={() => setEditDrag(null)}
+                          title="Drag to reorder"
+                          style={{ cursor: "grab", color: T.textDim, padding: "4px 2px", display: "flex", alignItems: "center", lineHeight: 0, userSelect: "none" }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+                        </div>
+                        <input value={panel.title} onChange={e => updPanel(pi, { title: e.target.value })} placeholder="Panel name" style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                        <button onClick={() => removePanel(pi)} title="Delete panel" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}>
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
+                      </div>
+                      {/* Operations */}
+                      <div style={{ paddingLeft: 26, display: "flex", flexDirection: "column", gap: 5 }}>
+                        {(panel.subs || []).map((op, oi) => {
+                          const isOpDragOver = editDrag && editDrag.kind === "op-over" && editDrag.panelIdx === pi && editDrag.opIdx === oi;
+                          const isOpBeingDragged = editDrag && editDrag.kind === "op" && editDrag.panelIdx === pi && editDrag.opIdx === oi;
+                          return (
+                          <div key={op.id || oi}
+                            onDragOver={e => { if (editDrag && editDrag.kind === "op" && editDrag.panelIdx === pi) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; setEditDrag({ kind: "op-over", panelIdx: pi, opIdx: oi, srcIdx: editDrag.opIdx }); } }}
+                            onDrop={e => { e.preventDefault(); e.stopPropagation(); if (editDrag && (editDrag.kind === "op" || editDrag.kind === "op-over") && editDrag.panelIdx === pi) { const srcIdx = editDrag.srcIdx ?? editDrag.opIdx; if (srcIdx !== oi) setEj(p => ({ ...p, subs: p.subs.map((pn, i) => { if (i !== pi) return pn; const subs = [...(pn.subs || [])]; const [moved] = subs.splice(srcIdx, 1); subs.splice(oi, 0, moved); return { ...pn, subs }; }) })); setEditDrag(null); } }}
+                            style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", background: T.bg, border: `1px solid ${isOpDragOver ? T.accent : T.border}`, borderRadius: T.radiusXs, fontFamily: T.font, opacity: isOpBeingDragged ? 0.5 : 1, transition: "border-color 0.12s, opacity 0.12s" }}>
+                            <div
+                              draggable
+                              onDragStart={e => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; setEditDrag({ kind: "op", panelIdx: pi, opIdx: oi }); }}
+                              onDragEnd={() => setEditDrag(null)}
+                              title="Drag to reorder"
+                              style={{ cursor: "grab", color: T.textDim, padding: "2px 1px", display: "flex", alignItems: "center", lineHeight: 0, userSelect: "none" }}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+                            </div>
+                            <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                            <div style={{ minWidth: 140, flexShrink: 0 }}>
+                              <CustomDrop value={op.requiredDepartment || ""} onChange={v => updOp(pi, oi, { requiredDepartment: v })} options={orgSettings.roles || []} placeholder="— Dept —" compact />
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                              <input type="number" min="0" step="0.5" value={op.hpd ?? ""} onChange={e => updOp(pi, oi, { hpd: e.target.value === "" ? null : parseFloat(e.target.value) })} placeholder="hrs" title="Hours per day" style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box", textAlign: "right", MozAppearance: "textfield" }} />
+                              <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600 }}>h</span>
+                            </div>
+                            <button onClick={() => removeOp(pi, oi)} title="Delete op" style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                          </div>);
+                        })}
+                        <button onClick={() => addOp(pi)} style={{ alignSelf: "flex-start", padding: "4px 10px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 4, animation: editPopBtn === `addOp-${pi}` ? "popBounce 0.32s ease-out" : "none" }}>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                          Add Operation
+                        </button>
+                      </div>
+                    </div>);
+                  })}
+                </div>
+              </div>
             </div>
             {/* Footer */}
             <div style={{ padding: "18px 32px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
-              <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              {editAddedIds.size > 0 && (
+                <button onClick={fastTraqNewJobs} title="Auto-assign people & dates to the newly added items" style={{ padding: "9px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}88`, background: `linear-gradient(135deg, ${T.accent}26, ${T.accent}10)`, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 7, animation: "fastTraqIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both", boxShadow: `0 4px 14px ${T.accent}28` }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+                  Fast TRAQ New Jobs
+                </button>
+              )}
+              <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: editAddedIds.size > 0 ? "cancelScoot 0.5s ease-out both" : "none" }}>Cancel</button>
               <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
             </div>
           </div>
