@@ -6333,10 +6333,8 @@ ${jobsCtx || "No jobs found."}`;
       const person = people.find(x => x.id === pid);
       if (person) (person.timeOff || []).forEach((to, i) => {
         if (to.end < tStart || to.start > tEnd) return;
-        const s = to.start < tStart ? tStart : to.start;
-        const e = to.end > tEnd ? tEnd : to.end;
         const ptoColor = to.type === "UTO" ? "#f59e0b" : "#10b981";
-        bars.push({ type: "pto", id: "pto-" + pid + "-" + i, start: s, end: e, title: to.reason || (to.type || "PTO"), color: ptoColor, task: null, subs: [], hasSubs: false, personId: pid, toIdx: i, fullStart: to.start, fullEnd: to.end, ptoType: to.type || "PTO" });
+        bars.push({ type: "pto", id: "pto-" + pid + "-" + i, start: to.start, end: to.end, title: to.reason || (to.type || "PTO"), color: ptoColor, task: null, subs: [], hasSubs: false, personId: pid, toIdx: i, fullStart: to.start, fullEnd: to.end, ptoType: to.type || "PTO" });
       });
       // Operation bars (level 2: Wire/Cut/Layout assigned to this person)
       tasks.forEach(job => {
@@ -6346,21 +6344,17 @@ ${jobsCtx || "No jobs found."}`;
               if (!(op.team || []).includes(pid)) return;
               if (op.status === "Finished") return;
               if (!op.start || !op.end || op.end < tStart || op.start > tEnd) return;
-              const s = op.start < tStart ? tStart : op.start;
-              const e = op.end > tEnd ? tEnd : op.end;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
               const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
-              bars.push({ type: "task", id: op.id, start: s, end: e, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+              bars.push({ type: "task", id: op.id, start: op.start, end: op.end, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
             // Panel with no sub-ops: render the panel itself so it appears on the schedule
             if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
               if (panel.end >= tStart && panel.start <= tEnd) {
-                const s = panel.start < tStart ? tStart : panel.start;
-                const e = panel.end > tEnd ? tEnd : panel.end;
                 const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
                 const tc = panel.color || "#94a3b8";
-                bars.push({ type: "task", id: panel.id, start: s, end: e, title: `${job.title} · ${panel.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+                bars.push({ type: "task", id: panel.id, start: panel.start, end: panel.end, title: `${job.title} · ${panel.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
               }
             }
           });
@@ -6370,11 +6364,9 @@ ${jobsCtx || "No jobs found."}`;
             if (!(sub.team || []).includes(pid)) return;
             if (sub.status === "Finished") return;
             if (!sub.start || !sub.end || sub.end < tStart || sub.start > tEnd) return;
-            const s = sub.start < tStart ? tStart : sub.start;
-            const e = sub.end > tEnd ? tEnd : sub.end;
             const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
             const tc = sub.color || "#94a3b8";
-            bars.push({ type: "task", id: sub.id, start: s, end: e, title: `${job.title} · ${sub.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+            bars.push({ type: "task", id: sub.id, start: sub.start, end: sub.end, title: `${job.title} · ${sub.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
           });
         }
       });
@@ -7006,7 +6998,7 @@ ${jobsCtx || "No jobs found."}`;
                       : bar.end;
                   const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd, _barWorkDays);
                   const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
-                  const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
+                  const _baseXPct = diffD(tStart, bar.start) / nDays * 100;
                   const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
                   const _wBudget = Math.max(0.03 / nDays * 100, (_barHpd / productiveHoursPerDay) / nDays * 100);
                   const stackIdx = _effectiveSingleDay ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
