@@ -1646,6 +1646,20 @@ Extraction rules:
   const [selTask, setSelTask] = useState(null);
   const [gridCell, setGridCell] = useState(null); // { id, col }
   const [expandedJobs, setExpandedJobs] = useState(new Set());
+  const [closingJobs, setClosingJobs] = useState(new Set());
+  const toggleJobExpand = useCallback((id) => {
+    setExpandedJobs(prev => {
+      if (prev.has(id)) {
+        setClosingJobs(c => new Set(c).add(id));
+        setTimeout(() => {
+          setExpandedJobs(p => { const n = new Set(p); n.delete(id); return n; });
+          setClosingJobs(p => { const n = new Set(p); n.delete(id); return n; });
+        }, 320);
+        return prev;
+      }
+      const n = new Set(prev); n.add(id); return n;
+    });
+  }, []);
   const [colWidths, setColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 70, 130, 140, 36]);
   const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
   const [engQueueExpanded, setEngQueueExpanded] = useState(true);
@@ -4992,10 +5006,15 @@ ${jobsCtx || "No jobs found."}`;
         {/* Left: collapsible toolbar (list view only) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {taskSubView === "list" && <>
-            <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}`}</style>
+            <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}@keyframes gridRowIn{0%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}90%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:visible}}@keyframes gridRowOut{0%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:hidden}10%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}}`}</style>
             {/* Select */}
-            <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-            {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
+            <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;padding:7px 14px;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusSm}px;background:transparent;border:1px solid ${T.border};color:${T.textSec};white-space:nowrap;flex-shrink:0;outline:none!important;box-shadow:none!important;-webkit-appearance:none;appearance:none;transition:border-color 0.18s ease-out,color 0.18s ease-out;}.subtle-all-btn:hover{box-shadow:none!important;border-color:${T.accent};color:${T.accent};}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;box-shadow:none!important;}.subtle-all-btn:active{outline:none!important;box-shadow:none!important;}`}</style>
+            <div style={{ display: "flex", alignItems: "center", overflow: "hidden", maxWidth: jobSelectMode ? 90 : 0, opacity: jobSelectMode ? 1 : 0, transform: jobSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "auto" : "none", marginRight: jobSelectMode ? 0 : -6 }}>
+              <button className="subtle-all-btn" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>
+                {selJobs.size === activeTasks.length ? "None" : "All"}
+              </button>
+            </div>
             <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
             {/* Filter */}
             <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
@@ -5627,7 +5646,7 @@ ${jobsCtx || "No jobs found."}`;
           }
         };
 
-        const GridRow = ({ item, level = 0, jobId, panelId, jobColor, isFinished }) => {
+        const GridRow = ({ item, level = 0, jobId, panelId, jobColor, isFinished, idx = 0 }) => {
           const isExpanded = expandedJobs.has(item.id);
           const hasSubs = (item.subs || []).length > 0;
           const rowBg = level === 0 ? (selTask === item.id ? T.accent + "12" : "transparent") : level === 1 ? T.surface + "cc" : T.bg + "cc";
@@ -5649,23 +5668,25 @@ ${jobsCtx || "No jobs found."}`;
           const indent = level * 20;
           const pid = level === 2 ? panelId : level === 1 ? jobId : null;
           const isDragTarget = level === 0 && rowDragOverId === item.id && rowDragRef.current && rowDragRef.current !== item.id;
+          const parentId = level === 1 ? jobId : level === 2 ? panelId : null;
+          const parentClosing = parentId != null && closingJobs.has(parentId);
 
-          return <>
+          return <Fragment key={item.id}>
             <div
               draggable={level === 0 && !jobSelectMode}
               onDragStart={level === 0 && !jobSelectMode ? e => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; rowDragRef.current = item.id; } : undefined}
               onDragOver={level === 0 ? e => { e.preventDefault(); if (rowDragRef.current && rowDragRef.current !== item.id) setRowDragOverId(item.id); } : undefined}
               onDrop={level === 0 ? e => { e.preventDefault(); if (!rowDragRef.current || rowDragRef.current === item.id) return; const dragId = rowDragRef.current; rowDragRef.current = null; setRowDragOverId(null); setTaskOrder(prev => { const base = prev.length ? prev : activeTasks.map(t => t.id); const from = base.indexOf(dragId); const to = base.indexOf(item.id); if (from < 0 || to < 0) return base; const next = [...base]; next.splice(from, 1); next.splice(to, 0, dragId); return next; }); } : undefined}
               onDragEnd={level === 0 ? () => { rowDragRef.current = null; setRowDragOverId(null); } : undefined}
-              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: condBg || rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.15s", borderTop: isDragTarget ? `2px solid ${T.accent}` : undefined, ...(condStrike ? { textDecoration: "line-through", opacity: (isFinished && level === 0 ? 0.6 : 1) * 0.7 } : {}) }}
+              style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: condBg || rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.15s", borderTop: isDragTarget ? `2px solid ${T.accent}` : undefined, ...(condStrike ? { textDecoration: "line-through", opacity: (isFinished && level === 0 ? 0.6 : 1) * 0.7 } : {}), ...(level > 0 ? { animation: parentClosing ? `gridRowOut 0.18s ${idx * 18}ms both ease-in` : `gridRowIn 0.14s ${idx * 22}ms both ease-out` } : {}) }}
               onMouseEnter={e => { e.currentTarget.style.background = condBg || T.accent + "0d"; }}
               onMouseLeave={e => { e.currentTarget.style.background = condBg || rowBg; }}
-              onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { setExpandedJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } }}
+              onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { toggleJobExpand(item.id); } }}
               onContextMenu={level === 0 ? e => handleCtx(e, { ...item, level: 0 }, "job-detail") : e => handleCtx(e, { ...item, isSub: true, pid: pid, grandPid: level === 2 ? jobId : null, level, panelTitle: level === 2 ? (tasks.flatMap(j => j.subs || []).find(p => p.id === panelId)?.title || "") : "" }, "job-detail")}
             >
               {/* Expand toggle + color bar + drag grip */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, paddingLeft: indent + 6, cursor: hasSubs ? "pointer" : "default", position: "relative" }}
-                onClick={e => { if (!hasSubs) return; e.stopPropagation(); setExpandedJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); }}>
+                onClick={e => { if (!hasSubs) return; e.stopPropagation(); toggleJobExpand(item.id); }}>
                 {level === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobColor || item.color }} />}
                 {level === 0 && !jobSelectMode && <div style={{ opacity: 0.22, cursor: "grab", color: T.textDim, fontSize: 13, lineHeight: 1, userSelect: "none", flexShrink: 0 }}>⠿</div>}
                 <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, flexShrink: 0, visibility: hasSubs ? "visible" : "hidden" }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -5724,10 +5745,8 @@ ${jobsCtx || "No jobs found."}`;
             </div>
 
             {/* Sub-rows */}
-            {isExpanded && (item.subs || []).map(sub => (
-              <GridRow key={sub.id} item={sub} level={level + 1} jobId={level === 0 ? item.id : jobId} panelId={level === 1 ? item.id : panelId} jobColor={level === 0 ? (sub.color || "#94a3b8") : jobColor} isFinished={isFinished} />
-            ))}
-          </>;
+            {isExpanded && (item.subs || []).map((sub, sidx) => GridRow({ item: sub, level: level + 1, jobId: level === 0 ? item.id : jobId, panelId: level === 1 ? item.id : panelId, jobColor: level === 0 ? (sub.color || "#94a3b8") : jobColor, isFinished, idx: sidx }))}
+          </Fragment>;
         };
 
         const listContent = <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -6035,7 +6054,7 @@ ${jobsCtx || "No jobs found."}`;
                   {!isCollapsed && <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                     <div style={{ minWidth: minW }}>
                       <ColHeaders />
-                      {pmJobs.map(job => <GridRow key={job.id} item={job} level={0} jobColor="#94a3b8" isFinished={false} />)}
+                      {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
                       {can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
                         onMouseEnter={e => e.currentTarget.style.background = T.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <div />
@@ -6059,7 +6078,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                   <div style={{ minWidth: minW }}>
                     <ColHeaders />
-                    {finishedTasks.map(job => <GridRow key={job.id} item={job} level={0} jobColor="#10b981" isFinished={true} />)}
+                    {finishedTasks.map(job => GridRow({ item: job, level: 0, jobColor: "#10b981", isFinished: true }))}
                   </div>
                 </div>
               </div>}
