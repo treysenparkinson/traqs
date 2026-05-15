@@ -675,8 +675,8 @@ const FadeOnClose = ({ open, children, duration = 180 }) => {
   });
 };
 // TRAQS-styled date picker — custom calendar popover with month nav and Today/Clear shortcuts.
-const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", id, required = false }) => {
-  const [open, setOpen] = useState(false);
+const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", id, required = false, compact = false, min, style: extraStyle, autoOpen = false, onClose }) => {
+  const [open, setOpen] = useState(autoOpen);
   const [viewDate, setViewDate] = useState(() => {
     const seed = value ? new Date(value + "T12:00:00") : new Date();
     return new Date(seed.getFullYear(), seed.getMonth(), 1);
@@ -684,12 +684,12 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
   const ref = useRef(null);
   useEffect(() => {
     if (!open) return;
-    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    const k = e => { if (e.key === "Escape") setOpen(false); };
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); onClose && onClose(); } };
+    const k = e => { if (e.key === "Escape") { setOpen(false); onClose && onClose(); } };
     document.addEventListener("mousedown", h);
     document.addEventListener("keydown", k);
     return () => { document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
-  }, [open]);
+  }, [open, onClose]);
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const firstDayIdx = new Date(year, month, 1).getDay();
@@ -710,10 +710,10 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
   const now = new Date();
   const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const NAV = idx => () => setViewDate(new Date(year, month + idx, 1));
-  return <div style={{ marginBottom: 16 }}>
-    <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 4 }}>*</span>}</label>
+  return <div style={{ marginBottom: label ? 16 : 0, ...(extraStyle || {}) }}>
+    {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 4 }}>*</span>}</label>}
     <div ref={ref} style={{ position: "relative" }}>
-      <button id={id} onClick={() => setOpen(o => !o)} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : value ? T.accent + "55" : T.glassBorder}`, background: T.glass, color: value ? T.text : T.textDim, fontSize: 14, fontFamily: T.font, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", outline: "none", transition: "border-color 0.15s" }}>
+      <button id={id} onClick={() => setOpen(o => !o)} style={{ width: "100%", padding: compact ? "7px 10px" : "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : value ? T.accent + "55" : T.glassBorder}`, background: T.glass, color: value ? T.text : T.textDim, fontSize: compact ? 13 : 14, fontFamily: T.font, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", outline: "none", transition: "border-color 0.15s" }}>
         <span>{value ? formatDate(value) : placeholder}</span>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={open || value ? T.accent : T.textDim} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "stroke 0.15s" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       </button>
@@ -734,7 +734,9 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
           {cells.map((c, i) => {
             const isSel = c.iso && c.iso === value;
             const isToday = c.iso === todayIso;
-            return <button key={i} disabled={!c.inMonth} onClick={() => { if (c.iso) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusXs, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? T.accent : "transparent", color: !c.inMonth ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: c.inMonth ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (c.inMonth && !isSel) e.currentTarget.style.background = T.accent + "22"; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>{c.day}</button>;
+            const tooEarly = !!(c.iso && min && c.iso < min);
+            const usable = c.inMonth && !tooEarly;
+            return <button key={i} disabled={!usable} onClick={() => { if (c.iso && usable) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusXs, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? T.accent : "transparent", color: !c.inMonth || tooEarly ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: usable ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (usable && !isSel) e.currentTarget.style.background = T.accent + "22"; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>{c.day}</button>;
           })}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
@@ -5373,7 +5375,7 @@ ${jobsCtx || "No jobs found."}`;
                 {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               </Tip>
-              {taskFilterOpen && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+              <FadeOnClose open={taskFilterOpen}>{taskFilterOpen && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
@@ -5408,7 +5410,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-              </div>}
+              </div>}</FadeOnClose>
             </div>
           </div>
           <div style={{ position: "relative", marginBottom: 8 }}>
@@ -5700,7 +5702,7 @@ ${jobsCtx || "No jobs found."}`;
                 {isScheduledLater
                   ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>PENDING</span>
                   : isEdit(item.id, "start")
-                    ? <input type="date" autoFocus defaultValue={item.start} onBlur={e => commitEdit(item.id, "start", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
+                    ? <TraqsDatePicker autoOpen compact value={item.start} onChange={v => { commitEdit(item.id, "start", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
                     : <span style={{ color: T.textSec }}>{safeDate(item.start)}</span>}
               </div>
             );
@@ -5710,7 +5712,7 @@ ${jobsCtx || "No jobs found."}`;
                 {isScheduledLater
                   ? <span style={{ color: "#f59e0b", fontWeight: 600 }}>PENDING</span>
                   : isEdit(item.id, "end")
-                    ? <input type="date" autoFocus defaultValue={item.end} onBlur={e => commitEdit(item.id, "end", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
+                    ? <TraqsDatePicker autoOpen compact value={item.end} onChange={v => { commitEdit(item.id, "end", v, pid); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
                     : <span style={{ color: T.textSec }}>{safeDate(item.end)}</span>}
               </div>
             );
@@ -5718,7 +5720,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 12, cursor: level === 0 ? "text" : "default" }}
                 onClick={e => level === 0 && startEdit(e, item.id, "dueDate")}>
                 {level === 0 && isEdit(item.id, "dueDate")
-                  ? <input type="date" autoFocus defaultValue={item.dueDate || ""} onBlur={e => commitEdit(item.id, "dueDate", e.target.value || null)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: T.mono, padding: "1px 2px" }} />
+                  ? <TraqsDatePicker autoOpen compact value={item.dueDate || ""} onChange={v => { commitEdit(item.id, "dueDate", v || null); setGridCell(null); }} onClose={() => setGridCell(null)} style={{ width: "100%" }} />
                   : level === 0 && item.dueDate
                     ? <span style={{ color: item.dueDate < TD ? "#ef4444" : item.dueDate <= addD(TD, 3) ? "#f59e0b" : T.textSec, fontWeight: item.dueDate < TD ? 700 : 400 }}>{fm(item.dueDate)}{item.dueDate < TD && " !"}</span>
                     : <span style={{ color: T.textDim }}>—</span>}
@@ -12011,7 +12013,7 @@ ${jobsCtx || "No jobs found."}`;
             {ed.isReschedule && !scheduleConfirmed && <div style={{ display:"flex", alignItems:"flex-end", gap:12, marginBottom:16, padding:"12px 16px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm }}>
               <div style={{ flex:1 }}>
                 <label style={{ display:"block", fontSize:11, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>New Start Date</label>
-                <input type="date" value={ed._rescheduleStartDate||TD} onChange={e => setEd(p => ({...p,_rescheduleStartDate:e.target.value}))} style={{ width:"100%", padding:"8px 12px", borderRadius:T.radiusSm, border:`1px solid ${T.glassBorder}`, background:T.glass, color:T.text, fontSize:13, fontFamily:T.font, outline:"none", colorScheme:T.colorScheme, boxSizing:"border-box" }} />
+                <TraqsDatePicker compact value={ed._rescheduleStartDate||TD} onChange={v => setEd(p => ({...p,_rescheduleStartDate:v}))} />
               </div>
               <button disabled={aiLoading} onClick={() => { setAiSuggestion(null); suggestSchedule(); }} style={{ padding:"9px 22px", borderRadius:T.radiusSm, border:"none", background:T.accent, color:T.accentText, fontSize:13, fontWeight:700, cursor:aiLoading?"not-allowed":"pointer", fontFamily:T.font, flexShrink:0, opacity:aiLoading?0.5:1, whiteSpace:"nowrap" }}>{aiLoading?"Checking…":"Reassign"}</button>
             </div>}
@@ -12113,9 +12115,9 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ display:"flex", alignItems:"flex-end", gap:10, flexWrap:"wrap" }}>
                           <div>
                             <div style={{ fontSize:10, color:T.textDim, marginBottom:4, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.06em" }}>New Start Date</div>
-                            <input type="date" value={overrideDate[panel.id]||""} min={TD}
-                              onChange={e=>{ setOverrideError(prev=>({...prev,[panel.id]:null})); setOverrideDate(prev=>({...prev,[panel.id]:e.target.value})); }}
-                              style={{ padding:"6px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, cursor:"pointer" }}
+                            <TraqsDatePicker compact value={overrideDate[panel.id]||""} min={TD}
+                              onChange={v=>{ setOverrideError(prev=>({...prev,[panel.id]:null})); setOverrideDate(prev=>({...prev,[panel.id]:v})); }}
+                              style={{ minWidth: 180 }}
                             />
                           </div>
                           <button
@@ -13563,7 +13565,7 @@ ${jobsCtx || "No jobs found."}`;
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Holidays</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-              <input type="date" value={holidayInput} onChange={e => setHolidayInput(e.target.value)} style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
+              <TraqsDatePicker compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
               <button onClick={() => { if (!holidayInput || orgSettings.holidays.includes(holidayInput)) return; setOrgSettings(s => ({ ...s, holidays: [...s.holidays, holidayInput].sort() })); setHolidayInput(""); }} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Add</button>
             </div>
             {orgSettings.holidays.length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No holidays added</div>}
@@ -14217,9 +14219,9 @@ ${jobsCtx || "No jobs found."}`;
                         <input value={j.jobNumber} onChange={e => _setJob(j._id, { jobNumber: e.target.value })} placeholder="Job #" style={{ ...inpStyle, width: 110, fontFamily: T.mono, fontSize: 12 }} />
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 8, marginBottom: 8 }}>
-                        <div><div style={labelStyle}>Start</div><input type="date" value={j.start} onChange={e => _setJob(j._id, { start: e.target.value })} style={{ ...inpStyle, width: "100%" }} /></div>
-                        <div><div style={labelStyle}>End</div><input type="date" value={j.end} onChange={e => _setJob(j._id, { end: e.target.value })} style={{ ...inpStyle, width: "100%" }} /></div>
-                        <div><div style={labelStyle}>Due</div><input type="date" value={j.dueDate} onChange={e => _setJob(j._id, { dueDate: e.target.value })} style={{ ...inpStyle, width: "100%" }} /></div>
+                        <div><div style={labelStyle}>Start</div><TraqsDatePicker compact value={j.start} onChange={v => _setJob(j._id, { start: v })} /></div>
+                        <div><div style={labelStyle}>End</div><TraqsDatePicker compact value={j.end} onChange={v => _setJob(j._id, { end: v })} /></div>
+                        <div><div style={labelStyle}>Due</div><TraqsDatePicker compact value={j.dueDate} onChange={v => _setJob(j._id, { dueDate: v })} /></div>
                         <div><div style={labelStyle}>PO #</div><input value={j.poNumber} onChange={e => _setJob(j._id, { poNumber: e.target.value })} style={{ ...inpStyle, width: "100%" }} /></div>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -14725,13 +14727,11 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10, color: T.textDim, marginBottom: 4, fontWeight: 600 }}>START</div>
-            <input type="date" value={quickAddSub.start} onChange={e => setQuickAddSub(p => ({ ...p, start: e.target.value }))}
-              style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+            <TraqsDatePicker compact value={quickAddSub.start} onChange={v => setQuickAddSub(p => ({ ...p, start: v }))} />
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10, color: T.textDim, marginBottom: 4, fontWeight: 600 }}>END</div>
-            <input type="date" value={quickAddSub.end} onChange={e => setQuickAddSub(p => ({ ...p, end: e.target.value }))}
-              style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+            <TraqsDatePicker compact value={quickAddSub.end} onChange={v => setQuickAddSub(p => ({ ...p, end: v }))} />
           </div>
         </div>
         {/* People picker */}
@@ -14872,8 +14872,8 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {(ed.timeOff || []).length === 0 && <div style={{ padding: 16, textAlign: "center", fontSize: 13, color: T.textDim, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>No time off scheduled</div>}
             {(ed.timeOff || []).map((to, i) => <div key={i} style={{ display: "flex", gap: 10, alignItems: "end", marginBottom: 10, padding: 12, background: T.surface, borderRadius: T.radiusSm, border: "1px solid #a78bfa22" }}>
-              <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>From</label><input type="date" value={to.start} onChange={e => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], start: e.target.value }; setEd(p => ({ ...p, timeOff: nto })); }} style={{ colorScheme: T.colorScheme, width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} /></div>
-              <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>To</label><input type="date" value={to.end} onChange={e => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], end: e.target.value }; setEd(p => ({ ...p, timeOff: nto })); }} style={{ colorScheme: T.colorScheme, width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} /></div>
+              <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>From</label><TraqsDatePicker compact value={to.start} onChange={v => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], start: v }; setEd(p => ({ ...p, timeOff: nto })); }} /></div>
+              <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>To</label><TraqsDatePicker compact value={to.end} onChange={v => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], end: v }; setEd(p => ({ ...p, timeOff: nto })); }} /></div>
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Reason</label><input value={to.reason} onChange={e => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], reason: e.target.value }; setEd(p => ({ ...p, timeOff: nto })); }} placeholder="Vacation, Sick..." style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} /></div>
               <Btn variant="danger" size="sm" onClick={() => { const nto = ed.timeOff.filter((_, j) => j !== i); setEd(p => ({ ...p, timeOff: nto })); }}>✕</Btn>
             </div>)}
@@ -14916,11 +14916,11 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
           <div style={{ flex: 1 }}>
             <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>From</label>
-            <input type="date" value={timeOffEdit.start} onChange={e => setTimeOffEdit(p => ({ ...p, start: e.target.value }))} style={{ colorScheme: T.colorScheme, width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
+            <TraqsDatePicker value={timeOffEdit.start} onChange={v => setTimeOffEdit(p => ({ ...p, start: v }))} />
           </div>
           <div style={{ flex: 1 }}>
             <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>To</label>
-            <input type="date" value={timeOffEdit.end} onChange={e => setTimeOffEdit(p => ({ ...p, end: e.target.value }))} style={{ colorScheme: T.colorScheme, width: "100%", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
+            <TraqsDatePicker value={timeOffEdit.end} onChange={v => setTimeOffEdit(p => ({ ...p, end: v }))} />
           </div>
         </div>
         <div style={{ marginBottom: 20 }}>
@@ -15179,13 +15179,11 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Start Date</div>
-              <input type="date" value={newStart} onChange={e => setRescheduleModal(p => ({ ...p, newStart: e.target.value }))}
-                style={{ width: "100%", padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+              <TraqsDatePicker compact value={newStart} onChange={v => setRescheduleModal(p => ({ ...p, newStart: v }))} />
             </div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>End Date</div>
-              <input type="date" value={newEnd} onChange={e => setRescheduleModal(p => ({ ...p, newEnd: e.target.value }))}
-                style={{ width: "100%", padding: "9px 12px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+              <TraqsDatePicker compact value={newEnd} onChange={v => setRescheduleModal(p => ({ ...p, newEnd: v }))} />
             </div>
           </div>
 
@@ -15748,11 +15746,11 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
         <div style={{ flex: 1, minWidth: 140 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Start Date</label>
-          <input type="date" value={aS} onChange={e => { setAS(e.target.value); setSelectedPerson(null); }} style={{ colorScheme: T.colorScheme, width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
+          <TraqsDatePicker value={aS} onChange={v => { setAS(v); setSelectedPerson(null); }} />
         </div>
         <div style={{ flex: 1, minWidth: 140 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>End Date</label>
-          <input type="date" value={aE} onChange={e => { setAE(e.target.value); setSelectedPerson(null); }} style={{ colorScheme: T.colorScheme, width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
+          <TraqsDatePicker value={aE} onChange={v => { setAE(v); setSelectedPerson(null); }} />
         </div>
         <div style={{ minWidth: 120 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Hrs/Day</label>
@@ -15857,11 +15855,11 @@ function TimeOffModal({ people, updPerson, onClose }) {
         <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 130 }}>
             <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>From</label>
-            <input type="date" value={toStart} onChange={e => setToStart(e.target.value)} style={{ colorScheme: T.colorScheme, width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
+            <TraqsDatePicker compact value={toStart} onChange={v => setToStart(v)} />
           </div>
           <div style={{ flex: 1, minWidth: 130 }}>
             <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>To</label>
-            <input type="date" value={toEnd} onChange={e => setToEnd(e.target.value)} style={{ colorScheme: T.colorScheme, width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
+            <TraqsDatePicker compact value={toEnd} onChange={v => setToEnd(v)} />
           </div>
         </div>
         <div style={{ marginBottom: 12 }}>
