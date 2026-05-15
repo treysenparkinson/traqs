@@ -4445,7 +4445,7 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ display: "flex", marginBottom: isMobile ? 10 : 20, alignItems: "center", position: "relative", minHeight: 44 }}>
         {/* Left: Today + Day/Week/Month + navigation */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Btn variant="ghost" size="sm" onClick={() => {
+          <Btn variant="primary" size="sm" style={{ boxShadow: `0 0 0 1px ${T.accent}55, 0 2px 10px ${T.accent}55` }} onClick={() => {
             const span = diffD(gStart, gEnd); const half = Math.floor(span / 2); setGStart(addD(TD, -half)); setGEnd(addD(TD, span - half));
           }}>Today</Btn>
           <SlidingPill
@@ -4898,9 +4898,9 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               );
             })}
-            {/* Today line */}
+            {/* Today line — faint */}
             {TD >= gStart && TD <= gEnd && (
-              <div style={{ position: "absolute", top: 0, bottom: 0, left: dToX(TD) + cW / 2, width: 2, background: T.accent + "bb", pointerEvents: "none", zIndex: 4 }} />
+              <div style={{ position: "absolute", top: 0, bottom: 0, left: dToX(TD) + cW / 2, width: 1, background: T.accent + "33", pointerEvents: "none", zIndex: 4 }} />
             )}
           </div>
         </div>
@@ -6620,7 +6620,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>}
         <div style={{ position: isAdmin ? "absolute" : "relative", left: isAdmin ? "50%" : "auto", transform: isAdmin ? "translateX(-50%)" : "none", display: "flex", gap: 12, alignItems: "center" }}>
-          <Btn variant="ghost" size="sm" onClick={() => {
+          <Btn variant="primary" size="sm" style={{ boxShadow: `0 0 0 1px ${T.accent}55, 0 2px 10px ${T.accent}55` }} onClick={() => {
             if (tMode === "day") { setTStart(TD); setTEnd(TD); }
             else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
           }}>Today</Btn>
@@ -8121,8 +8121,8 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>;
           })}
-          {/* Today line */}
-          {TD >= tStart && TD <= tEnd && <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(diffD(tStart, TD) + 0.5) / days.length})`, width: 2, background: T.accent + "bb", zIndex: 12, pointerEvents: "none" }} />}
+          {/* Today line — faint */}
+          {TD >= tStart && TD <= tEnd && <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(diffD(tStart, TD) + 0.5) / days.length})`, width: 1, background: T.accent + "33", zIndex: 12, pointerEvents: "none" }} />}
         </div>
       </div>
       </div>}
