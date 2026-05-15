@@ -431,8 +431,8 @@ animStyle.textContent = `
   100% { opacity: 1; transform: translateY(0)    scale(1);    filter: blur(0);   }
 }
 @keyframes fadeOutDrop {
-  0%   { opacity: 1; transform: translateY(0)    scale(1);    }
-  100% { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
 }
 @keyframes panelDropIn {
   0%   { opacity: 0; transform: translateY(-7px); max-height: 0;    border-width: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; overflow: hidden; }
