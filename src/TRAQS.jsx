@@ -651,32 +651,28 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
 // during a close suppresses the entry animation so the dropdown doesn't visibly restart.
 const FadeOnClose = ({ open, children, duration = 180 }) => {
   const [mounted, setMounted] = useState(!!open);
-  const [closing, setClosing] = useState(false);
   const [suppressEntry, setSuppressEntry] = useState(false);
   const stableRef = useRef(children);
   const prevOpen = useRef(!!open);
-  const closingRef = useRef(false);
-  closingRef.current = closing;
   if (open && children) stableRef.current = children;
-  useEffect(() => {
+  useLayoutEffect(() => {
     let t;
     if (open && !prevOpen.current) {
-      const wasClosing = closingRef.current;
+      if (mounted) setSuppressEntry(true); else setSuppressEntry(false);
       setMounted(true);
-      setClosing(false);
-      setSuppressEntry(wasClosing);
     } else if (!open && prevOpen.current && mounted) {
       setSuppressEntry(false);
-      setClosing(true);
-      t = setTimeout(() => { setMounted(false); setClosing(false); setSuppressEntry(false); }, duration);
+      t = setTimeout(() => { setMounted(false); setSuppressEntry(false); }, duration);
     }
     prevOpen.current = !!open;
     return () => { if (t) clearTimeout(t); };
   }, [open, mounted, duration]);
   if (!mounted) return null;
-  const kids = closing ? stableRef.current : children;
+  // While mounted but !open, render the snapshot — `children` may already be falsy
+  // because a conditional like `{state && <div/>}` has short-circuited.
+  const kids = open ? children : stableRef.current;
   if (!kids) return null;
-  if (closing) {
+  if (!open) {
     return cloneElement(kids, {
       style: { ...(kids.props.style || {}), animation: `fadeOutDrop ${duration}ms ease-out both`, pointerEvents: "none" },
     });
