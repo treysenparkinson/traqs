@@ -6986,9 +6986,26 @@ ${jobsCtx || "No jobs found."}`;
                   }
                   (groupSnaps || []).forEach(gs => {
                     if ((gs.personIds || []).includes(p.id)) {
-                      const snapX = (diffD(tStart, gs.snapStart) / nDays * 100);
-                      const gw = (Math.max(diffD(gs.snapStart, gs.snapEnd) + 1, 1) / nDays * 100) + "%";
-                      ghosts.push(<div key={`ghost-grp-${gs.id}`} style={{ position: "absolute", top: 4, left: `calc(${snapX}% + 2px)`, width: `calc(${gw} - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                      const _gsDropHour = gs.dropHour ?? workStartH;
+                      const _gsOffH = Math.max(0, _gsDropHour - workStartH);
+                      const _gsOneDayW = 1 / nDays * 100;
+                      const _gsHourOffW = (_gsOffH / totalWorkH) * _gsOneDayW;
+                      const _gsHpd = gs.barHpd || 0;
+                      const _gsWBudget = _gsHpd > 0 ? Math.max(0.03 / nDays * 100, (_gsHpd / productiveHoursPerDay) / nDays * 100) : (Math.max(diffD(gs.snapStart, gs.snapEnd) + 1, 1) / nDays * 100);
+                      const _gsSegs = weekdaySegments(gs.snapStart, gs.snapEnd, tStart, tEnd, orgSettings.workDays);
+                      let _gsWRemaining = _gsWBudget;
+                      _gsSegs.forEach((seg, gi) => {
+                        const isFirst = gi === 0;
+                        const isLast = gi === _gsSegs.length - 1;
+                        const _segIdx = days.indexOf(seg.start);
+                        const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _gsHourOffW : 0);
+                        const _segEndIdx = days.indexOf(seg.end);
+                        const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
+                        const _segAvailW = _segRightPct - segLeft;
+                        const segW = isLast ? Math.max(0, _gsWRemaining) : Math.max(0.5, Math.min(_gsWRemaining, _segAvailW));
+                        _gsWRemaining = Math.max(0, _gsWRemaining - segW);
+                        ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                      });
                     }
                   });
                   return ghosts.length ? <>{ghosts}</> : null;
@@ -7114,10 +7131,10 @@ ${jobsCtx || "No jobs found."}`;
                         for (const job of tasks) {
                           for (const panel of (job.subs || [])) {
                             const op = (panel.subs || []).find(o => o.id === id);
-                            if (op) { members.push({ id, origStart: op.start, origEnd: op.end, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); return; }
+                            if (op) { members.push({ id, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); return; }
                           }
                           const panel = (job.subs || []).find(s => s.id === id);
-                          if (panel) { members.push({ id, origStart: panel.start, origEnd: panel.end, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [] }); return; }
+                          if (panel) { members.push({ id, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [] }); return; }
                         }
                       });
                       return members;
@@ -7221,10 +7238,23 @@ ${jobsCtx || "No jobs found."}`;
                           setTeamDragInfo(prev => {
                             if (!prev) return prev;
                             // Recompute dep-group ghost positions so they don't lag the dragged bar during auto-scroll.
+                            const _osH2 = bar.task?.startHour ?? workStartH;
+                            const _hourDelta2 = (prev.dropHour ?? _osH2) - _osH2;
                             const groupSnaps2 = (isGroupDrag && depsMode !== "unlocked" ? groupMembers : []).map(m => {
                               const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
-                              const mSnap = addBD(snapS2, _mOffset, barBDOpts);
-                              return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, m.wdDur - 1, barBDOpts), wdDur: m.wdDur, color: bar.color, dropHour: prev.dropHour };
+                              let mSnap = addBD(snapS2, _mOffset, barBDOpts);
+                              let mHour = (m.origStartHour ?? workStartH) + _hourDelta2;
+                              while (mHour >= workEndH) { mHour -= totalWorkH; mSnap = addBD(mSnap, 1, barBDOpts); }
+                              while (mHour < workStartH) { mHour += totalWorkH; mSnap = addBD(mSnap, -1, barBDOpts); }
+                              const mDropHour = Math.round(mHour * 2) / 2;
+                              const _mTeamSz = Math.max(1, (m.personIds || []).length);
+                              const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
+                              const _mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
+                              const _mFirstAvailH = workEndH - mDropHour;
+                              let _mVDays;
+                              if (_mTotalClockH <= _mFirstAvailH) _mVDays = 1;
+                              else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
+                              return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
                             });
                             return { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2, groupSnaps: groupSnaps2 };
                           });
@@ -7292,12 +7322,25 @@ ${jobsCtx || "No jobs found."}`;
                       const _liveVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_dropProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
                       let snapE = addBD(snapS, _liveVWD - 1, barBDOpts);
                       // Group member ghost positions — locked moves all together; free/unlocked moves only dragged task
+                      const _osH = bar.task?.startHour ?? workStartH;
+                      const _hourDelta = (dropHour ?? _osH) - _osH;
                       const groupSnaps = [
                         ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
                       ].map(m => {
                         const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
-                        const mSnap = addBD(snapS, _mOffset, barBDOpts);
-                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, m.wdDur - 1, barBDOpts), wdDur: m.wdDur, color: bar.color, dropHour };
+                        let mSnap = addBD(snapS, _mOffset, barBDOpts);
+                        let mHour = (m.origStartHour ?? workStartH) + _hourDelta;
+                        while (mHour >= workEndH) { mHour -= totalWorkH; mSnap = addBD(mSnap, 1, barBDOpts); }
+                        while (mHour < workStartH) { mHour += totalWorkH; mSnap = addBD(mSnap, -1, barBDOpts); }
+                        const mDropHour = Math.round(mHour * 2) / 2;
+                        const _mTeamSz = Math.max(1, (m.personIds || []).length);
+                        const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
+                        const _mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
+                        const _mFirstAvailH = workEndH - mDropHour;
+                        let _mVDays;
+                        if (_mTotalClockH <= _mFirstAvailH) _mVDays = 1;
+                        else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
+                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
                       });
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
@@ -7520,10 +7563,28 @@ ${jobsCtx || "No jobs found."}`;
                         }
                         const _endHour = Math.round(_rawEndH * 2) / 2;
                         const _mWdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
+                        const osH = bar.task.startHour ?? workStartH;
+                        const _hourDelta = finalHour - osH;
                         const groupMonthMoves = (isGroupDrag && depsMode === "locked") ? groupMembers.map(m => {
-                          const mNewStart = addBD(m.origStart, _mWdDelta);
-                          const mNewEnd = countWorkingDays(mNewStart, m.wdDur);
-                          return { id: m.id, newStart: mNewStart, newEnd: mNewEnd };
+                          let mStartDay = addBD(m.origStart, _mWdDelta);
+                          let mStartH = m.origStartHour + _hourDelta;
+                          while (mStartH >= workEndH) { mStartH -= totalWorkH; mStartDay = addBD(mStartDay, 1); }
+                          while (mStartH < workStartH) { mStartH += totalWorkH; mStartDay = addBD(mStartDay, -1); }
+                          const mStartHour = Math.round(mStartH * 2) / 2;
+                          const mTotalClockH = productiveHoursPerDay > 0 ? ((m.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
+                          const mFirstAvailH = workEndH - mStartHour;
+                          let mNewEnd = mStartDay;
+                          if (mTotalClockH > mFirstAvailH) {
+                            let rem = mTotalClockH - mFirstAvailH;
+                            let day = mStartDay;
+                            while (rem > totalWorkH) { rem -= totalWorkH; day = addBD(day, 1); }
+                            mNewEnd = addBD(day, 1);
+                          }
+                          let mRawEndH;
+                          if (mTotalClockH <= mFirstAvailH) mRawEndH = mStartHour + mTotalClockH;
+                          else { let rem = mTotalClockH - mFirstAvailH; while (rem > totalWorkH) rem -= totalWorkH; mRawEndH = workStartH + rem; }
+                          const mEndHour = Math.round(mRawEndH * 2) / 2;
+                          return { id: m.id, newStart: mStartDay, newEnd: mNewEnd, newStartHour: mStartHour, newEndHour: mEndHour };
                         }) : [];
                         setTasks(prev => {
                           const next = prev.map(job => ({
@@ -7535,7 +7596,7 @@ ${jobsCtx || "No jobs found."}`;
                                   return { ...op, start: effStart, end: _newEnd, startHour: finalHour, endHour: _endHour, ...(lastDropPid && lastDropPid !== origPerson ? { team: (op.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}) };
                                 }
                                 const gm = groupMonthMoves.find(m => m.id === op.id);
-                                if (gm) return { ...op, start: gm.newStart, end: gm.newEnd, startHour: finalHour };
+                                if (gm) return { ...op, start: gm.newStart, end: gm.newEnd, startHour: gm.newStartHour, endHour: gm.newEndHour };
                                 return op;
                               })
                             }))
