@@ -6329,6 +6329,38 @@ ${jobsCtx || "No jobs found."}`;
     // Get tasks for a person within visible range — parent tasks only
     const getPersonBars = (pid) => {
       const bars = [];
+      // Mirrors _segsEnd in the team-view bar render so the visibility filter and the
+      // visual bar end stay in sync — bars whose hpd extends past op.end stay in view until
+      // their true visual end pans off the left.
+      const _visualEnd = (op) => {
+        if (!op || !op.start || !op.end) return op?.end;
+        const teamSz = Math.max(1, (op.team || []).length);
+        const hpd = (op.hpd || 0) > 0 ? op.hpd / teamSz : productiveHoursPerDay;
+        const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+        const startH = op.startHour ?? workStartH;
+        const isHourPos = (tMode === "month" || tMode === "week") && op.startHour != null && op.startHour > workStartH;
+        if (op.start !== op.end) {
+          let wdays;
+          if (!isHourPos) {
+            wdays = Math.max(1, Math.ceil(hpd / productiveHoursPerDay));
+          } else {
+            const vClockH = productiveHoursPerDay > 0 ? (hpd / productiveHoursPerDay) * totalWorkH : 0;
+            const vFirstAvailH = workEndH - startH;
+            if (vClockH <= vFirstAvailH) wdays = 1;
+            else {
+              let rem = vClockH - vFirstAvailH; wdays = 1;
+              while (rem > totalWorkH) { rem -= totalWorkH; wdays++; }
+              wdays += 1;
+            }
+          }
+          return addBD(op.start, wdays - 1, bdOpts);
+        }
+        const isSingleDayPartial = (tMode === "month" || tMode === "week") && hpd <= productiveHoursPerDay;
+        const offsetH = startH - workStartH;
+        const clockH = (hpd / productiveHoursPerDay) * totalWorkH;
+        const overflowWeekend = isSingleDayPartial && isHourPos && (offsetH + clockH) > totalWorkH && !isWorkDay(addD(op.end, 1), orgSettings.workDays);
+        return overflowWeekend ? addBD(op.end, 1, bdOpts) : op.end;
+      };
       // PTO bars
       const person = people.find(x => x.id === pid);
       if (person) (person.timeOff || []).forEach((to, i) => {
@@ -6343,7 +6375,7 @@ ${jobsCtx || "No jobs found."}`;
             (panel.subs || []).forEach(op => {
               if (!(op.team || []).includes(pid)) return;
               if (op.status === "Finished") return;
-              if (!op.start || !op.end || op.end < tStart || op.start > tEnd) return;
+              if (!op.start || !op.end || _visualEnd(op) < tStart || op.start > tEnd) return;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
               const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
@@ -6351,7 +6383,7 @@ ${jobsCtx || "No jobs found."}`;
             });
             // Panel with no sub-ops: render the panel itself so it appears on the schedule
             if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
-              if (panel.end >= tStart && panel.start <= tEnd) {
+              if (_visualEnd(panel) >= tStart && panel.start <= tEnd) {
                 const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
                 const tc = panel.color || "#94a3b8";
                 bars.push({ type: "task", id: panel.id, start: panel.start, end: panel.end, title: `${job.title} · ${panel.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
@@ -6363,7 +6395,7 @@ ${jobsCtx || "No jobs found."}`;
           (job.subs || []).forEach(sub => {
             if (!(sub.team || []).includes(pid)) return;
             if (sub.status === "Finished") return;
-            if (!sub.start || !sub.end || sub.end < tStart || sub.start > tEnd) return;
+            if (!sub.start || !sub.end || _visualEnd(sub) < tStart || sub.start > tEnd) return;
             const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
             const tc = sub.color || "#94a3b8";
             bars.push({ type: "task", id: sub.id, start: sub.start, end: sub.end, title: `${job.title} · ${sub.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
