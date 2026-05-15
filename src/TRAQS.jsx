@@ -14586,10 +14586,22 @@ ${jobsCtx || "No jobs found."}`;
               <Btn variant="danger" size="sm" onClick={() => { const nto = ed.timeOff.filter((_, j) => j !== i); setEd(p => ({ ...p, timeOff: nto })); }}>✕</Btn>
             </div>)}
           </div>
-          <div style={{ display: "flex", gap: 12, justifyContent: "space-between" }}>
-            <div>{ed.id && <Btn variant="danger" onClick={() => { delPerson(ed.id); setPersonModal(null); }}>Delete Member</Btn>}</div>
-            <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={() => setPersonModal(null)}>Cancel</Btn><Btn onClick={() => savePerson(ed)}>Save</Btn></div>
-          </div>
+          {(() => {
+            const missingName = !ed.name?.trim();
+            const missingEmail = !ed.email?.trim();
+            const invalid = missingName || missingEmail;
+            const msg = missingName && missingEmail ? "Name and email are required to save."
+              : missingName ? "Name is required to save."
+              : missingEmail ? "Email is required to save."
+              : "";
+            return <>
+              {invalid && <div style={{ marginBottom: 10, padding: "8px 12px", background: T.danger + "12", border: `1px solid ${T.danger}44`, borderRadius: T.radiusXs, fontSize: 12, color: T.danger, fontWeight: 500 }}>{msg}</div>}
+              <div style={{ display: "flex", gap: 12, justifyContent: "space-between" }}>
+                <div>{ed.id && <Btn variant="danger" onClick={() => { delPerson(ed.id); setPersonModal(null); }}>Delete Member</Btn>}</div>
+                <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={() => setPersonModal(null)}>Cancel</Btn><Btn onClick={() => savePerson(ed)} disabled={invalid}>Save</Btn></div>
+              </div>
+            </>;
+          })()}
         </div>
       </div>;
     })()}
