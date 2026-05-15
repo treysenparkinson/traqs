@@ -647,21 +647,28 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
 };
 // Wrapper that keeps a dropdown mounted long enough to fade out cleanly after `open` toggles false.
 // Retains a snapshot of children during the fade so dropdowns driven by object state
-// (e.g. {x, y, ...} that gets set to null on close) don't crash mid-animation.
+// (e.g. {x, y, ...} that gets set to null on close) don't crash mid-animation. Re-opening
+// during a close suppresses the entry animation so the dropdown doesn't visibly restart.
 const FadeOnClose = ({ open, children, duration = 180 }) => {
   const [mounted, setMounted] = useState(!!open);
   const [closing, setClosing] = useState(false);
+  const [suppressEntry, setSuppressEntry] = useState(false);
   const stableRef = useRef(children);
   const prevOpen = useRef(!!open);
+  const closingRef = useRef(false);
+  closingRef.current = closing;
   if (open && children) stableRef.current = children;
   useEffect(() => {
     let t;
     if (open && !prevOpen.current) {
+      const wasClosing = closingRef.current;
       setMounted(true);
       setClosing(false);
+      setSuppressEntry(wasClosing);
     } else if (!open && prevOpen.current && mounted) {
+      setSuppressEntry(false);
       setClosing(true);
-      t = setTimeout(() => { setMounted(false); setClosing(false); }, duration);
+      t = setTimeout(() => { setMounted(false); setClosing(false); setSuppressEntry(false); }, duration);
     }
     prevOpen.current = !!open;
     return () => { if (t) clearTimeout(t); };
@@ -669,10 +676,17 @@ const FadeOnClose = ({ open, children, duration = 180 }) => {
   if (!mounted) return null;
   const kids = closing ? stableRef.current : children;
   if (!kids) return null;
-  if (!closing) return kids;
-  return cloneElement(kids, {
-    style: { ...(kids.props.style || {}), animation: `fadeOutDrop ${duration}ms ease-out both`, pointerEvents: "none" },
-  });
+  if (closing) {
+    return cloneElement(kids, {
+      style: { ...(kids.props.style || {}), animation: `fadeOutDrop ${duration}ms ease-out both`, pointerEvents: "none" },
+    });
+  }
+  if (suppressEntry) {
+    return cloneElement(kids, {
+      style: { ...(kids.props.style || {}), animation: "none" },
+    });
+  }
+  return kids;
 };
 // TRAQS-styled date picker — custom calendar popover with month nav and Today/Clear shortcuts.
 const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", id, required = false, compact = false, min, style: extraStyle, autoOpen = false, onClose }) => {
