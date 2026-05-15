@@ -1697,30 +1697,6 @@ Extraction rules:
   const [clientsSettingsOpen, setClientsSettingsOpen] = useState(false);
   const [usersOpen, setUsersOpen] = useState(false);
   const [settingsUser, setSettingsUser] = useState(null);
-  const [closingSettingsUserId, setClosingSettingsUserId] = useState(null);
-  const toggleSettingsUser = useCallback((id, isAdmin) => {
-    if (!isAdmin) return;
-    setSettingsUser(prev => {
-      if (prev === id) {
-        // Same user — collapse with animation
-        setClosingSettingsUserId(id);
-        setTimeout(() => {
-          setSettingsUser(p => (p === id ? null : p));
-          setClosingSettingsUserId(p => (p === id ? null : p));
-        }, 280);
-        return prev;
-      }
-      if (prev) {
-        // Switching — animate the old one closed, then open the new one
-        const oldId = prev;
-        setClosingSettingsUserId(oldId);
-        setTimeout(() => {
-          setClosingSettingsUserId(p => (p === oldId ? null : p));
-        }, 280);
-      }
-      return id;
-    });
-  }, []);
   const [tagInputs, setTagInputs] = useState({}); // keyed by person.id
   const [pinDrafts, setPinDrafts] = useState({}); // keyed by person.id — PIN edits in User Permissions modal
   const [pinSaving, setPinSaving] = useState({}); // keyed by person.id
@@ -13948,7 +13924,7 @@ ${jobsCtx || "No jobs found."}`;
                 const togglePerm = (key, val) => { if (!isAdmin) return; updPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } }); };
                 return <div key={person.id}>
                   {/* Person row */}
-                  <div onClick={() => toggleSettingsUser(person.id, isAdmin)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: isAdmin ? "pointer" : "default", transition: "all 0.15s" }}>
+                  <div onClick={() => isAdmin && setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: isAdmin ? "pointer" : "default", transition: "all 0.15s" }}>
                     <div style={{ width: 34, height: 34, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
@@ -13961,8 +13937,10 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                     <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
                   </div>
-                  {/* Expanded permissions */}
-                  {(isSelected || closingSettingsUserId === person.id) && <div style={{ margin: "2px 0 4px", padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10, animation: closingSettingsUserId === person.id ? "panelDropOut 0.28s ease-in both" : "panelDropIn 0.22s ease-out both" }}>
+                  {/* Expanded permissions — grid-template-rows transition naturally collapses to content height */}
+                  <div style={{ display: "grid", gridTemplateRows: isSelected ? "1fr" : "0fr", transition: "grid-template-rows 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, margin 0.28s cubic-bezier(0.22,1,0.36,1)", opacity: isSelected ? 1 : 0, margin: isSelected ? "2px 0 4px" : "0", pointerEvents: isSelected ? "auto" : "none" }}>
+                    <div style={{ overflow: "hidden", minHeight: 0 }}>
+                  <div style={{ padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
                     {/* Admin toggle — only admins can see/change this */}
                     {isAdmin && <div onClick={() => updPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
                       <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
@@ -14051,7 +14029,9 @@ ${jobsCtx || "No jobs found."}`;
                       );
                     })()}
 
-                  </div>}
+                  </div>
+                    </div>
+                  </div>
                 </div>;
               })}
             </div>
