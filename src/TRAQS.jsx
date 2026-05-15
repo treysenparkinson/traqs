@@ -2578,6 +2578,15 @@ Extraction rules:
     setOverlapError({ message: "Locked Job Error", details });
   }, []);
 
+  // Show unlocked-dependency overlap error
+  const showDepSiblingError = useCallback((sibling) => {
+    const label = sibling?.opTitle ? `"${sibling.opTitle}${sibling.panelTitle ? ` – ${sibling.panelTitle}` : ""}"` : "another task in this dependency group";
+    setOverlapError({
+      message: "Unlocked Dependency Conflict",
+      details: [`This task overlaps ${label}. Tasks in an unlocked dependency cannot share time — move it before or after its sibling.`]
+    });
+  }, []);
+
   // Preview what ops would be pushed if we move an op to new dates (pure, does NOT apply changes)
   const previewPush = (taskList, movedOpId, personId, newStart, newEnd, excludeOpIds = null) => {
     const allOps = [];
@@ -7010,6 +7019,22 @@ ${jobsCtx || "No jobs found."}`;
                   });
                   return ghosts.length ? <>{ghosts}</> : null;
                 })()}
+                {/* Dep-group snap connector — thin accent line shown only when ghost is snapped flush to a sibling */}
+                {teamDragInfo?.snapConnector && (() => {
+                  const sc = teamDragInfo.snapConnector;
+                  if (sc.ghostPersonId == null || sc.siblingPersonId == null) return null;
+                  const ghostIdx = rowList.findIndex(r => r.type === "person" && r.person?.id === sc.ghostPersonId);
+                  const sibIdx = rowList.findIndex(r => r.type === "person" && r.person?.id === sc.siblingPersonId);
+                  if (ghostIdx < 0 || sibIdx < 0) return null;
+                  const minIdx = Math.min(ghostIdx, sibIdx);
+                  const maxIdx = Math.max(ghostIdx, sibIdx);
+                  if (ri < minIdx || ri > maxIdx) return null;
+                  const _bdIdx = days.indexOf(sc.boundaryDay);
+                  if (_bdIdx < 0) return null;
+                  const _hourOff = ((sc.boundaryHour ?? workStartH) - workStartH) / totalWorkH;
+                  const _bdX = (_bdIdx + _hourOff) / days.length * 100;
+                  return <div style={{ position: "absolute", left: `${_bdX}%`, top: 0, bottom: 0, width: 1, background: T.accent, opacity: 0.55, pointerEvents: "none", zIndex: 38, boxShadow: `0 0 4px ${T.accent}88` }} />;
+                })()}
                 {/* Task/PTO bars */}
                 {bars.map(bar => {
                   const nDays = days.length;
@@ -7154,7 +7179,8 @@ ${jobsCtx || "No jobs found."}`;
                       return "free";
                     })();
                     // Unlocked: find predecessor and successor by chronological order within the dep group
-                    let predecessorEnd = null, successorStart = null;
+                    let predecessorEnd = null, predecessorEndHour = null, predecessorId = null, predecessorPersonId = null;
+                    let successorStart = null, successorStartHour = null, successorId = null, successorPersonId = null;
                     if (depsMode === "unlocked" && isGroupDrag) {
                       let siblings = [];
                       for (const job of tasks) {
@@ -7171,7 +7197,13 @@ ${jobsCtx || "No jobs found."}`;
                       const predecessor = myIndex > 0 ? groupSiblings[myIndex - 1] : null;
                       const successor = myIndex < groupSiblings.length - 1 ? groupSiblings[myIndex + 1] : null;
                       predecessorEnd = predecessor ? predecessor.end : null;
+                      predecessorEndHour = predecessor ? (predecessor.endHour ?? workEndH) : null;
+                      predecessorId = predecessor ? predecessor.id : null;
+                      predecessorPersonId = predecessor ? (predecessor.team || [])[0] : null;
                       successorStart = successor ? successor.start : null;
+                      successorStartHour = successor ? (successor.startHour ?? workStartH) : null;
+                      successorId = successor ? successor.id : null;
+                      successorPersonId = successor ? (successor.team || [])[0] : null;
                     }
                     // Clamp helper: keeps a start date within unlocked dep boundaries
                     const clampUnlocked = (start, duration) => {
@@ -7233,7 +7265,6 @@ ${jobsCtx || "No jobs found."}`;
                           const pxDy2 = lastCY - sy;
                           const dx2 = Math.round(pxDx2 / liveCW);
                           let snapS2 = nextBD(addD(os, dx2), barBDOpts);
-                          if (depsMode === "unlocked" && isGroupDrag) snapS2 = clampUnlocked(snapS2, _visualWD);
                           const snapE2 = addBD(snapS2, _visualWD - 1, barBDOpts);
                           setTeamDragInfo(prev => {
                             if (!prev) return prev;
@@ -7316,8 +7347,46 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
-                      // Unlocked: clamp preview ghost to dep boundaries so bar physically stops at constraint
-                      if (depsMode === "unlocked" && isGroupDrag) snapS = clampUnlocked(snapS, _visualWD);
+                      // Unlocked: ghost tracks cursor freely past siblings. Overlap with a dep-group sibling
+                      // turns the ghost red (see overlap detection below) and rejects the drop.
+                      // Magnetic snap — when the cursor is within a small threshold of a sibling boundary
+                      // (on the safe side, before red), pull the ghost flush so tasks can be butted easily.
+                      let _snapConnector = null;
+                      if (depsMode === "unlocked" && isGroupDrag && dropHour !== null) {
+                        const _snapTh = 2; // working-hours of magnetism on each side of a sibling boundary
+                        const _phi = (d, h) => {
+                          const bdDiff = d >= os ? diffBD(os, d, barBDOpts) : -diffBD(d, os, barBDOpts);
+                          return bdDiff * totalWorkH + ((h ?? workStartH) - workStartH);
+                        };
+                        const _phiInv = (clock) => {
+                          const bdOff = Math.floor(clock / totalWorkH);
+                          const hrOff = clock - bdOff * totalWorkH;
+                          return { day: addBD(os, bdOff, barBDOpts), hour: Math.round((workStartH + hrOff) * 2) / 2 };
+                        };
+                        const _ghostClockH = productiveHoursPerDay > 0 ? (_dragBarHpd / productiveHoursPerDay) * totalWorkH : 0;
+                        const _phiStart = _phi(snapS, dropHour);
+                        const _phiEnd = _phiStart + _ghostClockH;
+                        let _didSnap = false;
+                        if (predecessorEnd !== null) {
+                          const _phiPredEnd = _phi(predecessorEnd, predecessorEndHour);
+                          const _delta = _phiStart - _phiPredEnd;
+                          if (_delta > 0 && _delta < _snapTh) {
+                            const _inv = _phiInv(_phiPredEnd);
+                            snapS = _inv.day; dropHour = _inv.hour;
+                            _didSnap = true;
+                            _snapConnector = { siblingId: predecessorId, siblingPersonId: predecessorPersonId, boundaryDay: predecessorEnd, boundaryHour: predecessorEndHour };
+                          }
+                        }
+                        if (!_didSnap && successorStart !== null) {
+                          const _phiSuccStart = _phi(successorStart, successorStartHour);
+                          const _delta = _phiSuccStart - _phiEnd;
+                          if (_delta > 0 && _delta < _snapTh) {
+                            const _inv = _phiInv(_phiStart + _delta);
+                            snapS = _inv.day; dropHour = _inv.hour;
+                            _snapConnector = { siblingId: successorId, siblingPersonId: successorPersonId, boundaryDay: successorStart, boundaryHour: successorStartHour };
+                          }
+                        }
+                      }
                       const _dropProdOff = dropHour != null ? Math.max(0, dropHour - workStartH) / totalWorkH * productiveHoursPerDay : 0;
                       const _liveVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_dropProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
                       let snapE = addBD(snapS, _liveVWD - 1, barBDOpts);
@@ -7411,6 +7480,27 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
+                      // Unlocked dep-group sibling overlap: a dragged bar must not overlap any sibling in its
+                      // dep group, regardless of which person each sibling is assigned to.
+                      if (!hasOverlap && depsMode === "unlocked" && isGroupDrag) {
+                        outerSib: for (const job of tasks) {
+                          for (const panel of (job.subs || [])) {
+                            for (const op of (panel.subs || [])) {
+                              if (!depGroupIds.has(op.id) || op.id === movingTaskId) continue;
+                              if (!op.start || !op.end) continue;
+                              const _v = _opVisual(op);
+                              const _opSH = op.startHour ?? workStartH;
+                              const _aBeforeB = (snapS < _v.endDate) || (snapS === _v.endDate && _ghostDH < _v.endHour);
+                              const _aAfterB = (_ghostED > op.start) || (_ghostED === op.start && _ghostEH > _opSH);
+                              if (_aBeforeB && _aAfterB) {
+                                hasOverlap = true;
+                                overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: _v.endDate, isDepSibling: true };
+                                break outerSib;
+                              }
+                            }
+                          }
+                        }
+                      }
                       if (snapS === null) return;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
@@ -7420,7 +7510,7 @@ ${jobsCtx || "No jobs found."}`;
                       const _movingBarIds = new Set();
                       if (isMultiDrag) multiDragMembers.forEach(m => _movingBarIds.add(m.id));
                       if (isGroupDrag && depsMode === "locked") groupMembers.forEach(m => _movingBarIds.add(m.id));
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
@@ -7435,8 +7525,8 @@ ${jobsCtx || "No jobs found."}`;
                       const _finalProdOff = Math.max(0, _finalDropH - workStartH) / totalWorkH * productiveHoursPerDay;
                       const _finalVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_finalProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
                       const newEnd = addBD(newStart, _finalVWD - 1);
-                      // Unlocked: clamp drop position to dep boundaries (same rule as drag preview)
-                      let effStart = depsMode === "unlocked" && isGroupDrag ? clampUnlocked(newStart, _finalVWD) : newStart;
+                      // Unlocked: drop position is unclamped — sibling overlap is caught by the hasOverlap check below.
+                      let effStart = newStart;
                       const effEnd = addBD(effStart, _finalVWD - 1);
                       const dropPerson = lastDropPid || origPerson;
                       const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
@@ -7454,6 +7544,10 @@ ${jobsCtx || "No jobs found."}`;
                       // Reject drop if the ghost was red (overlapping another job) — show error, no auto-push
                       if (teamDragLiveRef.current?.hasOverlap) {
                         const _info = teamDragLiveRef.current.overlapInfo;
+                        if (_info?.isDepSibling) {
+                          showDepSiblingError(_info);
+                          return;
+                        }
                         const _personName = person?.name || "";
                         showOverlapIfAny([{ person: _personName, opTitle: _info?.opTitle || "", panelTitle: _info?.panelTitle || "", jobTitle: _info?.jobTitle || "", start: _info?.start, end: _info?.end, isPto: false }]);
                         return;
