@@ -434,6 +434,16 @@ animStyle.textContent = `
   0%   { opacity: 1; transform: translateY(0)    scale(1);    }
   100% { opacity: 0; transform: translateY(-4px) scale(0.98); }
 }
+@keyframes panelDropIn {
+  0%   { opacity: 0; transform: translateY(-7px); max-height: 0;    border-width: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; overflow: hidden; }
+  85%  { opacity: 1; transform: translateY(0);    max-height: 140px;                                                                                  overflow: hidden; }
+  100% { opacity: 1; transform: translateY(0);    max-height: 2000px;                                                                                  overflow: visible; }
+}
+@keyframes panelDropOut {
+  0%   { opacity: 1; transform: translateY(0);    max-height: 2000px;                                                                                 overflow: hidden; }
+  15%  { opacity: 1; transform: translateY(0);    max-height: 140px;                                                                                  overflow: hidden; }
+  100% { opacity: 0; transform: translateY(-7px); max-height: 0;    border-width: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; overflow: hidden; }
+}
 @keyframes fadeScale {
   0%   { opacity: 0; transform: scale(0.97); }
   100% { opacity: 1; transform: scale(1);    }
@@ -663,6 +673,77 @@ const FadeOnClose = ({ open, children, duration = 180 }) => {
   return cloneElement(kids, {
     style: { ...(kids.props.style || {}), animation: `fadeOutDrop ${duration}ms ease-out both`, pointerEvents: "none" },
   });
+};
+// TRAQS-styled date picker — custom calendar popover with month nav and Today/Clear shortcuts.
+const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", id, required = false }) => {
+  const [open, setOpen] = useState(false);
+  const [viewDate, setViewDate] = useState(() => {
+    const seed = value ? new Date(value + "T12:00:00") : new Date();
+    return new Date(seed.getFullYear(), seed.getMonth(), 1);
+  });
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const k = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", h);
+    document.addEventListener("keydown", k);
+    return () => { document.removeEventListener("mousedown", h); document.removeEventListener("keydown", k); };
+  }, [open]);
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstDayIdx = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+  const cells = [];
+  for (let i = firstDayIdx - 1; i >= 0; i--) cells.push({ day: daysInPrevMonth - i, inMonth: false, iso: null });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    cells.push({ day: d, inMonth: true, iso });
+  }
+  while (cells.length < 42) cells.push({ day: cells.length - daysInMonth - firstDayIdx + 1, inMonth: false, iso: null });
+  const formatDate = iso => {
+    if (!iso) return "";
+    const d = new Date(iso + "T12:00:00");
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+  const now = new Date();
+  const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const NAV = idx => () => setViewDate(new Date(year, month + idx, 1));
+  return <div style={{ marginBottom: 16 }}>
+    <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 4 }}>*</span>}</label>
+    <div ref={ref} style={{ position: "relative" }}>
+      <button id={id} onClick={() => setOpen(o => !o)} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : value ? T.accent + "55" : T.glassBorder}`, background: T.glass, color: value ? T.text : T.textDim, fontSize: 14, fontFamily: T.font, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", outline: "none", transition: "border-color 0.15s" }}>
+        <span>{value ? formatDate(value) : placeholder}</span>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={open || value ? T.accent : T.textDim} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "stroke 0.15s" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </button>
+      <FadeOnClose open={open}>{open && <div onClick={e => e.stopPropagation()} className="anim-drop" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 1500, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", padding: 14, width: 290, fontFamily: T.font }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
+          <button onClick={NAV(1)} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 0, marginBottom: 6 }}>
+          {["S","M","T","W","T","F","S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 10, color: T.textDim, fontWeight: 700, letterSpacing: "0.06em", padding: "4px 0" }}>{d}</div>)}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+          {cells.map((c, i) => {
+            const isSel = c.iso && c.iso === value;
+            const isToday = c.iso === todayIso;
+            return <button key={i} disabled={!c.inMonth} onClick={() => { if (c.iso) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusXs, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? T.accent : "transparent", color: !c.inMonth ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: c.inMonth ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (c.inMonth && !isSel) e.currentTarget.style.background = T.accent + "22"; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>{c.day}</button>;
+          })}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+          <button onClick={() => { onChange(todayIso); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Today</button>
+          {value && <button onClick={() => { onChange(""); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Clear</button>}
+        </div>
+      </div>}</FadeOnClose>
+    </div>
+  </div>;
 };
 const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div className="anim-card anim-card-wrap" onClick={onClick}
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
@@ -1616,6 +1697,30 @@ Extraction rules:
   const [clientsSettingsOpen, setClientsSettingsOpen] = useState(false);
   const [usersOpen, setUsersOpen] = useState(false);
   const [settingsUser, setSettingsUser] = useState(null);
+  const [closingSettingsUserId, setClosingSettingsUserId] = useState(null);
+  const toggleSettingsUser = useCallback((id, isAdmin) => {
+    if (!isAdmin) return;
+    setSettingsUser(prev => {
+      if (prev === id) {
+        // Same user — collapse with animation
+        setClosingSettingsUserId(id);
+        setTimeout(() => {
+          setSettingsUser(p => (p === id ? null : p));
+          setClosingSettingsUserId(p => (p === id ? null : p));
+        }, 280);
+        return prev;
+      }
+      if (prev) {
+        // Switching — animate the old one closed, then open the new one
+        const oldId = prev;
+        setClosingSettingsUserId(oldId);
+        setTimeout(() => {
+          setClosingSettingsUserId(p => (p === oldId ? null : p));
+        }, 280);
+      }
+      return id;
+    });
+  }, []);
   const [tagInputs, setTagInputs] = useState({}); // keyed by person.id
   const [pinDrafts, setPinDrafts] = useState({}); // keyed by person.id — PIN edits in User Permissions modal
   const [pinSaving, setPinSaving] = useState({}); // keyed by person.id
@@ -11624,7 +11729,7 @@ ${jobsCtx || "No jobs found."}`;
               <InputField id="s1-ponum" label="PO #" value={ed.poNumber||""} onChange={v => setEd(p => ({ ...p, poNumber:v }))} placeholder="e.g. PO-8821" />
             </div>
             <div style={{ display:"grid", gridTemplateColumns:isMobile?"1fr":"1fr 1fr", gap:16 }}>
-              <InputField id="s1-duedate" label="Due Date (Customer)" value={ed.dueDate||""} onChange={v => setEd(p => ({ ...p, dueDate:v }))} type="date" />
+              <TraqsDatePicker id="s1-duedate" label="Due Date (Customer)" value={ed.dueDate||""} onChange={v => setEd(p => ({ ...p, dueDate:v }))} />
               <div>
                 <label style={{ display:"flex", alignItems:"center", gap:4, fontSize:13, color:T.textSec, fontWeight:600, letterSpacing:"0.04em", textTransform:"uppercase", marginBottom:6 }}>
                   Project Manager <span style={{ color:"#ef4444", fontSize:15, lineHeight:1 }}>*</span>
@@ -13843,7 +13948,7 @@ ${jobsCtx || "No jobs found."}`;
                 const togglePerm = (key, val) => { if (!isAdmin) return; updPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } }); };
                 return <div key={person.id}>
                   {/* Person row */}
-                  <div onClick={() => isAdmin && setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: isAdmin ? "pointer" : "default", transition: "all 0.15s" }}>
+                  <div onClick={() => toggleSettingsUser(person.id, isAdmin)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: isAdmin ? "pointer" : "default", transition: "all 0.15s" }}>
                     <div style={{ width: 34, height: 34, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
@@ -13857,7 +13962,7 @@ ${jobsCtx || "No jobs found."}`;
                     <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
                   </div>
                   {/* Expanded permissions */}
-                  {isSelected && <div style={{ margin: "2px 0 4px", padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {(isSelected || closingSettingsUserId === person.id) && <div style={{ margin: "2px 0 4px", padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10, animation: closingSettingsUserId === person.id ? "panelDropOut 0.28s ease-in both" : "panelDropIn 0.22s ease-out both" }}>
                     {/* Admin toggle — only admins can see/change this */}
                     {isAdmin && <div onClick={() => updPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
                       <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
@@ -15313,7 +15418,7 @@ ${jobsCtx || "No jobs found."}`;
                         </button>
                       );
                     })()}
-                    {deptDropId === "editJobPM" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
+                    <FadeOnClose open={deptDropId === "editJobPM"}>{deptDropId === "editJobPM" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
                       <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, color: T.textDim }}>— No PM —</span>
@@ -15330,7 +15435,7 @@ ${jobsCtx || "No jobs found."}`;
                           {isOn && <svg width="12" height="12" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={T.accent} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                         </div>;
                       })}
-                    </div>}
+                    </div>}</FadeOnClose>
                   </div>
                 </div>
                 <div>
@@ -15346,7 +15451,7 @@ ${jobsCtx || "No jobs found."}`;
                     <span>{ej.requiredDepartment || "— No department —"}</span>
                     <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
-                  {deptDropId === "editJobModal" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
+                  <FadeOnClose open={deptDropId === "editJobModal"}>{deptDropId === "editJobModal" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "8px 0", animation: "menuIn 0.15s ease-out" }}>
                     {orgSettings.roles.length === 0 && !deptAddMode && <div style={{ padding: "8px 14px", fontSize: 13, color: T.textDim }}>No departments yet</div>}
                     {/* None option */}
                     <div onClick={() => { setEj({ requiredDepartment: "" }); setDeptDropId(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", borderRadius: 6, animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -15376,7 +15481,7 @@ ${jobsCtx || "No jobs found."}`;
                           </div>
                       }
                     </div>
-                  </div>}
+                  </div>}</FadeOnClose>
                 </div>
               </div>
               {/* Notes — full width */}
