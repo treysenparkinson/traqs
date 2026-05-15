@@ -254,8 +254,8 @@ const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 const addWorkingDays = (ds, n, workDays = DEFAULT_WORK_DAYS) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) count++; } return toDS(d); };
 const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
 const isWorkDay = (ds, workDays = DEFAULT_WORK_DAYS) => workDays.includes(new Date(ds + "T12:00:00").getDay());
-const weekdaySegments = (start, end, clampStart, clampEnd, workDays = DEFAULT_WORK_DAYS) => {
-  const s = start < clampStart ? clampStart : start;
+const weekdaySegments = (start, end, clampStart, clampEnd, workDays = DEFAULT_WORK_DAYS, noClampStart = false) => {
+  const s = (!noClampStart && start < clampStart) ? clampStart : start;
   const e = end > clampEnd ? clampEnd : end;
   if (s > e) return [];
   const segs = []; let segStart = null; let d = s;
@@ -6996,7 +6996,7 @@ ${jobsCtx || "No jobs found."}`;
                     : _willOverflowWeekend
                       ? addBD(bar.end, 1, _barBDOpts)
                       : bar.end;
-                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd, _barWorkDays);
+                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd, _barWorkDays, true);
                   const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
                   const _baseXPct = diffD(tStart, bar.start) / nDays * 100;
                   const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
