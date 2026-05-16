@@ -15619,76 +15619,23 @@ ${jobsCtx || "No jobs found."}`;
         setEditToast({ msg, key });
         setTimeout(() => setEditToast(t => (t && t.key === key) ? null : t), 1800);
       };
-      const fastTraqNewJobs = () => {
-        // Build local booking ledger so newly-scheduled ops don't double-book within this pass.
-        const extra = {}; // pid -> { dateStr: hrs }
-        const addExtra = (pid, d, h) => { extra[pid] = extra[pid] || {}; extra[pid][d] = (extra[pid][d] || 0) + h; };
-        const totalH = (pid, d) => bookedHrs(pid, d) + ((extra[pid] || {})[d] || 0);
-        const findSlot = (pid, fromDate, hrs) => {
-          const p = people.find(x => x.id === pid); if (!p) return null;
-          const cap = p.cap || 8;
-          let d = isWorkDay(fromDate) ? fromDate : addBD(fromDate, 1);
-          for (let i = 0; i < 365; i++) {
-            if (isWorkDay(d) && !isOff(pid, d) && totalH(pid, d) + hrs <= cap) return d;
-            d = addBD(d, 1);
-          }
-          return null;
-        };
-        const today = TD;
-        const jobAnchor = ej.start && ej.start > today ? ej.start : today;
-        const newSubs = (ej.subs || []).map(panel => {
-          const ops = panel.subs || [];
-          if (!ops.length) {
-            // Standalone new panel with no children — schedule it directly if it's new
-            if (editAddedIds.has(panel.id)) {
-              const dept = panel.requiredDepartment || ej.requiredDepartment || "";
-              const pool = (dept ? people.filter(p => p.department === dept) : people).filter(p => !p.archived);
-              const candidates = pool.length ? pool : people;
-              const hpd = panel.hpd ?? ej.hpd ?? 7.5;
-              let best = null;
-              for (const c of candidates) {
-                const slot = findSlot(c.id, jobAnchor, hpd);
-                if (slot && (!best || slot < best.date)) best = { pid: c.id, date: slot };
-              }
-              if (best) {
-                addExtra(best.pid, best.date, hpd);
-                return { ...panel, team: Array.from(new Set([...(panel.team || []), best.pid])), start: best.date, end: best.date };
-              }
-            }
-            return panel;
-          }
-          let earliest = null, latest = null;
-          const updated = ops.map(op => {
-            if (!editAddedIds.has(op.id)) {
-              if (op.start && (!earliest || op.start < earliest)) earliest = op.start;
-              if (op.end && (!latest || op.end > latest)) latest = op.end;
-              return op;
-            }
-            const dept = op.requiredDepartment || panel.requiredDepartment || ej.requiredDepartment || "";
-            const pool = (dept ? people.filter(p => p.department === dept) : people).filter(p => !p.archived);
-            const candidates = pool.length ? pool : people;
-            const hpd = op.hpd ?? panel.hpd ?? ej.hpd ?? 7.5;
-            let best = null;
-            for (const c of candidates) {
-              const slot = findSlot(c.id, jobAnchor, hpd);
-              if (slot && (!best || slot < best.date)) best = { pid: c.id, date: slot };
-            }
-            if (!best) {
-              if (op.start && (!earliest || op.start < earliest)) earliest = op.start;
-              if (op.end && (!latest || op.end > latest)) latest = op.end;
-              return op;
-            }
-            addExtra(best.pid, best.date, hpd);
-            const scheduled = { ...op, team: Array.from(new Set([...(op.team || []), best.pid])), start: best.date, end: best.date };
-            if (!earliest || scheduled.start < earliest) earliest = scheduled.start;
-            if (!latest || scheduled.end > latest) latest = scheduled.end;
-            return scheduled;
-          });
-          return { ...panel, subs: updated, start: earliest || panel.start, end: latest || panel.end };
-        });
-        const count = editAddedIds.size;
-        setEj(p => ({ ...p, subs: newSubs }));
-        flashToast(`Fast-TRAQ'd ${count} new item${count === 1 ? "" : "s"}`);
+      const rescheduleJob = () => {
+        // Mirror the right-click "Reschedule" flow: close this editor and reopen the
+        // multi-step edit modal in reschedule mode (step 2) with current pending state.
+        setModalStep(2);
+        setStepDir(1);
+        setAvailCheckPassed(false);
+        setScheduleConfirmed(false);
+        setPreviewExpanded(false);
+        setPreviewPanelExpanded({});
+        setOverrideOpen({});
+        setOverrideDate({});
+        setOverrideLoading({});
+        setOverrideError({});
+        setAiSuggestion(null);
+        setRescheduleSelection((ej.subs || []).map(p => p.id));
+        setEditJobModal(null);
+        setModal({ type: "edit", data: { ...ej, isReschedule: true, _rescheduleStartDate: TD }, parentId: null });
       };
       const popBtn = (id) => {
         setEditPopBtn(id);
@@ -15931,9 +15878,9 @@ ${jobsCtx || "No jobs found."}`;
             {/* Footer */}
             <div style={{ padding: "18px 32px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
               {editAddedIds.size > 0 && (
-                <button onClick={fastTraqNewJobs} title="Auto-assign people & dates to the newly added items" style={{ padding: "9px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}88`, background: `linear-gradient(135deg, ${T.accent}26, ${T.accent}10)`, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 7, animation: "fastTraqIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both", boxShadow: `0 4px 14px ${T.accent}28` }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
-                  Fast TRAQ New Jobs
+                <button onClick={rescheduleJob} title="Auto-reschedule the job to fit the newly added items" style={{ padding: "9px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}88`, background: `linear-gradient(135deg, ${T.accent}26, ${T.accent}10)`, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 7, animation: "fastTraqIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both", boxShadow: `0 4px 14px ${T.accent}28` }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                  Reschedule
                 </button>
               )}
               <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: editAddedIds.size > 0 ? "cancelScoot 0.5s ease-out both" : "none" }}>Cancel</button>
