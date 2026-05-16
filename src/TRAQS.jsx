@@ -619,16 +619,16 @@ function buildCustomTheme(bg, accent) {
     borderLight:blendHex(bg,dk?0.24:-0.09),
     text:dk?"#f1f5f9":"#0f172a", textSec:dk?"#f1f5f9":"#0f172a", textDim:dk?"#f1f5f9":"#0f172a",
     accent, accentText:accentText(accent), danger:"#f43f5e",
-    font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'JetBrains Mono',monospace",
+    font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'DM Sans',sans-serif",
     radius:16, radiusSm:12, radiusXs:8, glass:card, glassBorder:bord,
     blur:"none", glow:"none", colorScheme:dk?"dark":"light",
   };
 }
 
 const THEMES = {
-  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'JetBrains Mono', monospace", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
-  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'JetBrains Mono', monospace", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
-  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'JetBrains Mono', monospace", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
+  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
+  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
+  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
 };
 // Legacy aliases so any existing code referencing "dark"/"light" still resolves
 THEMES.dark  = THEMES.midnight;
@@ -7106,7 +7106,8 @@ ${jobsCtx || "No jobs found."}`;
               {/* Insertion line indicators */}
               {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
               {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
-              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, opacity: barSelectMode || !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "background 0.15s, opacity 0.2s" }}>
+              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", height: "100%", opacity: barSelectMode || !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "opacity 0.2s" }}>
                 {/* Drag handle */}
                 <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
                 <div style={{ width: 28, height: 28, borderRadius: 14, background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.text, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
@@ -7117,6 +7118,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono, flexShrink: 0 }}>{row.util}%</span>
                 {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
                 {!teamSelectMode && can("manageTeam") && <Btn variant="ghost" size="sm" style={{ padding: "4px 6px", fontSize: 11 }} onClick={() => setPersonModal({ ...p })}>Edit</Btn>}
+                </div>
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
                 {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
@@ -8397,7 +8399,7 @@ ${jobsCtx || "No jobs found."}`;
           return `${sd.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${ed.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
         };
         return (
-          <div style={{ borderTop: `1px solid ${T.border}`, background: T.bg, padding: "14px 20px 18px" }}>
+          <div style={{ background: T.bg, padding: "28px 20px 18px" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Schedule Status</div>
             <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
               {workersToday.map(({ person, todayBars, nextBar }) => {
@@ -13091,7 +13093,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
                       <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
                     </div>
-                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: "'JetBrains Mono',monospace" }}>{customTheme[key]}</div>
+                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: "'DM Sans',sans-serif" }}>{customTheme[key]}</div>
                   </div>
                 ))}
               </div>
@@ -13276,17 +13278,17 @@ ${jobsCtx || "No jobs found."}`;
             .logo{height:48px;display:block}
             .doc-meta{text-align:right}
             .doc-meta .date{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:2px}
-            .doc-meta .time{font-size:12px;color:#64748b;font-family:'JetBrains Mono',monospace}
+            .doc-meta .time{font-size:12px;color:#64748b;font-family:'DM Sans',sans-serif}
             .summary{display:flex;gap:24px;margin-bottom:24px;padding:14px 18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}
             .summary .stat{flex:1}
-            .summary .stat .v{font-size:20px;font-weight:700;color:${ACCENT};font-family:'JetBrains Mono',monospace}
+            .summary .stat .v{font-size:20px;font-weight:700;color:${ACCENT};font-family:'DM Sans',sans-serif}
             .summary .stat .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px}
             h1{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:14px;text-transform:uppercase;letter-spacing:0.05em}
             .job-card{display:flex;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:18px;overflow:hidden;page-break-inside:avoid;background:#fff}
             .job-bar{width:6px;flex-shrink:0}
             .job-body{flex:1;padding:14px 18px}
             .job-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #f1f5f9}
-            .job-num{font-family:'JetBrains Mono',monospace;font-size:11px;color:${ACCENT};font-weight:700;margin-right:8px;background:${ACCENT}15;padding:2px 7px;border-radius:4px}
+            .job-num{font-family:'DM Sans',sans-serif;font-size:11px;color:${ACCENT};font-weight:700;margin-right:8px;background:${ACCENT}15;padding:2px 7px;border-radius:4px}
             .job-title{font-size:15px;font-weight:700;color:#0f172a}
             .job-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px 18px;margin-bottom:10px}
             .job-meta>div{display:flex;flex-direction:column;gap:2px}
@@ -13304,7 +13306,7 @@ ${jobsCtx || "No jobs found."}`;
             .op-table tr:last-child td{border-bottom:none}
             .op-title{font-weight:600;color:#0f172a}
             .op-notes{color:#64748b;font-style:italic;max-width:200px}
-            .mono{font-family:'JetBrains Mono',monospace}
+            .mono{font-family:'DM Sans',sans-serif}
             .status-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em}
             .empty{padding:8px 10px;font-size:10px;color:#94a3b8;font-style:italic}
             @media print{
