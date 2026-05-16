@@ -11,7 +11,7 @@ const LS_PEOPLE = "tq_team_people";
 // ─── Shared styles ────────────────────────────────────────────────────────────
 const PAGE = {
   minHeight: "100vh",
-  background: "#0f172a",
+  background: "#ffffff",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -22,10 +22,10 @@ const PAGE = {
 const CARD = {
   width: "100%",
   maxWidth: 420,
-  background: "#1e293b",
+  background: "#ffffff",
   borderRadius: 20,
-  border: "1px solid #334155",
-  boxShadow: "0 32px 80px rgba(0,0,0,0.4)",
+  border: "1px solid #e2e8f0",
+  boxShadow: "0 24px 60px rgba(15,23,42,0.10)",
   overflow: "hidden",
 };
 
@@ -41,18 +41,18 @@ const CARD_BODY = { padding: "28px 28px 24px" };
 const CARD_FOOTER = {
   padding: "12px 24px 18px",
   textAlign: "center",
-  borderTop: "1px solid rgba(255,255,255,0.06)",
+  borderTop: "1px solid rgba(15,23,42,0.06)",
   fontSize: 11,
-  color: "#475569",
+  color: "#64748b",
 };
 
 const INPUT_STYLE = {
   width: "100%",
   padding: "12px 14px",
-  background: "#0f172a",
-  border: "1px solid #334155",
+  background: "#ffffff",
+  border: "1px solid #cbd5e1",
   borderRadius: 10,
-  color: "#f1f5f9",
+  color: "#0f172a",
   fontSize: 14,
   fontFamily: "inherit",
   boxSizing: "border-box",
@@ -62,7 +62,7 @@ const INPUT_STYLE = {
 const BTN = {
   width: "100%",
   padding: "13px 0",
-  background: "linear-gradient(135deg, #4169e1, #4169e1cc)",
+  background: "linear-gradient(135deg, #4169e1, #06b6d4)",
   border: "none",
   borderRadius: 10,
   color: "#fff",
@@ -118,7 +118,7 @@ const SUCCESS_BOX = {
 
 const HINT = {
   fontSize: 12,
-  color: "#475569",
+  color: "#64748b",
   marginTop: 6,
 };
 
@@ -137,7 +137,7 @@ function LogoHeader({ subtitle }) {
 
 function Spinner({ label }) {
   return (
-    <div style={{ ...PAGE, flexDirection: "column", color: "#f1f5f9" }}>
+    <div style={{ ...PAGE, flexDirection: "column", color: "#0f172a" }}>
       <div style={{
         width: 48, height: 48, borderRadius: "50%",
         border: "3px solid #4169e133", borderTop: "3px solid #4169e1",
@@ -559,16 +559,16 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                   style={{
                     display: "flex", alignItems: "center", gap: 12,
                     padding: "14px 16px",
-                    background: "#0f172a",
-                    border: "1px solid #334155",
+                    background: "#ffffff",
+                    border: "1px solid #e2e8f0",
                     borderRadius: 12,
                     cursor: "pointer",
                     textAlign: "left",
                     fontFamily: "inherit",
                     transition: "background 0.15s, border-color 0.15s",
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "#1a2744"; e.currentTarget.style.borderColor = "#4169e1"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "#0f172a"; e.currentTarget.style.borderColor = "#334155"; }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#4169e1"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
                 >
                   <div style={{
                     width: 40, height: 40, borderRadius: "50%",
@@ -581,10 +581,10 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                     {getInitials(person.name)}
                   </div>
                   <div style={{ overflow: "hidden" }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#f1f5f9", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {person.name}
                     </div>
-                    <div style={{ fontSize: 12, color: person.userRole === "admin" ? "#64748b" : (person.department ? "#64748b" : "#334155"), marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{ fontSize: 12, color: person.userRole === "admin" ? "#64748b" : (person.department ? "#64748b" : "#94a3b8"), marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {person.userRole === "admin" ? "Admin" : (person.department || "No department")}
                     </div>
                   </div>
@@ -592,13 +592,13 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               );
 
               const SectionLabel = ({ label }) => (
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#475569", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
                   {label}
                 </div>
               );
 
               const Divider = () => (
-                <div style={{ borderTop: "1px solid #1e293b", margin: "16px 0" }} />
+                <div style={{ borderTop: "1px solid #e2e8f0", margin: "16px 0" }} />
               );
 
               return (
@@ -635,9 +635,9 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               <button
                 type="button"
                 onClick={() => openClock("clockOut")}
-                style={{ flex: 1, padding: "12px 0", background: "#0f172a", border: "1.5px solid rgba(239,68,68,0.4)", borderRadius: 10, color: "#ef4444", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
+                style={{ flex: 1, padding: "12px 0", background: "#ffffff", border: "1.5px solid rgba(239,68,68,0.4)", borderRadius: 10, color: "#ef4444", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.8)"; e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)"; e.currentTarget.style.background = "#0f172a"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)"; e.currentTarget.style.background = "#ffffff"; }}
               >Clock Out</button>
             </div>
 
@@ -667,14 +667,14 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               ) : confirmedPerson ? (
                 <div>
                   {pinError && <div style={ERR_BOX}>{pinError}</div>}
-                  <p style={{ fontSize: 14, color: "#94a3b8", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
-                    Is <strong style={{ color: "#f1f5f9", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong> clocking <strong style={{ color: clockMode === "clockIn" ? "#10b981" : "#ef4444" }}>{clockMode === "clockIn" ? "IN" : "OUT"}</strong> for the day?
+                  <p style={{ fontSize: 14, color: "#64748b", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
+                    Is <strong style={{ color: "#0f172a", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong> clocking <strong style={{ color: clockMode === "clockIn" ? "#10b981" : "#ef4444" }}>{clockMode === "clockIn" ? "IN" : "OUT"}</strong> for the day?
                   </p>
                   <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
                     <button
                       type="button"
                       onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}
-                      style={{ flex: 1, padding: "13px 0", background: "#0f172a", border: "1px solid #334155", borderRadius: 10, color: "#94a3b8", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+                      style={{ flex: 1, padding: "13px 0", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 10, color: "#64748b", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
                     >No</button>
                     <BtnPrimary
                       type="button"
