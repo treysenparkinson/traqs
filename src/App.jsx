@@ -1002,10 +1002,26 @@ function AuthGate() {
     );
   }
 
+  // Wrap getAccessTokenSilently so a dead/expired refresh token redirects the
+  // user back through Auth0 login instead of leaving them stuck on "Unsaved".
+  const safeGetToken = async (opts) => {
+    try {
+      return await getAccessTokenSilently(opts);
+    } catch (e) {
+      const msg = String(e?.error_description || e?.message || e || "");
+      const code = e?.error || "";
+      const fatal = code === "login_required" || code === "consent_required" || code === "invalid_grant" || /refresh token/i.test(msg);
+      if (fatal) {
+        try { await loginWithRedirect({ appState: { returnTo: window.location.pathname } }); } catch {}
+      }
+      throw e;
+    }
+  };
+
   return (
     <TRAQS
       auth0User={user}
-      getToken={getAccessTokenSilently}
+      getToken={safeGetToken}
       logout={logout}
       orgCode={orgCode}
       orgConfig={orgConfig}

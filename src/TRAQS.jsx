@@ -10831,14 +10831,6 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         )}
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
-          {!prefOpen && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "15px 16px", marginBottom: 14, borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, fontFamily: T.font }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: T.accent + "22", border: `1px solid ${T.accent}55`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
-            <div style={{ flex: 1, textAlign: "left" }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: T.accent, letterSpacing: "0.03em" }}>Fast TRAQS</div>
-              <div style={{ fontSize: 11, color: T.textSec, marginTop: 1 }}>Import jobs from files or describe by text</div>
-            </div>
-            <span style={{ lineHeight: 0, color: T.accent }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
-          </button>}
           {prefOpen ? <>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10, paddingLeft: 4 }}>Preferences</div>
             <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
@@ -12820,14 +12812,6 @@ ${jobsCtx || "No jobs found."}`;
               {(prefOpen || settingsTab === "org") && <button onClick={() => { setPrefOpen(false); setSettingsTab("main"); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 18, lineHeight: 1, padding: "0 4px 0 0" }}>←</button>}
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>{prefOpen ? "Preferences" : settingsTab === "org" ? "Organization" : "Settings"}</div>
             </div>
-            {!prefOpen && settingsTab !== "org" && can("editJobs") && <button onClick={() => { setSettingsOpen(false); setFastTraqsPhase("input"); setFastTraqsExiting(false); setUploadModal(true); }} style={{ width: "100%", padding: "11px 16px", background: `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`, border: "none", borderBottom: `1px solid ${T.accent}22`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontFamily: T.font, transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "30ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "22"} onMouseLeave={e => e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}15, ${T.accent}06)`}>
-              <div style={{ width: 28, height: 28, borderRadius: 8, background: T.accent + "22", border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill={T.accent}><path d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg></div>
-              <div style={{ flex: 1, textAlign: "left" }}>
-                <div style={{ fontSize: 13, fontWeight: 800, color: T.accent, letterSpacing: "0.03em" }}>Fast TRAQS</div>
-                <div style={{ fontSize: 11, color: T.textSec }}>Import jobs from files or text</div>
-              </div>
-              <span style={{ lineHeight: 0, color: T.accent }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
-            </button>}
             {prefOpen ? <>
               {/* ── Preferences sub-panel ── */}
               <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "30ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -12944,6 +12928,16 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           );
         })}
+        {/* Fast TRAQS — glowing pill; height + opacity collapse together with the sidebar */}
+        {can("editJobs") && <div aria-hidden={!sidebarExpanded} style={{ overflow: "hidden", maxHeight: sidebarExpanded ? 44 : 0, marginTop: sidebarExpanded ? 6 : 0, opacity: sidebarExpanded ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), margin-top 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.18s 0.06s", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
+          <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}
+            style={{ width: "100%", padding: "9px 12px", borderRadius: 999, border: `1px solid ${T.accent}66`, background: `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`, color: T.accent, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, whiteSpace: "nowrap", transition: "background 0.2s, border-color 0.2s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}2a, ${T.accent}14)`; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`; e.currentTarget.style.borderColor = T.accent + "66"; }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+            FAST TRAQS
+          </button>
+        </div>}
       </div>
       {/* Profile — avatar always; name + logout fade in when expanded */}
       <div style={{ padding: "12px 16px", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
@@ -14335,15 +14329,18 @@ ${jobsCtx || "No jobs found."}`;
           {/* Close */}
           <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); }} style={{ position: "absolute", top: isMobile ? 14 : 20, right: isMobile ? 16 : 24, width: 32, height: 32, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, zIndex: 2 }}>✕</button>
 
-          {/* TRAQS Logo */}
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: isMobile ? 12 : 28 }}>
-            <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: isMobile ? 56 : 80, objectFit: "contain", filter: T.colorScheme === "dark" ? "none" : "brightness(0)" }} />
-          </div>
-
-          {/* Title */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 8 }}>
-            <h2 style={{ margin: 0, fontSize: isMobile ? 26 : 36, fontWeight: 900, color: T.accent, letterSpacing: "-0.02em", fontFamily: T.font, textShadow: `0 0 28px ${T.accent}77` }}>FAST TRAQS</h2>
-          </div>
+          {/* Title — "FAST" as glowing text + TRAQS wordmark tinted to accent, both aligned to cap-height */}
+          {(() => {
+            const fs = isMobile ? 30 : 44;
+            const capH = fs; // match the wordmark to the full font size of "FAST"
+            const logoW = Math.round(capH * 2.7); // TRAQS wordmark aspect ratio ~540:200
+            return (
+              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: isMobile ? 10 : 14, marginBottom: 10, marginTop: isMobile ? 4 : 12, filter: `drop-shadow(0 0 14px ${T.accent}99) drop-shadow(0 0 36px ${T.accent}55)`, width: "100%" }}>
+                <span style={{ fontSize: fs, fontWeight: 900, color: T.accent, letterSpacing: "-0.02em", fontFamily: T.font, lineHeight: 1, display: "inline-flex", alignItems: "center", height: capH }}>FAST</span>
+                <span aria-label="TRAQS" role="img" style={{ display: "inline-block", width: logoW, height: capH, background: T.accent, WebkitMaskImage: `url(${UL_LOGO_WHITE})`, maskImage: `url(${UL_LOGO_WHITE})`, WebkitMaskSize: "contain", maskSize: "contain", WebkitMaskRepeat: "no-repeat", maskRepeat: "no-repeat", WebkitMaskPosition: "center", maskPosition: "center" }} />
+              </div>
+            );
+          })()}
           <p style={{ margin: "0 0 6px", fontSize: isMobile ? 13 : 15, fontWeight: 600, color: T.text, fontFamily: T.font }}>Your Entire Schedule, Imported in Seconds</p>
           <p style={{ margin: isMobile ? "0 0 16px" : "0 0 32px", fontSize: 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.6, maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
             Drop in any spreadsheet or document and FAST TRAQS instantly reads every job, assigns work to the right people, adds clients, and builds your full schedule — no manual entry needed.
