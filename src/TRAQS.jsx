@@ -11470,10 +11470,10 @@ ${jobsCtx || "No jobs found."}`;
           const _clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
           const crewForOp = (rawOp) => {
             const reqDept = rawOp.requiredDepartment || "";
-            return people.filter(p => p.userRole === "user" && !p.noAutoSchedule)
+            return people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule)
               .filter(p => !reqDept || p.department === reqDept);
           };
-          const crew = people.filter(p => p.userRole === "user" && !p.noAutoSchedule);
+          const crew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule);
           // Business days to complete ONE panel sequentially (e.g. Cut 1d + Wire 5d + Layout 2d = 8d)
           const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
 
@@ -11581,7 +11581,7 @@ ${jobsCtx || "No jobs found."}`;
         setOverrideLoading(prev => ({ ...prev, [panelId]: true }));
         setOverrideError(prev => ({ ...prev, [panelId]: null }));
         setTimeout(() => {
-          const allCrew = people.filter(pp => pp.userRole === "user" && !pp.noAutoSchedule);
+          const allCrew = people.filter(pp => (pp.userRole === "user" || pp.userRole === "admin") && !pp.noAutoSchedule);
           const inSession = [];
           const isPersonFreeLocal = (pid, s, eDate) => {
             const pp = people.find(x => x.id === pid);
@@ -12217,7 +12217,7 @@ ${jobsCtx || "No jobs found."}`;
                     e.stopPropagation();
                     setEd(p => {
                       const updated={...p};
-                      const allCrew=people.filter(pp => pp.userRole==="user" && !pp.noAutoSchedule);
+                      const allCrew=people.filter(pp => (pp.userRole==="user" || pp.userRole==="admin") && !pp.noAutoSchedule);
                       const isPersonFreeGlobal=(pid,s,eDate) => {
                         const pp=people.find(x => x.id===pid);
                         if(pp) for(const to of (pp.timeOff||[])) { if(to.start<=eDate && to.end>=s) return false; }
@@ -14894,7 +14894,7 @@ ${jobsCtx || "No jobs found."}`;
       const liveTeam = (() => { for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id === it.id) return op.team; } } } return it.team || []; })();
       const currentPerson = liveTeam[0];
       const reqDept = it.requiredDepartment || "";
-      const shopCrew = people.filter(p => p.userRole === "user" && (!reqDept || (p.department || "") === reqDept));
+      const shopCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && (!reqDept || (p.department || "") === reqDept));
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10005, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setReassignModal(null)}>
         <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(400px, calc(100vw - 32px))", padding: "24px 24px 20px", animation: "slideUp 0.22s ease-out" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
