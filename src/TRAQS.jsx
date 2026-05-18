@@ -1796,6 +1796,21 @@ Extraction rules:
   const [customCols, setCustomCols] = useState([]);
   const [addColForm, setAddColForm] = useState(null); // null=closed, { label, type }="open"
   const [colPickerOpen, setColPickerOpen] = useState(false);
+  const [colPickerAnchor, setColPickerAnchor] = useState(null);
+  const [colPickerExiting, setColPickerExiting] = useState(false);
+  const colPickerWasOpenRef = useRef(false);
+  useLayoutEffect(() => {
+    if (colPickerOpen) {
+      colPickerWasOpenRef.current = true;
+      setColPickerExiting(false);
+      return;
+    }
+    if (!colPickerWasOpenRef.current) return; // never opened
+    colPickerWasOpenRef.current = false;
+    setColPickerExiting(true);
+    const t = setTimeout(() => setColPickerExiting(false), 200);
+    return () => clearTimeout(t);
+  }, [colPickerOpen]);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportSelOpen, setExportSelOpen] = useState(false);
   const [bcModalState, setBcModalState] = useState("closed"); // "closed" | "open" | "closing"
@@ -5155,6 +5170,72 @@ ${jobsCtx || "No jobs found."}`;
 
 
     return <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 6 }}>
+      {/* ── Column picker (anchored to the "+" cell in column headers) ── */}
+      {(colPickerOpen || colPickerExiting) && createPortal(<>
+        {colPickerOpen && <div onMouseDown={() => setColPickerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />}
+        <div className={colPickerExiting ? undefined : "anim-drop"} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} style={{ position: "fixed", top: colPickerAnchor?.top ?? 100, right: colPickerAnchor?.right ?? 100, width: 300, maxHeight: colPickerAnchor?.maxHeight ?? "70vh", overflowY: "auto", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 9999, animation: colPickerExiting ? "fadeOutDrop 0.2s ease-out both" : undefined, pointerEvents: colPickerExiting ? "none" : "auto" }}>
+        {/* Section: Link to Job Field */}
+        <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Link to Job Field</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            {FIELD_COL_CATALOG.map((fc, fci) => {
+              const alreadyAdded = customCols.some(c => c.fieldKey === fc.fieldKey);
+              return <button key={fc.fieldKey} disabled={alreadyAdded} onClick={() => { if (alreadyAdded) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: fc.label, type: fc.type, fieldKey: fc.fieldKey }]); setColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setColPickerOpen(false); }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1, animation: `toolDrop 0.14s ${fci * 38}ms both ease-out` }}
+                onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "15"; }}
+                onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = "transparent"; }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{fc.label}</span>
+                  <span style={{ fontSize: 10, color: T.textDim }}>{fc.description}</span>
+                </div>
+                {alreadyAdded
+                  ? <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600 }}>Added ✓</span>
+                  : <span style={{ fontSize: 11, color: T.accent, fontWeight: 700 }}>+ Add</span>}
+              </button>;
+            })}
+          </div>
+        </div>
+        {/* Section: Templates */}
+        <div style={{ padding: "10px 14px 8px", borderTop: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Templates</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
+            {COL_TEMPLATES.map((tpl, ti) => {
+              const alreadyAdded = customCols.some(c => c.label === tpl.label && !c.fieldKey);
+              return <button key={tpl.label} disabled={alreadyAdded} onClick={() => {
+                if (alreadyAdded) return;
+                const id = uid();
+                setCustomCols(prev => [...prev, { id, label: tpl.label, type: tpl.type, options: tpl.options }]);
+                setColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
+                setEngColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
+                setColPickerOpen(false);
+              }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusXs, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
+                onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "18"; }}
+                onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "08"; }}>
+                <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 9, color: T.textDim, fontWeight: 600, background: T.surface, padding: "1px 5px", borderRadius: 4, border: `1px solid ${T.border}`, flexShrink: 0 }}>{tpl.type === "select" ? "LIST" : tpl.type === "number" ? "NUM" : "TXT"}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{tpl.label}</span>
+                </div>
+                {alreadyAdded ? <span style={{ fontSize: 9, color: T.textDim }}>✓</span> : <span style={{ fontSize: 10, color: T.accent, fontWeight: 700 }}>+</span>}
+              </button>;
+            })}
+          </div>
+        </div>
+        {/* Section: Custom Column */}
+        <div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${T.border}` }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Custom Column</div>
+          <input value={customColLabel} onChange={e => setCustomColLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && customColLabel.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? ["—", "Option 1", "Option 2"] : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); } if (e.key === "Escape") setColPickerOpen(false); }} placeholder="Column name…" style={{ width: "100%", padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <select value={customColType} onChange={e => setCustomColType(e.target.value)} style={{ flex: 1, padding: "7px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+              <option value="text">Text</option>
+              <option value="number">Number</option>
+              <option value="date">Date</option>
+              <option value="select">Dropdown (List)</option>
+            </select>
+            <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? ["—", "Option 1", "Option 2"] : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
+          </div>
+        </div>
+        </div>
+      </>, document.body)}
       {/* ── Combined header bar ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", alignItems: "center", gap: 6, minHeight: 34 }}>
         {/* Left: collapsible toolbar (list view only) */}
@@ -5213,80 +5294,10 @@ ${jobsCtx || "No jobs found."}`;
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
             </Tip>
-            {/* Column picker button */}
-            <div ref={colPickerRef} style={{ position: "relative" }}>
-              <button onClick={() => { setColPickerOpen(o => !o); setExportOpen(false); }} style={{ height: 29, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: colPickerOpen ? T.accent + "22" : T.bg, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: T.accent, fontSize: 12, fontFamily: T.font, fontWeight: 600 }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Column
-              </button>
-              <FadeOnClose open={colPickerOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 300 }}>
-                {/* Section: Link to Job Field */}
-                <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Link to Job Field</div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    {FIELD_COL_CATALOG.map((fc, fci) => {
-                      const alreadyAdded = customCols.some(c => c.fieldKey === fc.fieldKey);
-                      return <button key={fc.fieldKey} disabled={alreadyAdded} onClick={() => { if (alreadyAdded) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: fc.label, type: fc.type, fieldKey: fc.fieldKey }]); setColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setColPickerOpen(false); }}
-                        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1, animation: `toolDrop 0.14s ${fci * 38}ms both ease-out` }}
-                        onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "15"; }}
-                        onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = "transparent"; }}>
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{fc.label}</span>
-                          <span style={{ fontSize: 10, color: T.textDim }}>{fc.description}</span>
-                        </div>
-                        {alreadyAdded
-                          ? <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600 }}>Added ✓</span>
-                          : <span style={{ fontSize: 11, color: T.accent, fontWeight: 700 }}>+ Add</span>}
-                      </button>;
-                    })}
-                  </div>
-                </div>
-                {/* Section: Templates */}
-                <div style={{ padding: "10px 14px 8px", borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Templates</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 5 }}>
-                    {COL_TEMPLATES.map((tpl, ti) => {
-                      const alreadyAdded = customCols.some(c => c.label === tpl.label && !c.fieldKey);
-                      return <button key={tpl.label} disabled={alreadyAdded} onClick={() => {
-                        if (alreadyAdded) return;
-                        const id = uid();
-                        setCustomCols(prev => [...prev, { id, label: tpl.label, type: tpl.type, options: tpl.options }]);
-                        setColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
-                        setEngColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
-                        setColPickerOpen(false);
-                      }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusXs, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
-                        onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "18"; }}
-                        onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "08"; }}>
-                        <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 6 }}>
-                          <span style={{ fontSize: 9, color: T.textDim, fontWeight: 600, background: T.surface, padding: "1px 5px", borderRadius: 4, border: `1px solid ${T.border}`, flexShrink: 0 }}>{tpl.type === "select" ? "LIST" : tpl.type === "number" ? "NUM" : "TXT"}</span>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{tpl.label}</span>
-                        </div>
-                        {alreadyAdded ? <span style={{ fontSize: 9, color: T.textDim }}>✓</span> : <span style={{ fontSize: 10, color: T.accent, fontWeight: 700 }}>+</span>}
-                      </button>;
-                    })}
-                  </div>
-                </div>
-                {/* Section: Custom Column */}
-                <div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${T.border}` }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Custom Column</div>
-                  <input value={customColLabel} onChange={e => setCustomColLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && customColLabel.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? ["—", "Option 1", "Option 2"] : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); } if (e.key === "Escape") setColPickerOpen(false); }} placeholder="Column name…" style={{ width: "100%", padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <select value={customColType} onChange={e => setCustomColType(e.target.value)} style={{ flex: 1, padding: "7px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                      <option value="text">Text</option>
-                      <option value="number">Number</option>
-                      <option value="date">Date</option>
-                      <option value="select">Dropdown (List)</option>
-                    </select>
-                    <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? ["—", "Option 1", "Option 2"] : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
-                  </div>
-                </div>
-              </div></FadeOnClose>
-            </div>
           </>}
           <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
-          <Btn size="sm" onClick={() => setBcModalState("open")}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
-            Cloud
+          <Btn size="sm" onClick={() => setBcModalState("open")} style={{ padding: "7px 10px" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
           </Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
@@ -6168,7 +6179,16 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                   );
                 })}
-                <div style={{ ...hdrCell, borderRight: `1px solid ${T.border}` }} />
+                <div style={{ ...hdrCell, padding: 0, borderRight: `1px solid ${T.border}` }}>
+                  <button
+                    onMouseDown={e => e.stopPropagation()}
+                    onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setColPickerAnchor({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right), maxHeight: Math.max(200, window.innerHeight - r.bottom - 24) }); setColPickerOpen(o => !o); setExportOpen(false); }}
+                    onMouseEnter={e => { if (!colPickerOpen) { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.color = T.accent; } }}
+                    onMouseLeave={e => { if (!colPickerOpen) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textDim; } }}
+                    title="Add column"
+                    style={{ width: "100%", height: "100%", background: colPickerOpen ? T.accent + "18" : "transparent", border: "none", color: colPickerOpen ? T.accent : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 400, lineHeight: 1, fontFamily: T.font, padding: 0, transition: "background 0.15s, color 0.15s" }}
+                  >+</button>
+                </div>
               </div>
             );
 
@@ -6349,7 +6369,7 @@ ${jobsCtx || "No jobs found."}`;
 
       {/* Client detail slide-in panel */}
       {sel && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} onClick={() => setSelClient(null)}>
-        <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 1000, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+        <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: "60px 32px 32px", maxWidth: 1000, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setSelClient(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, paddingRight: 32 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -6835,7 +6855,7 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
             <input type="range" min={1} max={3} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} style={{ width: 80, cursor: "pointer", accentColor: T.accent }} />
           </div>}
-          <Btn size="sm" onClick={() => setBcModalState("open")}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg> Cloud</Btn>
+          <Btn size="sm" onClick={() => setBcModalState("open")} style={{ padding: "7px 10px" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
@@ -9039,7 +9059,7 @@ ${jobsCtx || "No jobs found."}`;
       if (pinState === "closed") return null;
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closePin}>
-          <div style={{ background: T.card, borderRadius: 20, padding: 32, width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 20, padding: "52px 32px 32px", width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closePin} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
 
             {/* Title */}
@@ -9417,7 +9437,7 @@ ${jobsCtx || "No jobs found."}`;
 
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closeStartJobPicker}>
-          <div style={{ background: T.card, borderRadius: 20, padding: 28, width: "100%", maxWidth: 520, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 20, padding: "52px 28px 28px", width: "100%", maxWidth: 520, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closeStartJobPicker} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 4 }}>Start Job</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 16 }}>Select a job to clock into</div>
@@ -11347,7 +11367,7 @@ ${jobsCtx || "No jobs found."}`;
   const renderModal = () => {
     if (!modal) return null;
     const ov = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px" : "40px 24px", overflow: "auto" };
-    const bx = (wide) => ({ background: T.card, borderRadius: isMobile ? 14 : 16, padding: isMobile ? 18 : 32, maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" });
+    const bx = (wide) => ({ background: T.card, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "56px 18px 18px" : "60px 32px 32px", maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" });
     const cls = <button onClick={closeModal} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
     if (modal.type === "edit") { const [ed, setEd] = [modal.data, d => setModal(p => ({ ...p, data: typeof d === "function" ? d(p.data) : d }))];
       const addPanels = (count) => {
@@ -15082,7 +15102,7 @@ ${jobsCtx || "No jobs found."}`;
     {clientModal && (() => {
       const [ed, setEd] = [clientModal, d => setClientModal(typeof d === "function" ? d(clientModal) : d)];
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} >
-        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 32, maxWidth: isMobile ? "100%" : 540, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 540, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setClientModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
           <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Client" : "New Client"}</h3>
           <InputField label="Company Name" value={ed.name} onChange={v => setClientModal(p => ({ ...p, name: v }))} />
@@ -15119,7 +15139,7 @@ ${jobsCtx || "No jobs found."}`;
       const ed = personModal;
       const setEd = d => setPersonModal(typeof d === "function" ? d(personModal) : d);
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} >
-        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 32, maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setPersonModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
           <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Team Member" : "New Team Member"}</h3>
           <InputField label="Full Name" value={ed.name} onChange={v => setEd(p => {
@@ -15615,7 +15635,7 @@ ${jobsCtx || "No jobs found."}`;
     </div>}
 
     {/* Edit Job modal — simple field update, no wizard */}
-    {editJobModal && (() => {
+    <FadeOnClose open={!!editJobModal} duration={220}>{editJobModal && (() => {
       console.log("=== EDIT JOB MODAL STATE ===", editJobModal);
       const ej = editJobModal;
       const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
@@ -15918,7 +15938,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       );
-    })()}
+    })()}</FadeOnClose>
 
     {/* Reminder modal */}
     {reminderModal && (() => {
@@ -16179,7 +16199,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
   const available = results.filter(r => r.ok);
   const busy = results.filter(r => !r.ok);
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
-    <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? 16 : 32, maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+    <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
       <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Availability Finder</h3>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Find available team members for a date range</p>
@@ -16271,7 +16291,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
     updPerson(pid, { timeOff: (p.timeOff || []).filter((_, i) => i !== idx) });
   };
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
-    <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 560, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+    <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: "60px 32px 32px", maxWidth: 560, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
       <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Manage Time Off</h3>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Schedule time off for team members</p>
