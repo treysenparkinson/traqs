@@ -172,10 +172,12 @@ struct GanttView: View {
         }
         items.sort { ($0.job.jobNumber ?? "") + $0.panel.id < ($1.job.jobNumber ?? "") + $1.panel.id }
 
-        // Pack sequentially from workStart, reserving the lunch hour.
-        // Matches Matrix Systems' work day: 8 AM → 5 PM, with lunch 12–1.
+        // Pack sequentially from workStart, splitting around lunch.
+        // We do NOT cap at workEnd — if more work is scheduled than fits in
+        // the standard 8a-5p day, the timeline expands so every task is still
+        // visible. Previously any task that would have started past 5pm got
+        // silently dropped, which is what the "missing jobs" reports were.
         let workStart:  Double = 8.0
-        let workEnd:    Double = 17.0
         let lunchStart: Double = 12.0
         let lunchEnd:   Double = 13.0
 
@@ -183,24 +185,24 @@ struct GanttView: View {
         var out: [ScheduleBlock] = []
         for item in items {
             var remaining = item.hpd
+
+            // Skip past lunch if the cursor lands inside it.
             if cursor >= lunchStart && cursor < lunchEnd { cursor = lunchEnd }
 
-            let firstCapEdge = cursor < lunchStart ? min(lunchStart, workEnd) : workEnd
+            // First chunk: up to lunchStart (if we're before lunch) or unbounded.
+            let firstCapEdge = cursor < lunchStart ? lunchStart : .infinity
             let firstChunk = min(remaining, firstCapEdge - cursor)
             if firstChunk > 0.01 {
                 out.append(makeBlock(item, start: cursor, end: cursor + firstChunk))
                 cursor += firstChunk
                 remaining -= firstChunk
             }
+            // Second chunk: anything left after lunch.
             if remaining > 0.01, cursor >= lunchStart, cursor <= lunchEnd {
                 cursor = lunchEnd
-                let secondChunk = min(remaining, workEnd - cursor)
-                if secondChunk > 0.01 {
-                    out.append(makeBlock(item, start: cursor, end: cursor + secondChunk))
-                    cursor += secondChunk
-                }
+                out.append(makeBlock(item, start: cursor, end: cursor + remaining))
+                cursor += remaining
             }
-            if cursor >= workEnd { break }
         }
         return out
     }
@@ -377,9 +379,15 @@ private struct DayTimeline: View {
     let now: Date
     let blocks: [ScheduleBlock]
     private let startHour: Double = 8
-    private let endHour: Double = 17
     private let pxPerHour: CGFloat = 56
     private let cal = Calendar.current
+
+    /// Extend past 5pm when the user has more than a standard day of work
+    /// scheduled, so no blocks ever fall off the visible grid.
+    private var endHour: Double {
+        let latest = blocks.map { $0.end }.max() ?? 17
+        return max(17, ceil(latest))
+    }
 
     var body: some View {
         let totalH = endHour - startHour
@@ -602,10 +610,18 @@ private struct WeekGrid: View {
     let blocksFor: (Date) -> [ScheduleBlock]
 
     private let startHour: Double = 8
-    private let endHour:   Double = 17
     private let pxPerHour: CGFloat = 36
     private let gutter:    CGFloat = 24
     private let cal = Calendar.current
+
+    /// Expand past 5pm if any day this week needs more than a standard day.
+    private var endHour: Double {
+        let latest = weekDates
+            .flatMap { blocksFor($0) }
+            .map { $0.end }
+            .max() ?? 17
+        return max(17, ceil(latest))
+    }
 
     var body: some View {
         VStack(spacing: 0) {
