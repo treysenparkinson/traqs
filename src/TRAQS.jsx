@@ -5302,8 +5302,8 @@ ${jobsCtx || "No jobs found."}`;
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
-      {/* ── Sign-Off Queue (cards view) — one section per template ── */}
-      {taskSubView === "cards" && canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => {
+      {/* ── Sign-Off Queue — always renders as cards in both views, one section per template ── */}
+      {canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => {
         if (!(pending.length > 0 || finished.length > 0)) return null;
         const userDept = (loggedInUser?.department || "").toLowerCase();
         if (!isAdmin && userDept !== tmpl.name.toLowerCase()) return null;
@@ -5311,14 +5311,16 @@ ${jobsCtx || "No jobs found."}`;
         const isCollapsed = !!collapsedSections[sKey];
         const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: !p[sKey] }));
         return <div key={tmpl.id} style={{ marginBottom: 20 }}>
-          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.2s cubic-bezier(0.34,1.56,0.64,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.28s cubic-bezier(0.22,1,0.36,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
             <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.accent }}>{tmpl.name}</h3>
             {pending.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{pending.length}</span>}
             {finished.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>✓ {finished.length}</span>}
           </div>
-          {!isCollapsed && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.22s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
+          <div style={{ overflow: "hidden", minHeight: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
             {[...pending.map(x => ({ ...x, done: false })), ...finished.map(x => ({ ...x, done: true }))].map(({ job, panel, done }) => {
               const so = (panel.signOffs || {})[tmpl.id] || {};
               const activeIdx = tmpl.steps.findIndex((_, i) => !so[String(i)]);
@@ -5339,7 +5341,12 @@ ${jobsCtx || "No jobs found."}`;
                       <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
                       <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{stepLabel}</span>
                       <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
-                      <Tip label="Undo"><button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "2px 6px", borderRadius: 5, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩</button></Tip>
+                      <Tip label="Misclick? Undo this sign-off">
+                        <button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "3px 9px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0, display: "flex", alignItems: "center", gap: 3, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.borderColor = T.danger + "55"; e.currentTarget.style.background = T.danger + "10"; }} onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                          Back
+                        </button>
+                      </Tip>
                     </div>;
                     if (isActive) return <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <button onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ flex: 1, padding: "5px 12px", borderRadius: 10, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {stepLabel}</button>
@@ -5352,25 +5359,29 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>;
             })}
-          </div>}
+          </div>
+          </div>
+          </div>
         </div>;
       })}
-      {/* ── Legacy Engineering Queue (cards view only) ── */}
-      {taskSubView === "cards" && canApprove && (engQueueItems.length > 0 || engFinishedItems.length > 0) && (() => {
+      {/* ── Legacy Engineering Queue — always renders as cards ── */}
+      {canApprove && (engQueueItems.length > 0 || engFinishedItems.length > 0) && (() => {
         const userDept = (loggedInUser?.department || "").toLowerCase();
         if (!isAdmin && userDept !== queueLabel.toLowerCase()) return null;
         const sKey = "__legacy_eng__";
         const isCollapsed = !!collapsedSections[sKey];
         const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: !p[sKey] }));
         return <div style={{ marginBottom: 20 }}>
-          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.2s cubic-bezier(0.34,1.56,0.64,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.28s cubic-bezier(0.22,1,0.36,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
             <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.accent }}>{queueLabel}</h3>
             {engQueueItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>}
             {engFinishedItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>✓ {engFinishedItems.length}</span>}
           </div>
-          {!isCollapsed && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.22s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
+          <div style={{ overflow: "hidden", minHeight: 0 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
             {[...engQueueItems.map(x => ({ ...x, done: false })), ...engFinishedItems.map(x => ({ ...x, done: true }))].map(({ job, panel, done }) => {
               const e = panel.engineering || {};
               const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
@@ -5391,7 +5402,12 @@ ${jobsCtx || "No jobs found."}`;
                       <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
                       <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{step.label}</span>
                       <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
-                      <Tip label="Undo"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ padding: "2px 6px", borderRadius: 5, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>↩</button></Tip>
+                      <Tip label="Misclick? Undo this sign-off">
+                        <button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ padding: "3px 9px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0, display: "flex", alignItems: "center", gap: 3, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.borderColor = T.danger + "55"; e.currentTarget.style.background = T.danger + "10"; }} onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}>
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                          Back
+                        </button>
+                      </Tip>
                     </div>;
                     if (isActive) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <button onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ flex: 1, padding: "5px 12px", borderRadius: 10, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {step.label}</button>
@@ -5404,7 +5420,9 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>;
             })}
-          </div>}
+          </div>
+          </div>
+          </div>
         </div>;
       })()}
 
@@ -5914,224 +5932,7 @@ ${jobsCtx || "No jobs found."}`;
         };
 
         const listContent = <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto" }}>
-          {/* ── Sign-Off Template Queues (list view) — one section per template ── */}
-          {canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => {
-            if (!pending.length && !finished.length) return null;
-            const soCol = engColWidths.map(w => w + "px").join(" ");
-            const soHdr = { padding: "8px 10px", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" };
-            const soCell = { padding: "7px 10px", fontSize: 12, color: T.text, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden" };
-            const renderSoRow = ({ job, panel }, finished2 = false) => {
-              const so = (panel.signOffs || {})[tmpl.id] || {};
-              const activeIdx = finished2 ? -1 : tmpl.steps.findIndex((_, i) => !so[String(i)]);
-              const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-              const rowColor = finished2 ? "#10b981" : T.accent;
-              const isExpanded = expandedEngRows.has(panel.id + tmpl.id);
-              const toggleExpand = e2 => { e2.stopPropagation(); setExpandedEngRows(prev => { const n = new Set(prev); const key = panel.id + tmpl.id; n.has(key) ? n.delete(key) : n.add(key); return n; }); };
-              return <div key={panel.id + tmpl.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                <div style={{ display: "grid", gridTemplateColumns: soCol, cursor: "pointer" }} onClick={toggleExpand}
-                  onMouseEnter={e2 => e2.currentTarget.style.background = rowColor + "08"} onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}>
-                  <div style={{ ...soCell, padding: 0, position: "relative", justifyContent: "center" }}>
-                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: rowColor }} />
-                    <svg style={{ color: T.textDim, transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                  </div>
-                  <div style={{ ...soCell, justifyContent: "flex-start", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
-                    <span style={{ fontWeight: 600, fontSize: 12, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{panel.title}</span>
-                    <span style={{ fontSize: 10, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{job.title}</span>
-                  </div>
-                  <div style={{ ...soCell }}>{job.jobNumber ? <span style={{ fontSize: 11, fontFamily: "monospace", color: T.accent, fontWeight: 700 }}>#{job.jobNumber}</span> : null}</div>
-                  <div style={{ ...soCell }}>{jobClient ? <span style={{ fontSize: 11, color: jobClient.color, fontWeight: 600 }}>{jobClient.name}</span> : null}</div>
-                  <div style={{ ...soCell }}>
-                    {finished2 ? <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98115", borderRadius: 6, padding: "2px 8px" }}>✓ Complete</span>
-                      : <span style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: T.accent + "18", borderRadius: 6, padding: "2px 8px" }}>{tmpl.steps[activeIdx] || "—"}</span>}
-                  </div>
-                  <div style={{ ...soCell }}><span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 8, background: (PRI_C[job.pri] || T.textDim) + "1a", border: `1px solid ${(PRI_C[job.pri] || T.textDim)}44`, fontSize: 11, fontWeight: 700, color: PRI_C[job.pri] || T.textDim }}>{job.pri || "Med"}</span></div>
-                  <div style={{ ...soCell }}><span style={{ fontSize: 11, color: T.textDim }}>{panel.start ? new Date(panel.start + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
-                  <div style={{ ...soCell }}><span style={{ fontSize: 11, color: T.textDim }}>{panel.end ? new Date(panel.end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
-                  <div style={{ ...soCell }}><span style={{ fontSize: 11, color: T.textDim }}>{job.dueDate ? new Date(job.dueDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
-                  {customCols.map(c => <div key={c.id} style={{ ...soCell }} />)}
-                  <div style={{ ...soCell, padding: "4px 10px", gap: 5, flexWrap: "nowrap", overflow: "hidden" }}>
-                    {tmpl.steps.map((stepLabel, i) => {
-                      const done2 = !!so[String(i)];
-                      const isActive2 = !finished2 && i === activeIdx;
-                      const base = { flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "center" };
-                      if (done2) return <button key={i} onClick={e2 => { e2.stopPropagation(); revertStep(job.id, panel.id, tmpl.id, i); }} title={`Undo: ${stepLabel}`} style={{ ...base, background: "#10b98118", border: "1px solid #10b98144", color: "#10b981" }}>✓ {stepLabel}</button>;
-                      if (isActive2) return <button key={i} onClick={e2 => { e2.stopPropagation(); signOffStep(job.id, panel.id, tmpl.id, i); }} title={`Sign Off: ${stepLabel}`} style={{ ...base, background: T.accent, color: T.accentText, border: "none" }}>→ {stepLabel}</button>;
-                      return <span key={i} title={stepLabel} style={{ ...base, border: `1px solid ${T.border}`, color: T.textDim, opacity: 0.45 }}>○ {stepLabel}</span>;
-                    })}
-                  </div>
-                </div>
-                {isExpanded && <div style={{ background: T.bg, borderTop: `1px solid ${T.border}`, padding: "14px 20px", display: "flex", gap: 12 }}>
-                  {tmpl.steps.map((stepLabel, i) => {
-                    const rec = so[String(i)];
-                    const done2 = !!rec;
-                    const isActive2 = !finished2 && i === tmpl.steps.findIndex((_, j) => !so[String(j)]);
-                    const stepColor = done2 ? "#10b981" : isActive2 ? T.accent : T.textDim;
-                    return <div key={i} style={{ flex: 1, padding: "14px 16px", borderRadius: T.radiusSm, background: done2 ? "#10b98110" : isActive2 ? T.accent + "12" : T.surface, border: `1px solid ${done2 ? "#10b98133" : isActive2 ? T.accent + "44" : T.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: stepColor }}>{done2 ? "✓" : isActive2 ? "→" : "○"} Step {i + 1}</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: stepColor }}>{stepLabel}</span>
-                      </div>
-                      {done2 && rec && <div style={{ fontSize: 11, color: T.textDim, display: "flex", flexDirection: "column", gap: 2 }}>
-                        <span>By <span style={{ color: T.text, fontWeight: 600 }}>{rec.byName}</span></span>
-                        <span>{new Date(rec.at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {new Date(rec.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
-                      </div>}
-                      {done2 && <button onClick={e2 => { e2.stopPropagation(); revertStep(job.id, panel.id, tmpl.id, i); }} style={{ padding: "5px 10px", borderRadius: 7, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, fontWeight: 600, alignSelf: "flex-start" }}>↩ Undo</button>}
-                      {isActive2 && <button onClick={e2 => { e2.stopPropagation(); signOffStep(job.id, panel.id, tmpl.id, i); }} style={{ padding: "8px 14px", borderRadius: 8, background: T.accent, color: T.accentText, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ Sign Off: {stepLabel}</button>}
-                      {!done2 && !isActive2 && <span style={{ fontSize: 11, color: T.textDim, opacity: 0.6 }}>Awaiting previous step</span>}
-                    </div>;
-                  })}
-                </div>}
-              </div>;
-            };
-            return <div key={tmpl.id} style={{ marginBottom: 16 }}>
-              <div onClick={() => setExpandedEngRows(prev => { const n = new Set(prev); const key = "hdr_" + tmpl.id; n.has(key) ? n.delete(key) : n.add(key); return n; })}
-                style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", cursor: "pointer", marginBottom: !expandedEngRows.has("hdr_" + tmpl.id) ? 0 : 8 }}>
-                <svg style={{ color: T.textDim, transition: "transform 0.2s", transform: expandedEngRows.has("hdr_" + tmpl.id) ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>{tmpl.name}</span>
-                {pending.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{pending.length}</span>}
-                {finished.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓ {finished.length}</span>}
-              </div>
-              {expandedEngRows.has("hdr_" + tmpl.id) && <div style={{ borderRadius: T.radius, border: `1px solid ${T.accent}33`, overflow: "auto", background: T.card }}>
-                <div style={{ minWidth: engColWidths.reduce((a, b) => a + b, 0) }}>
-                  <div style={{ display: "grid", gridTemplateColumns: soCol, position: "sticky", top: 0, zIndex: 5, borderBottom: `1.5px solid ${T.border}` }}>
-                    <div style={soHdr} />
-                    {["Name","#","Client","Step","Priority","Start","End","Due",...customCols.map(c => c.label),"Progress"].map((h, i) => (
-                      <div key={i} style={{ ...soHdr, justifyContent: "center" }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h}</span></div>
-                    ))}
-                  </div>
-                  {pending.map(item => renderSoRow(item, false))}
-                  {finished.length > 0 && <>
-                    <div style={{ display: "grid", gridTemplateColumns: soCol, background: T.surface, borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}` }}>
-                      <div /><div style={{ ...soHdr, justifyContent: "flex-start", color: "#10b981", gap: 6, paddingLeft: 10 }}><span>✓</span> Finished <span style={{ fontWeight: 400, color: T.textDim }}>({finished.length})</span></div>
-                      {[...Array(8 + customCols.length)].map((_, i) => <div key={i} />)}
-                    </div>
-                    {finished.map(item => renderSoRow(item, true))}
-                  </>}
-                </div>
-              </div>}
-            </div>;
-          })}
-          {/* ── Legacy Engineering Queue (list view) ── */}
-          {canApprove && (engQueueItems.length > 0 || engFinishedItems.length > 0) && (() => {
-            const engCol = engColWidths.map(w => w + "px").join(" ");
-            const engHdr = { padding: "8px 10px", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", background: T.surface, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" };
-            const engCell = { padding: "7px 10px", fontSize: 12, color: T.text, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden" };
-            const renderEngRow = ({ job, panel }, finished = false) => {
-              const e = panel.engineering || {};
-              const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
-              const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-              const rowColor = finished ? "#10b981" : T.accent;
-              const isExpanded = expandedEngRows.has(panel.id);
-              const toggleExpand = e2 => { e2.stopPropagation(); setExpandedEngRows(prev => { const n = new Set(prev); n.has(panel.id) ? n.delete(panel.id) : n.add(panel.id); return n; }); };
-              return <div key={panel.id} style={{ borderBottom: `1px solid ${T.border}` }}>
-                {/* Main row */}
-                <div style={{ display: "grid", gridTemplateColumns: engCol, cursor: "pointer" }}
-                  onClick={toggleExpand}
-                  onMouseEnter={e2 => e2.currentTarget.style.background = rowColor + "08"} onMouseLeave={e2 => e2.currentTarget.style.background = "transparent"}>
-                  {/* color bar + chevron */}
-                  <div style={{ ...engCell, padding: 0, position: "relative", justifyContent: "center" }}>
-                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: rowColor }} />
-                    <svg style={{ color: T.textDim, transform: isExpanded ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.2s" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                  </div>
-                  {/* Name */}
-                  <div style={{ ...engCell, justifyContent: "flex-start", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
-                    <span style={{ fontWeight: 600, fontSize: 12, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{panel.title}</span>
-                    <span style={{ fontSize: 10, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{job.title}</span>
-                  </div>
-                  {/* # */}
-                  <div style={{ ...engCell }}>{job.jobNumber ? <span style={{ fontSize: 11, fontFamily: "monospace", color: T.accent, fontWeight: 700 }}>#{job.jobNumber}</span> : null}</div>
-                  {/* Client */}
-                  <div style={{ ...engCell }}>{jobClient ? <span style={{ fontSize: 11, color: jobClient.color, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{jobClient.name}</span> : null}</div>
-                  {/* Step */}
-                  <div style={{ ...engCell }}>
-                    {finished
-                      ? <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98115", borderRadius: 6, padding: "2px 8px", whiteSpace: "nowrap" }}>✓ Complete</span>
-                      : <span style={{ fontSize: 11, fontWeight: 600, color: T.accent, background: T.accent + "18", borderRadius: 6, padding: "2px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{approvalSteps.find(s => s.key === activeStep)?.label}</span>}
-                  </div>
-                  {/* Priority */}
-                  <div style={{ ...engCell }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 8, background: (PRI_C[job.pri] || T.textDim) + "1a", border: `1px solid ${(PRI_C[job.pri] || T.textDim)}44`, fontSize: 11, fontWeight: 700, color: PRI_C[job.pri] || T.textDim, userSelect: "none" }}>{job.pri || "Med"}</span>
-                  </div>
-                  {/* Start */}
-                  <div style={{ ...engCell }}><span style={{ fontSize: 11, color: T.textDim }}>{panel.start ? new Date(panel.start + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
-                  {/* End */}
-                  <div style={{ ...engCell }}><span style={{ fontSize: 11, color: T.textDim }}>{panel.end ? new Date(panel.end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
-                  {/* Due */}
-                  <div style={{ ...engCell }}><span style={{ fontSize: 11, color: T.textDim }}>{job.dueDate ? new Date(job.dueDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}</span></div>
-                  {/* Custom cols — empty */}
-                  {customCols.map(c => <div key={c.id} style={{ ...engCell }} />)}
-                  {/* Progress — 3 step buttons */}
-                  <div style={{ ...engCell, padding: "4px 10px", gap: 5, flexWrap: "nowrap", overflow: "hidden" }}>
-                    {approvalSteps.map(step => {
-                      const done = !!e[step.key];
-                      const isActive = !finished && step.key === activeStep;
-                      const base = { flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "center" };
-                      if (done) return <button key={step.key} onClick={e2 => { e2.stopPropagation(); revertEngineering(job.id, panel.id, step.key); }} title={`Undo: ${step.label}`} style={{ ...base, background: "#10b98118", border: "1px solid #10b98144", color: "#10b981" }}>✓ {step.label}</button>;
-                      if (isActive) return <button key={step.key} onClick={e2 => { e2.stopPropagation(); signOffEngineering(job.id, panel.id, step.key); }} title={`Sign Off: ${step.label}`} style={{ ...base, background: T.accent, color: T.accentText, border: "none" }}>→ {step.label}</button>;
-                      return <span key={step.key} title={step.label} style={{ ...base, border: `1px solid ${T.border}`, color: T.textDim, opacity: 0.45 }}>○ {step.label}</span>;
-                    })}
-                  </div>
-                </div>
-                {/* Expanded dropdown detail panel */}
-                {isExpanded && <div style={{ background: T.bg, borderTop: `1px solid ${T.border}`, padding: "14px 20px", display: "flex", gap: 12 }}>
-                  {approvalSteps.map((step, idx) => {
-                    const rec = e[step.key];
-                    const done = !!rec;
-                    const isActive = !finished && step.key === activeStep;
-                    const stepColor = done ? "#10b981" : isActive ? T.accent : T.textDim;
-                    return <div key={step.key} style={{ flex: 1, padding: "14px 16px", borderRadius: T.radiusSm, background: done ? "#10b98110" : isActive ? T.accent + "12" : T.surface, border: `1px solid ${done ? "#10b98133" : isActive ? T.accent + "44" : T.border}`, display: "flex", flexDirection: "column", gap: 8 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: stepColor }}>{done ? "✓" : isActive ? "→" : "○"} Step {idx + 1}</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: stepColor }}>{step.label}</span>
-                      </div>
-                      {done && rec && <div style={{ fontSize: 11, color: T.textDim, display: "flex", flexDirection: "column", gap: 2 }}>
-                        <span>By <span style={{ color: T.text, fontWeight: 600 }}>{rec.byName}</span></span>
-                        <span>{new Date(rec.at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · {new Date(rec.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
-                      </div>}
-                      {done && <button onClick={e2 => { e2.stopPropagation(); revertEngineering(job.id, panel.id, step.key); }} style={{ padding: "5px 10px", borderRadius: 7, background: "transparent", border: `1px solid ${T.border}`, fontSize: 11, color: T.textDim, cursor: "pointer", fontFamily: T.font, fontWeight: 600, alignSelf: "flex-start" }}>↩ Undo</button>}
-                      {isActive && <button onClick={e2 => { e2.stopPropagation(); signOffEngineering(job.id, panel.id, step.key); }} style={{ padding: "8px 14px", borderRadius: 8, background: T.accent, color: T.accentText, border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ Sign Off: {step.label}</button>}
-                      {!done && !isActive && <span style={{ fontSize: 11, color: T.textDim, opacity: 0.6 }}>Awaiting previous step</span>}
-                    </div>;
-                  })}
-                </div>}
-              </div>;
-            };
-            return <div style={{ marginBottom: 16 }}>
-              <div onClick={() => setEngQueueExpanded(p => !p)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 2px", cursor: "pointer", marginBottom: engQueueExpanded ? 8 : 0 }}>
-                <svg style={{ color: T.textDim, transition: "transform 0.2s", transform: engQueueExpanded ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: T.accent }}>{queueLabel}</span>
-                {engQueueItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>}
-                {engFinishedItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓ {engFinishedItems.length}</span>}
-              </div>
-              {engQueueExpanded && <div style={{ borderRadius: T.radius, border: `1px solid ${T.accent}33`, overflow: "auto", background: T.card }}>
-                <div style={{ minWidth: engColWidths.reduce((a, b) => a + b, 0) }}>
-                  {/* Column headers with resize handles */}
-                  <div style={{ display: "grid", gridTemplateColumns: engCol, position: "sticky", top: 0, zIndex: 5, borderBottom: `1.5px solid ${T.border}` }}>
-                    <div style={engHdr} />
-                    {["Name","#","Client","Step","Priority","Start","End","Due",...customCols.map(c => c.label),"Progress"].map((h, i) => {
-                      const colIdx = i + 1;
-                      const resizable = colIdx < engColWidths.length;
-                      return <div key={i} style={{ ...engHdr, justifyContent: "center", position: "relative", userSelect: "none" }}>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h}</span>
-                        {resizable && <div onPointerDown={e => startEngColResize(e, colIdx)} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5, touchAction: "none" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "33"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />}
-                      </div>;
-                    })}
-                  </div>
-                  {engQueueItems.map(item => renderEngRow(item, false))}
-                  {engFinishedItems.length > 0 && <>
-                    <div style={{ display: "grid", gridTemplateColumns: engCol, background: T.surface, borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}` }}>
-                      <div />
-                      <div style={{ ...engHdr, justifyContent: "flex-start", color: "#10b981", gap: 6, paddingLeft: 10 }}><span>✓</span> Finished <span style={{ fontWeight: 400, color: T.textDim }}>({engFinishedItems.length})</span></div>
-                      {[...Array(8 + customCols.length)].map((_, i) => <div key={i} />)}
-                    </div>
-                    {engFinishedItems.map(item => renderEngRow(item, true))}
-                  </>}
-                </div>
-              </div>}
-            </div>;
-          })()}
+          {/* Sign-Off + Engineering queues render above as cards (see top of Jobs page) */}
           {/* PM sections — each gets its own grid table */}
           {(() => {
             const minW = colWidths.reduce((a, b) => a + b, 0);
@@ -11488,12 +11289,16 @@ ${jobsCtx || "No jobs found."}`;
           const numPanels = 1;
           const opsPerPanel = rawOps.length;
           const _clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
+          const allCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule);
           const crewForOp = (rawOp) => {
             const reqDept = rawOp.requiredDepartment || "";
-            return people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule)
-              .filter(p => !reqDept || p.department === reqDept);
+            if (!reqDept) return allCrew;
+            const matched = allCrew.filter(p => p.department === reqDept);
+            // Fallback: if nobody in the org matches the required department, fall back to ALL crew
+            // so the scheduler can still place the work somewhere instead of bailing with "no windows".
+            return matched.length > 0 ? matched : allCrew;
           };
-          const crew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule);
+          const crew = allCrew;
           // Business days to complete ONE panel sequentially (e.g. Cut 1d + Wire 5d + Layout 2d = 8d)
           const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
 
@@ -11561,17 +11366,23 @@ ${jobsCtx || "No jobs found."}`;
               if (failed) continue;
 
               const totalEnd = sAddBD(wStart, totalBDCalc - 1);
-              const firstBatchEnd = sAddBD(wStart, batchBD - 1);
-              const available = crew.filter(p => isPersonFree(p.id, wStart, firstBatchEnd, slotH));
-              const busy = crew.filter(p => !isPersonFree(p.id, wStart, firstBatchEnd, slotH));
+              // Use the FIRST op's duration to determine "available" people — the per-op scheduler
+              // already validated that crew exists for each subsequent op, so requiring everyone to
+              // be free for the entire batch (which can be many days) was pushing recommendations to
+              // later dates than necessary.
+              const firstOpDur = rawOps[0]?.durationBD || 1;
+              const firstOpEnd = sAddBD(wStart, Math.max(0, firstOpDur - 1));
+              const available = crew.filter(p => isPersonFree(p.id, wStart, firstOpEnd, slotH));
+              const busy = crew.filter(p => !isPersonFree(p.id, wStart, firstOpEnd, slotH));
 
-              // Skip windows where nobody is actually free — scheduler would push dates anyway
+              // Skip windows where nobody is actually free for the first op
               if (available.length === 0) { slotDate = sAddBD(slotDate, 1); slotH = workStartH; continue; }
 
               const totalBD = totalBDCalc;
               const panelsAtOnce = firstPhaseCrew ? firstPhaseCrew.length : 1;
 
-              const isDuplicate = results.some(s => Math.abs(sDiffBD(s.start, wStart)) < 2);
+              // De-dup only on the exact same start date — keep close-together earlier options visible.
+              const isDuplicate = results.some(s => s.start === wStart);
               if (!isDuplicate) {
                 results.push({
                   start: wStart, end: totalEnd, available, busy,
@@ -11581,11 +11392,32 @@ ${jobsCtx || "No jobs found."}`;
               }
               slotDate = sAddBD(slotDate, 1); slotH = workStartH;
             }
+            // Defensive: ensure results are sorted earliest-first
+            results.sort((a, b) => a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
             return results;
           };
 
           // Due date is display-only — never passed to the scheduler
-          const slots = findWindows(null);
+          let slots = findWindows(null);
+          // Best-effort fallback: if the strict scan finds nothing, still produce a usable slot
+          // starting from the base date using the full crew, so the user always sees a recommendation
+          // instead of a dead-end "no windows" message.
+          if (slots.length === 0 && crew.length > 0) {
+            const baseDate = (ed.isReschedule && ed._rescheduleStartDate) ? ed._rescheduleStartDate : TD;
+            const fallbackStart = sNextBD(baseDate);
+            const fallbackEnd = sAddBD(fallbackStart, Math.max(0, batchBD - 1));
+            slots = [{
+              start: fallbackStart,
+              end: fallbackEnd,
+              available: crew,
+              busy: [],
+              businessDays: batchBD,
+              panelsAtOnce: 1,
+              totalBD: batchBD,
+              staggered: false,
+              fallback: true,
+            }];
+          }
           setAiSuggestion({ canMeetDue: null, dueDate: null, slots: slots.slice(0, 3), numPanels: opsPerPanel, blockedSubtasks });
           setAvailCheckPassed(true);
 
