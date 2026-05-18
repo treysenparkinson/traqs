@@ -15,7 +15,7 @@ struct LoginView: View {
                     Image("TRAQSLogoWhite")
                         .resizable()
                         .scaledToFit()
-                        .frame(width: 220)
+                        .frame(width: 300)
                     Text("Scheduling & Production Management")
                         .font(.subheadline)
                         .foregroundColor(Color(hex: T.muted))

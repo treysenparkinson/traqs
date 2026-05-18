@@ -247,6 +247,52 @@ struct APIService {
         _ = try await perform(req)
     }
 
+    // MARK: - Job Clock (Bearer-only, no PIN)
+
+    private struct JobClockInPayload: Encodable {
+        let action = "jobClockIn"
+        let personId: String
+        let jobId: String
+        let panelId: String?
+        let opId: String?
+        let jobTitle: String?
+        let panelTitle: String?
+        let opTitle: String?
+    }
+
+    private struct JobClockSimplePayload: Encodable {
+        let action: String
+        let personId: String
+    }
+
+    func jobClockIn(personId: String, jobId: String,
+                    panelId: String? = nil, opId: String? = nil,
+                    jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async throws {
+        let body = try JSONEncoder().encode(JobClockInPayload(
+            personId: personId, jobId: jobId, panelId: panelId, opId: opId,
+            jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    func jobClockOut(personId: String) async throws {
+        let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobClockOut", personId: personId))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    func jobPause(personId: String) async throws {
+        let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobPause", personId: personId))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    func jobResume(personId: String) async throws {
+        let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobResume", personId: personId))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
     // MARK: - Org Lookup
 
     static func lookupOrg(code: String) async throws -> OrgInfo {

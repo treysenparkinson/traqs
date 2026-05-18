@@ -7,7 +7,6 @@ struct GanttView: View {
     @State private var selectedDate = Calendar.current.startOfDay(for: Date())
     @State private var weekOffset = 0
     @State private var showMyTasks = true
-    @State private var showFastTRAQS = false
     @State private var showAddJob = false
 
     private let cal = Calendar.current
@@ -134,24 +133,7 @@ struct GanttView: View {
 
                 VStack(spacing: 0) {
 
-                    // ── Logo header ──
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 2) {
-                            TRAQSNavLogo()
-                            Text("Schedule")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(Color(hex: T.muted))
-                                .kerning(0.8)
-                                .textCase(.uppercase)
-                        }
-                        Spacer()
-                    }
-                    .padding(.top, 20)
-                    .padding(.bottom, 14)
-                    .background(Color(hex: T.surface))
-
-                    Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+                    TRAQSNavHeader(tabName: "Schedule")
 
                     // ── Sub-header: Ask TRAQS | All/My Tasks (centered) | Add ──
                     ZStack {
@@ -163,13 +145,6 @@ struct GanttView: View {
                         .frame(width: 180)
 
                         HStack {
-                            if appState.isAdmin {
-                                Button { showFastTRAQS = true } label: {
-                                    FastTRAQSPillButton()
-                                }
-                                .buttonStyle(.plain)
-                            }
-
                             Spacer()
 
                             if appState.isAdmin {
@@ -185,64 +160,64 @@ struct GanttView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color(hex: T.surface))
+                    .traqsToolbar()
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
 
-                    // ── Week navigation row ──
-                    ZStack {
-                        Text(weekLabel)
-                            .font(.caption.bold())
-                            .foregroundColor(Color(hex: T.muted))
+                    // ── Week nav + Day strip (one rounded panel) ──
+                    VStack(spacing: 4) {
+                        ZStack {
+                            Text(weekLabel)
+                                .font(.caption.bold())
+                                .foregroundColor(Color(hex: T.muted))
 
-                        HStack(spacing: 0) {
-                            Button { weekOffset -= 1 } label: {
-                                Image(systemName: "chevron.left")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(Color(hex: T.accent))
-                                    .frame(width: 36, height: 36)
+                            HStack(spacing: 0) {
+                                Button { weekOffset -= 1 } label: {
+                                    Image(systemName: "chevron.left")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(Color(hex: T.accent))
+                                        .frame(width: 36, height: 36)
+                                }
+
+                                Spacer()
+
+                                Button("Today") {
+                                    weekOffset = 0
+                                    selectedDate = cal.startOfDay(for: Date())
+                                }
+                                .font(.caption.bold())
+                                .foregroundColor(Color(hex: T.accent))
+                                .padding(.trailing, 4)
+
+                                Button { weekOffset += 1 } label: {
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundColor(Color(hex: T.accent))
+                                        .frame(width: 36, height: 36)
+                                }
                             }
+                        }
 
-                            Spacer()
-
-                            Button("Today") {
-                                weekOffset = 0
-                                selectedDate = cal.startOfDay(for: Date())
-                            }
-                            .font(.caption.bold())
-                            .foregroundColor(Color(hex: T.accent))
-                            .padding(.trailing, 4)
-
-                            Button { weekOffset += 1 } label: {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(Color(hex: T.accent))
-                                    .frame(width: 36, height: 36)
+                        HStack(spacing: 2) {
+                            ForEach(weekDates, id: \.self) { date in
+                                DayCell(
+                                    date: date,
+                                    isSelected: cal.isDate(date, inSameDayAs: selectedDate),
+                                    isToday: cal.isDateInToday(date),
+                                    taskCount: taskCount(for: date)
+                                ) {
+                                    selectedDate = cal.startOfDay(for: date)
+                                }
                             }
                         }
                     }
                     .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color(hex: T.surface))
-
-                    // ── Day strip ──
-                    HStack(spacing: 2) {
-                        ForEach(weekDates, id: \.self) { date in
-                            DayCell(
-                                date: date,
-                                isSelected: cal.isDate(date, inSameDayAs: selectedDate),
-                                isToday: cal.isDateInToday(date),
-                                taskCount: taskCount(for: date)
-                            ) {
-                                selectedDate = cal.startOfDay(for: date)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
-                    .background(Color(hex: T.surface))
-
-                    Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+                    .padding(.vertical, 8)
+                    .traqsToolbar()
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
 
                     // ── Date header ──
                     HStack {
@@ -260,10 +235,9 @@ struct GanttView: View {
                                 .foregroundColor(Color(hex: T.muted))
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-
-                    Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 6)
 
                     // ── Task list ──
                     if showMyTasks {
@@ -348,7 +322,6 @@ struct GanttView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showFastTRAQS) { FastTRAQSView() }
             .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
         }
     }

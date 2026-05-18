@@ -6,44 +6,15 @@ struct MoreView: View {
     @Environment(AuthManager.self) private var auth
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
-    @State private var showFastTRAQS = false
-
     var body: some View {
         NavigationStack {
             ZStack {
                 Color(hex: T.bg).ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // ── Logo header ──
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 2) {
-                            TRAQSNavLogo()
-                            Text("More")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(Color(hex: T.muted))
-                                .kerning(0.8)
-                                .textCase(.uppercase)
-                        }
-                        Spacer()
-                    }
-                    .padding(.top, 20)
-                    .padding(.bottom, 14)
-                    .background(Color(hex: T.surface))
+                    TRAQSNavHeader(tabName: "More")
 
                     List {
-                        if appState.isAdmin {
-                            Section("AI Tools") {
-                                Button {
-                                    showFastTRAQS = true
-                                } label: {
-                                    Label("Ask TRAQS", systemImage: "bolt.fill")
-                                        .foregroundColor(Color(hex: T.accent))
-                                }
-                                .listRowBackground(Color(hex: T.card))
-                            }
-                        }
-
                         Section {
                             NavigationLink {
                                 ClientsView()
@@ -95,11 +66,9 @@ struct MoreView: View {
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showFastTRAQS) { FastTRAQSView() }
             .safeAreaInset(edge: .bottom) {
                 if let person = appState.currentPerson {
                     VStack(spacing: 0) {
-                        Rectangle().fill(Color(hex: T.border)).frame(height: 1)
                         HStack(spacing: 10) {
                             Circle()
                                 .fill(Color(hex: person.color))
@@ -139,9 +108,11 @@ struct MoreView: View {
                                 .cornerRadius(6)
                                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: T.border), lineWidth: 1))
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .background(Color(hex: T.surface))
+                        .traqsToolbar()
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 6)
                     }
                 }
             }

@@ -18,24 +18,7 @@ struct ClientsView: View {
                 Color(hex: T.bg).ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // ── Logo header ──
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 2) {
-                            TRAQSNavLogo()
-                            Text("Clients")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(Color(hex: T.muted))
-                                .kerning(0.8)
-                                .textCase(.uppercase)
-                        }
-                        Spacer()
-                    }
-                    .padding(.top, 20)
-                    .padding(.bottom, 14)
-                    .background(Color(hex: T.surface))
-
-                    Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+                    TRAQSNavHeader(tabName: "Clients")
 
                     // ── Sub-header: Add ──
                     HStack {

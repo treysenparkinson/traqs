@@ -32,4 +32,14 @@ enum T {
     static let priLow    = "#10b981"
     static let priMedium = "#f59e0b"
     static let priHigh   = "#f43f5e"
+
+    // Shape / shadow tokens — keep the whole UI consistently rounded
+    static let cornerSm: CGFloat = 10   // chips, small pills (still rounded, never square)
+    static let cornerMd: CGFloat = 14   // body cards, list rows
+    static let cornerLg: CGFloat = 18   // toolbars, sub-headers
+    static let cornerXl: CGFloat = 22   // header, modals, hero cards
+
+    static let shadowOpacity: Double = 0.18
+    static let shadowRadius:  CGFloat = 8
+    static let shadowY:       CGFloat = 4
 }

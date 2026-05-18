@@ -290,6 +290,43 @@ struct ActiveClockIn: Codable, Equatable {
     }
 }
 
+// MARK: - Active Job Clock (single in-progress job per person, separate from payroll clock)
+
+struct ActiveJobClock: Codable, Equatable {
+    var clockIn: String
+    var jobId: String
+    var panelId: String?
+    var opId: String?
+    var jobTitle: String?
+    var panelTitle: String?
+    var opTitle: String?
+    var pausedAt: String?
+    var totalPausedMs: Double?
+
+    init(clockIn: String, jobId: String, panelId: String? = nil, opId: String? = nil,
+         jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil,
+         pausedAt: String? = nil, totalPausedMs: Double? = nil) {
+        self.clockIn = clockIn; self.jobId = jobId; self.panelId = panelId; self.opId = opId
+        self.jobTitle = jobTitle; self.panelTitle = panelTitle; self.opTitle = opTitle
+        self.pausedAt = pausedAt; self.totalPausedMs = totalPausedMs
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        clockIn       = (try? c.decode(String.self, forKey: .clockIn)) ?? ""
+        jobId         = (try? c.decodeFlexID(forKey: .jobId)) ?? ""
+        panelId       = try? c.decodeFlexID(forKey: .panelId)
+        opId          = try? c.decodeFlexID(forKey: .opId)
+        jobTitle      = try? c.decodeIfPresent(String.self, forKey: .jobTitle)
+        panelTitle    = try? c.decodeIfPresent(String.self, forKey: .panelTitle)
+        opTitle       = try? c.decodeIfPresent(String.self, forKey: .opTitle)
+        pausedAt      = try? c.decodeIfPresent(String.self, forKey: .pausedAt)
+        totalPausedMs = try? c.decodeIfPresent(Double.self, forKey: .totalPausedMs)
+    }
+
+    var isPaused: Bool { pausedAt != nil }
+}
+
 // MARK: - Person
 
 struct Person: Codable, Identifiable, Equatable, Hashable {
@@ -309,6 +346,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var timeOff: [TimeOffEntry]
     var pushToken: String?
     var activeClockIn: ActiveClockIn?
+    var activeJobClock: ActiveJobClock?
 
     var isAdmin: Bool { userRole == "admin" }
 
@@ -329,6 +367,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         teamNumber    = try? c.decodeIfPresent(Int.self, forKey: .teamNumber)
         pushToken     = try? c.decodeIfPresent(String.self, forKey: .pushToken)
         activeClockIn = try? c.decodeIfPresent(ActiveClockIn.self, forKey: .activeClockIn)
+        activeJobClock = try? c.decodeIfPresent(ActiveJobClock.self, forKey: .activeJobClock)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
@@ -337,13 +376,15 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
          isEngineer: Bool? = nil, isTeamLead: Bool? = nil,
          autoSchedule: Bool? = nil, teamNumber: Int? = nil,
          timeOff: [TimeOffEntry] = [], pushToken: String? = nil,
-         activeClockIn: ActiveClockIn? = nil) {
+         activeClockIn: ActiveClockIn? = nil,
+         activeJobClock: ActiveJobClock? = nil) {
         self.id = id; self.name = name; self.role = role; self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
         self.isTeamLead = isTeamLead; self.autoSchedule = autoSchedule
         self.teamNumber = teamNumber; self.timeOff = timeOff; self.pushToken = pushToken
         self.activeClockIn = activeClockIn
+        self.activeJobClock = activeJobClock
     }
 
     static func == (lhs: Person, rhs: Person) -> Bool { lhs.id == rhs.id }

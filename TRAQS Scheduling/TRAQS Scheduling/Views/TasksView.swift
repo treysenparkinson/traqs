@@ -9,8 +9,7 @@ struct TasksView: View {
     @State private var filterStatus: JobStatus? = nil
     @State private var expandedJobIds: Set<String> = []
     @State private var showAddJob = false
-    @State private var showFastTRAQS = false
-    @State private var viewMode: TasksViewMode = .list
+    @State private var showEngDropdown = false
 
     var filteredJobs: [Job] {
         appState.jobs.filter { job in
@@ -59,44 +58,44 @@ struct TasksView: View {
                 Color(hex: T.bg).ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // ── Logo header ──
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 2) {
-                            TRAQSNavLogo()
-                            Text("Jobs")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(Color(hex: T.muted))
-                                .kerning(0.8)
-                                .textCase(.uppercase)
-                        }
-                        Spacer()
-                    }
-                    .padding(.top, 20)
-                    .padding(.bottom, 14)
-                    .background(Color(hex: T.surface))
+                    TRAQSNavHeader(tabName: "Jobs")
 
-                    Rectangle().fill(Color(hex: T.border)).frame(height: 1)
-
-                    // ── Sub-header: Ask TRAQS | View Toggle | Undo | Add ──
+                    // ── Sub-header: Engineering Queue | Undo | Add ──
                     HStack(spacing: 10) {
-                        if appState.isAdmin {
-                            Button { showFastTRAQS = true } label: {
-                                FastTRAQSPillButton()
+                        if appState.isEngineer {
+                            Button {
+                                withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
+                                    showEngDropdown.toggle()
+                                }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "wrench.and.screwdriver.fill")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("Engineering Queue")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    if appState.engineeringQueue.count > 0 {
+                                        Text("\(appState.engineeringQueue.count)")
+                                            .font(.system(size: 10, weight: .bold))
+                                            .foregroundColor(.white)
+                                            .padding(.horizontal, 6)
+                                            .frame(minHeight: 16)
+                                            .background(Color(hex: T.eng))
+                                            .clipShape(Capsule())
+                                    }
+                                    Image(systemName: "chevron.down")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .rotationEffect(.degrees(showEngDropdown ? 180 : 0))
+                                        .animation(.easeInOut(duration: 0.18), value: showEngDropdown)
+                                }
+                                .foregroundColor(Color(hex: T.eng))
+                                .padding(.horizontal, 12)
+                                .frame(height: 32)
+                                .background(Color(hex: T.eng).opacity(showEngDropdown ? 0.22 : 0.12))
+                                .clipShape(Capsule())
+                                .overlay(Capsule().stroke(Color(hex: T.eng).opacity(showEngDropdown ? 0.55 : 0.3), lineWidth: 1))
+                                .animation(.easeInOut(duration: 0.18), value: showEngDropdown)
                             }
                             .buttonStyle(.plain)
-                        }
-
-                        Button {
-                            viewMode = viewMode == .list ? .cards : .list
-                        } label: {
-                            Image(systemName: viewMode == .cards ? "list.bullet" : "square.grid.2x2")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(Color(hex: T.accent))
-                                .frame(width: 32, height: 32)
-                                .background(Color(hex: T.accent).opacity(0.12))
-                                .clipShape(Circle())
-                                .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
                         }
 
                         Spacer()
@@ -126,37 +125,27 @@ struct TasksView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color(hex: T.surface))
+                    .traqsToolbar()
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .padding(.bottom, 4)
 
-                    // Engineering Queue — engineers and admins only
-                    if appState.isEngineer && !appState.engineeringQueue.isEmpty {
-                        EngineeringQueueSection()
+                    // Engineering Queue dropdown panel — drops out of the toolbar
+                    if showEngDropdown && appState.isEngineer {
+                        EngineeringDropdownPanel()
+                            .padding(.horizontal, 12)
+                            .padding(.top, 6)
                             .padding(.bottom, 8)
+                            .transition(.asymmetric(
+                                insertion: .opacity
+                                    .combined(with: .offset(y: -8))
+                                    .combined(with: .scale(scale: 0.97, anchor: .top)),
+                                removal: .opacity
+                                    .combined(with: .offset(y: -4))
+                            ))
                     }
-
-                    // Search bar
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(Color(hex: T.muted))
-                        TextField("Search jobs…", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .foregroundColor(Color(hex: T.text))
-                        if !searchText.isEmpty {
-                            Button { searchText = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(Color(hex: T.muted))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .padding(10)
-                    .background(Color(hex: T.surface))
-                    .cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
 
                     // Status filter chips
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -174,38 +163,54 @@ struct TasksView: View {
                     }
                     .padding(.bottom, 8)
 
-                    // Job list or Cards view
-                    if viewMode == .cards {
-                        CardsView()
-                    } else {
-                        ScrollView {
-                            LazyVStack(spacing: 8) {
-                                ForEach(jobGroups) { group in
-                                    GroupedJobRow(
-                                        group: group,
-                                        isExpanded: expandedJobIds.contains(group.id)
-                                    ) {
-                                        withAnimation(.easeInOut(duration: 0.22)) {
-                                            if expandedJobIds.contains(group.id) {
-                                                expandedJobIds.remove(group.id)
-                                            } else {
-                                                expandedJobIds.insert(group.id)
-                                            }
+                    // Job list
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(jobGroups) { group in
+                                GroupedJobRow(
+                                    group: group,
+                                    isExpanded: expandedJobIds.contains(group.id)
+                                ) {
+                                    withAnimation(.easeInOut(duration: 0.22)) {
+                                        if expandedJobIds.contains(group.id) {
+                                            expandedJobIds.remove(group.id)
+                                        } else {
+                                            expandedJobIds.insert(group.id)
                                         }
                                     }
                                 }
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
                         }
-                        .refreshable { await appState.loadAll() }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
                     }
+                    .refreshable { await appState.loadAll() }
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Job.self) { job in JobDetailView(job: job) }
-            .sheet(isPresented: $showFastTRAQS) { FastTRAQSView() }
             .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
+            .safeAreaInset(edge: .bottom) {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(Color(hex: T.muted))
+                    TextField("Search jobs…", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .foregroundColor(Color(hex: T.text))
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(Color(hex: T.muted))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .traqsToolbar()
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
+            }
         }
     }
 }
@@ -446,56 +451,61 @@ struct PersonAssignmentRow: View {
 
 // MARK: - Engineering Queue Section
 
-struct EngineeringQueueSection: View {
+struct EngineeringDropdownPanel: View {
     @Environment(AppState.self) private var appState
-    @State private var isExpanded = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
-            } label: {
-                HStack {
-                    Image(systemName: "wrench.and.screwdriver.fill")
-                        .foregroundColor(Color(hex: T.eng))
-                    Text("Engineering Queue")
-                        .font(.headline)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "wrench.and.screwdriver.fill")
+                    .foregroundColor(Color(hex: T.eng))
+                Text("Engineering Queue")
+                    .font(.caption.bold())
+                    .foregroundColor(Color(hex: T.text))
+                    .kerning(0.6)
+                    .textCase(.uppercase)
+                Spacer()
+                if appState.engineeringQueue.count > 0 {
+                    Text("\(appState.engineeringQueue.count) pending")
+                        .font(.caption2)
+                        .foregroundColor(Color(hex: T.muted))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 12)
+
+            if appState.engineeringQueue.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.system(size: 28, weight: .light))
+                        .foregroundColor(Color(hex: T.eng).opacity(0.55))
+                    Text("Engineering queue is clear")
+                        .font(.subheadline.bold())
                         .foregroundColor(Color(hex: T.text))
-                    Spacer()
-                    Text("\(appState.engineeringQueue.count)")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color(hex: T.eng).opacity(0.2))
-                        .foregroundColor(Color(hex: T.eng))
-                        .cornerRadius(10)
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    Text("No panels waiting for sign-off.")
                         .font(.caption)
                         .foregroundColor(Color(hex: T.muted))
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 18)
+            } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 12) {
                         ForEach(appState.engineeringQueue, id: \.panel.id) { item in
                             EngineeringCard(job: item.job, panel: item.panel)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
                 }
             }
         }
-        .background(Color(hex: T.surface))
+        .traqsToolbar()
         .overlay(
-            Rectangle()
-                .fill(Color(hex: T.border))
-                .frame(height: 1),
-            alignment: .bottom
+            RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
+                .stroke(Color(hex: T.eng).opacity(0.4), lineWidth: 1)
         )
     }
 }

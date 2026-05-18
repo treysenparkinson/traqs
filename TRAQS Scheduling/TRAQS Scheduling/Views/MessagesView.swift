@@ -50,24 +50,7 @@ struct MessagesView: View {
                 Color(hex: T.bg).ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    // ── Logo header ──
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 2) {
-                            TRAQSNavLogo()
-                            Text("Messages")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundColor(Color(hex: T.muted))
-                                .kerning(0.8)
-                                .textCase(.uppercase)
-                        }
-                        Spacer()
-                    }
-                    .padding(.top, 20)
-                    .padding(.bottom, 14)
-                    .background(Color(hex: T.surface))
-
-                    Rectangle().fill(Color(hex: T.border)).frame(height: 1)
+                    TRAQSNavHeader(tabName: "Messages")
 
                     // ── Sub-header: segmented picker + new thread button ──
                     ZStack {
@@ -94,9 +77,12 @@ struct MessagesView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color(hex: T.surface))
+                    .traqsToolbar()
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
 
                     if filteredThreads.isEmpty {
                         Spacer()
@@ -285,10 +271,6 @@ struct ThreadDetailView: View {
                     }
                 }
 
-                Rectangle()
-                    .fill(Color(hex: T.border))
-                    .frame(height: 1)
-
                 HStack(spacing: 10) {
                     TextField("Message…", text: $newText, axis: .vertical)
                         .textFieldStyle(.plain)
@@ -309,9 +291,11 @@ struct ThreadDetailView: View {
                     .buttonStyle(.plain)
                     .disabled(newText.trimmingCharacters(in: .whitespaces).isEmpty || isSending)
                 }
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(Color(hex: T.surface))
+                .traqsToolbar()
+                .padding(.horizontal, 12)
+                .padding(.bottom, 6)
 
                 if let err = sendError {
                     Text(err)

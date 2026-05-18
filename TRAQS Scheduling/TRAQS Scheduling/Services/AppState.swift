@@ -342,6 +342,52 @@ class AppState {
         try? await api.timeclockFinishRequest(personId: personId, pin: pin, jobId: jobId, panelId: panelId, opId: opId)
     }
 
+    // MARK: - Job Clock (Bearer-only, no PIN; uses currentPersonId)
+
+    var myActiveJobClock: ActiveJobClock? { currentPerson?.activeJobClock }
+
+    func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
+                    jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
+        guard let api, let personId = currentPersonId else { return }
+        do {
+            try await api.jobClockIn(personId: personId, jobId: jobId, panelId: panelId, opId: opId,
+                                     jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle)
+            await loadAll()
+        } catch {
+            clockError = error.localizedDescription
+        }
+    }
+
+    func jobClockOut() async {
+        guard let api, let personId = currentPersonId else { return }
+        do {
+            try await api.jobClockOut(personId: personId)
+            await loadAll()
+        } catch {
+            clockError = error.localizedDescription
+        }
+    }
+
+    func jobPause() async {
+        guard let api, let personId = currentPersonId else { return }
+        do {
+            try await api.jobPause(personId: personId)
+            await loadAll()
+        } catch {
+            clockError = error.localizedDescription
+        }
+    }
+
+    func jobResume() async {
+        guard let api, let personId = currentPersonId else { return }
+        do {
+            try await api.jobResume(personId: personId)
+            await loadAll()
+        } catch {
+            clockError = error.localizedDescription
+        }
+    }
+
     func clearClockSession() {
         clockedInPersonId = nil
         clockedInPersonName = nil
