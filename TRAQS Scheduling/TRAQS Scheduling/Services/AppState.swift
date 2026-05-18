@@ -71,6 +71,11 @@ class AppState {
 
     // MARK: - Load
 
+    /// Set every time we optimistically mutate the current user's activeJobClock,
+    /// so the next loadAll() can preserve the local value while the server's
+    /// eventual-consistency catches up.
+    private var clockChangeAt: Date? = nil
+
     func loadAll() async {
         guard let api, !isLoading else { return }
         isLoading = true
@@ -78,7 +83,22 @@ class AppState {
         defer { isLoading = false }
 
         if let r = try? await api.fetchJobs()     { jobs     = r }
-        if let r = try? await api.fetchPeople()   { people   = r }
+        if let r = try? await api.fetchPeople()   {
+            // Capture the optimistic clock IMMEDIATELY before overwriting
+            // `people`. Doing it here (not at the top of loadAll) handles
+            // the race where the user taps START TIMER mid-fetch — by the
+            // time we get the people response, the local mutation has
+            // already happened and we can preserve it.
+            let snap: (personId: String, clock: ActiveJobClock?)? = {
+                guard let last = clockChangeAt, Date().timeIntervalSince(last) < 12,
+                      let p = currentPerson else { return nil }
+                return (p.id, p.activeJobClock)
+            }()
+            people = r
+            if let snap, let idx = people.firstIndex(where: { $0.id == snap.personId }) {
+                people[idx].activeJobClock = snap.clock
+            }
+        }
         if let r = try? await api.fetchClients()  { clients  = r }
         if let r = try? await api.fetchMessages() { messages = r }
         if let r = try? await api.fetchGroups()   { groups   = r }
@@ -346,13 +366,38 @@ class AppState {
 
     var myActiveJobClock: ActiveJobClock? { currentPerson?.activeJobClock }
 
+    /// Refresh JUST the jobs list (status / loggedHours updates) without
+    /// clobbering the optimistic activeJobClock state on the current person.
+    private func refreshJobsQuietly() async {
+        guard let api else { return }
+        if let r = try? await api.fetchJobs() { jobs = r }
+    }
+
     func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
                     jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
         guard let api, let personId = currentPersonId else { return }
+
+        // Optimistic update — replace the whole array so @Observable definitely
+        // notices the change.
+        let optimistic = ActiveJobClock(
+            clockIn: ISO8601DateFormatter().string(from: Date()),
+            jobId: jobId, panelId: panelId, opId: opId,
+            jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle
+        )
+        if let idx = people.firstIndex(where: { $0.id == personId }) {
+            var newPeople = people
+            newPeople[idx].activeJobClock = optimistic
+            people = newPeople
+        }
+        clockChangeAt = Date()
+
         do {
             try await api.jobClockIn(personId: personId, jobId: jobId, panelId: panelId, opId: opId,
                                      jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle)
-            await loadAll()
+            // Refresh jobs (op status → "In Progress" lands here) but skip
+            // people — the grace-window snapshot inside loadAll preserves the
+            // activeJobClock either way.
+            await refreshJobsQuietly()
         } catch {
             clockError = error.localizedDescription
         }
@@ -360,9 +405,18 @@ class AppState {
 
     func jobClockOut() async {
         guard let api, let personId = currentPersonId else { return }
+
+        // Optimistic clear — whole-array assignment so @Observable always fires.
+        if let idx = people.firstIndex(where: { $0.id == personId }) {
+            var newPeople = people
+            newPeople[idx].activeJobClock = nil
+            people = newPeople
+        }
+        clockChangeAt = Date()
+
         do {
             try await api.jobClockOut(personId: personId)
-            await loadAll()
+            await refreshJobsQuietly()
         } catch {
             clockError = error.localizedDescription
         }

@@ -3,6 +3,11 @@ import SwiftUI
 struct JobDetailView: View {
     @Environment(AppState.self) private var appState
     let job: Job
+    /// When set (e.g. arrived via a Schedule block), highlight + auto-expand this panel.
+    var highlightPanelId: String? = nil
+    /// When set, highlight this op row inside the panel.
+    var highlightOpId: String? = nil
+
     @State private var showEdit = false
     @State private var showDeleteConfirm = false
 
@@ -12,6 +17,7 @@ struct JobDetailView: View {
         ZStack {
             Color(hex: T.bg).ignoresSafeArea()
 
+            ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // Header card
@@ -54,7 +60,11 @@ struct JobDetailView: View {
                                 .font(.headline)
                                 .foregroundColor(Color(hex: T.text))
                             ForEach(job.subs) { panel in
-                                PanelCard(job: job, panel: panel)
+                                PanelCard(job: job,
+                                          panel: panel,
+                                          highlighted: panel.id == highlightPanelId,
+                                          highlightOpId: panel.id == highlightPanelId ? highlightOpId : nil)
+                                    .id(panel.id)
                             }
                         }
                     }
@@ -75,6 +85,16 @@ struct JobDetailView: View {
                 }
                 .padding()
             }
+            .onAppear {
+                // Scroll the highlighted panel into view after the push animation lands.
+                guard let pid = highlightPanelId else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    withAnimation(.easeInOut(duration: 0.32)) {
+                        proxy.scrollTo(pid, anchor: .top)
+                    }
+                }
+            }
+            } // ScrollViewReader
         }
         .navigationTitle(job.title)
         #if os(iOS)
@@ -154,6 +174,12 @@ struct PanelCard: View {
     @Environment(AppState.self) private var appState
     let job: Job
     let panel: Panel
+    /// `true` when arrived via a Schedule tile that pointed at this panel.
+    /// Drives the sky-tinted highlight + auto-expand on first appear.
+    var highlighted: Bool = false
+    /// When set, highlights the matching op row inside this panel.
+    var highlightOpId: String? = nil
+
     @State private var isExpanded = false
 
     var eng: Engineering? { panel.engineering }
@@ -166,7 +192,17 @@ struct PanelCard: View {
             } label: {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(panel.title).font(.subheadline.bold()).foregroundColor(Color(hex: T.text))
+                        HStack(spacing: 6) {
+                            Text(panel.title).font(.subheadline.bold()).foregroundColor(Color(hex: T.text))
+                            if highlighted {
+                                Text("YOU")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .kerning(0.6)
+                                    .foregroundColor(.white)
+                                    .padding(.horizontal, 6).padding(.vertical, 2)
+                                    .background(Capsule().fill(Color(hex: T.sky)))
+                            }
+                        }
                         HStack(spacing: 6) {
                             Text(panel.start.shortDate + " → " + panel.end.shortDate)
                                 .font(.caption).foregroundColor(Color(hex: T.muted))
@@ -195,7 +231,8 @@ struct PanelCard: View {
                     .frame(height: 1)
                 // Operations
                 ForEach(panel.subs) { op in
-                    OperationRow(op: op, job: job, panel: panel)
+                    OperationRow(op: op, job: job, panel: panel,
+                                 highlighted: op.id == highlightOpId)
                 }
                 // Engineering sign-offs
                 if appState.currentPerson?.isEngineer == true || appState.currentPerson?.isAdmin == true {
@@ -203,9 +240,21 @@ struct PanelCard: View {
                 }
             }
         }
-        .background(Color(hex: T.card))
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(highlighted ? Color(hex: T.sky).opacity(0.06) : Color(hex: T.card))
+        )
         .cornerRadius(12)
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12).stroke(
+                highlighted ? Color(hex: T.sky) : Color(hex: T.border),
+                lineWidth: highlighted ? 1.5 : 1)
+        )
+        .shadow(color: highlighted ? Color(hex: T.sky).opacity(T.skyShadowOpacity) : .clear,
+                radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+        .onAppear {
+            if highlighted { isExpanded = true }
+        }
     }
 
     private func stepDone(_ step: EngStep) -> Bool {
@@ -222,6 +271,7 @@ struct OperationRow: View {
     let op: Operation
     let job: Job
     let panel: Panel
+    var highlighted: Bool = false
 
     private var allOps: [Operation] { job.subs.flatMap { $0.subs } }
 
@@ -295,7 +345,15 @@ struct OperationRow: View {
             }
             .padding(.vertical, 8)
         }
-        .background(Color(hex: T.card))
+        .background(highlighted ? Color(hex: T.sky).opacity(0.10) : Color(hex: T.card))
+        .overlay(alignment: .leading) {
+            // 3pt accent stripe down the leading edge of the user's task row.
+            // The panel header already shows the "YOU" pill, so we don't repeat
+            // it on every op row — just the subtle stripe + fill.
+            if highlighted {
+                Rectangle().fill(Color(hex: T.sky)).frame(width: 3)
+            }
+        }
         .opacity(depsBlocked ? 0.55 : 1.0)
     }
 }

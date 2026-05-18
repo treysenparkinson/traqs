@@ -7,27 +7,23 @@ struct LoginView: View {
         ZStack {
             Color(hex: T.bg).ignoresSafeArea()
 
-            VStack(spacing: 32) {
+            VStack(spacing: 28) {
                 Spacer()
 
-                // Logo / Brand
                 VStack(spacing: 12) {
-                    Image("TRAQSLogoWhite")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 300)
+                    TRAQSWordmark(size: 56)
                     Text("Scheduling & Production Management")
-                        .font(.subheadline)
-                        .foregroundColor(Color(hex: T.muted))
+                        .font(TTypo.sm(13))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tLabel(tracking: 0.8)
                 }
 
                 Spacer()
 
-                // Sign in button
                 VStack(spacing: 16) {
                     if auth.isLoading {
                         ProgressView()
-                            .tint(.white)
+                            .tint(Color(hex: T.sky))
                             .scaleEffect(1.2)
                     } else {
                         Button {
@@ -35,22 +31,24 @@ struct LoginView: View {
                         } label: {
                             HStack(spacing: 10) {
                                 Image(systemName: "lock.shield.fill")
-                                Text("Sign In with Auth0")
-                                    .fontWeight(.semibold)
+                                    .font(.system(size: 16, weight: .semibold))
+                                Text("Sign in with Auth0")
+                                    .font(TTypo.smBold(15))
                             }
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
-                            .background(Color(hex: T.accent))
-                            .foregroundColor(.white)
-                            .cornerRadius(14)
+                            .background(Capsule().fill(Color(hex: T.sky)))
+                            .foregroundStyle(.white)
+                            .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
+                                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                         }
                         .buttonStyle(.plain)
                     }
 
                     if let error = auth.error {
                         Text(error)
-                            .font(.caption)
-                            .foregroundColor(.red)
+                            .font(TTypo.xs(12))
+                            .foregroundStyle(Color(hex: T.red))
                             .multilineTextAlignment(.center)
                     }
                 }
@@ -58,6 +56,7 @@ struct LoginView: View {
                 .padding(.bottom, 48)
             }
         }
+        .preferredColorScheme(.light)
         #if os(macOS)
         .frame(minWidth: 400, minHeight: 400)
         #endif

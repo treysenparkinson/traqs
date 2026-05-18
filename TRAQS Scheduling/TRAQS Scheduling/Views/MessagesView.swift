@@ -1,20 +1,26 @@
 import SwiftUI
 
-// MARK: - Message Tab
+// MARK: - Chat V1 (Inbox) · TRAQS Light
+// Inbox / channel list. DMs + group threads.
 
-private enum MsgTab: String, CaseIterable {
-    case direct = "Direct"
-    case groups = "Groups"
+enum ChatFilter: String, CaseIterable, Hashable {
+    case all, unread, dms, groups, mentions
+    var label: String {
+        switch self {
+        case .all:      return "All"
+        case .unread:   return "Unread"
+        case .dms:      return "DMs"
+        case .groups:   return "Groups"
+        case .mentions: return "Mentions"
+        }
+    }
 }
-
-// MARK: - MessagesView
 
 struct MessagesView: View {
     @Environment(AppState.self) private var appState
-    @Environment(ThemeSettings.self) private var themeSettings
     @State private var showNewGroup = false
     @State private var showNewDM = false
-    @State private var tab: MsgTab = .groups
+    @State private var filter: ChatFilter = .all
     @State private var navigationPath = NavigationPath()
 
     var allThreads: [MessageThread] {
@@ -31,9 +37,12 @@ struct MessagesView: View {
     }
 
     var filteredThreads: [MessageThread] {
-        switch tab {
-        case .direct: return allThreads.filter { $0.key.hasPrefix("dm:") }
-        case .groups:  return allThreads.filter { !$0.key.hasPrefix("dm:") }
+        switch filter {
+        case .all:      return allThreads
+        case .unread:   return allThreads.filter { $0.unreadCount > 0 }
+        case .dms:      return allThreads.filter { $0.isDM }
+        case .groups:   return allThreads.filter { !$0.isDM }
+        case .mentions: return allThreads.filter { _ in false }   // no mention metadata yet
         }
     }
 
@@ -49,71 +58,56 @@ struct MessagesView: View {
             ZStack {
                 Color(hex: T.bg).ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    TRAQSNavHeader(tabName: "Messages")
-
-                    // ── Sub-header: segmented picker + new thread button ──
-                    ZStack {
-                        Picker("", selection: $tab) {
-                            Text("Direct").tag(MsgTab.direct)
-                            Text("Groups").tag(MsgTab.groups)
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 180)
-
-                        HStack {
-                            Spacer()
+                ScrollView {
+                    VStack(spacing: 0) {
+                        TRAQSNavHeader {
+                            IconBtn(icon: .search, size: 18)
                             Button {
-                                if tab == .direct { showNewDM = true }
-                                else { showNewGroup = true }
+                                showNewGroup = true   // default to group creation; DM is in sheet
                             } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(Color(hex: T.accent))
-                                    .frame(width: 32, height: 32)
-                                    .background(Color(hex: T.accent).opacity(0.12))
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                                TIconView(icon: .plus, size: 18, color: .white, weight: .bold)
+                                    .padding(9)
+                                    .background(Circle().fill(Color(hex: T.sky)))
+                                    .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
+                                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                             }
+                            .buttonStyle(.plain)
                         }
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .traqsToolbar()
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
+                        .padding(.bottom, 4)
 
-                    if filteredThreads.isEmpty {
-                        Spacer()
-                        VStack(spacing: 10) {
-                            Image(systemName: tab == .direct ? "person.fill" : "person.3.fill")
-                                .font(.system(size: 36))
-                                .foregroundColor(Color(hex: T.muted).opacity(0.5))
-                            Text(tab == .direct ? "No direct messages" : "No group conversations")
-                                .font(.subheadline)
-                                .foregroundColor(Color(hex: T.muted))
-                        }
-                        Spacer()
-                    } else {
-                        List {
-                            ForEach(filteredThreads) { thread in
-                                NavigationLink(value: thread.key) {
-                                    ThreadRow(thread: thread)
+                        FilterPills(selected: $filter)
+                            .padding(.bottom, 8)
+
+                        if filteredThreads.isEmpty {
+                            ChatEmptyState(filter: filter)
+                                .padding(.top, 80)
+                        } else {
+                            TSectionTitle(title: "Inbox", action: "MARK ALL READ")
+                            VStack(spacing: 0) {
+                                SBox(size: .md, raised: true) {
+                                    VStack(spacing: 0) {
+                                        ForEach(Array(filteredThreads.enumerated()), id: \.element.id) { (i, t) in
+                                            NavigationLink(value: t.key) {
+                                                ChannelRow(thread: t,
+                                                           people: appState.people)
+                                            }
+                                            .buttonStyle(.plain)
+                                            if i < filteredThreads.count - 1 {
+                                                SLine().padding(.leading, 60)
+                                            }
+                                        }
+                                    }
                                 }
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                             }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 24)
                         }
-                        .listStyle(.plain)
-                        .scrollContentBackground(.hidden)
-                        .refreshable { await appState.loadAll() }
                     }
+                    .animation(.easeInOut(duration: 0.18), value: filter)
                 }
+                .scrollIndicators(.hidden)
             }
             .toolbar(.hidden, for: .navigationBar)
-            // ThreadDetailView receives just the key and reads messages live from appState
             .navigationDestination(for: String.self) { key in
                 ThreadDetailView(threadKey: key)
             }
@@ -126,12 +120,129 @@ struct MessagesView: View {
                 NewDMSheet { personId in
                     guard let myId = appState.currentPersonId else { return }
                     let ids = [myId, personId].sorted()
-                    tab = .direct
                     navigationPath.append("dm:\(ids.joined(separator: "_"))")
                 }
             }
         }
         .task { await appState.refreshMessages() }
+    }
+}
+
+// MARK: - Filter pills
+
+private struct FilterPills: View {
+    @Binding var selected: ChatFilter
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(ChatFilter.allCases, id: \.self) { f in
+                    let on = f == selected
+                    Button { withAnimation(.easeInOut(duration: 0.18)) { selected = f } } label: {
+                        Text(f.label)
+                            .font(TTypo.xsBold(12))
+                            .foregroundStyle(on ? .white : Color(hex: T.ink))
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(Capsule().fill(on ? Color(hex: T.sky) : Color(hex: T.surface)))
+                            .overlay(Capsule().stroke(on ? Color(hex: T.sky) : Color(hex: T.hair), lineWidth: 1))
+                            .shadow(color: on ? Color(hex: T.sky).opacity(T.skyShadowOpacity) : .clear,
+                                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+}
+
+// MARK: - Channel row (DM avatar OR group # tile)
+
+private struct ChannelRow: View {
+    let thread: MessageThread
+    let people: [Person]
+
+    private var subtitle: String {
+        thread.lastMessage.map { $0.text } ?? ""
+    }
+    private var time: String {
+        thread.lastMessage?.timestamp.shortTimestamp ?? ""
+    }
+    private var avatarColor: Color {
+        Color(hex: thread.lastMessage?.authorColor ?? T.muted)
+    }
+    private var initials: String {
+        let name = thread.displayTitle
+        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        return parts.joined()
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            if thread.isDM {
+                Avatar(initials: initials, size: 40, fill: avatarColor)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous)
+                        .fill(Color(hex: T.surface))
+                    RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous)
+                        .stroke(Color(hex: T.hair), lineWidth: 1)
+                    Text("#").font(.custom(TFontName.bold.rawValue, size: 18))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
+                .frame(width: 40, height: 40)
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(thread.displayTitle)
+                        .font(TTypo.smBold(14))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .lineLimit(1)
+                    Spacer()
+                    Text(time)
+                        .font(TTypo.mono(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tnum()
+                }
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .font(TTypo.xs(12))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if thread.unreadCount > 0 {
+                        Text("\(thread.unreadCount)")
+                            .font(TTypo.xsBold(11))
+                            .foregroundStyle(.white)
+                            .tnum()
+                            .padding(.horizontal, 6)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(Capsule().fill(Color(hex: T.sky)))
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct ChatEmptyState: View {
+    let filter: ChatFilter
+    var body: some View {
+        VStack(spacing: 12) {
+            TIconView(icon: .chat, size: 44, color: Color(hex: T.hair))
+            Text(filter == .mentions ? "No mentions"
+                 : filter == .unread ? "Inbox zero"
+                 : "No conversations yet")
+                .font(TTypo.h3(18))
+                .foregroundStyle(Color(hex: T.ink))
+            Text("Start one with the + button.")
+                .font(TTypo.sm(13))
+                .foregroundStyle(Color(hex: T.muted))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(32)
     }
 }
 

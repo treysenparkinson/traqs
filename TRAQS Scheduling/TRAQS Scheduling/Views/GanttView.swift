@@ -1,662 +1,857 @@
 import SwiftUI
+import Combine
+
+// MARK: - Schedule V1 (Day timeline) · TRAQS Light
+// Lives in GanttView.swift / struct GanttView for back-compat (MainTabView routes
+// the Schedule tab to this view). Re-styled to the TRAQS Light language —
+// 7AM–6PM vertical hour grid, department-stripe blocks, sky NOW line.
 
 struct GanttView: View {
     @Environment(AppState.self) private var appState
-    @Environment(ThemeSettings.self) private var themeSettings
 
-    @State private var selectedDate = Calendar.current.startOfDay(for: Date())
-    @State private var weekOffset = 0
-    @State private var showMyTasks = true
+    @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    @State private var segment: ScheduleSegment = .day
+    @State private var now: Date = Date()
     @State private var showAddJob = false
-
     private let cal = Calendar.current
+    private let nowTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
-    // MARK: - Computed
-
-    /// currentPersonId, or falls back to a live email lookup in case the auth timing
-    /// gap left currentPersonId nil (isAuthenticated fires before fetchUserEmail completes).
-    private var resolvedPersonId: String? {
-        if let id = appState.currentPersonId { return id }
-        guard let email = appState.matchEmail else { return nil }
-        return appState.people.first(where: { $0.email.lowercased() == email.lowercased() })?.id
+    enum ScheduleSegment: String, CaseIterable, Hashable { case day, week
+        var label: String { rawValue.capitalized }
     }
-
-    var weekDates: [Date] {
-        // Find Monday of the current week + offset
-        let today = Date()
-        let weekday = cal.component(.weekday, from: today)
-        let daysToMonday = weekday == 1 ? -6 : -(weekday - 2)
-        let thisMonday = cal.date(byAdding: .day, value: daysToMonday, to: today)!
-        let weekStart = cal.date(byAdding: .weekOfYear, value: weekOffset, to: thisMonday)!
-        return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: weekStart) }
-    }
-
-    var weekLabel: String {
-        guard let first = weekDates.first, let last = weekDates.last else { return "" }
-        let f = DateFormatter(); f.dateFormat = "MMM d"
-        let g = DateFormatter(); g.dateFormat = "d, yyyy"
-        let h = DateFormatter(); h.dateFormat = "MMM d, yyyy"
-        if cal.component(.month, from: first) == cal.component(.month, from: last) {
-            return "\(f.string(from: first))–\(g.string(from: last))"
-        }
-        return "\(f.string(from: first)) – \(h.string(from: last))"
-    }
-
-    var activeTasks: [(job: Job, panel: Panel, op: Operation)] {
-        let all = appState.jobs.flatMap { job in
-            job.subs.flatMap { panel in
-                panel.subs.filter { op in
-                    guard let s = op.start.asDate, let e = op.end.asDate else { return false }
-                    return s <= selectedDate && e >= selectedDate
-                }.map { (job: job, panel: panel, op: $0) }
-            }
-        }.sorted { $0.op.start < $1.op.start }
-
-        if showMyTasks, let myId = appState.currentPersonId {
-            return all.filter { $0.op.team.contains(myId) }
-        }
-        return all
-    }
-
-    // Group activeTasks by job for condensed display
-    var activeJobGroups: [DayJobGroup] {
-        var byJob: [String: [(panel: Panel, op: Operation)]] = [:]
-        var order: [String] = []
-        for item in activeTasks {
-            if byJob[item.job.id] == nil { order.append(item.job.id) }
-            byJob[item.job.id, default: []].append((item.panel, item.op))
-        }
-        return order.compactMap { id -> DayJobGroup? in
-            guard let ops = byJob[id],
-                  let job = appState.jobs.first(where: { $0.id == id }) else { return nil }
-            return DayJobGroup(job: job, ops: ops)
-        }
-    }
-
-    /// Jobs where current user is the project manager, with all their ops active today
-    var managingJobGroups: [DayJobGroup] {
-        guard let myId = resolvedPersonId else { return [] }
-        let allToday = appState.jobs.flatMap { job -> [(job: Job, panel: Panel, op: Operation)] in
-            guard job.projectManagerId == myId else { return [] }
-            return job.subs.flatMap { panel in
-                panel.subs.filter { op in
-                    guard let s = op.start.asDate, let e = op.end.asDate else { return false }
-                    return s <= selectedDate && e >= selectedDate
-                }.map { (job: job, panel: panel, op: $0) }
-            }
-        }
-        return groupByJob(allToday)
-    }
-
-    /// Ops the user is directly assigned to, excluding jobs already in managingJobGroups.
-    var personalJobGroups: [DayJobGroup] {
-        guard let myId = resolvedPersonId else { return [] }
-        let managedIds = Set(managingJobGroups.map(\.job.id))
-        let myOps = appState.jobs.flatMap { job -> [(job: Job, panel: Panel, op: Operation)] in
-            guard !managedIds.contains(job.id) else { return [] }
-            return job.subs.flatMap { panel in
-                panel.subs.filter { op in
-                    guard let s = op.start.asDate, let e = op.end.asDate else { return false }
-                    return s <= selectedDate && e >= selectedDate && op.team.contains(myId)
-                }.map { (job: job, panel: panel, op: $0) }
-            }
-        }
-        return groupByJob(myOps)
-    }
-
-    /// Shared grouping helper
-    private func groupByJob(_ items: [(job: Job, panel: Panel, op: Operation)]) -> [DayJobGroup] {
-        var byJob: [String: [(panel: Panel, op: Operation)]] = [:]
-        var order: [String] = []
-        for item in items {
-            if byJob[item.job.id] == nil { order.append(item.job.id) }
-            byJob[item.job.id, default: []].append((item.panel, item.op))
-        }
-        return order.compactMap { id in
-            guard let ops = byJob[id], let job = appState.jobs.first(where: { $0.id == id }) else { return nil }
-            return DayJobGroup(job: job, ops: ops)
-        }
-    }
-
-    var selectedDateLabel: String {
-        let f = DateFormatter()
-        f.dateFormat = "EEEE, MMM d"
-        return f.string(from: selectedDate)
-    }
-
-    // MARK: - Body
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
+        ZStack(alignment: .top) {
+            Color(hex: T.bg).ignoresSafeArea()
 
+            ScrollView {
                 VStack(spacing: 0) {
-
-                    TRAQSNavHeader(tabName: "Schedule")
-
-                    // ── Sub-header: Ask TRAQS | All/My Tasks (centered) | Add ──
-                    ZStack {
-                        Picker("", selection: $showMyTasks) {
-                            Text("All Tasks").tag(false)
-                            Text("My Tasks").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 180)
-
-                        HStack {
-                            Spacer()
-
-                            if appState.isAdmin {
-                                Button { showAddJob = true } label: {
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 15, weight: .semibold))
-                                        .foregroundColor(Color(hex: T.accent))
-                                        .frame(width: 32, height: 32)
-                                        .background(Color(hex: T.accent).opacity(0.12))
-                                        .clipShape(Circle())
-                                        .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
-                                }
-                            }
+                    TRAQSNavHeader {
+                        IconBtn(icon: .cal, size: 18)
+                        if appState.isAdmin {
+                            IconBtn(icon: .plus, size: 18) { showAddJob = true }
                         }
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .traqsToolbar()
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
 
-                    // ── Week nav + Day strip (one rounded panel) ──
-                    VStack(spacing: 4) {
-                        ZStack {
-                            Text(weekLabel)
-                                .font(.caption.bold())
-                                .foregroundColor(Color(hex: T.muted))
-
-                            HStack(spacing: 0) {
-                                Button { weekOffset -= 1 } label: {
-                                    Image(systemName: "chevron.left")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(Color(hex: T.accent))
-                                        .frame(width: 36, height: 36)
-                                }
-
-                                Spacer()
-
-                                Button("Today") {
-                                    weekOffset = 0
-                                    selectedDate = cal.startOfDay(for: Date())
-                                }
-                                .font(.caption.bold())
-                                .foregroundColor(Color(hex: T.accent))
-                                .padding(.trailing, 4)
-
-                                Button { weekOffset += 1 } label: {
-                                    Image(systemName: "chevron.right")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(Color(hex: T.accent))
-                                        .frame(width: 36, height: 36)
-                                }
-                            }
-                        }
-
-                        HStack(spacing: 2) {
-                            ForEach(weekDates, id: \.self) { date in
-                                DayCell(
-                                    date: date,
-                                    isSelected: cal.isDate(date, inSameDayAs: selectedDate),
-                                    isToday: cal.isDateInToday(date),
-                                    taskCount: taskCount(for: date)
-                                ) {
-                                    selectedDate = cal.startOfDay(for: date)
-                                }
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 8)
-                    .traqsToolbar()
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-
-                    // ── Date header ──
-                    HStack {
-                        Text(selectedDateLabel)
-                            .font(.subheadline.bold())
-                            .foregroundColor(Color(hex: T.text))
+                    // Segmented Day/Week/Agenda — V1 default is Day
+                    HStack { Spacer()
+                        Segmented(
+                            options: ScheduleSegment.allCases,
+                            labels: Dictionary(uniqueKeysWithValues: ScheduleSegment.allCases.map { ($0, $0.label) }),
+                            selection: $segment)
                         Spacer()
-                        if appState.isLoading {
-                            ProgressView()
-                                .scaleEffect(0.75)
-                                .tint(Color(hex: T.accent))
-                        } else {
-                            Text("\(activeJobGroups.count) job\(activeJobGroups.count == 1 ? "" : "s")")
-                                .font(.caption)
-                                .foregroundColor(Color(hex: T.muted))
-                        }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 12)
-                    .padding(.bottom, 6)
+                    .padding(.bottom, 10)
 
-                    // ── Task list ──
-                    if showMyTasks {
-                        let isEmpty = managingJobGroups.isEmpty && personalJobGroups.isEmpty
-                        if isEmpty {
-                            Spacer()
-                            VStack(spacing: 12) {
-                                if let err = appState.errorMessage {
-                                    Image(systemName: "exclamationmark.triangle")
-                                        .font(.system(size: 44))
-                                        .foregroundColor(Color(hex: T.danger))
-                                    Text(err)
-                                        .foregroundColor(Color(hex: T.danger))
-                                        .font(.caption)
-                                        .multilineTextAlignment(.center)
-                                        .padding(.horizontal, 40)
-                                } else {
-                                    Image(systemName: "checkmark.circle")
-                                        .font(.system(size: 44))
-                                        .foregroundColor(Color(hex: T.border))
-                                    Text("No tasks assigned to you today")
-                                        .foregroundColor(Color(hex: T.muted))
-                                        .font(.subheadline)
-                                        .multilineTextAlignment(.center)
-                                        .padding(.horizontal, 40)
-                                }
-                            }
-                            Spacer()
-                        } else {
-                            ScrollView {
-                                LazyVStack(spacing: 8) {
-                                    if !managingJobGroups.isEmpty {
-                                        MyTasksSectionHeader(title: "Managing", count: managingJobGroups.count)
-                                        ForEach(managingJobGroups) { group in JobDayRow(group: group) }
-                                    }
-                                    if !personalJobGroups.isEmpty {
-                                        MyTasksSectionHeader(title: "My Work", count: personalJobGroups.count)
-                                        ForEach(personalJobGroups) { group in JobDayRow(group: group) }
-                                    }
-                                }
-                                .padding(16)
-                            }
-                            .refreshable { await appState.loadAll() }
-                        }
+                    if segment == .day {
+                        DateSelector(date: $selectedDate)
+                            .padding(.bottom, 10)
+                        statStrip
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                        DayTimeline(date: selectedDate,
+                                    now: now,
+                                    blocks: blocks(for: selectedDate))
+                            .transition(.opacity)
                     } else {
-                        if activeJobGroups.isEmpty {
-                            Spacer()
-                            VStack(spacing: 12) {
-                                if let err = appState.errorMessage {
-                                    Image(systemName: "exclamationmark.triangle")
-                                        .font(.system(size: 44))
-                                        .foregroundColor(Color(hex: T.danger))
-                                    Text(err)
-                                        .foregroundColor(Color(hex: T.danger))
-                                        .font(.caption)
-                                        .multilineTextAlignment(.center)
-                                        .padding(.horizontal, 40)
-                                } else {
-                                    Image(systemName: "checkmark.circle")
-                                        .font(.system(size: 44))
-                                        .foregroundColor(Color(hex: T.border))
-                                    Text("No tasks scheduled for this day")
-                                        .foregroundColor(Color(hex: T.muted))
-                                        .font(.subheadline)
-                                        .multilineTextAlignment(.center)
-                                        .padding(.horizontal, 40)
-                                }
-                            }
-                            Spacer()
-                        } else {
-                            ScrollView {
-                                LazyVStack(spacing: 8) {
-                                    ForEach(activeJobGroups) { group in
-                                        JobDayRow(group: group)
-                                    }
-                                }
-                                .padding(16)
-                            }
-                            .refreshable { await appState.loadAll() }
-                        }
+                        WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 10)
+                        WeekGrid(weekDates: weekDates,
+                                 today: cal.startOfDay(for: Date()),
+                                 now: now,
+                                 blocksFor: { blocks(for: $0) })
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 6)
+                        WeekLegendRow(blocks: weekDates.flatMap { blocks(for: $0) })
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 24)
+                            .transition(.opacity)
                     }
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
+            .scrollIndicators(.hidden)
+        }
+        .animation(.easeInOut(duration: 0.18), value: segment)
+        .onReceive(nowTimer) { _ in now = Date() }
+        .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
+        .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
+        .navigationDestination(for: ScheduleFocus.self) { focus in
+            JobDetailView(job: focus.job,
+                          highlightPanelId: focus.panelId,
+                          highlightOpId: focus.opId)
+        }
+        .toolbar(.hidden, for: .navigationBar)
         }
     }
 
-    private func taskCount(for date: Date) -> Int {
-        appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }.filter { op in
-            guard let s = op.start.asDate, let e = op.end.asDate else { return false }
-            let d = cal.startOfDay(for: date)
-            return s <= d && e >= d
-        }.count
+    // MARK: 3-stat strip (Jobs / Tasks / Est) — matches the wireframe layout
+
+    private var statStrip: some View {
+        let bs = blocks(for: selectedDate)
+        let jobCount = Set(bs.map { $0.jobId }).count
+        let estHours = bs.reduce(0.0) { $0 + ($1.end - $1.start) }
+        return HStack(spacing: 8) {
+            statCard("JOBS",  "\(jobCount)")
+            statCard("TASKS", "\(bs.count)")
+            statCard("EST.",  String(format: "%.1f h", estHours))
+        }
+    }
+
+    private func statCard(_ label: String, _ value: String) -> some View {
+        SBox(size: .sm, raised: true) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(label).font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted)).tLabel(tracking: 1.0)
+                Text(value).font(TTypo.h3(18)).foregroundStyle(Color(hex: T.ink)).tnum()
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    // MARK: Week dates (Mon→Sun around selectedDate)
+
+    private var weekDates: [Date] {
+        let weekday = cal.component(.weekday, from: selectedDate)
+        let toMon = weekday == 1 ? -6 : -(weekday - 2)
+        guard let mon = cal.date(byAdding: .day, value: toMon, to: cal.startOfDay(for: selectedDate))
+        else { return [] }
+        return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: mon) }
+    }
+
+    // MARK: Data → schedule blocks
+    //
+    // Our schema doesn't carry time-of-day on panels/ops, so blocks are PACKED
+    // sequentially starting at workStart (7am), each sized by its hpd. Lunch is
+    // reserved at noon→1pm. Tasks overflow the work day cap at 6pm.
+
+    private func blocks(for date: Date) -> [ScheduleBlock] {
+        let day = cal.startOfDay(for: date)
+        let dayEnd = cal.date(byAdding: .day, value: 1, to: day) ?? day
+        let me = appState.currentPersonId
+
+        var items: [_ScheduleItem] = []
+
+        for job in appState.jobs {
+            for panel in job.subs {
+                guard panel.start.asDate.map({ $0 < dayEnd }) ?? false,
+                      panel.end.asDate.map({ $0 >= day }) ?? false
+                else { continue }
+
+                let myOps = panel.subs.filter { op in
+                    guard op.start.asDate.map({ $0 < dayEnd }) ?? false,
+                          op.end.asDate.map({ $0 >= day }) ?? false
+                    else { return false }
+                    return me == nil || op.team.contains(me!)
+                }
+
+                if !myOps.isEmpty {
+                    for op in myOps {
+                        let (lbl, col) = deptForOp(op, fallback: deptColor(for: job, panel: panel))
+                        items.append(_ScheduleItem(
+                            job: job, panel: panel, op: op,
+                            title: op.title.isEmpty ? panel.title : op.title,
+                            subtitle: job.title,
+                            color: col,
+                            typeLabel: lbl,
+                            hpd: max(op.hpd > 0 ? op.hpd : panel.hpd, 0.5)))
+                    }
+                } else if me == nil
+                          || panel.team.contains(me!)
+                          || job.team.contains(me!) {
+                    items.append(_ScheduleItem(
+                        job: job, panel: panel, op: nil,
+                        title: panel.title.isEmpty ? job.title : panel.title,
+                        subtitle: job.title,
+                        color: deptColor(for: job, panel: panel),
+                        typeLabel: deptLabel(for: job, panel: panel),
+                        hpd: max(panel.hpd > 0 ? panel.hpd : 1.0, 0.5)))
+                }
+            }
+        }
+        items.sort { ($0.job.jobNumber ?? "") + $0.panel.id < ($1.job.jobNumber ?? "") + $1.panel.id }
+
+        // Pack sequentially from workStart, reserving the lunch hour.
+        // Matches Matrix Systems' work day: 8 AM → 5 PM, with lunch 12–1.
+        let workStart:  Double = 8.0
+        let workEnd:    Double = 17.0
+        let lunchStart: Double = 12.0
+        let lunchEnd:   Double = 13.0
+
+        var cursor = workStart
+        var out: [ScheduleBlock] = []
+        for item in items {
+            var remaining = item.hpd
+            if cursor >= lunchStart && cursor < lunchEnd { cursor = lunchEnd }
+
+            let firstCapEdge = cursor < lunchStart ? min(lunchStart, workEnd) : workEnd
+            let firstChunk = min(remaining, firstCapEdge - cursor)
+            if firstChunk > 0.01 {
+                out.append(makeBlock(item, start: cursor, end: cursor + firstChunk))
+                cursor += firstChunk
+                remaining -= firstChunk
+            }
+            if remaining > 0.01, cursor >= lunchStart, cursor <= lunchEnd {
+                cursor = lunchEnd
+                let secondChunk = min(remaining, workEnd - cursor)
+                if secondChunk > 0.01 {
+                    out.append(makeBlock(item, start: cursor, end: cursor + secondChunk))
+                    cursor += secondChunk
+                }
+            }
+            if cursor >= workEnd { break }
+        }
+        return out
+    }
+
+    private func makeBlock(_ it: _ScheduleItem, start: Double, end: Double) -> ScheduleBlock {
+        let clientName = it.job.clientId
+            .flatMap { cid in appState.clients.first(where: { $0.id == cid })?.name }
+            .flatMap { $0.isEmpty ? nil : $0 }
+        return ScheduleBlock(
+            id: "\(it.panel.id)/\(it.op?.id ?? "panel")/\(Int(start * 60))",
+            job: it.job,
+            jobId: it.job.id,
+            jobNumber: it.job.jobNumber ?? "",
+            panelId: it.panel.id,
+            opId: it.op?.id,
+            // Headline = customer when we have one, else fall back to the job title.
+            // Subtitle then carries the task (op or panel) the user is on.
+            title: clientName ?? it.job.title,
+            subtitle: it.title,
+            color: it.color,
+            typeLabel: it.typeLabel,
+            start: start, end: end)
+    }
+
+    private func deptForOp(_ op: Operation, fallback: Color) -> (String, Color) {
+        let key = op.title.lowercased()
+        switch key {
+        case _ where key.contains("layout"):  return ("LAYOUT",  Color(hex: T.magenta))
+        case _ where key.contains("wire"):    return ("WIRE",    Color(hex: T.cyan))
+        case _ where key.contains("cut"):     return ("CUT",     Color(hex: T.yellow))
+        case _ where key.contains("inspect"): return ("INSPECT", Color(hex: T.lavender))
+        case _ where key.contains("repair"):  return ("REPAIR",  Color(hex: T.amber))
+        case _ where key.contains("install"): return ("INSTALL", Color(hex: T.magenta))
+        case _ where key.contains("callback"):return ("CALLBACK", Color(hex: T.red))
+        case _ where key.contains("contract"):return ("CONTRACT", Color(hex: T.green))
+        default: return (op.title.uppercased(), fallback)
+        }
+    }
+
+    private func deptColor(for job: Job, panel: Panel) -> Color {
+        let key = (job.jobType ?? panel.title).lowercased()
+        switch key {
+        case _ where key.contains("layout"):  return Color(hex: T.magenta)
+        case _ where key.contains("wire"):    return Color(hex: T.cyan)
+        case _ where key.contains("cut"):     return Color(hex: T.yellow)
+        case _ where key.contains("inspect"): return Color(hex: T.lavender)
+        case _ where key.contains("repair"):  return Color(hex: T.amber)
+        case _ where key.contains("install"): return Color(hex: T.magenta)
+        case _ where key.contains("callback"):return Color(hex: T.red)
+        case _ where key.contains("contract"):return Color(hex: T.green)
+        default:                              return Color(hex: job.color)
+        }
+    }
+
+    private func deptLabel(for job: Job, panel: Panel) -> String {
+        if let t = job.jobType, !t.isEmpty { return t.uppercased() }
+        if !panel.title.isEmpty { return panel.title.uppercased() }
+        return "JOB"
     }
 }
 
-// MARK: - My Tasks Section Header
-
-private struct MyTasksSectionHeader: View {
+// Bridge struct so `makeBlock` can accept items packed inside `blocks(for:)`.
+// (`Item` is private to the function scope; this typealias surfaces it.)
+private struct _ScheduleItem {
+    let job: Job
+    let panel: Panel
+    let op: Operation?
     let title: String
-    let count: Int
-    var body: some View {
-        HStack(spacing: 6) {
-            Text(title.uppercased())
-                .font(.caption.bold())
-                .foregroundColor(Color(hex: T.muted))
-                .kerning(0.5)
-            Text("\(count)")
-                .font(.caption2.bold())
-                .padding(.horizontal, 5).padding(.vertical, 2)
-                .background(Color(hex: T.muted).opacity(0.15))
-                .foregroundColor(Color(hex: T.muted))
-                .cornerRadius(5)
-            Spacer()
-        }
-        .padding(.top, 4)
-    }
+    let subtitle: String
+    let color: Color
+    let typeLabel: String
+    let hpd: Double
 }
 
-// MARK: - Day Cell
+// MARK: - Schedule block model
 
-struct DayCell: View {
-    let date: Date
-    let isSelected: Bool
-    let isToday: Bool
-    let taskCount: Int
-    let action: () -> Void
+struct ScheduleBlock: Identifiable, Equatable {
+    let id: String
+    let job: Job              // full reference so tapping a block can push the detail view
+    let jobId: String
+    let jobNumber: String
+    let panelId: String       // panel this block represents
+    let opId: String?         // op within the panel, when the user is on an op's team
+    let title: String
+    let subtitle: String
+    let color: Color
+    let typeLabel: String
+    let start: Double         // hours-of-day, e.g. 8.5
+    let end: Double
 
+    static func == (lhs: ScheduleBlock, rhs: ScheduleBlock) -> Bool { lhs.id == rhs.id }
+}
+
+/// Carrier used by NavigationLink → JobDetailView so the detail view knows
+/// which panel / op to highlight + auto-expand.
+struct ScheduleFocus: Hashable {
+    let job: Job
+    let panelId: String?
+    let opId: String?
+}
+
+// MARK: - Date selector (◂ DATE ▸) + Today pill
+
+private struct DateSelector: View {
+    @Binding var date: Date
     private let cal = Calendar.current
 
-    var isWeekend: Bool {
-        let w = cal.component(.weekday, from: date); return w == 1 || w == 7
+    private var subTitle: String {
+        cal.isDateInToday(date) ? "Today"
+            : cal.isDateInTomorrow(date) ? "Tomorrow"
+            : cal.isDateInYesterday(date) ? "Yesterday"
+            : DateFormatter.dayShort.string(from: date).uppercased()
+    }
+    private var mainTitle: String {
+        DateFormatter.dayFull.string(from: date)
     }
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 3) {
-                Text(String(date.dayOfWeek.prefix(1)))
-                    .font(.system(size: 11))
-                    .foregroundColor(
-                        isSelected ? Color(hex: T.accent) :
-                        isWeekend ? Color(hex: T.danger) :
-                        Color(hex: T.muted)
-                    )
-
-                ZStack {
-                    Circle()
-                        .fill(isSelected ? Color(hex: T.accent) : Color.clear)
-                        .frame(width: 34, height: 34)
-
-                    if isToday && !isSelected {
-                        Circle()
-                            .stroke(Color(hex: T.accent), lineWidth: 1.5)
-                            .frame(width: 34, height: 34)
-                    }
-
-                    Text(date.dayNumber)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(
-                            isSelected ? .white :
-                            isToday ? Color(hex: T.accent) :
-                            isWeekend ? Color(hex: T.danger) :
-                            Color(hex: T.text)
-                        )
-                }
-
-                // Task dot indicator
-                Circle()
-                    .fill(taskCount > 0 ? (isSelected ? Color.white.opacity(0.7) : Color(hex: T.accent)) : Color.clear)
-                    .frame(width: 4, height: 4)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Day Job Group
-
-struct DayJobGroup: Identifiable {
-    var id: String { job.id }
-    let job: Job
-    let ops: [(panel: Panel, op: Operation)]
-
-    var worstStatus: JobStatus {
-        let s = ops.map(\.op.status)
-        if s.contains(.inProgress) { return .inProgress }
-        if s.contains(.onHold)     { return .onHold }
-        if s.contains(.pending)    { return .pending }
-        if s.contains(.notStarted) { return .notStarted }
-        return .finished
-    }
-    var allTeamIds: [String] {
-        Array(Set(ops.flatMap(\.op.team)))
-    }
-}
-
-// MARK: - Job Day Row
-
-struct JobDayRow: View {
-    @Environment(AppState.self) private var appState
-    let group: DayJobGroup
-    @State private var isExpanded = false
-    @State private var showClockInSheet = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-
-            // ── Header ──
+        HStack(alignment: .center, spacing: 6) {
+            // Left: chevron · date · chevron
             Button {
-                withAnimation(.easeInOut(duration: 0.22)) { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(hex: group.job.color))
-                        .frame(width: 4)
-
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack {
-                            Text(group.job.title)
-                                .font(.subheadline.bold())
-                                .foregroundColor(Color(hex: T.text))
-                                .lineLimit(1)
-                            if let num = group.job.jobNumber {
-                                Text("#\(num)")
-                                    .font(.caption2)
-                                    .foregroundColor(Color(hex: T.muted))
-                            }
-                            Spacer()
-                            if group.ops.count > 1 {
-                                Text("\(group.ops.count) ops")
-                                    .font(.caption2.bold())
-                                    .padding(.horizontal, 5).padding(.vertical, 2)
-                                    .background(Color(hex: group.job.color).opacity(0.15))
-                                    .foregroundColor(Color(hex: group.job.color))
-                                    .cornerRadius(5)
-                            }
-                            StatusBadge(status: group.worstStatus)
-                        }
-
-                        HStack(spacing: 6) {
-                            // Team avatars
-                            HStack(spacing: -6) {
-                                ForEach(group.allTeamIds.prefix(4), id: \.self) { id in
-                                    if let person = appState.person(id: id) {
-                                        Circle()
-                                            .fill(Color(hex: person.color))
-                                            .frame(width: 20, height: 20)
-                                            .overlay(Text(String(person.name.prefix(1)))
-                                                .font(.system(size: 9, weight: .bold))
-                                                .foregroundColor(.white))
-                                            .overlay(Circle().stroke(Color(hex: T.card), lineWidth: 1))
-                                    }
-                                }
-                            }
-                            if group.allTeamIds.count > 4 {
-                                Text("+\(group.allTeamIds.count - 4)")
-                                    .font(.caption2).foregroundColor(Color(hex: T.muted))
-                            }
-                            Spacer()
-                            PriorityDot(priority: group.job.pri)
-                            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                                .font(.caption2)
-                                .foregroundColor(Color(hex: T.muted))
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    date = cal.date(byAdding: .day, value: -1, to: date) ?? date
                 }
-                .contentShape(Rectangle())
+            } label: {
+                TIconView(icon: .chev, size: 11, color: Color(hex: T.ink))
+                    .scaleEffect(x: -1)
+                    .padding(6)
+                    .background(Circle().fill(Color(hex: T.surface)))
+                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
             }
             .buttonStyle(.plain)
 
-            // ── Expanded: operation list ──
-            if isExpanded {
-                VStack(spacing: 0) {
-                    ForEach(group.ops, id: \.op.id) { item in
-                        Rectangle().fill(Color(hex: T.border)).frame(height: 1)
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
-                                Text(item.op.title)
-                                    .font(.subheadline)
-                                    .foregroundColor(Color(hex: T.text))
-                                Text("·")
-                                    .foregroundColor(Color(hex: T.muted))
-                                    .font(.caption)
-                                Text(item.panel.title)
-                                    .font(.caption)
-                                    .foregroundColor(Color(hex: T.muted))
-                                Spacer()
-                                StatusBadge(status: item.op.status)
-                            }
-                            HStack(spacing: 10) {
-                                Label(String(format: "%.4gh/day", item.op.hpd), systemImage: "clock")
-                                    .font(.caption2)
-                                    .foregroundColor(Color(hex: T.muted))
-                                Label(item.op.start.shortDate + " – " + item.op.end.shortDate, systemImage: "calendar")
-                                    .font(.caption2)
-                                    .foregroundColor(Color(hex: T.muted))
-                            }
-                            if !item.op.team.isEmpty {
-                                HStack(spacing: 6) {
-                                    HStack(spacing: -5) {
-                                        ForEach(item.op.team.prefix(5), id: \.self) { id in
-                                            if let person = appState.person(id: id) {
-                                                Circle()
-                                                    .fill(Color(hex: person.color))
-                                                    .frame(width: 22, height: 22)
-                                                    .overlay(Text(String(person.name.prefix(1)))
-                                                        .font(.system(size: 9, weight: .bold))
-                                                        .foregroundColor(.white))
-                                                    .overlay(Circle().stroke(Color(hex: T.card), lineWidth: 1))
-                                            }
-                                        }
-                                    }
-                                    ForEach(item.op.team.prefix(3), id: \.self) { id in
-                                        if let person = appState.person(id: id) {
-                                            Text(person.name.components(separatedBy: " ").first ?? person.name)
-                                                .font(.caption2)
-                                                .foregroundColor(Color(hex: T.muted))
-                                        }
-                                    }
-                                    if item.op.team.count > 3 {
-                                        Text("+\(item.op.team.count - 3) more")
-                                            .font(.caption2)
-                                            .foregroundColor(Color(hex: T.muted))
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
-                    }
+            VStack(alignment: .leading, spacing: 0) {
+                Text(subTitle)
+                    .font(.custom(TFontName.bold.rawValue, size: 9))
+                    .kerning(1.3)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Color(hex: T.muted))
+                Text(mainTitle)
+                    .font(.custom(TFontName.bold.rawValue, size: 14))
+                    .foregroundStyle(Color(hex: T.ink))
+            }
 
-                    // ── Clock Into Job ──
-                    if appState.currentPersonId != nil && group.job.status != .finished {
-                        let isOnThisJob = appState.currentPerson?.activeClockIn?.jobRefs
-                            .contains(where: { $0.jobId == group.job.id }) == true
-                        Rectangle().fill(Color(hex: T.border)).frame(height: 1)
-                        Button {
-                            showClockInSheet = true
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: isOnThisJob ? "checkmark.circle.fill" : "clock.badge.plus")
-                                    .font(.subheadline)
-                                Text(isOnThisJob ? "Clocked Into This Job" : "Clock Into Job")
-                                    .font(.subheadline.bold())
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                            .foregroundColor(isOnThisJob ? Color(hex: T.statusFinished) : Color(hex: T.accent))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isOnThisJob)
-                    }
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    date = cal.date(byAdding: .day, value: 1, to: date) ?? date
+                }
+            } label: {
+                TIconView(icon: .chev, size: 11, color: Color(hex: T.ink))
+                    .padding(6)
+                    .background(Circle().fill(Color(hex: T.surface)))
+                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
+
+            // Right: TODAY pill (always present)
+            PillBtn("TODAY", compact: true) {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    date = cal.startOfDay(for: Date())
                 }
             }
         }
-        .background(Color(hex: T.card))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
-        .sheet(isPresented: $showClockInSheet) {
-            ClockIntoJobSheet(job: group.job)
-        }
+        .padding(.horizontal, 16)
     }
 }
 
-// MARK: - Clock Into Job Sheet
+// MARK: - Day timeline
 
-private struct ClockIntoJobSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-    let job: Job
-
-    @State private var pinDigits = ""
+private struct DayTimeline: View {
+    let date: Date
+    let now: Date
+    let blocks: [ScheduleBlock]
+    private let startHour: Double = 8
+    private let endHour: Double = 17
+    private let pxPerHour: CGFloat = 56
+    private let cal = Calendar.current
 
     var body: some View {
-        NavigationStack {
-            PINEntryView(
-                title: "Clock Into: \(job.title)",
-                pinDigits: $pinDigits,
-                onIdentified: handleIdentified
-            )
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        appState.clockError = nil
-                        dismiss()
+        let totalH = endHour - startHour
+        let height = CGFloat(totalH + 1) * pxPerHour
+
+        return HStack(alignment: .top, spacing: 8) {
+            // Hour labels
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(0...Int(totalH), id: \.self) { i in
+                    let h = Int(startHour) + i
+                    let ampm = h < 12 ? "AM" : "PM"
+                    let display = ((h + 11) % 12) + 1
+                    Text("\(display) \(ampm)")
+                        .font(TTypo.mono(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tnum()
+                        .frame(height: pxPerHour, alignment: .topLeading)
+                }
+            }
+            .frame(width: 42)
+
+            // Lane
+            ZStack(alignment: .topLeading) {
+                // Hour rules
+                VStack(spacing: 0) {
+                    ForEach(0...Int(totalH), id: \.self) { _ in
+                        VStack(spacing: 0) {
+                            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
+                            Spacer().frame(height: pxPerHour - 1)
+                        }
                     }
+                }
+                .frame(height: height, alignment: .top)
+
+                // Lunch ghost block (dashed, muted) — 12:00 – 13:00
+                let lunchTop = CGFloat(12 - startHour) * pxPerHour + 2
+                let lunchHeight = pxPerHour - 4
+                LunchGhostBlock(height: lunchHeight)
+                    .padding(.horizontal, 6)
+                    .offset(y: lunchTop)
+
+                // Blocks — tap to push the job detail
+                ForEach(blocks) { b in
+                    let top = CGFloat(b.start - startHour) * pxPerHour + 2
+                    let h = CGFloat(b.end - b.start) * pxPerHour - 4
+                    NavigationLink(value: ScheduleFocus(job: b.job, panelId: b.panelId, opId: b.opId)) {
+                        ScheduleBlockView(block: b, height: h)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 6)
+                    .offset(y: top)
+                }
+
+                // NOW line — only on today.
+                // Pill sits INSIDE the lane (no longer in the hour-label gutter),
+                // so it can't collide with the hour label at the same row.
+                if cal.isDateInToday(date) {
+                    let nowHour = hourOfDay(now)
+                    if nowHour >= startHour, nowHour <= endHour {
+                        let y = CGFloat(nowHour - startHour) * pxPerHour
+                        ZStack(alignment: .leading) {
+                            Rectangle()
+                                .fill(Color(hex: T.sky).opacity(0.55))
+                                .frame(height: 1)
+                            Text("NOW")
+                                .font(.custom(TFontName.bold.rawValue, size: 9))
+                                .kerning(0.6)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(Capsule().fill(Color(hex: T.sky)))
+                                .offset(y: -1)
+                                .padding(.leading, 4)
+                        }
+                        .offset(y: y)
+                        .allowsHitTesting(false)
+                    }
+                }
+            }
+            .frame(height: height, alignment: .top)
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 32)
+    }
+
+    private func hourOfDay(_ d: Date) -> Double {
+        let comps = cal.dateComponents([.hour, .minute], from: d)
+        return Double(comps.hour ?? 0) + Double(comps.minute ?? 0) / 60
+    }
+}
+
+private struct LunchGhostBlock: View {
+    let height: CGFloat
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "fork.knife")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color(hex: T.muted))
+            Text("Lunch")
+                .font(TTypo.xsBold(11))
+                .foregroundStyle(Color(hex: T.muted))
+                .tLabel(tracking: 1.0)
+            Spacer()
+        }
+        .frame(height: height, alignment: .center)
+        .padding(.horizontal, 12)
+        .background(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).fill(.clear))
+        .overlay(
+            RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous)
+                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                .foregroundStyle(Color(hex: T.hair))
+        )
+    }
+}
+
+private struct ScheduleBlockView: View {
+    let block: ScheduleBlock
+    let height: CGFloat
+
+    /// Density tiers — keeps short blocks readable without spilling over their bounds.
+    private var density: Density {
+        if height < 36 { return .tiny }       // ½-hour slots: one tight row
+        if height < 64 { return .compact }    // ~1-hour: dept tag + title
+        return .full                          // larger: dept tag + title + subtitle
+    }
+    private enum Density { case tiny, compact, full }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Rectangle().fill(block.color).frame(width: 5)
+            content
+                .padding(.horizontal, 10)
+                .padding(.vertical, density == .tiny ? 4 : 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(height: height, alignment: .top)
+        .background(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).fill(Color(hex: T.surface)))
+        .overlay(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+        // Clip so any subview that doesn't measure exactly to height can't bleed
+        // into the row below.
+        .clipShape(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch density {
+        case .tiny:
+            // One row: dept label + title side-by-side, both clipped.
+            HStack(spacing: 6) {
+                Circle().fill(block.color).frame(width: 6, height: 6)
+                Text(block.typeLabel)
+                    .font(TTypo.xsBold(10))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .tLabel(tracking: 0.6)
+                    .lineLimit(1)
+                Text(block.title)
+                    .font(TTypo.smBold(12))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+        case .compact:
+            VStack(alignment: .leading, spacing: 2) {
+                JobTypeTag(label: block.typeLabel, color: block.color)
+                Text(block.title)
+                    .font(TTypo.smBold(13))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+            }
+        case .full:
+            VStack(alignment: .leading, spacing: 3) {
+                JobTypeTag(label: block.typeLabel, color: block.color)
+                Text(block.title)
+                    .font(TTypo.smBold(13))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                if !block.subtitle.isEmpty, block.subtitle != block.title {
+                    Text(block.subtitle)
+                        .font(TTypo.xs(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
                 }
             }
         }
     }
+}
 
-    private func handleIdentified() {
-        if appState.activeClockIn != nil {
-            // Already clocked in — session restored, just dismiss
-            dismiss()
-            return
-        }
-        Task {
-            await appState.timeclockClockIn(jobRefs: [JobRef(jobId: job.id, jobName: job.title)])
-            dismiss()
+// MARK: - Week view (7-column grid) · matches wireframe V2
+
+private struct WeekHeaderBar: View {
+    let weekDates: [Date]
+    @Binding var selected: Date
+    private let cal = Calendar.current
+
+    private var rangeLabel: String {
+        let f = DateFormatter(); f.dateFormat = "MMM d"
+        guard let first = weekDates.first, let last = weekDates.last else { return "" }
+        return "\(f.string(from: first)) – \(f.string(from: last))"
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(rangeLabel)
+                .font(TTypo.xsBold(11))
+                .foregroundStyle(Color(hex: T.muted))
+                .tLabel(tracking: 1.4)
+            Spacer()
+            PillBtn("TODAY", compact: true) {
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    selected = cal.startOfDay(for: Date())
+                }
+            }
         }
     }
 }
 
-// MARK: - Date Extensions
+private struct WeekGrid: View {
+    let weekDates: [Date]
+    let today: Date
+    let now: Date
+    let blocksFor: (Date) -> [ScheduleBlock]
 
-extension Date {
-    var dayOfWeek: String {
-        let f = DateFormatter(); f.dateFormat = "E"; return f.string(from: self)
+    private let startHour: Double = 8
+    private let endHour:   Double = 17
+    private let pxPerHour: CGFloat = 36
+    private let gutter:    CGFloat = 24
+    private let cal = Calendar.current
+
+    var body: some View {
+        VStack(spacing: 0) {
+            headerRow.padding(.bottom, 4)
+            gridRow
+        }
     }
-    var dayNumber: String {
-        let f = DateFormatter(); f.dateFormat = "d"; return f.string(from: self)
+
+    private var height: CGFloat { CGFloat(endHour - startHour) * pxPerHour }
+    private var hourCount: Int { Int(endHour - startHour) }
+
+    private var headerRow: some View {
+        HStack(spacing: 2) {
+            Spacer().frame(width: gutter)
+            ForEach(weekDates, id: \.self) { d in
+                DayHeaderCell(day: d, isToday: cal.isDateInToday(d))
+                    .frame(maxWidth: .infinity)
+            }
+        }
     }
-    var isWeekend: Bool {
-        let w = Calendar.current.component(.weekday, from: self); return w == 1 || w == 7
+
+    private var gridRow: some View {
+        HStack(alignment: .top, spacing: 2) {
+            timeGutter
+            ForEach(weekDates, id: \.self) { d in
+                WeekDayColumn(
+                    day: d,
+                    height: height,
+                    startHour: startHour,
+                    endHour: endHour,
+                    pxPerHour: pxPerHour,
+                    isToday: cal.isDateInToday(d),
+                    now: now,
+                    blocks: blocksFor(d))
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var timeGutter: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<hourCount, id: \.self) { i in
+                Text("\(((Int(startHour) + i + 11) % 12) + 1)")
+                    .font(TTypo.mono(9))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tnum()
+                    .frame(height: pxPerHour, alignment: .topLeading)
+            }
+        }
+        .frame(width: gutter, height: height, alignment: .topLeading)
     }
 }
+
+private struct DayHeaderCell: View {
+    let day: Date
+    let isToday: Bool
+    private let cal = Calendar.current
+
+    private var dow: String {
+        let f = DateFormatter(); f.dateFormat = "EEE"
+        return String(f.string(from: day).prefix(1))
+    }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(dow)
+                .font(TTypo.xsBold(11))
+                .foregroundStyle(isToday ? .white : Color(hex: T.ink))
+            Text("\(cal.component(.day, from: day))")
+                .font(TTypo.xs(11))
+                .foregroundStyle(isToday ? Color.white.opacity(0.85) : Color(hex: T.muted))
+                .tnum()
+        }
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity)
+        .background(
+            UnevenRoundedRectangle(
+                cornerRadii: .init(topLeading: 8, bottomLeading: 0, bottomTrailing: 0, topTrailing: 8),
+                style: .continuous)
+                .fill(isToday ? Color(hex: T.sky) : .clear)
+        )
+    }
+}
+
+private struct WeekDayColumn: View {
+    let day: Date
+    let height: CGFloat
+    let startHour: Double
+    let endHour: Double
+    let pxPerHour: CGFloat
+    let isToday: Bool
+    let now: Date
+    let blocks: [ScheduleBlock]
+    private let cal = Calendar.current
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // Day column background: faint sky tint on today
+            Rectangle()
+                .fill(isToday ? Color(hex: T.sky).opacity(0.07) : .clear)
+
+            // Hour rules (every 2 hours visible to keep the column readable at this scale)
+            VStack(spacing: 0) {
+                ForEach(0..<Int(endHour - startHour), id: \.self) { i in
+                    VStack(spacing: 0) {
+                        Rectangle()
+                            .fill(Color(hex: T.hair).opacity(i % 2 == 0 ? 1.0 : 0.5))
+                            .frame(height: 1)
+                        Spacer().frame(height: pxPerHour - 1)
+                    }
+                }
+            }
+
+            // Event rectangles painted by time range — tap to push detail
+            ForEach(blocks) { b in
+                let top = CGFloat(b.start - startHour) * pxPerHour + 1
+                let h = max(2, CGFloat(b.end - b.start) * pxPerHour - 2)
+                NavigationLink(value: ScheduleFocus(job: b.job, panelId: b.panelId, opId: b.opId)) {
+                    WeekBlockTile(block: b, height: h)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 2)
+                .offset(y: top)
+            }
+
+            // NOW line on today
+            if isToday {
+                let nowHour = hourOfDay(now)
+                if nowHour >= startHour, nowHour <= endHour {
+                    let y = CGFloat(nowHour - startHour) * pxPerHour
+                    HStack(spacing: 0) {
+                        Circle().fill(Color(hex: T.ink)).frame(width: 6, height: 6)
+                            .offset(y: -3)
+                        Rectangle().fill(Color(hex: T.ink)).frame(height: 1.5)
+                    }
+                    .offset(y: y)
+                    .allowsHitTesting(false)
+                }
+            }
+        }
+        .frame(height: height)
+        .overlay(
+            Rectangle().fill(Color(hex: T.hair)).frame(width: 1),
+            alignment: .leading
+        )
+        .clipped()
+    }
+
+    private func hourOfDay(_ d: Date) -> Double {
+        let comps = cal.dateComponents([.hour, .minute], from: d)
+        return Double(comps.hour ?? 0) + Double(comps.minute ?? 0) / 60
+    }
+}
+
+/// Inline week-grid tile. Shows as much info as the slot height allows:
+///   • ≥ 26pt: dept label (e.g. "WIRE")
+///   • ≥ 44pt: + job number
+///   • ≥ 64pt: + customer / job title
+/// Below the threshold it's a clean colored bar so the column stays readable.
+private struct WeekBlockTile: View {
+    let block: ScheduleBlock
+    let height: CGFloat
+
+    private var showLabel:  Bool { height >= 26 }
+    private var showJobNum: Bool { height >= 44 && !block.jobNumber.isEmpty }
+    private var showTitle:  Bool { height >= 64 }
+
+    /// White text reads well over magenta/cyan/yellow/etc.; for the soft
+    /// lavender swatch we fall back to ink so it's not washed out.
+    private var textColor: Color {
+        // Heuristic: yellow is the lone "light" swatch — flip to ink there.
+        block.color == Color(hex: T.yellow) ? Color(hex: T.ink) : .white
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if showLabel {
+                Text(block.typeLabel)
+                    .font(.custom(TFontName.bold.rawValue, size: 9))
+                    .kerning(0.6)
+                    .lineLimit(1)
+                    .foregroundStyle(textColor)
+            }
+            if showJobNum {
+                Text("#\(block.jobNumber)")
+                    .font(.custom(TFontName.medium.rawValue, size: 9))
+                    .lineLimit(1)
+                    .foregroundStyle(textColor.opacity(0.85))
+            }
+            if showTitle {
+                Text(block.title)
+                    .font(.custom(TFontName.bold.rawValue, size: 10))
+                    .lineLimit(2)
+                    .foregroundStyle(textColor)
+            }
+        }
+        .padding(.horizontal, showLabel ? 4 : 0)
+        .padding(.vertical, showLabel ? 3 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(height: height)
+        .background(
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(block.color.opacity(0.92))
+        )
+        .contentShape(Rectangle())
+    }
+}
+
+private struct WeekLegendRow: View {
+    let blocks: [ScheduleBlock]
+
+    /// Distinct (color, label) pairs across the week.
+    private var entries: [(label: String, color: Color)] {
+        var seen = Set<String>()
+        var out: [(String, Color)] = []
+        for b in blocks where !seen.contains(b.typeLabel) {
+            seen.insert(b.typeLabel)
+            out.append((b.typeLabel, b.color))
+        }
+        return out.sorted { $0.0 < $1.0 }
+    }
+
+    var body: some View {
+        if entries.isEmpty {
+            EmptyView()
+        } else {
+            HStack(spacing: 10) {
+                ForEach(entries, id: \.label) { e in
+                    JobTypeTag(label: e.label, color: e.color)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+}
+
+// MARK: - DateFormatter helpers
+
+private extension DateFormatter {
+    static let dayShort: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "EEE · MMM d"; return f
+    }()
+    static let dayFull: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "EEE · MMM d"; return f
+    }()
+}
+
+// MARK: - String → Date helper (already used elsewhere in the codebase)
+// (Kept here as a typed-key convenience; the canonical extension lives in AppState.swift.)

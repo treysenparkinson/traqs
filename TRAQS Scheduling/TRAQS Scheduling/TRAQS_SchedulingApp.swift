@@ -6,6 +6,7 @@ struct TRAQS_SchedulingApp: App {
     @State private var auth = AuthManager()
     @State private var appState = AppState()
     @State private var themeSettings = ThemeSettings()
+    @State private var appNav = AppNav()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -21,6 +22,7 @@ struct TRAQS_SchedulingApp: App {
                 .environment(auth)
                 .environment(appState)
                 .environment(themeSettings)
+                .environment(appNav)
                 .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
                 .id(themeSettings.version)
                 .onChange(of: appState.currentPersonId) { _, personId in

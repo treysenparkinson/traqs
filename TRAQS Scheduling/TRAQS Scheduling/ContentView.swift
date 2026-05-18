@@ -25,6 +25,7 @@ struct RootView: View {
                 appState.configure(token: token, orgCode: appState.orgCode)
             }
         }
+   
         .onChange(of: auth.isAuthenticated) { _, isAuth in
             if isAuth, let token = auth.accessToken, !appState.orgCode.isEmpty {
                 appState.matchEmail = auth.userEmail

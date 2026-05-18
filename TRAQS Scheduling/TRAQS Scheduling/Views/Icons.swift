@@ -1,0 +1,65 @@
+import SwiftUI
+
+// MARK: - TRAQS Icon Set
+// Map the desktop's Lucide-style icon names to SF Symbols of similar geometry.
+// First-pass uses SF Symbols (system, scaled, stroked); we can replace with
+// custom Path shapes later if specific glyphs need exact parity.
+
+enum TIcon: String {
+    case jobs, schedule, hours, stats, chat
+    case search, plus, chev, chevDown, filter
+    case pin, bolt, play, pause
+    case dot, check, arrowUp, arrowDown
+    case mic, paperclip, settings, send
+    case person, map, list, cal, sparkle, bell, signOut
+
+    var sfName: String {
+        switch self {
+        case .jobs:      return "briefcase"
+        case .schedule:  return "calendar"
+        case .hours:     return "clock"
+        case .stats:     return "chart.bar"
+        case .chat:      return "message"
+        case .search:    return "magnifyingglass"
+        case .plus:      return "plus"
+        case .chev:      return "chevron.right"
+        case .chevDown:  return "chevron.down"
+        case .filter:    return "line.3.horizontal.decrease"
+        case .pin:       return "pin.fill"
+        case .bolt:      return "bolt.fill"
+        case .play:      return "play.fill"
+        case .pause:     return "pause.fill"
+        case .dot:       return "circle.fill"
+        case .check:     return "checkmark"
+        case .arrowUp:   return "arrow.up"
+        case .arrowDown: return "arrow.down"
+        case .mic:       return "mic"
+        case .paperclip: return "paperclip"
+        case .settings:  return "gearshape"
+        case .send:      return "paperplane.fill"
+        case .person:    return "person"
+        case .map:       return "map"
+        case .list:      return "list.bullet"
+        case .cal:       return "calendar"
+        case .sparkle:   return "sparkles"
+        case .bell:      return "bell"
+        case .signOut:   return "rectangle.portrait.and.arrow.right"
+        }
+    }
+}
+
+struct TIconView: View {
+    let icon: TIcon
+    var size: CGFloat = 18
+    var color: Color = Color(hex: T.ink)
+    /// Roughly map stroke-weight semantics from the desktop SVG icons (1.5–2.0) onto
+    /// SwiftUI symbol weight. SF Symbols don't have arbitrary stroke widths but
+    /// `.regular` ↔ ~1.5, `.semibold` ↔ ~1.8, `.bold` ↔ ~2.0.
+    var weight: Font.Weight = .medium
+
+    var body: some View {
+        Image(systemName: icon.sfName)
+            .font(.system(size: size, weight: weight))
+            .foregroundStyle(color)
+    }
+}

@@ -1,45 +1,64 @@
 import SwiftUI
 
-// MARK: - Midnight Theme Constants
-// Matches the TRAQS web app Midnight color palette exactly.
+// MARK: - TRAQS Light · Brand Tokens
+// Light-mode is the canonical theme (per the wireframes).
+// Tokens marked `var` may be overridden at runtime by ThemeSettings; tokens marked `let`
+// are brand constants that the customize UI cannot retint.
 
 enum T {
-    // Backgrounds (mutable so ThemeSettings can override at runtime)
-    static var bg      = "#080d18"
-    static var surface = "#0d1424"
-    static var card    = "#111c30"
-    static var border  = "#1a2a45"
+    // ── Theme-able surface tokens (ThemeSettings can override) ─────────────
+    static var bg       = "#F4F6FA"   // paper — app canvas (cool light gray)
+    static var surface  = "#FFFFFF"   // default card surface (white)
+    static var card     = "#FFFFFF"   // raised / active card (white, distinguished by border + shadow)
+    static var border   = "#E6E8EE"   // hairline borders, dividers, chart tracks
+    static var text     = "#0B0B0C"   // ink — primary text, the wordmark
+    static var muted    = "#6E6E73"   // tertiary text, inactive icons
+    static var accent   = "#3B82F6"   // sky — primary interactive accent
 
-    // Text (mutable so light themes can override)
-    static var text    = "#e6ecf8"
-    static var muted   = "#64748b"
+    // ── Brand-locked tokens ────────────────────────────────────────────────
+    static let paper    = "#F4F6FA"
+    static let ink      = "#0B0B0C"
+    static let hair     = "#E6E8EE"
+    static let sky      = "#3B82F6"   // selected · NOW · live · CTA
+    static let magenta  = "#FF1FB4"   // department · Layout · canonical job color · profile avatar
+    static let cyan     = "#06B6D4"   // department · Wire
+    static let yellow   = "#EAB308"   // department · Cut
+    static let lavender = "#A78BFA"   // department · Inspect (per wireframe palette)
+    static let amber    = "#F59E0B"   // department · Repair (per wireframe palette)
+    static let green    = "#10B981"   // status · finished / on-pace
+    static let orange   = "#F97316"   // status · blocked / overdue
+    static let red      = "#EF4444"   // status · destructive / callback
+    static let danger   = "#EF4444"   // legacy alias for red
 
-    // Accent (mutable)
-    static var accent  = "#3d7fff"
-    static let danger  = "#f43f5e"
+    // Engineering legacy (now lavender so EngineeringCard stays compatible)
+    static let eng      = "#A78BFA"
 
-    // Engineering (purple accent, distinct from general accent)
-    static let eng     = "#7c3aed"
+    // Status / priority legacy aliases — kept so existing call sites compile.
+    static let statusNotStarted = "#94A3B8"
+    static let statusPending    = "#A78BFA"
+    static let statusInProgress = "#3B82F6"
+    static let statusOnHold     = "#EAB308"
+    static let statusFinished   = "#10B981"
 
-    // Status colors
-    static let statusNotStarted = "#94a3b8"
-    static let statusPending    = "#a78bfa"
-    static let statusInProgress = "#3b82f6"
-    static let statusOnHold     = "#f59e0b"
-    static let statusFinished   = "#10b981"
+    static let priLow    = "#10B981"
+    static let priMedium = "#EAB308"
+    static let priHigh   = "#EF4444"
 
-    // Priority colors
-    static let priLow    = "#10b981"
-    static let priMedium = "#f59e0b"
-    static let priHigh   = "#f43f5e"
+    // ── Corner radii ───────────────────────────────────────────────────────
+    static let cornerXs: CGFloat = 6
+    static let cornerSm: CGFloat = 8     // chips, small pills
+    static let cornerMd: CGFloat = 12    // body cards, list rows
+    static let cornerLg: CGFloat = 14    // hero cards, large surfaces
+    static let cornerXl: CGFloat = 18    // very large surfaces
+    static let cornerPill: CGFloat = 9999
+    static let cornerBlock: CGFloat = 3  // schedule-timeline bars — nearly square per spec
 
-    // Shape / shadow tokens — keep the whole UI consistently rounded
-    static let cornerSm: CGFloat = 10   // chips, small pills (still rounded, never square)
-    static let cornerMd: CGFloat = 14   // body cards, list rows
-    static let cornerLg: CGFloat = 18   // toolbars, sub-headers
-    static let cornerXl: CGFloat = 22   // header, modals, hero cards
+    // ── Shadow recipes ─────────────────────────────────────────────────────
+    static let raisedShadowOpacity: Double  = 0.06
+    static let raisedShadowRadius:  CGFloat = 2
+    static let raisedShadowY:       CGFloat = 1
 
-    static let shadowOpacity: Double = 0.18
-    static let shadowRadius:  CGFloat = 8
-    static let shadowY:       CGFloat = 4
+    static let skyShadowOpacity:    Double  = 0.22
+    static let skyShadowRadius:     CGFloat = 12
+    static let skyShadowY:          CGFloat = 4
 }

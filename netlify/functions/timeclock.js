@@ -61,7 +61,7 @@ export async function handler(event) {
         let people;
         try { people = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
 
-        const personIdx = people.findIndex(p => p.id === personId);
+        const personIdx = people.findIndex(p => String(p.id) === String(personId));
         if (personIdx === -1) return err(404, "Person not found");
 
         const person = people[personIdx];
@@ -82,7 +82,7 @@ export async function handler(event) {
         let people;
         try { people = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
 
-        const personIdx = people.findIndex(p => p.id === personId);
+        const personIdx = people.findIndex(p => String(p.id) === String(personId));
         if (personIdx === -1) return err(404, "Person not found");
 
         const person = people[personIdx];
@@ -162,7 +162,7 @@ export async function handler(event) {
       let jciPeople;
       try { jciPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
 
-      const jciIdx = jciPeople.findIndex(p => p.id === jciPersonId);
+      const jciIdx = jciPeople.findIndex(p => String(p.id) === String(jciPersonId));
       if (jciIdx === -1) return err(404, "Person not found");
 
       const jciPerson = jciPeople[jciIdx];
@@ -206,7 +206,7 @@ export async function handler(event) {
       let jcoPeople;
       try { jcoPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
 
-      const jcoIdx = jcoPeople.findIndex(p => p.id === jcoPId);
+      const jcoIdx = jcoPeople.findIndex(p => String(p.id) === String(jcoPId));
       if (jcoIdx === -1) return err(404, "Person not found");
 
       const jcoPerson = jcoPeople[jcoIdx];
@@ -255,7 +255,7 @@ export async function handler(event) {
       let jpPeople;
       try { jpPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
 
-      const jpIdx = jpPeople.findIndex(p => p.id === jpPId);
+      const jpIdx = jpPeople.findIndex(p => String(p.id) === String(jpPId));
       if (jpIdx === -1) return err(404, "Person not found");
 
       const jpPerson = jpPeople[jpIdx];
@@ -279,7 +279,7 @@ export async function handler(event) {
       let jrPeople;
       try { jrPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
 
-      const jrIdx = jrPeople.findIndex(p => p.id === jrPId);
+      const jrIdx = jrPeople.findIndex(p => String(p.id) === String(jrPId));
       if (jrIdx === -1) return err(404, "Person not found");
 
       const jrPerson = jrPeople[jrIdx];
@@ -323,7 +323,7 @@ export async function handler(event) {
     // All other PIN actions require personId
     if (!personId) return err(400, "Missing personId");
 
-    const personIdx = people.findIndex(p => p.id === personId);
+    const personIdx = people.findIndex(p => String(p.id) === String(personId));
     if (personIdx === -1) return err(404, "Person not found");
 
     const person = people[personIdx];

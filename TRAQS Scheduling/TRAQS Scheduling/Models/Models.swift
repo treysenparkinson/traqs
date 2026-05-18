@@ -98,6 +98,9 @@ struct Operation: Codable, Identifiable, Equatable {
     var moveLog: [MoveLogEntry]?
     var pid: String?
     var pendingFinish: Bool?
+    /// Hours logged against this operation — written by the desktop's
+    /// `jobClockOut` handler each time someone stops their timer on this op.
+    var loggedHours: Double?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -115,6 +118,7 @@ struct Operation: Codable, Identifiable, Equatable {
         moveLog      = try? c.decodeIfPresent([MoveLogEntry].self, forKey: .moveLog)
         pid          = try? c.decodeIfPresent(String.self, forKey: .pid)
         pendingFinish = try? c.decodeIfPresent(Bool.self, forKey: .pendingFinish)
+        loggedHours  = try? c.decodeIfPresent(Double.self, forKey: .loggedHours)
     }
 
     static func == (lhs: Operation, rhs: Operation) -> Bool { lhs.id == rhs.id }
