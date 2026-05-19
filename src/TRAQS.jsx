@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, jobPauseAction, jobResumeAction, fetchOrgConfig, updateOrgCode } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, jobPauseAction, jobResumeAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
@@ -250,6 +250,35 @@ const nameFromEmail = (raw) => {
 const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,"0"); const d = String(dt.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; };
 const NOW = new Date(); const TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
+// Derive session state from a person's `activeClockIn`.
+// Returns { isClocked, isOnLunch, isOnBreak, status: "out"|"in"|"lunch"|"break", pausedMs, runningMs }.
+// runningMs subtracts both closed and still-open lunch/break ranges so the on-screen timer freezes
+// when the worker is on lunch or break.
+const clockState = (activeClockIn, now = Date.now()) => {
+  if (!activeClockIn?.clockIn) return { isClocked: false, isOnLunch: false, isOnBreak: false, status: "out", pausedMs: 0, runningMs: 0 };
+  const startMs = new Date(activeClockIn.clockIn).getTime();
+  const evts = activeClockIn.events || [];
+  let pausedMs = 0, lunchOpen = null, breakOpen = null;
+  for (const ev of evts) {
+    const t = new Date(ev.ts).getTime();
+    if (ev.type === "lunchStart") lunchOpen = t;
+    else if (ev.type === "lunchEnd" && lunchOpen != null) { pausedMs += Math.max(0, t - lunchOpen); lunchOpen = null; }
+    else if (ev.type === "breakStart") breakOpen = t;
+    else if (ev.type === "breakEnd" && breakOpen != null) { pausedMs += Math.max(0, t - breakOpen); breakOpen = null; }
+  }
+  if (lunchOpen != null) pausedMs += Math.max(0, now - lunchOpen);
+  if (breakOpen != null) pausedMs += Math.max(0, now - breakOpen);
+  const isOnLunch = lunchOpen != null;
+  const isOnBreak = breakOpen != null;
+  return { isClocked: true, isOnLunch, isOnBreak, status: isOnLunch ? "lunch" : isOnBreak ? "break" : "in", pausedMs, runningMs: Math.max(0, (now - startMs) - pausedMs) };
+};
+// Status pill palette — kept in one place so every clock-in indicator uses the same colors/labels.
+const CLOCK_STATUS_UI = {
+  in:    { color: "#22c55e", label: "In",    glow: "0 0 8px #22c55e" },
+  lunch: { color: "#f59e0b", label: "Lunch", glow: "0 0 8px #f59e0b" },
+  break: { color: "#f59e0b", label: "Break", glow: "0 0 8px #f59e0b" },
+  out:   { color: null,      label: "Out",   glow: "none" },
+};
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 const addWorkingDays = (ds, n, workDays = DEFAULT_WORK_DAYS) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) count++; } return toDS(d); };
 const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
@@ -1587,6 +1616,14 @@ Extraction rules:
   }, []);
   const [view, setView] = useState("tasks");
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  // Sidebar behavior preference: "hover" auto-expands on mouse-enter, "button" keeps it
+  // open/closed via the hamburger toggle until the user clicks it again.
+  const [sidebarMode, setSidebarMode] = useState(() => {
+    const saved = localStorage.getItem("tq_sidebar_mode");
+    return saved === "button" ? "button" : "hover";
+  });
+  useEffect(() => { localStorage.setItem("tq_sidebar_mode", sidebarMode); }, [sidebarMode]);
+  const toggleSidebar = () => setSidebarExpanded(p => !p);
   const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
   const [collapsedSections, setCollapsedSections] = useState({});
   const [tasks, _setTasks] = useState([]);
@@ -1907,6 +1944,14 @@ Extraction rules:
   const [orgCodeInput, setOrgCodeInput] = useState("");
   const [orgCodeSaving, setOrgCodeSaving] = useState(false);
   const [orgCodeError, setOrgCodeError] = useState("");
+  // Local mirror of the org's display name; seeded from the config prop and updated after a save
+  // so the sidebar reflects the rename without a reload.
+  const [orgName, setOrgName] = useState(orgConfig?.name || "");
+  const [orgNameInput, setOrgNameInput] = useState("");
+  const [orgNameSaving, setOrgNameSaving] = useState(false);
+  const [orgNameError, setOrgNameError] = useState("");
+  const [orgEditing, setOrgEditing] = useState(null); // "name" | "code" | null
+  useEffect(() => { setOrgName(orgConfig?.name || ""); }, [orgConfig?.name]);
   const [holidayInput, setHolidayInput] = useState("");
   useEffect(() => { localStorage.setItem("tq_org_settings", JSON.stringify(orgSettings)); }, [orgSettings]);
   useEffect(() => { saveStatusRef.current = saveStatus; }, [saveStatus]);
@@ -2162,20 +2207,21 @@ Extraction rules:
     return () => window.removeEventListener("keydown", onKey);
   }, [pinState, pinInput]);
 
-  // Live timer — update elapsed string when logged-in person is clocked in
+  // Live timer — update elapsed string when logged-in person is clocked in.
+  // Uses clockState so the displayed time pauses while the worker is on lunch or break.
   useEffect(() => {
-    const ci = loggedInUser?.activeClockIn?.clockIn;
-    if (!ci) { setTsElapsed(""); return; }
+    const ac = loggedInUser?.activeClockIn;
+    if (!ac?.clockIn) { setTsElapsed(""); return; }
     const update = () => {
-      const ms = Date.now() - new Date(ci).getTime();
-      const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+      const cs = clockState(ac);
+      const h = Math.floor(cs.runningMs / 3600000), m = Math.floor((cs.runningMs % 3600000) / 60000);
       setTsElapsed(`${h}h ${m}m`);
     };
     update();
-    const iv = setInterval(update, 60000);
+    const iv = setInterval(update, 30000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loggedInUser?.activeClockIn?.clockIn]);
+  }, [loggedInUser?.activeClockIn]);
 
   // Job clock timer — accounts for pause time
   useEffect(() => {
@@ -5303,25 +5349,24 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
       {/* ── Sign-Off Queue — always renders as cards in both views, one section per template ── */}
-      {canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending, finished }) => {
-        if (!(pending.length > 0 || finished.length > 0)) return null;
+      {canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending }) => {
+        if (pending.length === 0) return null;
         const userDept = (loggedInUser?.department || "").toLowerCase();
         if (!isAdmin && userDept !== tmpl.name.toLowerCase()) return null;
         const sKey = tmpl.id;
         const isCollapsed = !!collapsedSections[sKey];
         const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: !p[sKey] }));
         return <div key={tmpl.id} style={{ marginBottom: 20 }}>
-          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.28s cubic-bezier(0.22,1,0.36,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
             <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.accent }}>{tmpl.name}</h3>
-            {pending.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{pending.length}</span>}
-            {finished.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>✓ {finished.length}</span>}
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{pending.length}</span>
           </div>
-          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.22s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
+          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
           <div style={{ overflow: "hidden", minHeight: 0 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
-            {[...pending.map(x => ({ ...x, done: false })), ...finished.map(x => ({ ...x, done: true }))].map(({ job, panel, done }) => {
+            {pending.map(x => ({ ...x, done: false })).map(({ job, panel, done }) => {
               const so = (panel.signOffs || {})[tmpl.id] || {};
               const activeIdx = tmpl.steps.findIndex((_, i) => !so[String(i)]);
               const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
@@ -5365,24 +5410,23 @@ ${jobsCtx || "No jobs found."}`;
         </div>;
       })}
       {/* ── Legacy Engineering Queue — always renders as cards ── */}
-      {canApprove && (engQueueItems.length > 0 || engFinishedItems.length > 0) && (() => {
+      {canApprove && engQueueItems.length > 0 && (() => {
         const userDept = (loggedInUser?.department || "").toLowerCase();
         if (!isAdmin && userDept !== queueLabel.toLowerCase()) return null;
         const sKey = "__legacy_eng__";
         const isCollapsed = !!collapsedSections[sKey];
         const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: !p[sKey] }));
         return <div style={{ marginBottom: 20 }}>
-          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.28s cubic-bezier(0.22,1,0.36,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
             <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.accent }}>{queueLabel}</h3>
-            {engQueueItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>}
-            {engFinishedItems.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>✓ {engFinishedItems.length}</span>}
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>
           </div>
-          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.32s cubic-bezier(0.22,1,0.36,1), opacity 0.22s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
+          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
           <div style={{ overflow: "hidden", minHeight: 0 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
-            {[...engQueueItems.map(x => ({ ...x, done: false })), ...engFinishedItems.map(x => ({ ...x, done: true }))].map(({ job, panel, done }) => {
+            {engQueueItems.map(x => ({ ...x, done: false })).map(({ job, panel, done }) => {
               const e = panel.engineering || {};
               const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
               const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
@@ -6018,28 +6062,32 @@ ${jobsCtx || "No jobs found."}`;
                 const pmColor = T.textDim;
                 return <div key={pmId} style={{ marginBottom: 20 }}>
                   {/* Section header */}
-                  <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [pmId]: !p[pmId] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer" }}>
-                    <svg style={{ color: T.textDim, transition: "transform 0.2s", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [pmId]: !p[pmId] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
+                    <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     {pm && <div style={{ width: 22, height: 22, borderRadius: 6, background: pm.color || pmColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: isLight(pm.color || pmColor) ? "#000" : "#fff", flexShrink: 0 }}>{pm.name[0]}</div>}
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{pmLabel}</span>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{pmJobs.length}</span>
                   </div>
-                  {/* Grid */}
-                  {!isCollapsed && <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
-                    <div style={{ minWidth: minW }}>
-                      <ColHeaders />
-                      {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
-                      {can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
-                        onMouseEnter={e => e.currentTarget.style.background = T.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <div />
-                        <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, color: T.textDim, fontSize: 12 }}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                          Add new job…
+                  {/* Grid — grid-template-rows 0fr↔1fr animates retract */}
+                  <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
+                    <div style={{ overflow: "hidden", minHeight: 0 }}>
+                      <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                        <div style={{ minWidth: minW }}>
+                          <ColHeaders />
+                          {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
+                          {can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
+                            onMouseEnter={e => e.currentTarget.style.background = T.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <div />
+                            <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, color: T.textDim, fontSize: 12 }}>
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                              Add new job…
+                            </div>
+                            {[...Array(11)].map((_, i) => <div key={i} style={{ borderRight: `1px solid ${T.border}` }} />)}
+                          </div>}
                         </div>
-                        {[...Array(11)].map((_, i) => <div key={i} style={{ borderRight: `1px solid ${T.border}` }} />)}
-                      </div>}
+                      </div>
                     </div>
-                  </div>}
+                  </div>
                 </div>;
               })}
 
@@ -6082,6 +6130,70 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* ── Gantt View ── */}
       {taskSubView === "gantt" && renderGantt()}
+
+      {/* ── Approval Queue — Finished (collapsible, default collapsed) ── */}
+      {canApprove && (() => {
+        const userDept = (loggedInUser?.department || "").toLowerCase();
+        const signOffFinished = signOffQueueByTemplate.flatMap(({ template, finished }) => {
+          if (!isAdmin && userDept !== template.name.toLowerCase()) return [];
+          return finished.map(f => ({ ...f, kind: "signoff", template }));
+        });
+        const engFinishedFiltered = (!isAdmin && userDept !== queueLabel.toLowerCase()) ? [] : engFinishedItems.map(f => ({ ...f, kind: "eng" }));
+        const allFinished = [...signOffFinished, ...engFinishedFiltered];
+        if (allFinished.length === 0) return null;
+        const sKey = "__approvals_finished__";
+        // Default collapsed — `collapsedSections[sKey]` undefined means collapsed; explicit false means open.
+        const isCollapsed = collapsedSections[sKey] !== false;
+        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: p[sKey] === false ? true : false }));
+        return <div style={{ marginTop: 24, marginBottom: 20 }}>
+          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+            <span style={{ lineHeight: 0, color: "#10b981" }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </span>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#10b981" }}>Finished</h3>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>{allFinished.length}</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
+            <div style={{ overflow: "hidden", minHeight: 0 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
+                {allFinished.map(item => {
+                  const { job, panel } = item;
+                  const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
+                  const headerLabel = item.kind === "signoff" ? item.template.name : queueLabel;
+                  const steps = item.kind === "signoff"
+                    ? item.template.steps.map((label, i) => ({ key: `s${i}`, label, rec: ((panel.signOffs || {})[item.template.id] || {})[String(i)], onBack: () => revertStep(job.id, panel.id, item.template.id, i) }))
+                    : approvalSteps.map(step => ({ key: step.key, label: step.label, rec: (panel.engineering || {})[step.key], onBack: () => revertEngineering(job.id, panel.id, step.key) }));
+                  return <div key={item.kind + "-" + panel.id + "-" + (item.template?.id || "eng")} style={{ background: T.card, border: `2px solid #10b98133`, borderRadius: T.radius, padding: "12px 14px", boxShadow: "0 2px 8px #10b98108" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ color: "#10b981", background: "#10b98115", borderRadius: 4, padding: "1px 5px" }}>{headerLabel}</span>
+                      {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
+                      {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2, lineHeight: 1.3 }}>{job.title}</div>
+                    <div style={{ fontSize: 11, color: T.textSec, marginBottom: 8, fontFamily: T.mono }}>{panel.title}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {steps.map(s => (
+                        <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
+                          <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
+                          <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{s.label}</span>
+                          {s.rec && <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{s.rec.byName} · {new Date(s.rec.at).toLocaleDateString()}</span>}
+                          <Tip label="Misclick? Undo this sign-off">
+                            <button onClick={s.onBack} style={{ padding: "3px 9px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0, display: "flex", alignItems: "center", gap: 3, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.borderColor = T.danger + "55"; e.currentTarget.style.background = T.danger + "10"; }} onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}>
+                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                              Back
+                            </button>
+                          </Tip>
+                        </div>
+                      ))}
+                    </div>
+                  </div>;
+                })}
+              </div>
+            </div>
+          </div>
+        </div>;
+      })()}
     </div>;
   };
 
@@ -6441,14 +6553,17 @@ ${jobsCtx || "No jobs found."}`;
       });
       return bars;
     };
-    // Build flat row list with subtask expansion
+    // Build flat row list with subtask expansion. Person rows always get pushed (with a
+    // `hidden` flag when their dept is collapsed) so we can animate their height instead of
+    // popping them in/out of the DOM.
     const rowList = []; roles.forEach(role => {
       if (fRole !== "All" && role?.toLowerCase() !== fRole.toLowerCase()) return;
+      const isC = !!tCollapsed[role];
       rowList.push({ type: "group", role, util: grpUtil(role) });
-      if (!tCollapsed[role]) roleMap[role].forEach(p => {
+      roleMap[role].forEach(p => {
         if (fPers.length > 0 && !fPers.includes(String(p.id))) return;
-        const bars = getPersonBars(p.id);
-        rowList.push({ type: "person", person: p, util: getUtil(p.id), bars });
+        const bars = isC ? [] : getPersonBars(p.id);
+        rowList.push({ type: "person", person: p, util: getUtil(p.id), bars, hidden: isC });
       });
     });
     // Precompute which task IDs are in a dep group — used to render the chain icon on bars
@@ -6471,7 +6586,12 @@ ${jobsCtx || "No jobs found."}`;
     });
     const subH = 34;
     const tW = lW + days.length * cW;
-    const totalH = rowList.reduce((s, r) => s + (r.type === "group" ? grpH : rH), 0) + 56;
+    const totalH = rowList.reduce((s, r) => {
+      if (r.type === "group") return s + grpH;
+      if (r.type === "person") return s + (r.hidden ? 0 : rH);
+      if (r.type === "subtask") return s + subH;
+      return s + rH;
+    }, 0) + 56;
     // Team day-view bar drag
     // rawBarS/rawBarE: actual visual start/end hours from barPositions (may differ from barTask.startHour/hpd when auto-stacked)
     const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null, rawBarS = null, rawBarE = null) => {
@@ -6506,7 +6626,8 @@ ${jobsCtx || "No jobs found."}`;
         const rect = el.getBoundingClientRect();
         let relY = clientY - rect.top - 48; // 48 = hour header height
         for (const row of rowList) {
-          const h = row.type === "group" ? grpH : rH;
+          const h = row.type === "group" ? grpH : (row.hidden ? 0 : rH);
+          if (h === 0) continue;
           if (relY < h) return row.type === "person" ? row.person : null;
           relY -= h;
         }
@@ -6695,7 +6816,7 @@ ${jobsCtx || "No jobs found."}`;
                     const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
                     return <div key={row.role} style={{display:"flex",height:grpH,borderBottom:`1px solid ${T.border}`,background:T.bg+"66"}}>
                       <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:10,padding:"0 16px",borderRight:`1px solid ${T.border}`,background:T.bg+"cc",cursor:"pointer",flexShrink:0}} onClick={()=>setTCollapsed(p=>({...p,[row.role]:!p[row.role]}))}>
-                        <span style={{fontSize:11,color:T.textSec,width:14}}>{isC?"▶":"▼"}</span>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
                         <span style={{fontSize:14,fontWeight:700,color:T.text,flex:1}}>{row.role}</span>
                         <span style={{fontSize:13,fontWeight:700,color:utilC,fontFamily:T.mono}}>{row.util}%</span>
                         {isAdmin && <button onClick={e=>{e.stopPropagation();setPersonModal({id:null,name:"",role:row.role,email:"",cap:8,teamNumber:null,isTeamLead:false,isEngineer:false,userRole:"user"});}} title={`Add member to ${row.role}`} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:4,color:T.textDim,fontSize:14,lineHeight:1,padding:"1px 6px",cursor:"pointer",flexShrink:0}}>+</button>}
@@ -6763,7 +6884,7 @@ ${jobsCtx || "No jobs found."}`;
                   });
                   const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
                   const isDropTarget = dayDragTarget === p.id;
-                  return <div key={p.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",transition:"background 0.1s"}}>
+                  return <div key={p.id} style={{display:"flex",height:row.hidden ? 0 : rH,overflow:"hidden",borderBottom:row.hidden?"none":`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",opacity:row.hidden?0:1,pointerEvents:row.hidden?"none":"auto",transition:"height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.1s"}}>
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
                       <div style={{width:28,height:28,borderRadius:14,background:T.surface,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.text,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
                       <div style={{flex:1,minWidth:0}}>
@@ -6847,7 +6968,7 @@ ${jobsCtx || "No jobs found."}`;
               const isGroupDrop = rowDragId != null && rowDragOver?.type === "group" && rowDragOver.id === row.role;
               return <div key={row.role} data-rowtype="group" data-rowid={row.role} style={{ display: "flex", height: grpH, borderBottom: `1px solid ${T.border}`, background: isGroupDrop ? T.accent + "18" : T.bg + "66", outline: isGroupDrop ? `2px dashed ${T.accent}66` : "none", transition: "background 0.1s" }}>
                 <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: isGroupDrop ? T.accent + "18" : T.bg + "cc", zIndex: 10, cursor: "pointer", transition: "background 0.1s" }} onClick={() => setTCollapsed(p => ({ ...p, [row.role]: !p[row.role] }))}>
-                  <span style={{ fontSize: 11, color: T.textSec, width: 14 }}>{isC ? "▶" : "▼"}</span>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>{row.role}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono }}>{row.util}%</span>
                   {isAdmin && <button onClick={e => { e.stopPropagation(); setPersonModal({ id: null, name: "", role: row.role, email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" }); }} title={`Add member to ${row.role}`} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.textDim, fontSize: 14, lineHeight: 1, padding: "1px 6px", cursor: "pointer", flexShrink: 0 }}>+</button>}
@@ -6923,7 +7044,7 @@ ${jobsCtx || "No jobs found."}`;
             const isBeingDragged = rowDragId === p.id;
             const isDragBefore = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "before";
             const isDragAfter  = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "after";
-            return <div key={p.id} data-rowtype="person" data-rowid={p.id} onClick={teamSelectMode ? () => setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }) : undefined} style={{ display: "flex", height: rH, borderBottom: `1px solid ${isDrop ? T.accent : T.bg + "55"}`, position: "relative", background: teamSelectMode && selPeople.has(p.id) ? T.accent + "18" : isDrop ? T.accent + "08" : "transparent", opacity: isBeingDragged ? 0.35 : 1, transition: "background 0.15s, border-color 0.15s, opacity 0.1s", cursor: teamSelectMode ? "pointer" : "default" }}>
+            return <div key={p.id} data-rowtype="person" data-rowid={p.id} onClick={teamSelectMode ? () => setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }) : undefined} style={{ display: "flex", height: row.hidden ? 0 : rH, overflow: "hidden", borderBottom: row.hidden ? "none" : `1px solid ${isDrop ? T.accent : T.bg + "55"}`, position: "relative", background: teamSelectMode && selPeople.has(p.id) ? T.accent + "18" : isDrop ? T.accent + "08" : "transparent", opacity: row.hidden ? 0 : (isBeingDragged ? 0.35 : 1), transition: "height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.15s, border-color 0.15s", pointerEvents: row.hidden ? "none" : "auto", cursor: teamSelectMode ? "pointer" : "default" }}>
               {/* Insertion line indicators */}
               {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
               {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
@@ -9598,8 +9719,11 @@ ${jobsCtx || "No jobs found."}`;
                   {tsAdminTab === "live" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                       {people.filter(p => p.payType !== "salary").map(p => {
-                        const clocked = !!p.activeClockIn?.clockIn;
-                        const ms = clocked ? Date.now() - new Date(p.activeClockIn.clockIn).getTime() : 0;
+                        const cs = clockState(p.activeClockIn);
+                        const clocked = cs.isClocked;
+                        const ui = CLOCK_STATUS_UI[cs.status];
+                        const pillColor = ui.color || T.textDim;
+                        const ms = cs.runningMs;
                         const eh = Math.floor(ms/3600000), em = Math.floor((ms%3600000)/60000);
                         const todayH = timeclock.filter(e => e.personId === p.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
                         const periodH = timeclock.filter(e => e.personId === p.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
@@ -9607,7 +9731,7 @@ ${jobsCtx || "No jobs found."}`;
                         const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
                         const recentEntries = timeclock.filter(e => e.personId === p.id && e.date >= thirtyAgo && !e.eventType).sort((a, b) => b.clockIn.localeCompare(a.clockIn));
                         return (
-                          <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? "#22c55e30" : T.borderLight}`, overflow: "hidden" }}>
+                          <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? pillColor + "30" : T.borderLight}`, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ padding: "14px 16px", cursor: "pointer" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                                 <div style={{ width: 9, height: 9, borderRadius: 5, background: T.textDim, flexShrink: 0 }} />
@@ -9615,9 +9739,9 @@ ${jobsCtx || "No jobs found."}`;
                                 <div
                                   onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.right - 168, y: r.bottom + 4 }); }) : undefined}
                                   title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
-                                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? "#22c55e" : T.textDim }} />
-                                  <span style={{ fontSize: 11, fontWeight: 700, color: clocked ? "#22c55e" : T.textDim }}>{clocked ? "In" : "Out"}</span>
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 10, background: clocked ? pillColor + "18" : T.surface, border: `1px solid ${clocked ? pillColor + "40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
+                                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? pillColor : T.textDim }} />
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: clocked ? pillColor : T.textDim }}>{ui.label}</span>
                                 </div>
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExp ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                               </div>
@@ -9798,15 +9922,24 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 460, width: "100%", margin: "0 auto" }}>
 
             {/* Header */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <div style={{ width: 9, height: 9, borderRadius: "50%", background: isClockedIn ? "#22c55e" : T.border, boxShadow: isClockedIn ? "0 0 8px #22c55e" : "none", transition: "all 0.3s", flexShrink: 0 }} />
-              <span style={{ fontSize: 15, fontWeight: 500, color: T.text }}>
-                {loggedInUser.name}
-                <span style={{ color: T.textDim, fontWeight: 400 }}>
-                  {isClockedIn ? ` · clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}` : " · not clocked in"}
-                </span>
-              </span>
-            </div>
+            {(() => {
+              const cs = clockState(loggedInUser?.activeClockIn);
+              const ui = CLOCK_STATUS_UI[cs.status];
+              const dotColor = ui.color || T.border;
+              const subtext = !cs.isClocked ? "not clocked in"
+                : cs.isOnLunch ? `on lunch · clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}`
+                : cs.isOnBreak ? `on break · clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}`
+                : `clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}`;
+              return (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <div style={{ width: 9, height: 9, borderRadius: "50%", background: dotColor, boxShadow: ui.glow, transition: "all 0.3s", flexShrink: 0 }} />
+                  <span style={{ fontSize: 15, fontWeight: 500, color: T.text }}>
+                    {loggedInUser.name}
+                    <span style={{ color: T.textDim, fontWeight: 400 }}> · {subtext}</span>
+                  </span>
+                </div>
+              );
+            })()}
 
             {/* Job card — STATE 1: active job */}
             {isClockedIn && loggedInUser.activeJobClock && (() => {
@@ -9919,8 +10052,11 @@ ${jobsCtx || "No jobs found."}`;
                     </thead>
                     <tbody>
                       {people.filter(p => p.payType !== "salary").map(p => {
-                        const clocked = !!p.activeClockIn?.clockIn;
-                        const ms = clocked ? Date.now() - new Date(p.activeClockIn.clockIn).getTime() : 0;
+                        const cs = clockState(p.activeClockIn);
+                        const clocked = cs.isClocked;
+                        const ui = CLOCK_STATUS_UI[cs.status];
+                        const pillColor = ui.color || T.textDim;
+                        const ms = cs.runningMs;
                         const eh = Math.floor(ms/3600000), em = Math.floor((ms%3600000)/60000);
                         const todayH = timeclock.filter(e => e.personId === p.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
                         const periodH = timeclock.filter(e => e.personId === p.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
@@ -9962,9 +10098,9 @@ ${jobsCtx || "No jobs found."}`;
                                 <div
                                   onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.left, y: r.bottom + 4 }); }) : undefined}
                                   title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, background: clocked ? "#22c55e18" : T.surface, border: `1px solid ${clocked ? "#22c55e40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
-                                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? "#22c55e" : T.textDim }} />
-                                  <span style={{ fontSize: 11, fontWeight: 600, color: clocked ? "#22c55e" : T.textDim }}>{clocked ? "In" : "Out"}</span>
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, background: clocked ? pillColor + "18" : T.surface, border: `1px solid ${clocked ? pillColor + "40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
+                                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? pillColor : T.textDim }} />
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: clocked ? pillColor : T.textDim }}>{ui.label}</span>
                                 </div>
                               </td>
                               <td style={{ padding: "10px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
@@ -10654,6 +10790,13 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
           {prefOpen ? <>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10, paddingLeft: 4 }}>Preferences</div>
+            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+              <span style={{ flexShrink: 0, lineHeight: 0, color: T.accent }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
+              </span>
+              <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Customization</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Theme, colors &amp; presets</div></div>
+              <span style={{ fontSize: 18, color: T.textDim }}>›</span>
+            </button>
             <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Scheduling</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Hours/day, weekends &amp; holidays</div></div>
@@ -10665,20 +10808,11 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>
           </> : <>
-          <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
-            <span style={{ flexShrink: 0, lineHeight: 0, color: T.accent }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M4.93 4.93a10 10 0 0 0 0 14.14"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/></svg></span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Customization</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Theme, colors &amp; presets</div>
-            </div>
-            <div style={{ width: 14, height: 14, borderRadius: 7, background: T.accent, marginRight: 4 }} />
-            <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-          </button>
           <button onClick={() => setPrefOpen(true)} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Preferences</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Scheduling &amp; Sign Off</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Customize, Scheduling &amp; Sign Off</div>
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
@@ -10693,7 +10827,7 @@ ${jobsCtx || "No jobs found."}`;
           {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Workers</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Permissions</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Manage team members &amp; access</div>
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
@@ -12665,7 +12799,38 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>{prefOpen ? "Preferences" : settingsTab === "org" ? "Organization" : "Settings"}</div>
             </div>
             {prefOpen ? <>
-              {/* ── Preferences sub-panel ── */}
+              {/* ── Customization (moved from top-level Settings) ── */}
+              <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "15ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, lineHeight: 0 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Customization</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>Theme, colors &amp; presets</div>
+                </div>
+                <div style={{ width: 12, height: 12, borderRadius: 6, background: T.accent, marginRight: 4 }} />
+                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+              </button>
+              {/* ── Sidebar mode (inline radio — hover vs button) — placed right under Customization ── */}
+              <div style={{ padding: "11px 16px", borderTop: `1px solid ${T.border}`, fontFamily: T.font, display: "flex", alignItems: "center", gap: 11 }}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Sidebar</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{sidebarMode === "hover" ? "Auto-expand on hover" : "Toggle with the menu button"}</div>
+                </div>
+                <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                  {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
+                    const active = sidebarMode === opt.id;
+                    return (
+                      <button key={opt.id} onClick={() => setSidebarMode(opt.id)} style={{ padding: "4px 11px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "30ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
                 <div style={{ flex: 1 }}>
@@ -12683,31 +12848,60 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontSize: 16, color: T.textDim }}>›</span>
               </button>
             </> : settingsTab === "org" && isAdmin ? (<>
-              <div style={{ padding: "16px 16px 8px" }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Organization Code</div>
-                <div style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "10px 12px", marginBottom: 14 }}><div style={{ fontSize: 11, color: T.textDim, marginBottom: 2 }}>Current code</div><div style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{orgCode || "—"}</div></div>
-                <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>Change the code people use to access this organization.</div>
-                <input value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
-                {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>{orgCodeError}</div>}
-                <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); localStorage.setItem("tq_org_code", newCode); localStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ width: "100%", padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 13, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Updating…" : "Update Org Code"}</button>
+              <div style={{ padding: "16px 16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Company Name row */}
+                <div style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Company Name</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{orgName || "—"}</div>
+                    </div>
+                    {orgEditing !== "name" && (
+                      <button onClick={() => { setOrgNameInput(orgName || ""); setOrgNameError(""); setOrgEditing("name"); }} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent + "55"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Edit</button>
+                    )}
+                  </div>
+                  {orgEditing === "name" && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                      <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 6, fontFamily: T.font }} />
+                      {orgNameError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>{orgNameError}</div>}
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                        <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(localStorage.getItem("tq_org_config") || "null") || {}; localStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 13, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Org Code row */}
+                <div style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Organization Code</div>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "0.06em" }}>{orgCode || "—"}</div>
+                    </div>
+                    {orgEditing !== "code" && (
+                      <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent + "55"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Edit</button>
+                    )}
+                  </div>
+                  {orgEditing === "code" && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                      <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Changing this code reloads the app. Everyone signs in with the new code.</div>
+                      <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 14, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
+                      {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>{orgCodeError}</div>}
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                        <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); localStorage.setItem("tq_org_code", newCode); localStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 13, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </>) : <>
-            {/* ── Customization ── */}
-            <button onClick={() => { setSettingsOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "30ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Customization</div>
-                <div style={{ fontSize: 11, color: T.textDim }}>Theme, colors &amp; presets</div>
-              </div>
-              <div style={{ width: 12, height: 12, borderRadius: 6, background: T.accent, marginRight: 4 }} />
-              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
-            </button>
             {/* ── Preferences ── */}
             <button onClick={() => setPrefOpen(true)} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "60ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Preferences</div>
-                <div style={{ fontSize: 11, color: T.textDim }}>Scheduling &amp; Sign Off</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Customize, Scheduling &amp; Sign Off</div>
               </div>
               <span style={{ fontSize: 16, color: T.textDim }}>›</span>
             </button>
@@ -12724,7 +12918,7 @@ ${jobsCtx || "No jobs found."}`;
             {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "120ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Workers</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Permissions</div>
                 <div style={{ fontSize: 11, color: T.textDim }}>Manage team members &amp; access</div>
               </div>
               <span style={{ fontSize: 16, color: T.textDim }}>›</span>
@@ -12763,9 +12957,17 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Body — sidebar + content ── */}
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: T.surface }}>
     {/* ── Left sidebar — chevron + vertical nav + profile ── */}
-    {!isMobile && <aside onMouseEnter={() => setSidebarExpanded(true)} onMouseLeave={() => setSidebarExpanded(false)} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+    {!isMobile && <aside onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+      {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
+      <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
+        <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
+          <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          </span>
+        </button>
+      </div>
       {/* Nav buttons */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "12px 8px 0", flex: 1 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {views.map(v => {
           const active = view === v.id;
           return (
@@ -12791,8 +12993,12 @@ ${jobsCtx || "No jobs found."}`;
           </button>
         </div>}
       </div>
+      {/* Org name — subtly displayed above the profile, only when sidebar is expanded */}
+      <div style={{ padding: "0 16px", flexShrink: 0, overflow: "hidden", maxHeight: sidebarExpanded && orgName ? 22 : 0, opacity: sidebarExpanded && orgName ? 0.55 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s 0.06s ease" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "0.1em", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: "22px" }}>{orgName}</div>
+      </div>
       {/* Profile — avatar always; name + logout fade in when expanded */}
-      <div style={{ padding: "12px 16px", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ padding: "4px 16px 12px", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ position: "relative", width: 32, height: 32, flexShrink: 0 }}>
           <div style={{ width: 32, height: 32, borderRadius: 16, background: loggedInUser.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: isLight(loggedInUser.color) ? "#000" : "#fff", fontWeight: 700 }}>{loggedInUser.name[0]}</div>
           {!sidebarExpanded && <Tip label={`${loggedInUser.name}${isAdmin ? " · Admin" : " · Crew"}`}>

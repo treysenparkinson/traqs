@@ -136,6 +136,20 @@ export async function updateOrgCode(newCode, getToken, orgCode) {
   return res.json();
 }
 
+export async function updateOrgName(newName, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/org`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ newName }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `updateOrgName failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function createOrg(payload) {
   const res = await fetch(`${BASE}/org`, {
     method: "POST",

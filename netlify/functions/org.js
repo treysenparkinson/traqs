@@ -89,7 +89,27 @@ export async function handler(event) {
     let body;
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON body"); }
 
-    const { newCode } = body ?? {};
+    const { newCode, newName } = body ?? {};
+
+    // ── Update the display name only (no S3 prefix migration) ──
+    if (newName && !newCode) {
+      const trimmed = String(newName).trim();
+      if (!trimmed) return err(400, "Name cannot be empty");
+      if (trimmed.length > 80) return err(400, "Name too long (max 80 chars)");
+      const configKey = `orgs/${currentCode}/config.json`;
+      try {
+        const existing = await readJson(configKey);
+        if (!existing) return err(404, "Organization not found");
+        const updated = { ...existing, name: trimmed };
+        await writeJson(configKey, updated);
+        return json(200, { ok: true, config: updated });
+      } catch (e) {
+        console.error("org PATCH name error:", e);
+        return err(500, "Failed to update organization name");
+      }
+    }
+
+    // ── Rename the org code (existing path; optionally also update name) ──
     if (!isValidCode(newCode)) return err(400, "Invalid new code — must be 3–20 alphanumeric characters");
     if (newCode.toUpperCase() === currentCode.toUpperCase()) return err(400, "New code is the same as current code");
 
@@ -100,6 +120,11 @@ export async function handler(event) {
 
     try {
       await copyPrefix(`orgs/${currentCode}/`, `orgs/${newCode}/`);
+      if (newName) {
+        const newConfigKey = `orgs/${newCode}/config.json`;
+        const cfg = await readJson(newConfigKey);
+        if (cfg) await writeJson(newConfigKey, { ...cfg, name: String(newName).trim() });
+      }
       return json(200, { ok: true, newCode });
     } catch (e) {
       console.error("org PATCH error:", e);

@@ -15,6 +15,29 @@ function hoursElapsed(isoStart, isoEnd) {
   return Math.max(0, Math.round((ms / 3600000) * 100) / 100);
 }
 
+// Sum closed lunch/break ranges from a session's events. Open ranges are closed at `endIso` so
+// a worker who clocks out while still on lunch/break has that final stretch excluded too.
+function pausedMsFromEvents(events, endIso) {
+  if (!Array.isArray(events) || events.length === 0) return 0;
+  const endMs = new Date(endIso).getTime();
+  let pausedMs = 0, lunchOpen = null, breakOpen = null;
+  for (const ev of events) {
+    const t = new Date(ev.ts).getTime();
+    if (ev.type === "lunchStart") lunchOpen = t;
+    else if (ev.type === "lunchEnd" && lunchOpen != null) { pausedMs += Math.max(0, t - lunchOpen); lunchOpen = null; }
+    else if (ev.type === "breakStart") breakOpen = t;
+    else if (ev.type === "breakEnd" && breakOpen != null) { pausedMs += Math.max(0, t - breakOpen); breakOpen = null; }
+  }
+  if (lunchOpen != null) pausedMs += Math.max(0, endMs - lunchOpen);
+  if (breakOpen != null) pausedMs += Math.max(0, endMs - breakOpen);
+  return pausedMs;
+}
+function hoursElapsedMinusPauses(isoStart, isoEnd, events) {
+  const totalMs = new Date(isoEnd) - new Date(isoStart);
+  const netMs = totalMs - pausedMsFromEvents(events, isoEnd);
+  return Math.max(0, Math.round((netMs / 3600000) * 100) / 100);
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
@@ -89,8 +112,8 @@ export async function handler(event) {
         if (!person.activeClockIn) return err(409, "Not currently clocked in");
 
         const clockOut = clockOutTime || new Date().toISOString();
-        const { clockIn, jobRefs = [] } = person.activeClockIn;
-        const hours = hoursElapsed(clockIn, clockOut);
+        const { clockIn, jobRefs = [], events = [] } = person.activeClockIn;
+        const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
         const dateStr = clockIn.slice(0, 10);
 
         const entry = {
@@ -358,8 +381,8 @@ export async function handler(event) {
         return err(409, "Not currently clocked in");
       }
       const clockOut = new Date().toISOString();
-      const { clockIn, jobRefs = [] } = person.activeClockIn;
-      const hours = hoursElapsed(clockIn, clockOut);
+      const { clockIn, jobRefs = [], events = [] } = person.activeClockIn;
+      const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
       const dateStr = clockIn.slice(0, 10);
 
       const entry = {
