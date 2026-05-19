@@ -2302,6 +2302,13 @@ Extraction rules:
     requiredDepartment: op.requiredDepartment ?? op.requiredRole ?? "",
     subs: (op.subs || []).map(normalizeOp),
   });
+  // Stable color derivation from a panel id — same id always produces the same color, so panels
+  // don't change color across reloads and don't shuffle when reordered.
+  const _colorForId = (id) => {
+    const s = String(id || "");
+    let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return COLORS[Math.abs(h) % COLORS.length];
+  };
   const normalizeTasks = arr => {
     const seen = new Set();
     const deduped = arr.filter(t => {
@@ -2311,10 +2318,18 @@ Extraction rules:
     });
     return deduped.map(job => ({
       ...job,
-      subs: (job.subs || []).map(panel => ({
-        ...panel,
-        subs: (panel.subs || []).map(normalizeOp),
-      })),
+      subs: (job.subs || []).map(panel => {
+        // Heal panels that were saved without a color (older / wizard-created jobs).
+        const panelColor = panel.color || _colorForId(panel.id);
+        return {
+          ...panel,
+          color: panelColor,
+          subs: (panel.subs || []).map(op => {
+            const norm = normalizeOp(op);
+            return { ...norm, color: norm.color || panelColor };
+          }),
+        };
+      }),
     }));
   };
 
@@ -3644,11 +3659,16 @@ ${jobsCtx || "No jobs found."}`;
     const filteredTasks = ed.id ? tasks.map(j => j.id === ed.id ? { ...j, subs: [] } : j) : tasks;
     const conflicts = checkOverlapsPure(filteredTasks, opsToCheck);
     if (conflicts.length > 0) { showOverlapIfAny(conflicts); return; }
-    // Generate IDs for panels and their operations
+    // Generate IDs for panels and their operations. Also assign a stable color if the panel was
+    // created without one (e.g. from the auto-add-panels flow) — otherwise it persists color-less
+    // and renders grey after the next poll refetch.
     const isGeneralTask = (ed.jobType || "panel") !== "panel";
-    const withIds = { ...ed, subs: (ed.subs || []).map(panel => isGeneralTask
-      ? { ...panel, id: panel.id || uid() }
-      : { ...panel, id: panel.id || uid(), subs: (panel.subs || []).map(op => {
+    const withIds = { ...ed, subs: (ed.subs || []).map(panel => {
+      const pid = panel.id || uid();
+      const pColor = panel.color || _colorForId(pid);
+      return isGeneralTask
+      ? { ...panel, id: pid, color: pColor }
+      : { ...panel, id: pid, color: pColor, subs: (panel.subs || []).map(op => {
           const _sh = op.startHour ?? (op.start && (op.team || []).length > 0
             ? getNextStartHour((op.team || [])[0], op.start, op.id)
             : workStartH);
@@ -3670,8 +3690,8 @@ ${jobsCtx || "No jobs found."}`;
             _opEnd = sAddBD(_day0, 1);
           }
           return { ...op, id: op.id || uid(), end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
-        }) }
-    ) };
+        }) };
+    }) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
     else { const nw = { ...withIds, id: uid() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
     closeModal();
