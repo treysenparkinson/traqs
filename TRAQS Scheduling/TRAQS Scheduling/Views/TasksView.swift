@@ -11,6 +11,8 @@ struct TasksView: View {
     @State private var segment: JobsSegment = .today
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
     @State private var showAddJob = false
+    @State private var showSearch = false
+    @FocusState private var searchFocused: Bool
 
     enum JobsSegment: String, CaseIterable, Hashable { case today, week, month, year
         var label: String { rawValue.capitalized }
@@ -37,38 +39,66 @@ struct TasksView: View {
         ZStack {
             Color(hex: T.bg).ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    TRAQSNavHeader {
-                        IconBtn(icon: .search, size: 18)
-                        if appState.isAdmin {
-                            IconBtn(icon: .plus, size: 18) { showAddJob = true }
+            VStack(spacing: 0) {
+                // Sticky header — pinned outside the ScrollView so the menu
+                // button, wordmark, and add button stay visible while the
+                // content scrolls underneath.
+                TRAQSNavHeader {
+                    IconBtn(icon: .search, size: 18) {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            showSearch.toggle()
+                            if !showSearch { searchText = "" }
                         }
+                        if showSearch { searchFocused = true }
                     }
-
-                    HStack { Spacer()
-                        Segmented(
-                            options: JobsSegment.allCases,
-                            labels: Dictionary(uniqueKeysWithValues: JobsSegment.allCases.map { ($0, $0.label) }),
-                            selection: segmentBinding)
-                        Spacer()
+                    if appState.isAdmin {
+                        IconBtn(icon: .plus, size: 18) { showAddJob = true }
                     }
-                    .padding(.bottom, 12)
-
-                    // Cross-faded content per segment
-                    Group {
-                        switch segment {
-                        case .today: todayView
-                        case .week:  weekView
-                        case .month: monthView
-                        case .year:  yearView
-                        }
-                    }
-                    .id(segment)
-                    .transition(.opacity)
                 }
+                .background(Color(hex: T.bg))
+
+                // Search field — slides in when the search icon is tapped.
+                if showSearch {
+                    SearchBar(text: $searchText,
+                              placeholder: "Search jobs, customers…",
+                              focused: $searchFocused,
+                              onCancel: {
+                                  withAnimation(.easeInOut(duration: 0.18)) {
+                                      showSearch = false
+                                      searchText = ""
+                                  }
+                              })
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                ScrollView {
+                    VStack(spacing: 0) {
+                        HStack { Spacer()
+                            Segmented(
+                                options: JobsSegment.allCases,
+                                labels: Dictionary(uniqueKeysWithValues: JobsSegment.allCases.map { ($0, $0.label) }),
+                                selection: segmentBinding)
+                            Spacer()
+                        }
+                        .padding(.bottom, 12)
+
+                        // Cross-faded content per segment
+                        Group {
+                            switch segment {
+                            case .today: todayView
+                            case .week:  weekView
+                            case .month: monthView
+                            case .year:  yearView
+                            }
+                        }
+                        .id(segment)
+                        .transition(.opacity)
+                    }
+                }
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
             .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
             .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
         }

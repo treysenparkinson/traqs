@@ -8,21 +8,28 @@ import Combine
 struct TimeClockView: View {
     @Environment(AppState.self) private var appState
     @State private var now = Date()
+    @State private var showSettings = false
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
             Color(hex: T.bg).ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    TRAQSNavHeader {
-                        IconBtn(icon: .settings, size: 18)
-                    }
+            VStack(spacing: 0) {
+                // Sticky header.
+                TRAQSNavHeader {
+                    IconBtn(icon: .settings, size: 18) { showSettings = true }
+                }
+                .background(Color(hex: T.bg))
+
+                ScrollView {
+                    VStack(spacing: 0) {
 
                     HeroPayPeriodCard(totalHours: weekHours,
+                                      target: weeklyTarget,
                                       onPace: onPace,
-                                      now: now)
+                                      now: now,
+                                      settings: appState.orgSettings)
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
 
@@ -54,12 +61,14 @@ struct TimeClockView: View {
                     }
                     .padding(.horizontal, 16)
                     .padding(.bottom, 24)
+                    }
                 }
+                .scrollIndicators(.hidden)
+                .refreshable { await appState.loadAll() }
             }
-            .scrollIndicators(.hidden)
-            .refreshable { await appState.loadAll() }
             .onReceive(ticker) { now = $0 }
         }
+        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     // MARK: Compute
@@ -92,7 +101,15 @@ struct TimeClockView: View {
         return max(0, ms / 1000 / 3600)
     }
 
-    private var onPace: Bool { weekHours <= 40 }
+    /// Weekly target = org's hours-per-day × number of work days. Falls back to 40 if the
+    /// org config is malformed.
+    private var weeklyTarget: Double {
+        let s = appState.orgSettings
+        let target = s.hpd * Double(max(1, s.workDays.count))
+        return target > 0 ? target : 40
+    }
+
+    private var onPace: Bool { weekHours <= weeklyTarget }
 
     /// Last 8 days of activity, today highlighted in sky.
     /// Until we track per-day entries we approximate with the running clock placed today.
@@ -137,19 +154,61 @@ struct TimeClockView: View {
 
 private struct HeroPayPeriodCard: View {
     let totalHours: Double
+    let target: Double
     let onPace: Bool
     let now: Date
+    let settings: OrgSettings
+
+    /// Window for the current pay period.
+    /// - weekly: Mon → Sun containing today (or aligned to payPeriodStart day-of-week if set).
+    /// - biweekly: 14-day window anchored on payPeriodStart (falls back to two weeks back).
+    /// - semimonthly: 1st → 15th or 16th → end-of-month.
+    private var periodWindow: (start: Date, end: Date) {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        let anchor = settings.payPeriodStart.flatMap(parseISO) ?? today
+        switch settings.payPeriodType {
+        case "weekly":
+            let weekday = cal.component(.weekday, from: today)
+            let toMonday = weekday == 1 ? -6 : -(weekday - 2)
+            let start = cal.date(byAdding: .day, value: toMonday, to: today) ?? today
+            let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
+            return (start, end)
+        case "semimonthly":
+            let day = cal.component(.day, from: today)
+            let comps = cal.dateComponents([.year, .month], from: today)
+            let monthStart = cal.date(from: comps) ?? today
+            if day <= 15 {
+                let end = cal.date(byAdding: .day, value: 14, to: monthStart) ?? today
+                return (monthStart, end)
+            } else {
+                let start = cal.date(byAdding: .day, value: 15, to: monthStart) ?? today
+                let nextMonth = cal.date(byAdding: .month, value: 1, to: monthStart) ?? today
+                let end = cal.date(byAdding: .day, value: -1, to: nextMonth) ?? today
+                return (start, end)
+            }
+        default: // biweekly
+            let days = cal.dateComponents([.day], from: anchor, to: today).day ?? 0
+            let cycles = days / 14
+            let start = cal.date(byAdding: .day, value: cycles * 14, to: anchor) ?? today
+            let end = cal.date(byAdding: .day, value: 13, to: start) ?? today
+            return (start, end)
+        }
+    }
+
+    private func parseISO(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
+        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    }
 
     private var periodLabel: String {
-        let cal = Calendar.current
-        // Two-week pay period (Mon → Sun two weeks later)
-        let weekday = cal.component(.weekday, from: now)
-        let toMonday = weekday == 1 ? -6 : -(weekday - 2)
-        let mondayThisWeek = cal.date(byAdding: .day, value: toMonday, to: cal.startOfDay(for: now)) ?? now
-        let periodStart = cal.date(byAdding: .weekOfYear, value: -1, to: mondayThisWeek) ?? mondayThisWeek
-        let periodEnd = cal.date(byAdding: .day, value: 13, to: periodStart) ?? mondayThisWeek
+        let w = periodWindow
         let f = DateFormatter(); f.dateFormat = "MMM d"
-        return "Pay period · \(f.string(from: periodStart)) – \(f.string(from: periodEnd))"
+        return "Pay period · \(f.string(from: w.start)) – \(f.string(from: w.end))"
+    }
+
+    private var leftLabel: String {
+        String(format: "%.1f left to weekly target", max(0, target - totalHours))
     }
 
     var body: some View {
@@ -171,7 +230,7 @@ private struct HeroPayPeriodCard: View {
                 }
 
                 HStack(spacing: 12) {
-                    Text(String(format: "%.1f left to weekly target", max(0, 40 - totalHours)))
+                    Text(leftLabel)
                         .font(TTypo.xs(11))
                         .foregroundStyle(Color(hex: T.paper).opacity(0.7))
                     Text(onPace ? "· on pace" : "· behind")

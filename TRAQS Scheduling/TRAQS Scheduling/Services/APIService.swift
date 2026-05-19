@@ -129,6 +129,14 @@ struct APIService {
         _ = try await perform(req)
     }
 
+    // MARK: - Org Settings (GET is unauthenticated server-side; we still send auth headers harmlessly)
+
+    func fetchOrgSettings() async throws -> OrgSettings {
+        let req = try request("settings")
+        let data = try await perform(req)
+        return try decoder.decode(OrgSettings.self, from: data)
+    }
+
     // MARK: - Notify
 
     func sendNotification(_ payload: NotifyPayload) async throws {

@@ -11,6 +11,9 @@ class AppState {
     var clients: [Client] = []
     var messages: [Message] = []
     var groups: [ChatGroup] = []
+    /// Org-level settings (hpd, workStart/End, lunch, breaks, payPeriod, …).
+    /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
+    var orgSettings: OrgSettings = .default
 
     // MARK: - UI State
     var isLoading = false
@@ -26,8 +29,23 @@ class AppState {
     var clockError: String?
 
     // MARK: - Auth / Org
-    var currentPersonId: String?
+    /// Persisted so a flaky people-fetch can't briefly blank out the
+    /// current user and re-filter the entire app. The first auto-match sets
+    /// it; subsequent matches only reassign if the value would change.
+    var currentPersonId: String? = UserDefaults.standard.string(forKey: "traqs_currentPersonId") {
+        didSet {
+            if let id = currentPersonId, !id.isEmpty {
+                UserDefaults.standard.set(id, forKey: "traqs_currentPersonId")
+            }
+        }
+    }
     var orgCode: String = KeychainHelper.load(forKey: KeychainHelper.orgCodeKey) ?? ""
+    /// Human-readable organization name (e.g. "Matrix Systems"). Looked up via
+    /// `APIService.lookupOrg` once we have an org code, then persisted so the
+    /// sidebar's profile footer can show it above the user's name.
+    var orgName: String = UserDefaults.standard.string(forKey: "traqs_orgName") ?? "" {
+        didSet { UserDefaults.standard.set(orgName, forKey: "traqs_orgName") }
+    }
 
     // MARK: - Undo/Redo
     private var undoStack: [[Job]] = []
@@ -51,13 +69,27 @@ class AppState {
         KeychainHelper.save(orgCode, forKey: KeychainHelper.orgCodeKey)
         startAutoRefresh()
         Task { await loadAll() }
+        // Resolve the org's display name (cached server-side) so the sidebar
+        // can render it above the current user. Failure is non-fatal — we
+        // fall back to whatever was previously persisted.
+        Task {
+            if let info = try? await APIService.lookupOrg(code: orgCode),
+               let name = info.name, !name.isEmpty {
+                await MainActor.run { self.orgName = name }
+            }
+        }
     }
 
     func startAutoRefresh() {
         refreshTask?.cancel()
         refreshTask = Task {
             while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                // Poll every 15s. The previous 5s cadence visibly re-rendered
+                // the screen three times per minute, which surfaced any
+                // micro-difference in server payloads as a "switched data" blink.
+                // Foreground transitions still call loadAll() directly for
+                // immediate freshness, and user-driven pull-to-refresh works.
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
                 guard !Task.isCancelled, !isLoading else { continue }
                 await loadAll()
             }
@@ -82,8 +114,15 @@ class AppState {
         errorMessage = nil
         defer { isLoading = false }
 
-        if let r = try? await api.fetchJobs()     { jobs     = r }
-        if let r = try? await api.fetchPeople()   {
+        // Don't clobber existing in-memory data with an empty server response
+        // — a momentary S3 / network blip would otherwise wipe a populated
+        // list for the next render cycle ("split-second flash then gone").
+        // Real "everything deleted" cases are handled by user-driven refreshes
+        // and will catch up once the array is empty on both sides.
+        if let r = try? await api.fetchJobs(), !r.isEmpty || jobs.isEmpty {
+            jobs = r
+        }
+        if let r = try? await api.fetchPeople(), !r.isEmpty || people.isEmpty {
             // Capture the optimistic clock IMMEDIATELY before overwriting
             // `people`. Doing it here (not at the top of loadAll) handles
             // the race where the user taps START TIMER mid-fetch — by the
@@ -99,9 +138,16 @@ class AppState {
                 people[idx].activeJobClock = snap.clock
             }
         }
-        if let r = try? await api.fetchClients()  { clients  = r }
-        if let r = try? await api.fetchMessages() { messages = r }
-        if let r = try? await api.fetchGroups()   { groups   = r }
+        if let r = try? await api.fetchClients(), !r.isEmpty || clients.isEmpty {
+            clients = r
+        }
+        if let r = try? await api.fetchMessages(), !r.isEmpty || messages.isEmpty {
+            messages = r
+        }
+        if let r = try? await api.fetchGroups(), !r.isEmpty || groups.isEmpty {
+            groups = r
+        }
+        if let r = try? await api.fetchOrgSettings() { orgSettings = r }
         autoMatchPerson()
     }
 
@@ -224,6 +270,31 @@ class AppState {
         }
     }
 
+    // MARK: - Thread Read State
+    // Lightweight per-thread "last read at" timestamps backed by UserDefaults.
+    // `unreadCount` in the inbox compares each thread's newest message
+    // timestamp against the stored value to display the sky unread badge.
+    private let readStateKey = "traqs_threadReadAt"
+
+    var threadReadAt: [String: String] {
+        UserDefaults.standard.dictionary(forKey: readStateKey) as? [String: String] ?? [:]
+    }
+
+    func markThreadRead(_ threadKey: String) {
+        var map = threadReadAt
+        map[threadKey] = ISO8601DateFormatter().string(from: Date())
+        UserDefaults.standard.set(map, forKey: readStateKey)
+    }
+
+    func markAllThreadsRead() {
+        let nowISO = ISO8601DateFormatter().string(from: Date())
+        // Compute unique threadKeys from current messages, then stamp each.
+        let keys = Set(messages.map { $0.threadKey })
+        var map = threadReadAt
+        for k in keys { map[k] = nowISO }
+        UserDefaults.standard.set(map, forKey: readStateKey)
+    }
+
     // MARK: - Messages
 
     func sendMessage(_ message: Message) async {
@@ -299,7 +370,13 @@ class AppState {
     func autoMatchPerson() {
         guard let email = matchEmail, !people.isEmpty else { return }
         if let match = people.first(where: { $0.email.lowercased() == email.lowercased() }) {
-            currentPersonId = match.id
+            // Only reassign when the value would actually change — otherwise
+            // every loadAll triggers a redundant @Observable notification, which
+            // re-runs TasksView's `myTasks` filter and churns the displayed list
+            // (the "switched to a different set" symptom).
+            if currentPersonId != match.id {
+                currentPersonId = match.id
+            }
         }
     }
 
@@ -368,9 +445,13 @@ class AppState {
 
     /// Refresh JUST the jobs list (status / loggedHours updates) without
     /// clobbering the optimistic activeJobClock state on the current person.
+    /// Same empty-payload guard as `loadAll()` so a flaky response can't wipe
+    /// a populated list.
     private func refreshJobsQuietly() async {
         guard let api else { return }
-        if let r = try? await api.fetchJobs() { jobs = r }
+        if let r = try? await api.fetchJobs(), !r.isEmpty || jobs.isEmpty {
+            jobs = r
+        }
     }
 
     func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
@@ -537,7 +618,8 @@ class AppState {
     /// Returns (logged, est) for a single op. Logged is capped at est so an op
     /// can't push aggregate progress past 100%.
     func opHoursPair(_ op: Operation) -> (logged: Double, est: Double) {
-        let est = max(0.0001, op.hpd)
+        // Fall back to the org's default workday length when an op didn't store hpd.
+        let est = max(0.0001, op.hpd > 0 ? op.hpd : orgSettings.hpd)
         if op.status == .finished { return (est, est) }
         if op.pendingFinish == true { return (est * 0.99, est) }
         let base = op.loggedHours ?? 0

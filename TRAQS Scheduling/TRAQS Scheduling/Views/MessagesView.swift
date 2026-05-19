@@ -22,27 +22,41 @@ struct MessagesView: View {
     @State private var showNewDM = false
     @State private var filter: ChatFilter = .all
     @State private var navigationPath = NavigationPath()
+    @State private var searchText = ""
+    @State private var showSearch = false
+    @FocusState private var searchFocused: Bool
 
     var allThreads: [MessageThread] {
         let myId = appState.currentPersonId
+        let readMap = appState.threadReadAt
         return Dictionary(grouping: appState.messages, by: \.threadKey)
             .map { key, msgs in
                 MessageThread(
                     key: key,
                     messages: msgs.sorted { $0.timestamp < $1.timestamp },
-                    resolvedTitle: resolveTitle(key: key, myId: myId)
+                    resolvedTitle: resolveTitle(key: key, myId: myId),
+                    lastReadAt: readMap[key]
                 )
             }
             .sorted { ($0.messages.last?.timestamp ?? "") > ($1.messages.last?.timestamp ?? "") }
     }
 
     var filteredThreads: [MessageThread] {
+        let base: [MessageThread]
         switch filter {
-        case .all:      return allThreads
-        case .unread:   return allThreads.filter { $0.unreadCount > 0 }
-        case .dms:      return allThreads.filter { $0.isDM }
-        case .groups:   return allThreads.filter { !$0.isDM }
-        case .mentions: return allThreads.filter { _ in false }   // no mention metadata yet
+        case .all:      base = allThreads
+        case .unread:   base = allThreads.filter { $0.unreadCount > 0 }
+        case .dms:      base = allThreads.filter { $0.isDM }
+        case .groups:   base = allThreads.filter { !$0.isDM }
+        case .mentions: base = allThreads.filter { _ in false }   // no mention metadata yet
+        }
+        // Apply free-text search across the resolved title + last-message preview.
+        guard !searchText.isEmpty else { return base }
+        let q = searchText.lowercased()
+        return base.filter {
+            let title = ($0.resolvedTitle ?? $0.key).lowercased()
+            let last = ($0.lastMessage?.text ?? "").lowercased()
+            return title.contains(q) || last.contains(q)
         }
     }
 
@@ -58,54 +72,84 @@ struct MessagesView: View {
             ZStack {
                 Color(hex: T.bg).ignoresSafeArea()
 
-                ScrollView {
-                    VStack(spacing: 0) {
-                        TRAQSNavHeader {
-                            IconBtn(icon: .search, size: 18)
-                            Button {
-                                showNewGroup = true   // default to group creation; DM is in sheet
-                            } label: {
-                                TIconView(icon: .plus, size: 18, color: .white, weight: .bold)
-                                    .padding(9)
-                                    .background(Circle().fill(Color(hex: T.sky)))
-                                    .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                VStack(spacing: 0) {
+                    // Sticky header.
+                    TRAQSNavHeader {
+                        IconBtn(icon: .search, size: 18) {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showSearch.toggle()
+                                if !showSearch { searchText = "" }
                             }
-                            .buttonStyle(.plain)
+                            if showSearch { searchFocused = true }
                         }
-                        .padding(.bottom, 4)
+                        Button {
+                            showNewGroup = true   // default to group creation; DM is in sheet
+                        } label: {
+                            TIconView(icon: .plus, size: 18, color: .white, weight: .bold)
+                                .padding(9)
+                                .background(Circle().fill(Color(hex: T.sky)))
+                                .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
+                                        radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .background(Color(hex: T.bg))
 
-                        FilterPills(selected: $filter)
+                    if showSearch {
+                        SearchBar(text: $searchText,
+                                  placeholder: "Search conversations…",
+                                  focused: $searchFocused,
+                                  onCancel: {
+                                      withAnimation(.easeInOut(duration: 0.18)) {
+                                          showSearch = false
+                                          searchText = ""
+                                      }
+                                  })
+                            .padding(.horizontal, 16)
                             .padding(.bottom, 8)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
 
-                        if filteredThreads.isEmpty {
-                            ChatEmptyState(filter: filter)
-                                .padding(.top, 80)
-                        } else {
-                            TSectionTitle(title: "Inbox", action: "MARK ALL READ")
-                            VStack(spacing: 0) {
-                                SBox(size: .md, raised: true) {
-                                    VStack(spacing: 0) {
-                                        ForEach(Array(filteredThreads.enumerated()), id: \.element.id) { (i, t) in
-                                            NavigationLink(value: t.key) {
-                                                ChannelRow(thread: t,
-                                                           people: appState.people)
-                                            }
-                                            .buttonStyle(.plain)
-                                            if i < filteredThreads.count - 1 {
-                                                SLine().padding(.leading, 60)
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            FilterPills(selected: $filter)
+                                .padding(.top, 4)
+                                .padding(.bottom, 8)
+
+                            if filteredThreads.isEmpty {
+                                ChatEmptyState(filter: filter)
+                                    .padding(.top, 80)
+                            } else {
+                                TSectionTitle(title: "Inbox",
+                                              action: "MARK ALL READ",
+                                              onAction: { appState.markAllThreadsRead() })
+                                VStack(spacing: 0) {
+                                    SBox(size: .md, raised: true) {
+                                        VStack(spacing: 0) {
+                                            ForEach(Array(filteredThreads.enumerated()), id: \.element.id) { (i, t) in
+                                                NavigationLink(value: t.key) {
+                                                    ChannelRow(thread: t,
+                                                               people: appState.people)
+                                                }
+                                                .buttonStyle(.plain)
+                                                .simultaneousGesture(TapGesture().onEnded {
+                                                    appState.markThreadRead(t.key)
+                                                })
+                                                if i < filteredThreads.count - 1 {
+                                                    SLine().padding(.leading, 60)
+                                                }
                                             }
                                         }
                                     }
                                 }
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 24)
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 24)
                         }
+                        .animation(.easeInOut(duration: 0.18), value: filter)
                     }
-                    .animation(.easeInOut(duration: 0.18), value: filter)
+                    .scrollIndicators(.hidden)
                 }
-                .scrollIndicators(.hidden)
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { key in
@@ -252,6 +296,9 @@ struct MessageThread: Identifiable {
     let key: String
     let messages: [Message]
     var resolvedTitle: String? = nil
+    /// ISO timestamp of the last time the current user opened this thread.
+    /// Compared against each message's timestamp to compute `unreadCount`.
+    var lastReadAt: String? = nil
     var id: String { key }
 
     var displayTitle: String {
@@ -266,7 +313,10 @@ struct MessageThread: Identifiable {
 
     var isDM: Bool { key.hasPrefix("dm:") }
     var lastMessage: Message? { messages.last }
-    var unreadCount: Int { 0 }
+    var unreadCount: Int {
+        guard let cutoff = lastReadAt else { return messages.count }
+        return messages.filter { $0.timestamp > cutoff }.count
+    }
 }
 
 // MARK: - ThreadRow

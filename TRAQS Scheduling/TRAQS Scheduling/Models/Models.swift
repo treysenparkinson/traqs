@@ -498,6 +498,139 @@ struct Template: Codable, Identifiable {
     var panels: [TemplatePanel]
 }
 
+// MARK: - Org Settings
+// Mirrors the web's orgSettings shape (src/TRAQS.jsx ~line 1867). Stored on the
+// server at orgs/{code}/settings.json and exposed by GET /api/settings (no auth
+// needed for read; auth required for write).
+
+struct OrgBreak: Codable, Equatable {
+    var time: String              // "10:00"
+    var durationMinutes: Int      // 15
+
+    init(time: String, durationMinutes: Int) {
+        self.time = time; self.durationMinutes = durationMinutes
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        time            = (try? c.decode(String.self, forKey: .time)) ?? "12:00"
+        durationMinutes = (try? c.decode(Int.self,    forKey: .durationMinutes)) ?? 30
+    }
+}
+
+struct OrgSettings: Codable, Equatable {
+    var hpd: Double                       // hours per day (productive)
+    var workStart: String                 // "07:00"
+    var workEnd: String                   // "15:00"
+    var workDays: [Int]                   // 0=Sun ... 6=Sat
+    var holidays: [String]                // ISO date strings
+    var roles: [String]                   // department list
+    var approvalQueueLabel: String
+    var approvalSteps: [String]
+    var approverLabel: String
+    var payDates: [Int]                   // e.g. [5, 20] for semimonthly
+    var payMode: String                   // "setdate" | ...
+    var payAnchor: String?                // ISO date
+    var trackLunch: Bool
+    var trackBreaks: Bool
+    var payPeriodType: String             // "weekly" | "biweekly" | "semimonthly"
+    var payPeriodStart: String?           // ISO date
+    var breaks: [OrgBreak]
+    var lunch: OrgBreak
+
+    static var `default`: OrgSettings {
+        OrgSettings(
+            hpd: 8.0,
+            workStart: "07:00",
+            workEnd: "15:00",
+            workDays: [1, 2, 3, 4, 5],
+            holidays: [],
+            roles: [],
+            approvalQueueLabel: "Approval Queue",
+            approvalSteps: ["Review", "Approve", "Release"],
+            approverLabel: "Approver",
+            payDates: [5, 20],
+            payMode: "setdate",
+            payAnchor: nil,
+            trackLunch: false,
+            trackBreaks: false,
+            payPeriodType: "biweekly",
+            payPeriodStart: nil,
+            breaks: [OrgBreak(time: "10:00", durationMinutes: 15)],
+            lunch: OrgBreak(time: "12:00", durationMinutes: 30)
+        )
+    }
+
+    init(hpd: Double, workStart: String, workEnd: String, workDays: [Int],
+         holidays: [String], roles: [String], approvalQueueLabel: String,
+         approvalSteps: [String], approverLabel: String, payDates: [Int],
+         payMode: String, payAnchor: String?, trackLunch: Bool, trackBreaks: Bool,
+         payPeriodType: String, payPeriodStart: String?, breaks: [OrgBreak], lunch: OrgBreak) {
+        self.hpd = hpd; self.workStart = workStart; self.workEnd = workEnd
+        self.workDays = workDays; self.holidays = holidays; self.roles = roles
+        self.approvalQueueLabel = approvalQueueLabel
+        self.approvalSteps = approvalSteps; self.approverLabel = approverLabel
+        self.payDates = payDates; self.payMode = payMode; self.payAnchor = payAnchor
+        self.trackLunch = trackLunch; self.trackBreaks = trackBreaks
+        self.payPeriodType = payPeriodType; self.payPeriodStart = payPeriodStart
+        self.breaks = breaks; self.lunch = lunch
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = OrgSettings.default
+        hpd                = (try? c.decode(Double.self,    forKey: .hpd))                ?? d.hpd
+        workStart          = (try? c.decode(String.self,    forKey: .workStart))          ?? d.workStart
+        workEnd            = (try? c.decode(String.self,    forKey: .workEnd))            ?? d.workEnd
+        workDays           = (try? c.decode([Int].self,     forKey: .workDays))           ?? d.workDays
+        holidays           = (try? c.decode([String].self,  forKey: .holidays))           ?? d.holidays
+        roles              = (try? c.decode([String].self,  forKey: .roles))              ?? d.roles
+        approvalQueueLabel = (try? c.decode(String.self,    forKey: .approvalQueueLabel)) ?? d.approvalQueueLabel
+        approvalSteps      = (try? c.decode([String].self,  forKey: .approvalSteps))      ?? d.approvalSteps
+        approverLabel      = (try? c.decode(String.self,    forKey: .approverLabel))      ?? d.approverLabel
+        payDates           = (try? c.decode([Int].self,     forKey: .payDates))           ?? d.payDates
+        payMode            = (try? c.decode(String.self,    forKey: .payMode))            ?? d.payMode
+        payAnchor          = try? c.decodeIfPresent(String.self, forKey: .payAnchor)
+        trackLunch         = (try? c.decode(Bool.self,      forKey: .trackLunch))         ?? d.trackLunch
+        trackBreaks        = (try? c.decode(Bool.self,      forKey: .trackBreaks))        ?? d.trackBreaks
+        payPeriodType      = (try? c.decode(String.self,    forKey: .payPeriodType))      ?? d.payPeriodType
+        payPeriodStart     = try? c.decodeIfPresent(String.self, forKey: .payPeriodStart)
+        breaks             = (try? c.decode([OrgBreak].self,forKey: .breaks))             ?? d.breaks
+        lunch              = (try? c.decode(OrgBreak.self,  forKey: .lunch))              ?? d.lunch
+    }
+
+    /// Productive hours per day = (workEnd - workStart) - lunch - breaks.
+    var productiveHoursPerDay: Double {
+        func parseT(_ t: String) -> Int {
+            let parts = t.split(separator: ":").compactMap { Int($0) }
+            guard parts.count == 2 else { return 8 * 60 }
+            return parts[0] * 60 + parts[1]
+        }
+        let block = parseT(workEnd) - parseT(workStart)
+        let lunchMin = lunch.durationMinutes
+        let breakMin = breaks.reduce(0) { $0 + $1.durationMinutes }
+        return max(1, Double(block - lunchMin - breakMin) / 60)
+    }
+
+    /// `workStart` parsed as decimal hours (e.g. "07:30" → 7.5).
+    var workStartHour: Double {
+        let p = workStart.split(separator: ":").compactMap { Int($0) }
+        guard p.count == 2 else { return 8.0 }
+        return Double(p[0]) + Double(p[1]) / 60.0
+    }
+
+    var workEndHour: Double {
+        let p = workEnd.split(separator: ":").compactMap { Int($0) }
+        guard p.count == 2 else { return 17.0 }
+        return Double(p[0]) + Double(p[1]) / 60.0
+    }
+
+    var lunchStartHour: Double {
+        let p = lunch.time.split(separator: ":").compactMap { Int($0) }
+        guard p.count == 2 else { return 12.0 }
+        return Double(p[0]) + Double(p[1]) / 60.0
+    }
+}
+
 // MARK: - Notification Payload
 
 struct NotifyPayload: Codable {

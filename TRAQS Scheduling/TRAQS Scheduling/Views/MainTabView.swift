@@ -48,6 +48,12 @@ struct MainTabView: View {
         Double((drawerX + drawerWidth) / drawerWidth)
     }
 
+    /// Binding bridge — `fullScreenCover(item:)` needs a writable `Binding<DrawerExtra?>`,
+    /// but `@Observable`-derived state isn't auto-bindable. This wraps it.
+    private var extraBinding: Binding<DrawerExtra?> {
+        Binding(get: { appNav.extra }, set: { appNav.extra = $0 })
+    }
+
     var body: some View {
         ZStack(alignment: .leading) {
             Color(hex: T.bg).ignoresSafeArea()
@@ -88,6 +94,27 @@ struct MainTabView: View {
                 .zIndex(2)
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .fullScreenCover(item: extraBinding) { extra in
+            NavigationStack {
+                Group {
+                    switch extra {
+                    case .clients: ClientsView()
+                    case .team:    TeamView()
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            withAnimation { appNav.extra = nil }
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color(hex: T.muted))
+                        }
+                    }
+                }
+            }
+        }
         .preferredColorScheme(.light)
         .animation(.easeInOut(duration: 0.22), value: appNav.selected)
         .animation(isDragging ? nil
@@ -191,17 +218,51 @@ private struct SideMenu: View {
                 .padding(.top, 24)
                 .padding(.bottom, 24)
 
-                // Tab list — Settings sits directly below Chat
+                // Tab list — primary 5 wireframe tabs.
                 VStack(spacing: 4) {
                     ForEach(TTab.allCases, id: \.self) { tab in
                         SideMenuRow(icon: tab.icon,
                                     label: tab.label,
-                                    isOn: appNav.selected == tab) {
+                                    isOn: appNav.selected == tab && appNav.extra == nil) {
                             withAnimation(.easeInOut(duration: 0.22)) {
                                 appNav.selected = tab
+                                appNav.extra = nil
                             }
                             close()
                         }
+                    }
+                }
+                .padding(.horizontal, 12)
+
+                // EXTRAS divider — secondary destinations (Clients, Team) +
+                // Settings live below the wireframe tabs.
+                HStack {
+                    Text("EXTRAS")
+                        .font(TTypo.xsBold(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tLabel(tracking: 1.4)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 18)
+                .padding(.bottom, 6)
+
+                VStack(spacing: 4) {
+                    SideMenuRow(icon: .clients,
+                                label: "Clients",
+                                isOn: appNav.extra == .clients) {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            appNav.extra = .clients
+                        }
+                        close()
+                    }
+                    SideMenuRow(icon: .team,
+                                label: "Team",
+                                isOn: appNav.extra == .team) {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            appNav.extra = .team
+                        }
+                        close()
                     }
                     SideMenuRow(icon: .settings,
                                 label: "Settings",
@@ -214,6 +275,7 @@ private struct SideMenu: View {
 
                 // Profile + logout footer (no card border — clean row)
                 ProfileFooter(initials: initials,
+                              orgName: appState.orgName,
                               name: person?.name ?? "—",
                               email: person?.email,
                               onLogout: {
@@ -282,6 +344,7 @@ private struct SideMenuRow: View {
 
 private struct ProfileFooter: View {
     let initials: String
+    let orgName: String
     let name: String
     let email: String?
     let onLogout: () -> Void
@@ -291,6 +354,14 @@ private struct ProfileFooter: View {
             Avatar(initials: initials, size: 38, fill: Color(hex: T.magenta))
 
             VStack(alignment: .leading, spacing: 1) {
+                if !orgName.isEmpty {
+                    Text(orgName)
+                        .font(TTypo.xsBold(10))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tLabel(tracking: 0.8)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 Text(name)
                     .font(TTypo.smBold(13))
                     .foregroundStyle(Color(hex: T.ink))

@@ -228,6 +228,51 @@ extension PillBtn where Leading == EmptyView, Trailing == EmptyView {
 
 // ── IconBtn: standard pill icon button (white surface, hairline, raised) ───
 
+// ── SearchBar: inline search input with leading magnifier, clear (×), cancel ──
+// Designed to slide in below a TRAQSNavHeader. Pass a FocusState binding so the
+// caller can focus the field as soon as it appears.
+
+struct SearchBar: View {
+    @Binding var text: String
+    var placeholder: String = "Search…"
+    var focused: FocusState<Bool>.Binding
+    var onCancel: () -> Void = {}
+
+    var body: some View {
+        HStack(spacing: 10) {
+            HStack(spacing: 8) {
+                TIconView(icon: .search, size: 14, color: Color(hex: T.muted))
+                TextField(placeholder, text: $text)
+                    .font(TTypo.sm(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .focused(focused)
+                    .submitLabel(.search)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                if !text.isEmpty {
+                    Button { text = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color(hex: T.muted))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Capsule().fill(Color(hex: T.surface)))
+            .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+
+            Button { onCancel() } label: {
+                Text("Cancel")
+                    .font(TTypo.smBold(13))
+                    .foregroundStyle(Color(hex: T.ink))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
 struct IconBtn: View {
     let icon: TIcon
     var size: CGFloat = 18
@@ -364,6 +409,9 @@ struct Sparkline: View {
 struct TSectionTitle: View {
     let title: String
     var action: String? = nil
+    /// Optional tap handler for the trailing action label. When provided the
+    /// label renders in sky and becomes an actual button.
+    var onAction: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
@@ -372,10 +420,20 @@ struct TSectionTitle: View {
                 .foregroundStyle(Color(hex: T.ink))
             Spacer()
             if let a = action {
-                Text(a)
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.2)
+                if let onAction {
+                    Button(action: onAction) {
+                        Text(a)
+                            .font(TTypo.xsBold(11))
+                            .foregroundStyle(Color(hex: T.sky))
+                            .tLabel(tracking: 1.2)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text(a)
+                        .font(TTypo.xsBold(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tLabel(tracking: 1.2)
+                }
             }
         }
         .padding(.horizontal, 16)

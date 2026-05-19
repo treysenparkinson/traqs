@@ -13,6 +13,7 @@ struct GanttView: View {
     @State private var segment: ScheduleSegment = .day
     @State private var now: Date = Date()
     @State private var showAddJob = false
+    @State private var showDatePicker = false
     private let cal = Calendar.current
     private let nowTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
@@ -25,14 +26,18 @@ struct GanttView: View {
         ZStack(alignment: .top) {
             Color(hex: T.bg).ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    TRAQSNavHeader {
-                        IconBtn(icon: .cal, size: 18)
-                        if appState.isAdmin {
-                            IconBtn(icon: .plus, size: 18) { showAddJob = true }
-                        }
+            VStack(spacing: 0) {
+                // Sticky header.
+                TRAQSNavHeader {
+                    IconBtn(icon: .cal, size: 18) { showDatePicker = true }
+                    if appState.isAdmin {
+                        IconBtn(icon: .plus, size: 18) { showAddJob = true }
                     }
+                }
+                .background(Color(hex: T.bg))
+
+                ScrollView {
+                    VStack(spacing: 0) {
 
                     // Segmented Day/Week/Agenda — V1 default is Day
                     HStack { Spacer()
@@ -52,7 +57,11 @@ struct GanttView: View {
                             .padding(.bottom, 8)
                         DayTimeline(date: selectedDate,
                                     now: now,
-                                    blocks: blocks(for: selectedDate))
+                                    blocks: blocks(for: selectedDate),
+                                    workStart: appState.orgSettings.workStartHour,
+                                    workEnd: appState.orgSettings.workEndHour,
+                                    lunchStart: appState.orgSettings.lunchStartHour,
+                                    lunchDurationH: Double(appState.orgSettings.lunch.durationMinutes) / 60)
                             .transition(.opacity)
                     } else {
                         WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
@@ -61,6 +70,8 @@ struct GanttView: View {
                         WeekGrid(weekDates: weekDates,
                                  today: cal.startOfDay(for: Date()),
                                  now: now,
+                                 workStart: appState.orgSettings.workStartHour,
+                                 workEnd: appState.orgSettings.workEndHour,
                                  blocksFor: { blocks(for: $0) })
                             .padding(.horizontal, 12)
                             .padding(.bottom, 6)
@@ -69,13 +80,21 @@ struct GanttView: View {
                             .padding(.bottom, 24)
                             .transition(.opacity)
                     }
+                    }
                 }
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
         .animation(.easeInOut(duration: 0.18), value: segment)
         .onReceive(nowTimer) { _ in now = Date() }
         .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
+        .sheet(isPresented: $showDatePicker) {
+            // Jump-to-date picker — wireframe Day view doesn't have an inline
+            // calendar; the calendar icon in the header opens this sheet.
+            DatePickerSheet(selection: $selectedDate)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
         .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
         .navigationDestination(for: ScheduleFocus.self) { focus in
             JobDetailView(job: focus.job,
@@ -174,12 +193,13 @@ struct GanttView: View {
 
         // Pack sequentially from workStart, splitting around lunch.
         // We do NOT cap at workEnd — if more work is scheduled than fits in
-        // the standard 8a-5p day, the timeline expands so every task is still
+        // the standard day, the timeline expands so every task is still
         // visible. Previously any task that would have started past 5pm got
         // silently dropped, which is what the "missing jobs" reports were.
-        let workStart:  Double = 8.0
-        let lunchStart: Double = 12.0
-        let lunchEnd:   Double = 13.0
+        let s = appState.orgSettings
+        let workStart:  Double = s.workStartHour
+        let lunchStart: Double = s.lunchStartHour
+        let lunchEnd:   Double = s.lunchStartHour + Double(s.lunch.durationMinutes) / 60
 
         var cursor = workStart
         var out: [ScheduleBlock] = []
@@ -378,16 +398,20 @@ private struct DayTimeline: View {
     let date: Date
     let now: Date
     let blocks: [ScheduleBlock]
-    private let startHour: Double = 8
+    /// Org-aware shift window (overrides the previously hardcoded 8a–5p / 12–1 lunch).
+    let workStart: Double
+    let workEnd: Double
+    let lunchStart: Double
+    let lunchDurationH: Double
     private let pxPerHour: CGFloat = 56
     private let cal = Calendar.current
 
-    /// Extend past 5pm when the user has more than a standard day of work
-    /// scheduled, so no blocks ever fall off the visible grid.
-    private var endHour: Double {
-        let latest = blocks.map { $0.end }.max() ?? 17
-        return max(17, ceil(latest))
-    }
+    private var startHour: Double { workStart }
+
+    /// Hard-cap the timeline at the org's workEnd. Any blocks the packer puts
+    /// past this point are clipped — the schedule's visible window must match
+    /// the configured shift, not silently scroll into the evening.
+    private var endHour: Double { workEnd }
 
     var body: some View {
         let totalH = endHour - startHour
@@ -422,17 +446,21 @@ private struct DayTimeline: View {
                 }
                 .frame(height: height, alignment: .top)
 
-                // Lunch ghost block (dashed, muted) — 12:00 – 13:00
-                let lunchTop = CGFloat(12 - startHour) * pxPerHour + 2
-                let lunchHeight = pxPerHour - 4
-                LunchGhostBlock(height: lunchHeight)
+                // Lunch ghost block (dashed, muted) — driven by orgSettings.lunch
+                let lunchTop = CGFloat(lunchStart - startHour) * pxPerHour + 2
+                let lunchHeight = CGFloat(lunchDurationH) * pxPerHour - 4
+                LunchGhostBlock(height: max(20, lunchHeight))
                     .padding(.horizontal, 6)
                     .offset(y: lunchTop)
 
-                // Blocks — tap to push the job detail
-                ForEach(blocks) { b in
+                // Blocks — tap to push the job detail. Blocks whose start is
+                // already past workEnd are dropped (nothing to show); blocks
+                // that overflow workEnd are clamped to the visible lane so the
+                // schedule never bleeds past the configured shift.
+                ForEach(blocks.filter { $0.start < endHour }) { b in
+                    let clampedEnd = min(b.end, endHour)
                     let top = CGFloat(b.start - startHour) * pxPerHour + 2
-                    let h = CGFloat(b.end - b.start) * pxPerHour - 4
+                    let h = max(20, CGFloat(clampedEnd - b.start) * pxPerHour - 4)
                     NavigationLink(value: ScheduleFocus(job: b.job, panelId: b.panelId, opId: b.opId)) {
                         ScheduleBlockView(block: b, height: h)
                     }
@@ -607,21 +635,18 @@ private struct WeekGrid: View {
     let weekDates: [Date]
     let today: Date
     let now: Date
+    let workStart: Double
+    let workEnd: Double
     let blocksFor: (Date) -> [ScheduleBlock]
 
-    private let startHour: Double = 8
+    private var startHour: Double { workStart }
     private let pxPerHour: CGFloat = 36
     private let gutter:    CGFloat = 24
     private let cal = Calendar.current
 
-    /// Expand past 5pm if any day this week needs more than a standard day.
-    private var endHour: Double {
-        let latest = weekDates
-            .flatMap { blocksFor($0) }
-            .map { $0.end }
-            .max() ?? 17
-        return max(17, ceil(latest))
-    }
+    /// Hard-cap at workEnd. Overflow blocks are clipped — the week grid
+    /// should mirror the configured shift, not silently expand.
+    private var endHour: Double { workEnd }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -735,10 +760,12 @@ private struct WeekDayColumn: View {
                 }
             }
 
-            // Event rectangles painted by time range — tap to push detail
-            ForEach(blocks) { b in
+            // Event rectangles painted by time range — clamped to endHour so
+            // blocks never bleed past the configured shift.
+            ForEach(blocks.filter { $0.start < endHour }) { b in
+                let clampedEnd = min(b.end, endHour)
                 let top = CGFloat(b.start - startHour) * pxPerHour + 1
-                let h = max(2, CGFloat(b.end - b.start) * pxPerHour - 2)
+                let h = max(2, CGFloat(clampedEnd - b.start) * pxPerHour - 2)
                 NavigationLink(value: ScheduleFocus(job: b.job, panelId: b.panelId, opId: b.opId)) {
                     WeekBlockTile(block: b, height: h)
                 }
@@ -853,6 +880,49 @@ private struct WeekLegendRow: View {
                     JobTypeTag(label: e.label, color: e.color)
                 }
                 Spacer(minLength: 0)
+            }
+        }
+    }
+}
+
+// MARK: - DatePickerSheet — jump to any day from the calendar header icon
+
+private struct DatePickerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var selection: Date
+
+    var body: some View {
+        ZStack {
+            Color(hex: T.bg).ignoresSafeArea()
+            VStack(spacing: 16) {
+                Text("Jump to date")
+                    .font(TTypo.xsBold(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tLabel(tracking: 1.4)
+                    .padding(.top, 18)
+
+                DatePicker("", selection: $selection, displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .labelsHidden()
+                    .tint(Color(hex: T.sky))
+                    .padding(.horizontal, 16)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text("DONE")
+                        .font(TTypo.xsBold(13))
+                        .tLabel(tracking: 0.8)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(Capsule().fill(Color(hex: T.sky)))
+                        .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
+                                radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
             }
         }
     }

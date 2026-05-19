@@ -12,6 +12,7 @@ enum TIcon: String {
     case dot, check, arrowUp, arrowDown
     case mic, paperclip, settings, send
     case person, map, list, cal, sparkle, bell, signOut
+    case clients, team
 
     var sfName: String {
         switch self {
@@ -44,6 +45,8 @@ enum TIcon: String {
         case .sparkle:   return "sparkles"
         case .bell:      return "bell"
         case .signOut:   return "rectangle.portrait.and.arrow.right"
+        case .clients:   return "building.2"
+        case .team:      return "person.2"
         }
     }
 }

@@ -10,4 +10,12 @@ import SwiftUI
 final class AppNav {
     var selected: TTab = .schedule
     var isMenuOpen: Bool = false
+    /// Secondary destinations opened from the drawer. Rendered as a full-screen
+    /// cover over the current tab so the wireframe's 5-tab IA is preserved.
+    var extra: DrawerExtra? = nil
+}
+
+enum DrawerExtra: String, Hashable, Identifiable {
+    case clients, team
+    var id: String { rawValue }
 }

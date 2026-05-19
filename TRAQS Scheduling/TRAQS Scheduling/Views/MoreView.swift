@@ -6,37 +6,58 @@ import SwiftUI
 
 struct MoreView: View {
     @Environment(AppState.self) private var appState
+    @State private var period: StatsPeriod = .thisWeek
 
     var body: some View {
         ZStack {
             Color(hex: T.bg).ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 0) {
-                    TRAQSNavHeader {
-                        Chip(label: "This week", stroke: Color(hex: T.hair), color: Color(hex: T.muted))
+            VStack(spacing: 0) {
+                // Sticky header. Period chip cycles through the available
+                // ranges so tapping it actually scopes the dashboard.
+                TRAQSNavHeader {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            period = period.next
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(period.label)
+                                .font(TTypo.xsBold(11))
+                                .foregroundStyle(Color(hex: T.ink))
+                                .tLabel(tracking: 0.8)
+                            TIconView(icon: .chevDown, size: 10, color: Color(hex: T.muted))
+                        }
+                        .padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(Capsule().fill(Color(hex: T.surface)))
+                        .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
                     }
-                    .padding(.bottom, 4)
+                    .buttonStyle(.plain)
+                }
+                .background(Color(hex: T.bg))
 
-                    if appState.isAdmin {
-                        kpiGrid
-                            .padding(.horizontal, 16).padding(.top, 8)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if appState.isAdmin {
+                            kpiGrid
+                                .padding(.horizontal, 16).padding(.top, 8)
 
-                        TSectionTitle(title: "Hours billed", action: "14 DAYS")
-                        HeroTrendCard(points: hoursTrend, total: hoursTrendTotal, delta: hoursTrendDelta)
-                            .padding(.horizontal, 16)
+                            TSectionTitle(title: "Hours billed", action: "14 DAYS")
+                            HeroTrendCard(points: hoursTrend, total: hoursTrendTotal, delta: hoursTrendDelta)
+                                .padding(.horizontal, 16)
 
-                        TSectionTitle(title: "Job mix")
-                        JobMixCard(mix: jobMix)
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 24)
-                    } else {
-                        NonAdminEmpty()
-                            .padding(.top, 80)
+                            TSectionTitle(title: "Job mix")
+                            JobMixCard(mix: jobMix)
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 24)
+                        } else {
+                            NonAdminEmpty()
+                                .padding(.top, 80)
+                        }
                     }
                 }
+                .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
         }
     }
 
@@ -66,9 +87,14 @@ struct MoreView: View {
     }
 
     private var utilization: Int {
-        let total = max(1, appState.people.filter { $0.isAdmin == false }.count) * 8 * 5
+        // Available hours = headcount × hpd × workdays-per-week, sourced from
+        // the org settings the user configured on the web.
+        let s = appState.orgSettings
+        let headcount = max(1, appState.people.filter { $0.isAdmin == false }.count)
+        let workDayCount = max(1, s.workDays.count)
+        let total = max(1.0, Double(headcount) * s.hpd * Double(workDayCount))
         let logged = appState.jobs.reduce(0.0) { $0 + ($1.loggedHours ?? 0) }
-        return min(100, Int((logged / Double(total)) * 100))
+        return min(100, Int((logged / total) * 100))
     }
 
     /// 14-day fake-but-deterministic sparkline derived from per-day logged hours
@@ -251,5 +277,28 @@ private struct NonAdminEmpty: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
+    }
+}
+
+// MARK: - StatsPeriod
+// Drives the period chip in the Stats header. Tapping cycles through.
+
+enum StatsPeriod: CaseIterable {
+    case thisWeek, last30Days, allTime
+
+    var label: String {
+        switch self {
+        case .thisWeek:   return "This week"
+        case .last30Days: return "Last 30 days"
+        case .allTime:    return "All time"
+        }
+    }
+
+    var next: StatsPeriod {
+        switch self {
+        case .thisWeek:   return .last30Days
+        case .last30Days: return .allTime
+        case .allTime:    return .thisWeek
+        }
     }
 }
