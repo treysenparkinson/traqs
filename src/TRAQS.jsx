@@ -2069,24 +2069,56 @@ Extraction rules:
     }
     return period;
   };
-  const _opPct = (op) => {
-    if (op.status === "Finished") return 100;
-    if (op.pendingFinish) return 99;
-    const totalEst = Math.max(1, op.hpd || orgSettings.hpd);
+  // Tick every 30s while at least one worker is clocked into a job, so progress bars update
+  // live as the worker logs time. No-op when nobody is clocked in.
+  const [_progressTick, setProgressTick] = useState(0);
+  useEffect(() => {
+    const anyActive = people.some(p => p.activeJobClock?.clockIn);
+    if (!anyActive) return;
+    const iv = setInterval(() => setProgressTick(t => (t + 1) | 0), 30000);
+    return () => clearInterval(iv);
+  }, [people]);
+  // Logged + estimate for a single op. Live timer is added in for the worker currently clocked in.
+  // Logged is capped at the estimate so an op can't push aggregate progress past 100%.
+  const _opHoursPair = (op) => {
+    const est = Math.max(0.0001, op.hpd || orgSettings.hpd);
+    if (op.status === "Finished") return { logged: est, est };
+    if (op.pendingFinish) return { logged: est * 0.99, est };
     const logged = timeclock
       .filter(e => e.jobRefs?.some(r => r.opId === op.id))
       .reduce((s, e) => s + (e.hours || 0), 0);
-    // Add live elapsed for any worker currently clocked into this op (display only)
     const activeP = people.find(p => p.activeJobClock?.opId === op.id && p.activeJobClock?.clockIn);
     const liveElapsed = activeP ? Math.max(0,
       (Date.now() - new Date(activeP.activeJobClock.clockIn).getTime()) / 3600000
       - (activeP.activeJobClock.totalPausedMs || 0) / 3600000
     ) : 0;
-    const totalLogged = logged + liveElapsed;
-    if (totalLogged === 0) return op.status === "In Progress" ? 5 : op.status === "On Hold" ? 2 : 0;
-    return Math.min(98, Math.round(totalLogged / totalEst * 100));
+    return { logged: Math.min(est, logged + liveElapsed), est };
   };
-  const _jobPct = (job) => { const ops = (job.subs || []).flatMap(p => p.subs || []); return ops.length ? Math.round(ops.reduce((s, op) => s + _opPct(op), 0) / ops.length) : 0; };
+  const _opPct = (op) => {
+    if (op.status === "Finished") return 100;
+    if (op.pendingFinish) return 99;
+    const { logged, est } = _opHoursPair(op);
+    if (logged === 0) return op.status === "In Progress" ? 5 : op.status === "On Hold" ? 2 : 0;
+    return Math.min(98, Math.round(logged / est * 100));
+  };
+  // Weighted by estimate: total logged hours ÷ total estimated hours, so a 40h-op at 8h
+  // counts proportionally more than a 4h-op at 2h. Matches "logged / estimate" intuition.
+  const _panelPct = (panel) => {
+    const ops = panel.subs || [];
+    if (!ops.length) return panel.status === "Finished" ? 100 : 0;
+    let logged = 0, est = 0;
+    for (const op of ops) { const h = _opHoursPair(op); logged += h.logged; est += h.est; }
+    if (est === 0) return 0;
+    return Math.min(100, Math.round(logged / est * 100));
+  };
+  const _jobPct = (job) => {
+    const ops = (job.subs || []).flatMap(p => p.subs || []);
+    if (!ops.length) return job.status === "Finished" ? 100 : 0;
+    let logged = 0, est = 0;
+    for (const op of ops) { const h = _opHoursPair(op); logged += h.logged; est += h.est; }
+    if (est === 0) return 0;
+    return Math.min(100, Math.round(logged / est * 100));
+  };
   // Display-only status override for sub-ops: shows "Paused" when hours are logged but no one is clocked in
   const getOpDisplayStatus = (op) => {
     if (op.status === "Finished") return "Finished";
@@ -5729,9 +5761,11 @@ ${jobsCtx || "No jobs found."}`;
         const opHrs = (op) => Math.round((op.hpd || 7.5) * 10) / 10;
         const panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + opHrs(op), 0) * 10) / 10;
         const jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + panelHrs(p), 0) * 10) / 10;
-        const opPct = (op) => op.status === "Finished" ? 100 : op.status === "In Progress" ? 50 : op.status === "Pending" ? 15 : op.status === "On Hold" ? 25 : 0;
-        const panelPct = (panel) => { const ops = panel.subs || []; return ops.length ? Math.round(ops.reduce((s, op) => s + opPct(op), 0) / ops.length) : opPct(panel); };
-        const jobPct = (job) => { const ops = (job.subs || []).flatMap(p => p.subs || []); return ops.length ? Math.round(ops.reduce((s, op) => s + opPct(op), 0) / ops.length) : opPct(job); };
+        // Use the component-level, hours-weighted helpers so the Progress column reflects
+        // actual logged-vs-estimated time (incl. the live timer for an active job clock).
+        const opPct = _opPct;
+        const panelPct = _panelPct;
+        const jobPct = _jobPct;
         const pctColor = (pct) => pct >= 80 ? "#10b981" : pct >= 40 ? "#f59e0b" : "#94a3b8";
 
         const renderStdCell = (colId, item, level, pid, jobId, panelId, jobColor) => {
