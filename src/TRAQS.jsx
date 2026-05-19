@@ -385,8 +385,8 @@ animStyle.textContent = `
 ─────────────────────────────────────────────────────────────────────── */
 
 @keyframes viewEnter {
-  0%   { opacity: 0; transform: translateY(20px) scale(0.97); filter: blur(6px); }
-  100% { opacity: 1; }
+  0%   { opacity: 0.85; transform: translateY(6px) scale(0.995); }
+  100% { opacity: 1;    transform: translateY(0)   scale(1); }
 }
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
@@ -541,7 +541,7 @@ animStyle.textContent = `
 .select-bubble-in { animation: selectBubbleIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 
 /* ── Animation classes ─────────────────────────────────────────────── */
-.anim-view-enter  { animation: viewEnter   0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.anim-view-enter  { animation: viewEnter   0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-card        { animation: cardPop     0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-modal-overlay { animation: fadeIn 0.22s ease-out both; }
 .anim-modal-box   { animation: bcPageIn 0.30s cubic-bezier(0.22, 1, 0.36, 1) both; }
