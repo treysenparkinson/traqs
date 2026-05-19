@@ -612,6 +612,8 @@ html { scroll-behavior: smooth; }
   .anim-card-wrap:hover  { transform: none; box-shadow: none; }
   .anim-card-wrap:active { transform: scale(0.97); transition-duration: 0.1s; }
 }
+.tq-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.tq-hide-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 `;
 if (!document.querySelector('style[data-traqs]')) { animStyle.setAttribute("data-traqs", "1"); document.head.appendChild(animStyle); }
 
@@ -11034,8 +11036,9 @@ ${jobsCtx || "No jobs found."}`;
           </span>
         </button>
       </div>
-      {/* Nav buttons */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+      {/* Nav buttons — scrollable when content (especially expanded Settings panels) exceeds height.
+          Scrollbar is hidden visually; users still scroll via trackpad / mouse wheel. */}
+      <div className="tq-hide-scrollbar" style={{ display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", msOverflowStyle: "none", transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {views.map(v => {
           const active = view === v.id;
           return (
