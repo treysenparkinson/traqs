@@ -12895,8 +12895,9 @@ ${jobsCtx || "No jobs found."}`;
           <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
         </button>
-        {/* Settings children — animated retract (mirrors PM / queue collapse pattern) */}
-        <div style={{ display: "grid", gridTemplateRows: sidebarSettingsOpen && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: sidebarSettingsOpen && sidebarExpanded ? 1 : 0, pointerEvents: sidebarSettingsOpen && sidebarExpanded ? "auto" : "none" }}>
+        {/* Settings children — animated retract (mirrors PM / queue collapse pattern).
+            Opacity stays at 1 so the visual is purely a "sucking back" height collapse — no fade. */}
+        <div style={{ display: "grid", gridTemplateRows: sidebarSettingsOpen && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.28s cubic-bezier(0.4,0,0.2,1)", pointerEvents: sidebarSettingsOpen && sidebarExpanded ? "auto" : "none" }}>
           <div style={{ overflow: "hidden", minHeight: 0 }}>
             <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
               {/* Design — inline expand */}
@@ -12910,7 +12911,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ flex: 1, textAlign: "left" }}>Design</span>
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsExpanded === "design" ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
               </button>
-              <div style={{ display: "grid", gridTemplateRows: sidebarSettingsExpanded === "design" ? "1fr" : "0fr", transition: "grid-template-rows 0.2s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease", opacity: sidebarSettingsExpanded === "design" ? 1 : 0, pointerEvents: sidebarSettingsExpanded === "design" ? "auto" : "none" }}>
+              <div style={{ display: "grid", gridTemplateRows: sidebarSettingsExpanded === "design" ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: sidebarSettingsExpanded === "design" ? "auto" : "none" }}>
                 <div style={{ overflow: "hidden", minHeight: 0 }}>
                   <div style={{ padding: "6px 14px 10px 28px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
                     <div>
@@ -12976,7 +12977,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Organization</span>
                 <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsExpanded === "orgSettings" ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
               </button>}
-              {isAdmin && <div style={{ display: "grid", gridTemplateRows: sidebarSettingsExpanded === "orgSettings" ? "1fr" : "0fr", transition: "grid-template-rows 0.2s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease", opacity: sidebarSettingsExpanded === "orgSettings" ? 1 : 0, pointerEvents: sidebarSettingsExpanded === "orgSettings" ? "auto" : "none" }}>
+              {isAdmin && <div style={{ display: "grid", gridTemplateRows: sidebarSettingsExpanded === "orgSettings" ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: sidebarSettingsExpanded === "orgSettings" ? "auto" : "none" }}>
                 <div style={{ overflow: "hidden", minHeight: 0 }}>
                   <div style={{ padding: "6px 14px 10px 28px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
                     {/* Company Name row */}
