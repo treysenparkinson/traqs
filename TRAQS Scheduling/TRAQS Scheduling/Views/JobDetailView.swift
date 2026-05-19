@@ -21,6 +21,7 @@ struct JobDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // Header card
+                    let jobProgress = appState.jobPct(job)
                     HStack(alignment: .top) {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color(hex: job.color))
@@ -42,6 +43,17 @@ struct JobDetailView: View {
                                 Text(job.pri.rawValue).font(.caption).foregroundColor(job.pri.color)
                             }
                             .font(.subheadline)
+
+                            // Hours-weighted progress: total logged ÷ total estimated
+                            // across every op in the job. Matches the desktop Jobs page.
+                            HStack(spacing: 8) {
+                                Bar(pct: Double(jobProgress), height: 6,
+                                    fill: progressFill(jobProgress))
+                                Text("\(jobProgress)%")
+                                    .font(.caption.bold().monospacedDigit())
+                                    .foregroundColor(progressFill(jobProgress))
+                            }
+                            .padding(.top, 4)
                         }
                         Spacer()
                     }
@@ -145,6 +157,13 @@ struct JobDetailView: View {
     }
 }
 
+/// Matches the desktop's `pctColor`: green ≥ 80, amber ≥ 40, otherwise muted.
+func progressFill(_ pct: Int) -> Color {
+    if pct >= 80 { return Color(hex: T.statusFinished) }
+    if pct >= 40 { return Color(hex: "#f59e0b") }
+    return Color(hex: T.muted)
+}
+
 struct InfoCell: View {
     let label: String
     let value: String
@@ -208,6 +227,17 @@ struct PanelCard: View {
                                 .font(.caption).foregroundColor(Color(hex: T.muted))
                             StatusBadge(status: panel.status)
                         }
+                        // Hours-weighted panel progress: aggregate of child ops'
+                        // logged vs. estimated hours.
+                        let pPct = appState.panelPct(panel)
+                        HStack(spacing: 6) {
+                            Bar(pct: Double(pPct), height: 5, fill: progressFill(pPct))
+                                .frame(maxWidth: 120)
+                            Text("\(pPct)%")
+                                .font(.caption2.bold().monospacedDigit())
+                                .foregroundColor(progressFill(pPct))
+                        }
+                        .padding(.top, 2)
                     }
                     Spacer()
                     // Engineering steps indicator
@@ -317,6 +347,16 @@ struct OperationRow: View {
                             .font(.caption2)
                             .foregroundColor(Color(hex: T.muted))
                     }
+                    // Op-level hours-weighted progress (logged ÷ est.hpd).
+                    let oPct = appState.opPct(op)
+                    HStack(spacing: 6) {
+                        Bar(pct: Double(oPct), height: 4, fill: progressFill(oPct))
+                            .frame(maxWidth: 100)
+                        Text("\(oPct)%")
+                            .font(.system(size: 10, weight: .bold).monospacedDigit())
+                            .foregroundColor(progressFill(oPct))
+                    }
+                    .padding(.top, 2)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 6) {

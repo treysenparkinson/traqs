@@ -526,6 +526,66 @@ class AppState {
     func person(id: String) -> Person? {
         people.first { $0.id == id }
     }
+
+    // MARK: - Hours-weighted Progress
+    // Mirrors the desktop's _opPct / _panelPct / _jobPct: progress is derived from
+    // logged hours ÷ estimated hours (op.hpd), aggregated by *total* hours so a 40h
+    // op at 8h counts proportionally more than a 4h op at 2h. Adds live elapsed
+    // time for any worker currently clocked into the op so the bar creeps forward
+    // between server polls.
+
+    /// Returns (logged, est) for a single op. Logged is capped at est so an op
+    /// can't push aggregate progress past 100%.
+    func opHoursPair(_ op: Operation) -> (logged: Double, est: Double) {
+        let est = max(0.0001, op.hpd)
+        if op.status == .finished { return (est, est) }
+        if op.pendingFinish == true { return (est * 0.99, est) }
+        let base = op.loggedHours ?? 0
+        // Live elapsed for any worker currently clocked into this op (display only).
+        var live: Double = 0
+        if let activeP = people.first(where: { $0.activeJobClock?.opId == op.id && !($0.activeJobClock?.clockIn.isEmpty ?? true) }),
+           let jc = activeP.activeJobClock,
+           let started = ISO8601DateFormatter().date(from: jc.clockIn) {
+            let elapsedH = Date().timeIntervalSince(started) / 3600
+            let pausedH = (jc.totalPausedMs ?? 0) / 3_600_000
+            live = max(0, elapsedH - pausedH)
+        }
+        return (min(est, base + live), est)
+    }
+
+    func opPct(_ op: Operation) -> Int {
+        if op.status == .finished { return 100 }
+        if op.pendingFinish == true { return 99 }
+        let h = opHoursPair(op)
+        if h.logged == 0 {
+            switch op.status {
+            case .inProgress: return 5
+            case .onHold:     return 2
+            default:          return 0
+            }
+        }
+        return min(98, Int((h.logged / h.est * 100).rounded()))
+    }
+
+    /// Panel progress: total logged hours ÷ total estimated hours across child ops.
+    func panelPct(_ panel: Panel) -> Int {
+        let ops = panel.subs
+        if ops.isEmpty { return panel.status == .finished ? 100 : 0 }
+        var logged = 0.0, est = 0.0
+        for op in ops { let h = opHoursPair(op); logged += h.logged; est += h.est }
+        if est == 0 { return 0 }
+        return min(100, Int((logged / est * 100).rounded()))
+    }
+
+    /// Job progress: total logged hours ÷ total estimated hours across all ops.
+    func jobPct(_ job: Job) -> Int {
+        let ops = job.subs.flatMap { $0.subs }
+        if ops.isEmpty { return job.status == .finished ? 100 : 0 }
+        var logged = 0.0, est = 0.0
+        for op in ops { let h = opHoursPair(op); logged += h.logged; est += h.est }
+        if est == 0 { return 0 }
+        return min(100, Int((logged / est * 100).rounded()))
+    }
 }
 
 // MARK: - Engineering Step

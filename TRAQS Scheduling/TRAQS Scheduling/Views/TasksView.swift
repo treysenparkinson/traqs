@@ -892,6 +892,8 @@ private struct TaskCardV1: View {
 
     @ViewBuilder
     private var activeRow: some View {
+        let pct = task.op.map { Double(appState.opPct($0)) }
+                  ?? Double(appState.panelPct(task.panel))
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
@@ -903,12 +905,12 @@ private struct TaskCardV1: View {
                             .tLabel(tracking: 1.0)
                     }
                     Spacer()
-                    Text(liveElapsed)
+                    Text("\(liveElapsed) · \(Int(pct))%")
                         .font(TTypo.mono(11))
                         .foregroundStyle(Color(hex: T.sky))
                         .tnum()
                 }
-                Bar(pct: 50, height: 6, fill: Color(hex: T.sky))
+                Bar(pct: pct, height: 6, fill: Color(hex: T.sky))
             }
             Button {
                 Task { await appState.jobClockOut() }
@@ -985,6 +987,7 @@ private struct EndOfDayPlaceholder: View {
 
 private struct LogTimeConfirmSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(AppState.self) private var appState
     let task: TaskAssignment
     let deptLabel: String
     let deptColor: Color
@@ -1000,6 +1003,11 @@ private struct LogTimeConfirmSheet: View {
     private var estimate: Double {
         max(task.hpd, 0.5)
     }
+    /// Hours-weighted percent for the task (op if specific, otherwise the panel).
+    private var taskPct: Int {
+        task.op.map { appState.opPct($0) } ?? appState.panelPct(task.panel)
+    }
+    private var jobPct: Int { appState.jobPct(task.job) }
     private var dateRange: String {
         let f = DateFormatter(); f.dateFormat = "MMM d"
         guard let s = task.startDate else { return "" }
@@ -1045,8 +1053,12 @@ private struct LogTimeConfirmSheet: View {
 
                     SLine().padding(.vertical, 4)
 
-                    metricRow("This task",  String(format: "%.2f h", loggedOnOp),  sub: String(format: "of %.1f h/day est.", estimate))
-                    metricRow("This job",   String(format: "%.2f h", loggedOnJob), sub: nil)
+                    metricRow("This task",
+                              String(format: "%.2f h · %d%%", loggedOnOp, taskPct),
+                              sub: String(format: "of %.1f h/day est.", estimate))
+                    metricRow("This job",
+                              String(format: "%.2f h · %d%%", loggedOnJob, jobPct),
+                              sub: nil)
                     if !task.panel.title.isEmpty {
                         metricRow("Panel",  task.panel.title, sub: nil)
                     }
