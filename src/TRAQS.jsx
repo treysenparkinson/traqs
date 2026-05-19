@@ -12729,7 +12729,7 @@ ${jobsCtx || "No jobs found."}`;
   return <TooltipCtx.Provider value={tipCtx}><div className={`traqs-${themeMode}`} style={{ height: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
     {/* ── Brand strip — logo + undo/redo + search/ask + save/bell/settings ── */}
     {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: T.surface, position: "relative", zIndex: 101 }}>
-      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)", flexShrink: 0 }} />
+      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)", flexShrink: 0, marginLeft: 45 }} />
       {/* LEFT: Undo / Redo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
