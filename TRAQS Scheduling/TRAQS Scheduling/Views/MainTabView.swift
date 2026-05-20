@@ -48,12 +48,6 @@ struct MainTabView: View {
         Double((drawerX + drawerWidth) / drawerWidth)
     }
 
-    /// Binding bridge — `fullScreenCover(item:)` needs a writable `Binding<DrawerExtra?>`,
-    /// but `@Observable`-derived state isn't auto-bindable. This wraps it.
-    private var extraBinding: Binding<DrawerExtra?> {
-        Binding(get: { appNav.extra }, set: { appNav.extra = $0 })
-    }
-
     var body: some View {
         ZStack(alignment: .leading) {
             Color(hex: T.bg).ignoresSafeArea()
@@ -94,27 +88,6 @@ struct MainTabView: View {
                 .zIndex(2)
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
-        .fullScreenCover(item: extraBinding) { extra in
-            NavigationStack {
-                Group {
-                    switch extra {
-                    case .clients: ClientsView()
-                    case .team:    TeamView()
-                    }
-                }
-                .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button {
-                            withAnimation { appNav.extra = nil }
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(Color(hex: T.muted))
-                        }
-                    }
-                }
-            }
-        }
         .preferredColorScheme(.light)
         .animation(.easeInOut(duration: 0.22), value: appNav.selected)
         .animation(isDragging ? nil
@@ -223,10 +196,9 @@ private struct SideMenu: View {
                     ForEach(TTab.allCases, id: \.self) { tab in
                         SideMenuRow(icon: tab.icon,
                                     label: tab.label,
-                                    isOn: appNav.selected == tab && appNav.extra == nil) {
+                                    isOn: appNav.selected == tab) {
                             withAnimation(.easeInOut(duration: 0.22)) {
                                 appNav.selected = tab
-                                appNav.extra = nil
                             }
                             close()
                         }
@@ -234,36 +206,14 @@ private struct SideMenu: View {
                 }
                 .padding(.horizontal, 12)
 
-                // EXTRAS divider — secondary destinations (Clients, Team) +
-                // Settings live below the wireframe tabs.
-                HStack {
-                    Text("EXTRAS")
-                        .font(TTypo.xsBold(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .tLabel(tracking: 1.4)
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 18)
-                .padding(.bottom, 6)
+                // Subtle divider — separates Settings from the wireframe tabs.
+                Rectangle()
+                    .fill(Color(hex: T.hair))
+                    .frame(height: 1)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
 
                 VStack(spacing: 4) {
-                    SideMenuRow(icon: .clients,
-                                label: "Clients",
-                                isOn: appNav.extra == .clients) {
-                        withAnimation(.easeInOut(duration: 0.22)) {
-                            appNav.extra = .clients
-                        }
-                        close()
-                    }
-                    SideMenuRow(icon: .team,
-                                label: "Team",
-                                isOn: appNav.extra == .team) {
-                        withAnimation(.easeInOut(duration: 0.22)) {
-                            appNav.extra = .team
-                        }
-                        close()
-                    }
                     SideMenuRow(icon: .settings,
                                 label: "Settings",
                                 isOn: false,

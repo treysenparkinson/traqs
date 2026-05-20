@@ -231,6 +231,10 @@ struct GanttView: View {
         let clientName = it.job.clientId
             .flatMap { cid in appState.clients.first(where: { $0.id == cid })?.name }
             .flatMap { $0.isEmpty ? nil : $0 }
+        let taskStart = (it.op?.start ?? it.panel.start).asDate
+        let taskEnd   = (it.op?.end   ?? it.panel.end  ).asDate
+        let span = businessDaySpan(from: taskStart, to: taskEnd)
+        let totalHours = it.hpd * Double(max(1, span))
         return ScheduleBlock(
             id: "\(it.panel.id)/\(it.op?.id ?? "panel")/\(Int(start * 60))",
             job: it.job,
@@ -244,7 +248,28 @@ struct GanttView: View {
             subtitle: it.title,
             color: it.color,
             typeLabel: it.typeLabel,
-            start: start, end: end)
+            start: start, end: end,
+            taskStart: taskStart,
+            taskEnd: taskEnd,
+            totalHours: totalHours)
+    }
+
+    /// Inclusive count of business days (per orgSettings.workDays) between two dates.
+    /// Returns 0 if either date is nil. Used for total-hours display on schedule blocks.
+    private func businessDaySpan(from start: Date?, to end: Date?) -> Int {
+        guard let s = start, let e = end, s <= e else { return 0 }
+        let workDays = Set(appState.orgSettings.workDays)
+        var count = 0
+        var d = cal.startOfDay(for: s)
+        let stop = cal.startOfDay(for: e)
+        while d <= stop {
+            // Calendar.weekday: Sun=1 ... Sat=7. orgSettings.workDays uses Sun=0 ... Sat=6.
+            let dow = cal.component(.weekday, from: d) - 1
+            if workDays.contains(dow) { count += 1 }
+            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
+            d = next
+        }
+        return count
     }
 
     private func deptForOp(_ op: Operation, fallback: Color) -> (String, Color) {
@@ -312,6 +337,9 @@ struct ScheduleBlock: Identifiable, Equatable {
     let typeLabel: String
     let start: Double         // hours-of-day, e.g. 8.5
     let end: Double
+    let taskStart: Date?      // op.start (or panel.start when no op) — the task's calendar start
+    let taskEnd: Date?        // op.end (or panel.end when no op) — the task's calendar end
+    let totalHours: Double    // hpd × business-day span of the task
 
     static func == (lhs: ScheduleBlock, rhs: ScheduleBlock) -> Bool { lhs.id == rhs.id }
 }
@@ -583,6 +611,13 @@ private struct ScheduleBlockView: View {
                     .font(TTypo.smBold(13))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
+                if let meta = metaLine {
+                    Text(meta)
+                        .font(TTypo.xs(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tnum()
+                        .lineLimit(1)
+                }
             }
         case .full:
             VStack(alignment: .leading, spacing: 3) {
@@ -597,8 +632,36 @@ private struct ScheduleBlockView: View {
                         .foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
                 }
+                if let meta = metaLine {
+                    Text(meta)
+                        .font(TTypo.xs(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tnum()
+                        .lineLimit(1)
+                }
             }
         }
+    }
+
+    /// "Mar 5 → Mar 12 · 30h" — collapses to a single date when start == end.
+    /// Returns nil when the task has no parseable dates (defensive; the schedule
+    /// shouldn't produce a block without them, but the data layer is permissive).
+    private var metaLine: String? {
+        guard let s = block.taskStart, let e = block.taskEnd else { return nil }
+        let cal = Calendar.current
+        let sameDay = cal.isDate(s, inSameDayAs: e)
+        let dateStr = sameDay
+            ? DateFormatter.blockShort.string(from: s)
+            : "\(DateFormatter.blockShort.string(from: s)) → \(DateFormatter.blockShort.string(from: e))"
+        let hours = block.totalHours
+        let hoursStr: String = {
+            if hours <= 0 { return "" }
+            // Drop the trailing ".0" for whole hours; keep one decimal otherwise.
+            return hours.truncatingRemainder(dividingBy: 1) == 0
+                ? "\(Int(hours))h"
+                : String(format: "%.1fh", hours)
+        }()
+        return hoursStr.isEmpty ? dateStr : "\(dateStr) · \(hoursStr)"
     }
 }
 
@@ -936,6 +999,10 @@ private extension DateFormatter {
     }()
     static let dayFull: DateFormatter = {
         let f = DateFormatter(); f.dateFormat = "EEE · MMM d"; return f
+    }()
+    /// Compact "MMM d" — used inside Day-view schedule blocks where space is tight.
+    static let blockShort: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "MMM d"; return f
     }()
 }
 
