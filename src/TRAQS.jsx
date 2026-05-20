@@ -2593,6 +2593,7 @@ Extraction rules:
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
+  const [analyticsPeriod, setAnalyticsPeriod] = useState("month"); // "week" | "month" | "year"
   const [clientCompletedExpanded, setClientCompletedExpanded] = useState(false);
   const [jobSearch, setJobSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -8504,13 +8505,263 @@ ${jobsCtx || "No jobs found."}`;
     })()}
     </div>;
   };
-  const renderAnalytics = () => { const tot = tasks.length; const bySt = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length })); const byPr = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length })); const cr = tot ? Math.round(tasks.filter(t => t.status === "Finished").length / tot * 100) : 0; const tl = people.map(p => ({ n: p.name.split(" ")[0], h: bookedHrs(p.id, TD), cap: p.cap })).sort((a, b) => b.h - a.h).slice(0, 12); const mx = Math.max(...tl.map(t => Math.max(t.h, t.cap)), 1);
-    return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
-      <Card delay={0}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 64, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 15, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} jobs</div></Card>
-      <Card delay={50}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Status</h4>{bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}><div style={{ width: 12, height: 12, borderRadius: 6, background: STA_C[s.n] }} /><span style={{ flex: 1, fontSize: 15, color: T.textSec }}>{s.n}</span><span style={{ fontSize: 18, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{s.c}</span></div>)}</Card>
-      <Card delay={100}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Priority</h4>{byPr.map(p => <div key={p.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}><div style={{ width: 12, height: 12, borderRadius: 6, background: PRI_C[p.n] }} /><span style={{ flex: 1, fontSize: 15, color: T.textSec }}>{p.n}</span><span style={{ fontSize: 18, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{p.c}</span></div>)}</Card>
-      <Card delay={150} style={{ gridColumn: "1 / -1" }}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Workload Today</h4><div style={{ display: "flex", alignItems: "end", gap: 8, height: 180, padding: "0 8px" }}>{tl.map(t => <div key={t.n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}><span style={{ fontSize: 12, fontFamily: T.mono, color: t.h > t.cap ? T.danger : T.textSec, fontWeight: 600 }}>{t.h.toFixed(1)}</span><div style={{ width: "100%", background: T.bg, borderRadius: 4, position: "relative", height: Math.max((Math.max(t.h, t.cap) / mx) * 130, 6) }}><div style={{ position: "absolute", bottom: 0, width: "100%", borderRadius: 4, background: t.h > t.cap ? T.danger : t.h / t.cap > 0.7 ? "#f59e0b" : T.accent, height: Math.max((t.h / mx) * 130, 3) }} /></div><span style={{ fontSize: 11, color: T.textDim, textAlign: "center", fontWeight: 500 }}>{t.n}</span></div>)}</div></Card>
-    </div>; };
+  const renderAnalytics = () => {
+    // â”€â”€ Period selector â†’ date range â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const today = new Date(TD + "T12:00:00");
+    let periodStart, periodEnd, periodDays;
+    if (analyticsPeriod === "week") {
+      const d = today.getDay();
+      const mondayOffset = d === 0 ? -6 : 1 - d;
+      const s = new Date(today); s.setDate(today.getDate() + mondayOffset);
+      const e = new Date(s); e.setDate(s.getDate() + 6);
+      periodStart = toDS(s); periodEnd = toDS(e); periodDays = 7;
+    } else if (analyticsPeriod === "month") {
+      const s = new Date(today.getFullYear(), today.getMonth(), 1);
+      const e = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      periodStart = toDS(s); periodEnd = toDS(e); periodDays = e.getDate();
+    } else {
+      const s = new Date(today.getFullYear(), 0, 1);
+      const e = new Date(today.getFullYear(), 11, 31);
+      periodStart = toDS(s); periodEnd = toDS(e); periodDays = 365;
+    }
+    const daysInPeriod = []; { let d = periodStart; while (d <= periodEnd) { daysInPeriod.push(d); d = addD(d, 1); } }
+
+    // â”€â”€ KPI strip math â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const periodEntries = timeclock.filter(e => e.date >= periodStart && e.date <= periodEnd && !e.eventType);
+    const hoursLogged = Math.round(periodEntries.reduce((s, e) => s + (e.hours || 0), 0) * 10) / 10;
+    const activeJobs = tasks.filter(t => t.status !== "Finished" && t.start <= periodEnd && t.end >= periodStart);
+    const avgPct = activeJobs.length ? Math.round(activeJobs.reduce((s, j) => s + _jobPct(j), 0) / activeJobs.length) : 0;
+    const onTimeCount = activeJobs.filter(j => getHealth(j) === "ontime").length;
+    const onTimePct = activeJobs.length ? Math.round((onTimeCount / activeJobs.length) * 100) : 0;
+
+    // â”€â”€ Hours over time (line chart) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // week â†’ 7 daily buckets; month â†’ weekly buckets; year â†’ 12 monthly buckets
+    const buckets = [];
+    if (analyticsPeriod === "week") {
+      daysInPeriod.forEach(d => {
+        const h = timeclock.filter(e => e.date === d && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
+        const label = new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
+        buckets.push({ label, h });
+      });
+    } else if (analyticsPeriod === "month") {
+      // 5 buckets (~weekly)
+      const chunk = Math.ceil(daysInPeriod.length / 5);
+      for (let i = 0; i < daysInPeriod.length; i += chunk) {
+        const slice = daysInPeriod.slice(i, i + chunk);
+        const h = timeclock.filter(e => slice.includes(e.date) && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
+        const label = new Date(slice[0] + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        buckets.push({ label, h });
+      }
+    } else {
+      for (let m = 0; m < 12; m++) {
+        const monthStart = toDS(new Date(today.getFullYear(), m, 1));
+        const monthEnd = toDS(new Date(today.getFullYear(), m + 1, 0));
+        const h = timeclock.filter(e => e.date >= monthStart && e.date <= monthEnd && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
+        const label = new Date(today.getFullYear(), m, 1).toLocaleDateString("en-US", { month: "short" });
+        buckets.push({ label, h });
+      }
+    }
+    const maxBucket = Math.max(...buckets.map(b => b.h), 1);
+
+    // â”€â”€ Per-person workload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const personRows = people.filter(p => p.payType !== "salary").map(p => {
+      const scheduled = daysInPeriod.reduce((s, d) => {
+        if (!orgSettings.workDays.includes(new Date(d + "T12:00:00").getDay())) return s;
+        return s + bookedHrs(p.id, d);
+      }, 0);
+      const logged = timeclock.filter(e => String(e.personId) === String(p.id) && e.date >= periodStart && e.date <= periodEnd && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
+      return { p, scheduled: Math.round(scheduled * 10) / 10, logged: Math.round(logged * 10) / 10 };
+    }).filter(r => r.scheduled > 0 || r.logged > 0).sort((a, b) => (b.scheduled + b.logged) - (a.scheduled + a.logged)).slice(0, 15);
+    const maxPersonHours = Math.max(...personRows.map(r => Math.max(r.scheduled, r.logged)), 1);
+
+    // â”€â”€ Department breakdown (scheduled hours) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const deptTotals = {};
+    people.forEach(p => {
+      const dept = p.department || "Unassigned";
+      const sched = daysInPeriod.reduce((s, d) => {
+        if (!orgSettings.workDays.includes(new Date(d + "T12:00:00").getDay())) return s;
+        return s + bookedHrs(p.id, d);
+      }, 0);
+      deptTotals[dept] = (deptTotals[dept] || 0) + sched;
+    });
+    const deptList = Object.entries(deptTotals).filter(([_, h]) => h > 0).sort((a, b) => b[1] - a[1]);
+    const deptTotal = deptList.reduce((s, [_, h]) => s + h, 0);
+
+    // Donut math
+    const donutCx = 90, donutCy = 90, rOuter = 80, rInner = 50;
+    let donutAcc = 0;
+    const donutSlices = deptList.map(([dept, h], i) => {
+      const startA = (donutAcc / Math.max(deptTotal, 1)) * Math.PI * 2 - Math.PI / 2;
+      donutAcc += h;
+      const endA = (donutAcc / Math.max(deptTotal, 1)) * Math.PI * 2 - Math.PI / 2;
+      const large = (endA - startA) > Math.PI ? 1 : 0;
+      const x1 = donutCx + rOuter * Math.cos(startA), y1 = donutCy + rOuter * Math.sin(startA);
+      const x2 = donutCx + rOuter * Math.cos(endA),   y2 = donutCy + rOuter * Math.sin(endA);
+      const x3 = donutCx + rInner * Math.cos(endA),   y3 = donutCy + rInner * Math.sin(endA);
+      const x4 = donutCx + rInner * Math.cos(startA), y4 = donutCy + rInner * Math.sin(startA);
+      const path = `M ${x1} ${y1} A ${rOuter} ${rOuter} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${rInner} ${rInner} 0 ${large} 0 ${x4} ${y4} Z`;
+      return { dept, h, path, color: COLORS[i % COLORS.length] };
+    });
+
+    // â”€â”€ Existing card data (kept) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    const tot = tasks.length;
+    const bySt = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length }));
+    const byPr = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length }));
+    const cr = tot ? Math.round(tasks.filter(t => t.status === "Finished").length / tot * 100) : 0;
+    const tl = people.map(p => ({ n: p.name.split(" ")[0], h: bookedHrs(p.id, TD), cap: p.cap })).sort((a, b) => b.h - a.h).slice(0, 12);
+    const mx = Math.max(...tl.map(t => Math.max(t.h, t.cap)), 1);
+
+    // Line chart geometry — generous left margin for y-labels, top padding so the peak point
+    // doesn't kiss the chart edge. padL/padR tuned to let the polyline run nearly edge-to-edge
+    // inside its card (card has padding:0 so the SVG fills full width).
+    const lineW = 1200, lineH = 240;
+    const padL = 42, padR = 14, padT = 28, padB = 32;
+    const innerW = lineW - padL - padR;
+    const innerH = lineH - padT - padB;
+    const xStep = buckets.length > 1 ? innerW / (buckets.length - 1) : 0;
+    const yScale = (h) => padT + innerH - (h / maxBucket) * innerH;
+    const linePts = buckets.map((b, i) => ({ x: padL + i * xStep, y: yScale(b.h) }));
+    const linePoly = linePts.map(p => `${p.x},${p.y}`).join(" ");
+    const areaPoly = linePts.length ? `${padL},${padT + innerH} ${linePoly} ${padL + (buckets.length - 1) * xStep},${padT + innerH}` : "";
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ frac: f, val: f * maxBucket }));
+
+    return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Header — title + period pill toggle */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Analytics</h3>
+        <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+          {[{ id: "week", label: "This Week" }, { id: "month", label: "This Month" }, { id: "year", label: "This Year" }].map(p => {
+            const active = analyticsPeriod === p.id;
+            return <button key={p.id} onClick={() => setAnalyticsPeriod(p.id)} style={{ padding: "5px 14px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{p.label}</button>;
+          })}
+        </div>
+      </div>
+
+      {/* KPI strip — 4 tiles */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+        {[
+          { label: "Hours logged", val: hoursLogged, suffix: "h", color: T.accent },
+          { label: "Active jobs", val: activeJobs.length, suffix: "", color: "#3b82f6" },
+          { label: "Avg completion", val: avgPct, suffix: "%", color: "#10b981" },
+          { label: "On-time", val: onTimePct, suffix: "%", color: onTimePct >= 80 ? "#10b981" : onTimePct >= 50 ? "#f59e0b" : T.danger },
+        ].map((k, i) => (
+          <div key={k.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", fontFamily: T.font }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{k.label}</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: k.color, fontFamily: T.mono, lineHeight: 1.1 }}>{k.val}{k.suffix}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Hours over time — line chart */}
+      <Card delay={0} style={{ padding: 0, overflow: "hidden" }}>
+        <h4 style={{ color: T.textSec, margin: 0, padding: "20px 24px 10px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours Logged Over Time</h4>
+        {buckets.every(b => b.h === 0) ? (
+          <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No hours logged in this period.</div>
+        ) : (
+          <svg viewBox={`0 0 ${lineW} ${lineH}`} style={{ width: "100%", height: "auto", maxHeight: 280, display: "block" }}>
+            {/* horizontal gridlines + y-axis labels on the left */}
+            {yTicks.map((t, i) => {
+              const y = padT + innerH - t.frac * innerH;
+              return (
+                <g key={i}>
+                  <line x1={padL} y1={y} x2={padL + innerW} y2={y} stroke={T.border} strokeWidth="1" strokeDasharray="3,3" opacity={t.frac === 0 ? 0.7 : 0.45} />
+                  <text x={padL - 8} y={y + 3} textAnchor="end" fontSize="10" fill={T.textDim} fontFamily={T.font}>{Math.round(t.val)}h</text>
+                </g>
+              );
+            })}
+            {/* area fill */}
+            <polygon points={areaPoly} fill={T.accent} fillOpacity="0.18" />
+            {/* line */}
+            <polyline points={linePoly} fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+            {/* dots */}
+            {linePts.map((p, i) => (
+              <g key={i}>
+                <circle cx={p.x} cy={p.y} r="4" fill={T.card} stroke={T.accent} strokeWidth="2" />
+                <title>{buckets[i].label}: {buckets[i].h.toFixed(1)}h</title>
+              </g>
+            ))}
+            {/* x-axis labels */}
+            {buckets.map((b, i) => (
+              <text key={i} x={padL + i * xStep} y={lineH - 10} textAnchor="middle" fontSize="10" fill={T.textDim} fontFamily={T.font}>{b.label}</text>
+            ))}
+          </svg>
+        )}
+      </Card>
+
+      {/* Row: Per-person workload (2/3) + Department donut (1/3) */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 20 }}>
+        <Card delay={50}>
+          <h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Per-Person Workload</h4>
+          {personRows.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No workload data in this period.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 120px", gap: 12, alignItems: "center", fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", paddingBottom: 4, borderBottom: `1px solid ${T.border}` }}>
+                <span>Name</span>
+                <span><span style={{ color: T.accent }}>● logged</span> &nbsp; <span style={{ color: T.textDim }}>● scheduled</span></span>
+                <span style={{ textAlign: "right" }}>hrs (logged / sched)</span>
+              </div>
+              {personRows.map(({ p, scheduled, logged }) => {
+                // Per-row normalization — each row's bar fills proportionally to its own max
+                // (scheduled or logged), so one mega-booked person doesn't dwarf others.
+                const rowMax = Math.max(scheduled, logged, 1);
+                const schedPct = (scheduled / rowMax) * 100;
+                const logPct = (logged / rowMax) * 100;
+                const over = logged > scheduled;
+                return (
+                  <div key={p.id} style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 140px", gap: 12, alignItems: "center", padding: "4px 0" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: p.color || T.accent, color: isLight(p.color || T.accent) ? "#000" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
+                      <span style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                    </div>
+                    <div style={{ position: "relative", height: 20, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
+                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${schedPct}%`, background: T.textDim + "55", transition: "width 0.3s" }} />
+                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${logPct}%`, background: over ? "#f59e0b" : T.accent, transition: "width 0.3s" }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textAlign: "right" }}><span style={{ color: over ? "#f59e0b" : T.accent, fontWeight: 700 }}>{logged}h</span> <span style={{ opacity: 0.6 }}>/ {scheduled}h</span></div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
+        <Card delay={100}>
+          <h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Department Breakdown</h4>
+          {deptList.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No scheduled hours in this period.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+              <svg viewBox="0 0 180 180" style={{ width: 180, height: 180, display: "block" }}>
+                {donutSlices.map(s => <path key={s.dept} d={s.path} fill={s.color}><title>{s.dept}: {Math.round(s.h)}h</title></path>)}
+                <text x="90" y="86" textAnchor="middle" fontSize="20" fontWeight="800" fill={T.text} fontFamily={T.mono}>{Math.round(deptTotal)}</text>
+                <text x="90" y="102" textAnchor="middle" fontSize="9" fill={T.textDim} fontFamily={T.font} letterSpacing="0.08em">TOTAL HOURS</text>
+              </svg>
+              <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 5 }}>
+                {donutSlices.map(s => (
+                  <div key={s.dept} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.dept}</span>
+                    <span style={{ color: T.textDim, fontFamily: T.mono }}>{Math.round(s.h)}h</span>
+                    <span style={{ color: T.textDim, fontFamily: T.mono, width: 36, textAlign: "right" }}>{Math.round((s.h / deptTotal) * 100)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Existing cards — kept below */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
+        <Card delay={150}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 52, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 13, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} jobs</div></Card>
+        <Card delay={200}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Status</h4>{bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: STA_C[s.n] }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{s.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{s.c}</span></div>)}</Card>
+        <Card delay={250}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Priority</h4>{byPr.map(p => <div key={p.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: PRI_C[p.n] }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{p.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{p.c}</span></div>)}</Card>
+      </div>
+      <Card delay={300}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Workload Today</h4><div style={{ display: "flex", alignItems: "end", gap: 8, height: 160, padding: "0 8px" }}>{tl.map(t => <div key={t.n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}><span style={{ fontSize: 11, fontFamily: T.mono, color: t.h > t.cap ? T.danger : T.textSec, fontWeight: 600 }}>{t.h.toFixed(1)}</span><div style={{ width: "100%", background: T.bg, borderRadius: 4, position: "relative", height: Math.max((Math.max(t.h, t.cap) / mx) * 110, 6) }}><div style={{ position: "absolute", bottom: 0, width: "100%", borderRadius: 4, background: t.h > t.cap ? T.danger : t.h / t.cap > 0.7 ? "#f59e0b" : T.accent, height: Math.max((t.h / mx) * 110, 3) }} /></div><span style={{ fontSize: 10, color: T.textDim, textAlign: "center", fontWeight: 500 }}>{t.n}</span></div>)}</div></Card>
+    </div>;
+  };
+
 
   // ═══════════════════ CALENDAR ═══════════════════
   const [calM, setCalM] = useState(NOW.getMonth()); const [calY, setCalY] = useState(NOW.getFullYear());
