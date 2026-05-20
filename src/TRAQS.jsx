@@ -6798,10 +6798,6 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>}
         <div style={{ position: isAdmin ? "absolute" : "relative", left: isAdmin ? "50%" : "auto", transform: isAdmin ? "translateX(-50%)" : "none", display: "flex", gap: 12, alignItems: "center" }}>
-          <Btn variant="primary" size="sm" style={{ boxShadow: `0 0 0 1px ${T.accent}55, 0 2px 10px ${T.accent}55` }} onClick={() => {
-            if (tMode === "day") { setTStart(TD); setTEnd(TD); }
-            else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
-          }}>Today</Btn>
           <SlidingPill
             options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
             value={tMode}
@@ -6830,6 +6826,10 @@ ${jobsCtx || "No jobs found."}`;
               else { const d = new Date(tStart + "T12:00:00"); d.setMonth(d.getMonth() + 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
             }}>▶</Btn>
           </div>
+          <Btn variant="ghost" size="sm" style={{ background: "transparent", color: T.accent, border: `1px solid ${T.accent}66` }} onClick={() => {
+            if (tMode === "day") { setTStart(TD); setTEnd(TD); }
+            else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
+          }}>Today</Btn>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
@@ -8629,12 +8629,12 @@ ${jobsCtx || "No jobs found."}`;
       {/* Header — title + period pill toggle */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Analytics</h3>
-        <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
-          {[{ id: "week", label: "This Week" }, { id: "month", label: "This Month" }, { id: "year", label: "This Year" }].map(p => {
-            const active = analyticsPeriod === p.id;
-            return <button key={p.id} onClick={() => setAnalyticsPeriod(p.id)} style={{ padding: "5px 14px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{p.label}</button>;
-          })}
-        </div>
+        <SlidingPill
+          size="sm"
+          options={[{ value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
+          value={analyticsPeriod}
+          onChange={setAnalyticsPeriod}
+        />
       </div>
 
       {/* KPI strip — 4 tiles */}
@@ -12997,10 +12997,12 @@ ${jobsCtx || "No jobs found."}`;
           <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canRedo ? T.border : "transparent"}`, background: canRedo ? T.bg : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↪</button></Tip>
         </div>
       </div>
-      {/* CENTER: search+ask on top, nav on bottom — stacked and centered */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", width: "100%" }}>
-        <div ref={searchRef} style={{ position: "relative", width: "min(440px, 70%)", minWidth: 0 }}>
+      {/* Flex spacer — pushes left cluster (logo + undo/redo) leftward while the center group floats absolutely. */}
+      <div style={{ flex: 1, minWidth: 0 }} />
+      {/* CENTER: search + ask — absolutely centered to the viewport so left/right cluster widths don't shift it. */}
+      <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 1 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", pointerEvents: "auto" }}>
+        <div ref={searchRef} style={{ position: "relative", width: "min(510px, 45vw)", minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 14px", borderRadius: 22, border: `1px solid ${searchOpen ? T.accent + "66" : T.border}`, background: T.bg, transition: "all 0.2s" }}>
             <span style={{ lineHeight: 0, color: T.textDim }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
             <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search jobs, clients, team members..." style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.font }} />
