@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
+﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, jobPauseAction, jobResumeAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
@@ -385,8 +385,8 @@ animStyle.textContent = `
 ─────────────────────────────────────────────────────────────────────── */
 
 @keyframes viewEnter {
-  0%   { opacity: 0.85; transform: translateY(6px) scale(0.995); }
-  100% { opacity: 1;    transform: translateY(0)   scale(1); }
+  0%   { opacity: 0; transform: translateY(20px) scale(0.97); filter: blur(6px); }
+  100% { opacity: 1; }
 }
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
@@ -541,7 +541,7 @@ animStyle.textContent = `
 .select-bubble-in { animation: selectBubbleIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 
 /* ── Animation classes ─────────────────────────────────────────────── */
-.anim-view-enter  { animation: viewEnter   0.22s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.anim-view-enter  { animation: viewEnter   0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-card        { animation: cardPop     0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-modal-overlay { animation: fadeIn 0.22s ease-out both; }
 .anim-modal-box   { animation: bcPageIn 0.30s cubic-bezier(0.22, 1, 0.36, 1) both; }
@@ -612,8 +612,6 @@ html { scroll-behavior: smooth; }
   .anim-card-wrap:hover  { transform: none; box-shadow: none; }
   .anim-card-wrap:active { transform: scale(0.97); transition-duration: 0.1s; }
 }
-.tq-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
-.tq-hide-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 `;
 if (!document.querySelector('style[data-traqs]')) { animStyle.setAttribute("data-traqs", "1"); document.head.appendChild(animStyle); }
 
@@ -951,18 +949,18 @@ function StatusDrop({ value, onChange, size = "sm" }) {
     </div></FadeOnClose>
   </div>;
 }
-function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected" }) {
+function SearchSelect({ label, value, onChange, options, placeholder = "Search..." }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef(null);
   useEffect(() => { if (!open) return; const hm = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQ(""); } }; const hk = e => { if (e.key === "Escape") { setOpen(false); setQ(""); } }; document.addEventListener("mousedown", hm); document.addEventListener("keydown", hk); return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); }; }, [open]);
   const filtered = options.filter(o => o.label.toLowerCase().includes(q.toLowerCase()));
   const selected = options.find(o => o.value === value);
-  return <div ref={ref} style={{ position: "relative", marginBottom: compact ? 0 : 16 }}>
+  return <div ref={ref} style={{ position: "relative", marginBottom: 16 }}>
     {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500, fontFamily: T.font }}>{label}</label>}
-    <div onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
-      {selected ? <><div style={{ width: compact ? 7 : 10, height: compact ? 7 : 10, borderRadius: compact ? 4 : 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>}
-      <span style={{ fontSize: compact ? 8 : 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
+    <div onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
+      {selected ? <><div style={{ width: 10, height: 10, borderRadius: 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 500 }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: 14, color: T.textDim }}>No client selected</span>}
+      <span style={{ fontSize: 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
     </div>
     <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out" }}>
       <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
@@ -1626,15 +1624,6 @@ Extraction rules:
   });
   useEffect(() => { localStorage.setItem("tq_sidebar_mode", sidebarMode); }, [sidebarMode]);
   const toggleSidebar = () => setSidebarExpanded(p => !p);
-  // Sidebar Settings tree — expand the Settings group, then optionally expand one of the
-  // inline sub-panels (Design or Organization Settings). Permissions/Departments just open
-  // their existing modals, so they don't participate in this expanded state.
-  const [sidebarSettingsOpen, setSidebarSettingsOpen] = useState(false);
-  const [sidebarSettingsExpanded, setSidebarSettingsExpanded] = useState(null); // "design" | "orgSettings" | null
-  // Admin tool — quick PIN reset surfaced inside the Organization Settings panel.
-  const [pinResetUserId, setPinResetUserId] = useState("");
-  const [pinResetValue, setPinResetValue] = useState("");
-  const [pinResetToast, setPinResetToast] = useState("");
   const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
   const [collapsedSections, setCollapsedSections] = useState({});
   const [tasks, _setTasks] = useState([]);
@@ -2595,13 +2584,6 @@ Extraction rules:
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
-  // Clients page (list-grid) state — one collapse key per client + right-click context menu
-  // + delete confirmation. Pattern mirrors the Jobs page PM-grouped grid.
-  const [clientSectionsCollapsed, setClientSectionsCollapsed] = useState({});
-  const [clientCtx, setClientCtx] = useState(null); // { x, y, client }
-  // (confirmDeleteClient state already declared above — reuse the existing one)
-  // Analytics page period selector
-  const [analyticsPeriod, setAnalyticsPeriod] = useState("month"); // "week" | "month" | "year"
   const [clientCompletedExpanded, setClientCompletedExpanded] = useState(false);
   const [jobSearch, setJobSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -3714,7 +3696,7 @@ ${jobsCtx || "No jobs found."}`;
     else { const nw = { ...withIds, id: uid() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
     closeModal();
   };
-  const views = [{ id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" }, { id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "timestamp", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time Stamp" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, label: "Clients" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
+  const views = [{ id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" }, { id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "timestamp", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time Stamp" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
@@ -6271,415 +6253,2255 @@ ${jobsCtx || "No jobs found."}`;
 
   // ═══════════════════ CLIENTS ═══════════════════
   const renderClients = () => {
-    const q = (clientSearch || "").toLowerCase();
-    // Sort: clients with active jobs come first (by name), clients without active jobs at the bottom.
-    const _jobCount = c => tasks.filter(t => t.clientId === c.id && t.status !== "Finished").length;
-    const visibleClients = clients
-      .filter(c => !q || c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q))
-      .sort((a, b) => {
-        const aHas = _jobCount(a) > 0 ? 0 : 1;
-        const bHas = _jobCount(b) > 0 ? 0 : 1;
-        return aHas - bHas || a.name.localeCompare(b.name);
-      });
-    const knownIds = new Set(clients.map(c => c.id));
-    const unassignedActive = tasks.filter(t => (!t.clientId || !knownIds.has(t.clientId)) && t.status !== "Finished");
+    const sel = selClient ? clients.find(c => c.id === selClient) : null;
+    const selTasks = selClient ? tasks.filter(t => t.clientId === selClient) : [];
+    const completed = selTasks.filter(t => t.status === "Finished").length;
+    const inProg = selTasks.filter(t => t.status === "In Progress").length;
+    const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0) * (diffD(t.start, t.end) + 1), 0);
+    const filteredClients = clients.filter(c => !clientSearch || c.name.toLowerCase().includes(clientSearch.toLowerCase()) || (c.contact || "").toLowerCase().includes(clientSearch.toLowerCase()));
 
-    // Visual structure mirrors the Jobs list view (column grid, sticky header, animated section collapse)
-    // but is self-contained — no inline editing, custom columns, or drag-reorder. Right-click a section
-    // header for Edit / Delete; right-click a row for the normal job context menu.
-    const COL = "minmax(220px,1.5fr) 90px 110px 80px 90px 90px 90px 60px 1.2fr";
-    const hdrCell = { padding: "8px 10px", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", borderRight: `1px solid ${T.border}` };
-    const cellBase = { padding: "8px 10px", fontSize: 12, color: T.text, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" };
-
-    const ColHeaders = () => (
-      <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 5, background: T.surface, borderBottom: `1.5px solid ${T.border}` }}>
-        {["Name","#","Status","Priority","Start","End","Due","Hrs","Progress"].map((h, i) => (
-          <div key={i} style={{ ...hdrCell, justifyContent: i === 0 ? "flex-start" : "center" }}>{h}</div>
-        ))}
-      </div>
-    );
-
-    const fm = (ds) => ds ? new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
-
-    // Flat job row — click anywhere on the row to open job detail. No inline expansion.
-    const renderJobRow = (job, jobColor) => {
-      const pct = _jobPct(job);
-      const pc = pct >= 80 ? "#10b981" : pct >= 40 ? "#f59e0b" : "#94a3b8";
-      const totalH = Math.round((job.subs || []).flatMap(p => p.subs || []).reduce((s, op) => s + (op.hpd || 0), 0) * 10) / 10;
-      return (
-        <div key={job.id}
-          onClick={() => openDetail(job)}
-          onContextMenu={e => handleCtx(e, job, "jobs")}
-          style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer", background: T.card, transition: "background 0.12s" }}
-          onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = T.card; }}>
-          <div style={{ ...cellBase, gap: 6 }}>
-            <div style={{ width: 3, height: 16, borderRadius: 2, background: jobColor || T.accent, flexShrink: 0 }} />
-            <HealthIcon t={job} size={9} />
-            <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.title}</span>
-          </div>
-          <div style={{ ...cellBase, justifyContent: "center" }}>{job.jobNumber ? <span style={{ fontFamily: T.mono, color: T.accent, fontWeight: 700, fontSize: 11 }}>#{job.jobNumber}</span> : <span style={{ color: T.textDim }}>—</span>}</div>
-          <div style={{ ...cellBase, justifyContent: "center" }}><span style={{ padding: "2px 8px", borderRadius: 8, background: (STA_C[job.status] || T.textDim) + "1a", color: STA_C[job.status] || T.textDim, fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>{job.status || "Not Started"}</span></div>
-          <div style={{ ...cellBase, justifyContent: "center" }}><span style={{ padding: "2px 8px", borderRadius: 8, background: (PRI_C[job.pri] || T.textDim) + "1a", color: PRI_C[job.pri] || T.textDim, fontSize: 10, fontWeight: 700 }}>{job.pri || "Med"}</span></div>
-          <div style={{ ...cellBase, justifyContent: "center" }}><span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(job.start)}</span></div>
-          <div style={{ ...cellBase, justifyContent: "center" }}><span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(job.end)}</span></div>
-          <div style={{ ...cellBase, justifyContent: "center" }}><span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(job.dueDate)}</span></div>
-          <div style={{ ...cellBase, justifyContent: "center" }}><span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{totalH || "—"}</span></div>
-          <div style={{ ...cellBase, flexDirection: "column", alignItems: "stretch", gap: 3, padding: "8px 12px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: pc }}>{pct}%</span>
-            </div>
-            <div style={{ height: 4, borderRadius: 2, background: T.border, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${pct}%`, background: pc, transition: "width 0.3s" }} />
-            </div>
+    return <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 16 }}>
+      {/* Top bar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, flexShrink: 0 }}>Clients</h3>
+          <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
+            <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
           </div>
         </div>
-      );
-    };
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+          {can("manageClients") && <Btn size="sm" variant={clientSelectMode ? "primary" : "ghost"} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>}
+          {can("manageClients") && clientSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelClients(selClients.size === filteredClients.length ? new Set() : new Set(filteredClients.map(c => c.id)))}>{selClients.size === filteredClients.length ? "None" : "All"}</Btn>}
+          {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
+        </div>
+      </div>
 
-    const renderSection = (key, header, jobs, jobColor, onCtx) => {
-      const isCollapsed = !!clientSectionsCollapsed[key];
-      return (
-        <div key={key} style={{ marginBottom: 20 }}>
-          <div onClick={() => setClientSectionsCollapsed(p => ({ ...p, [key]: !p[key] }))}
-            onContextMenu={onCtx}
-            style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
-            <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-            {header}
+      {/* Card grid */}
+      <div style={{ flex: 1, overflow: "auto" }}>
+        {clients.length === 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
+            <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></div>
+            <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>No clients yet</h3>
+            <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 240, lineHeight: 1.65 }}>Add your first client to organize jobs by company</p>
+            {can("manageClients") && <Btn size="sm" style={{ marginTop: 8 }} onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add Client</Btn>}
           </div>
-          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
-            <div style={{ overflow: "hidden", minHeight: 0 }}>
-              <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }}>
-                <div style={{ minWidth: 1100 }}>
-                  <ColHeaders />
-                  {jobs.length === 0 && <div style={{ padding: "20px 14px", textAlign: "center", fontSize: 13, color: T.textDim, fontFamily: T.font }}>No active jobs for this client</div>}
-                  {jobs.map(j => renderJobRow(j, jobColor))}
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+            {filteredClients.map(c => {
+              const ct = tasks.filter(t => t.clientId === c.id);
+              const active = ct.filter(t => t.status !== "Finished").length;
+              const done = ct.filter(t => t.status === "Finished").length;
+              const isSel = selClient === c.id;
+              const isBulkSel = selClients.has(c.id);
+              return <div key={c.id} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : setSelClient(isSel ? null : c.id)} style={{
+                background: isBulkSel ? T.accent + "12" : isSel ? c.color + "18" : T.card,
+                borderRadius: T.radius,
+                border: `1.5px solid ${isBulkSel ? T.accent + "55" : isSel ? c.color + "66" : T.border}`,
+                padding: "20px 20px 16px",
+                cursor: "pointer",
+                transition: "all 0.15s ease",
+                boxShadow: isBulkSel ? `0 0 20px ${T.accent}18` : isSel ? `0 0 20px ${c.color}18` : "none",
+              }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 14 }}>
+                  {clientSelectMode
+                    ? <div style={{ width: 20, height: 20, borderRadius: "50%", border: `2px solid ${isBulkSel ? T.accent : T.border}`, background: isBulkSel ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", marginTop: 2 }}>{isBulkSel && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>
+                    : <div style={{ width: 42, height: 42, borderRadius: 12, background: c.color + "22", border: `2px solid ${c.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, color: c.color, flexShrink: 0 }}>{c.name.charAt(0)}</div>
+                  }
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 16, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{c.name}</div>
+                    {c.contact && <div style={{ fontSize: 13, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.contact}</div>}
+                  </div>
+                  {!clientSelectMode && can("manageClients") && <span onClick={e => { e.stopPropagation(); setClientModal({ ...c }); }} style={{ cursor: "pointer", fontSize: 12, color: T.textDim, padding: "3px 8px", borderRadius: 4, background: T.surface, border: `1px solid ${T.border}`, flexShrink: 0 }}>Edit</span>}
+                </div>
+                <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontWeight: 700, fontSize: 18, color: c.color, fontFamily: T.mono }}>{ct.length}</div>
+                    <div style={{ color: T.textDim, marginTop: 1 }}>Total</div>
+                  </div>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontWeight: 700, fontSize: 18, color: "#3b82f6", fontFamily: T.mono }}>{active}</div>
+                    <div style={{ color: T.textDim, marginTop: 1 }}>Active</div>
+                  </div>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+                    <div style={{ fontWeight: 700, fontSize: 18, color: "#10b981", fontFamily: T.mono }}>{done}</div>
+                    <div style={{ color: T.textDim, marginTop: 1 }}>Done</div>
+                  </div>
+                </div>
+              </div>;
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Client detail slide-in panel */}
+      {sel && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} onClick={() => setSelClient(null)}>
+        <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: "60px 32px 32px", maxWidth: 1000, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+          <button onClick={() => setSelClient(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, paddingRight: 32 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 48, height: 48, borderRadius: 14, background: sel.color + "22", border: `2px solid ${sel.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: sel.color }}>{sel.name.charAt(0)}</div>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text }}>{sel.name}</h2>
+                <div style={{ fontSize: 13, color: T.textSec, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                  {sel.contact && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>{sel.contact}</span>}
+                  {sel.email && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>{sel.email}</span>}
+                  {sel.phone && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.55a16 16 0 0 0 6.06 6.06l.91-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>{sel.phone}</span>}
                 </div>
               </div>
             </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {can("manageClients") && <Btn size="sm" onClick={() => setClientModal({ ...sel })}>Edit</Btn>}
+              {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); setSelClient(null); }}>Delete</Btn>}
+            </div>
           </div>
+
+          {sel.notes && <div style={{ fontSize: 14, color: T.textSec, padding: 14, background: T.surface, borderRadius: T.radiusSm, marginBottom: 20, lineHeight: 1.6, border: `1px solid ${T.border}` }}>{sel.notes}</div>}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
+            {[
+              { label: "Total Jobs", val: selTasks.length, color: sel.color },
+              { label: "In Progress", val: inProg, color: "#3b82f6" },
+              { label: "Finished", val: completed, color: "#10b981" },
+              { label: "Est. Hours", val: totalHrs, color: "#f59e0b" },
+            ].map(s => <div key={s.label} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 16px", border: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 24, fontWeight: 700, color: s.color, fontFamily: T.mono }}>{s.val}</div>
+              <div style={{ fontSize: 11, color: T.textDim, marginTop: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{s.label}</div>
+            </div>)}
+          </div>
+
+          {(() => {
+            const activeJobs = selTasks.filter(t => t.status !== "Finished");
+            const completedJobs = selTasks.filter(t => t.status === "Finished");
+            const renderJobCard = (t) => {
+              const dur = diffD(t.start, t.end) + 1;
+              const pct = t.status === "Finished" ? 100 : t.status === "In Progress" ? 50 : t.status === "Pending" ? 15 : t.status === "On Hold" ? 25 : 0;
+              return <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${t.color}` }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                    <HealthIcon t={t} />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => openDetail(t)}>{t.title}</span>
+                    {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
+                  </div>
+                  <Badge t={t.status} c={STA_C[t.status]} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: T.textSec, marginBottom: 8 }}>
+                  <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
+                  <span>{dur} day{dur !== 1 ? "s" : ""}</span>
+                  {(t.subs || []).length > 0 && <span>{t.subs.length} panel{t.subs.length !== 1 ? "s" : ""}</span>}
+                </div>
+                <div style={{ background: T.bg, borderRadius: 4, height: 5, overflow: "hidden", marginBottom: 8 }}>
+                  <div style={{ height: "100%", borderRadius: 4, background: t.color, width: `${pct}%`, transition: "width 0.3s" }} />
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{(t.team || []).slice(0, 4).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{(t.team || []).length > 4 && <Badge t={`+${(t.team || []).length - 4}`} c={T.textDim} />}</div>
+                  {can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn>}
+                </div>
+              </div>;
+            };
+            return <>
+              {/* Active Jobs */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Active Jobs ({activeJobs.length})</h4>
+                {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
+              </div>
+              {activeJobs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: T.textDim, fontSize: 13, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>No active jobs for this client.</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                {activeJobs.map(renderJobCard)}
+              </div>
+              {/* Completed Jobs Folder */}
+              {completedJobs.length > 0 && <div style={{ border: `1px solid #10b98133`, borderRadius: T.radiusSm, overflow: "hidden" }}>
+                <div onClick={() => setClientCompletedExpanded(p => !p)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: "#10b98110", cursor: "pointer", userSelect: "none" }}>
+                  <span style={{ fontSize: 16 }}>{clientCompletedExpanded ? "📂" : "📁"}</span>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: "#10b981", flex: 1 }}>Completed Jobs</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98122", borderRadius: 10, padding: "1px 10px" }}>{completedJobs.length}</span>
+                  <span style={{ fontSize: 12, color: "#10b981", opacity: 0.7 }}>{clientCompletedExpanded ? "▲" : "▼"}</span>
+                </div>
+                {clientCompletedExpanded && <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", background: T.surface }}>
+                  {completedJobs.map(t => <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "12px 14px", border: `1px solid #10b98122`, borderLeft: `4px solid #10b981` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                      <span style={{ fontSize: 13 }}>✅</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} onClick={() => openDetail(t)}>{t.title}</span>
+                      {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: "#10b981", background: "#10b98115", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
+                    </div>
+                    <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.textDim }}>
+                      <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
+                      {t.poNumber && <span>PO: {t.poNumber}</span>}
+                      {(t.subs || []).length > 0 && <span>{t.subs.length} panel{t.subs.length !== 1 ? "s" : ""}</span>}
+                    </div>
+                  </div>)}
+                </div>}
+              </div>}
+            </>;
+          })()}
         </div>
-      );
+      </div>}
+    </div>;
+  };
+
+  // ═══════════════════ TEAM (Resource Planner) ═══════════════════
+  const [tStart, setTStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
+  const [tEnd, setTEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
+  const [tMode, setTMode] = useState("month");
+  const [scheduleHighlightId, setScheduleHighlightId] = useState(null);
+  const [tCollapsed, setTCollapsed] = useState({});
+  const [tExpanded, setTExpanded] = useState({});
+  const teamRef = useRef(null);
+  const teamContainerRef = useRef(null);
+  const [teamWidth, setTeamWidth] = useState(1200);
+  const [monthZoom, setMonthZoom] = useState(1);
+  useEffect(() => {
+    const el = teamContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(entries => { for (const e of entries) setTeamWidth(e.contentRect.width); });
+    ro.observe(el);
+    setTeamWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, [view]);
+
+  const renderTeam = () => {
+    const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
+    const lW = isMobile ? 120 : 260, rH = 42, grpH = 36;
+    const tAvail = Math.max((teamWidth || 1200) - lW, 200);
+    const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
+    teamCWRef.current = cW;
+    // Group people by department
+    const roles = []; const roleMap = {};
+    people.forEach(p => { if (!roleMap[p.department]) { roleMap[p.department] = []; roles.push(p.department); } roleMap[p.department].push(p); });
+    // Build month/week groups for header
+    const hGroups = []; days.forEach((day, i) => {
+      const dt = new Date(day + "T12:00:00");
+      const key = `${dt.getFullYear()}-${dt.getMonth()}`;
+      if (!hGroups.length || hGroups[hGroups.length - 1].key !== key) {
+        hGroups.push({ key, label: dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase(), start: i, span: 1 });
+      } else hGroups[hGroups.length - 1].span++;
+    });
+    // Calc utilization per person
+    const getUtil = (pid) => {
+      let totalCap = 0, totalBooked = 0;
+      days.forEach(day => {
+        const p = people.find(x => x.id === pid);
+        if (!p) return;
+        if (!isOff(pid, day) && orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay())) {
+          totalCap += p.cap;
+          totalBooked += Math.min(p.cap, bookedHrs(pid, day));
+        }
+      });
+      return totalCap > 0 ? Math.round((totalBooked / totalCap) * 100) : 0;
+    };
+    // Calc group avg util
+    const grpUtil = (role) => {
+      const pp = roleMap[role]; if (!pp.length) return 0;
+      return Math.round(pp.reduce((s, p) => s + getUtil(p.id), 0) / pp.length);
+    };
+    // Get tasks for a person within visible range — parent tasks only
+    const getPersonBars = (pid) => {
+      const bars = [];
+      // Mirrors _segsEnd in the team-view bar render so the visibility filter and the
+      // visual bar end stay in sync — bars whose hpd extends past op.end stay in view until
+      // their true visual end pans off the left.
+      const _visualEnd = (op) => {
+        if (!op || !op.start || !op.end) return op?.end;
+        const teamSz = Math.max(1, (op.team || []).length);
+        const hpd = (op.hpd || 0) > 0 ? op.hpd / teamSz : productiveHoursPerDay;
+        const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+        const startH = op.startHour ?? workStartH;
+        const isHourPos = (tMode === "month" || tMode === "week") && op.startHour != null && op.startHour > workStartH;
+        if (op.start !== op.end) {
+          let wdays;
+          if (!isHourPos) {
+            wdays = Math.max(1, Math.ceil(hpd / productiveHoursPerDay));
+          } else {
+            const vClockH = productiveHoursPerDay > 0 ? (hpd / productiveHoursPerDay) * totalWorkH : 0;
+            const vFirstAvailH = workEndH - startH;
+            if (vClockH <= vFirstAvailH) wdays = 1;
+            else {
+              let rem = vClockH - vFirstAvailH; wdays = 1;
+              while (rem > totalWorkH) { rem -= totalWorkH; wdays++; }
+              wdays += 1;
+            }
+          }
+          return addBD(op.start, wdays - 1, bdOpts);
+        }
+        const isSingleDayPartial = (tMode === "month" || tMode === "week") && hpd <= productiveHoursPerDay;
+        const offsetH = startH - workStartH;
+        const clockH = (hpd / productiveHoursPerDay) * totalWorkH;
+        const overflowWeekend = isSingleDayPartial && isHourPos && (offsetH + clockH) > totalWorkH && !isWorkDay(addD(op.end, 1), orgSettings.workDays);
+        return overflowWeekend ? addBD(op.end, 1, bdOpts) : op.end;
+      };
+      // PTO bars
+      const person = people.find(x => x.id === pid);
+      if (person) (person.timeOff || []).forEach((to, i) => {
+        if (to.end < tStart || to.start > tEnd) return;
+        const ptoColor = to.type === "UTO" ? "#f59e0b" : "#10b981";
+        bars.push({ type: "pto", id: "pto-" + pid + "-" + i, start: to.start, end: to.end, title: to.reason || (to.type || "PTO"), color: ptoColor, task: null, subs: [], hasSubs: false, personId: pid, toIdx: i, fullStart: to.start, fullEnd: to.end, ptoType: to.type || "PTO" });
+      });
+      // Operation bars (level 2: Wire/Cut/Layout assigned to this person)
+      tasks.forEach(job => {
+        if ((job.jobType || "panel") === "panel") {
+          (job.subs || []).forEach(panel => {
+            (panel.subs || []).forEach(op => {
+              if (!(op.team || []).includes(pid)) return;
+              if (op.status === "Finished") return;
+              if (!op.start || !op.end || _visualEnd(op) < tStart || op.start > tEnd) return;
+              const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+              const tc = panel.color || "#94a3b8";
+              const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
+              bars.push({ type: "task", id: op.id, start: op.start, end: op.end, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+            });
+            // Panel with no sub-ops: render the panel itself so it appears on the schedule
+            if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
+              if (_visualEnd(panel) >= tStart && panel.start <= tEnd) {
+                const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+                const tc = panel.color || "#94a3b8";
+                bars.push({ type: "task", id: panel.id, start: panel.start, end: panel.end, title: `${job.title} · ${panel.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+              }
+            }
+          });
+        } else {
+          // General task: flat subtasks assigned directly to people
+          (job.subs || []).forEach(sub => {
+            if (!(sub.team || []).includes(pid)) return;
+            if (sub.status === "Finished") return;
+            if (!sub.start || !sub.end || _visualEnd(sub) < tStart || sub.start > tEnd) return;
+            const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+            const tc = sub.color || "#94a3b8";
+            bars.push({ type: "task", id: sub.id, start: sub.start, end: sub.end, title: `${job.title} · ${sub.title}`, color: tc, clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+          });
+        }
+      });
+      // Engineering task chips for engineers — one chip per panel with pending eng steps
+      if (person && person.isEngineer) {
+        tasks.forEach(job => {
+          (job.subs || []).forEach(panel => {
+            if (panel.engineering === undefined) return; // not a panel job
+            const e = panel.engineering || {};
+            const allDone = !!(e.designed && e.verified && e.sentToPerforex);
+            // Position chip on wire start date (first op start), fallback to panel start
+            const wireOp = (panel.subs || []).find(op => op.title === "Wire");
+            const chipDate = wireOp ? wireOp.start : panel.start;
+            if (chipDate < tStart || chipDate > tEnd) return;
+            const activeStep = !e.designed ? "Designed" : !e.verified ? "Verified" : "Perforex";
+            bars.push({
+              type: "eng-chip",
+              id: `eng-${job.id}-${panel.id}`,
+              start: chipDate, end: chipDate,
+              title: `${panel.title} · ${activeStep}`,
+              color: allDone ? "#10b981" : "#3b82f6",
+              allDone,
+              activeStep,
+              panelTitle: panel.title,
+              jobId: job.id,
+              panelId: panel.id,
+              task: { ...job, isSub: false },
+              subs: [], hasSubs: false,
+            });
+          });
+        });
+      }
+      bars.sort((a, b) => {
+        if (a.type !== "task" || b.type !== "task") return 0;
+        if (gSort === "project") return String(a.jobNumber || "").localeCompare(String(b.jobNumber || ""), undefined, { numeric: true });
+        if (gSort === "client") return (a.clientName || "").localeCompare(b.clientName || "") || (a.start || "").localeCompare(b.start || "");
+        return (a.start || "").localeCompare(b.start || "");
+      });
+      return bars;
+    };
+    // Build flat row list with subtask expansion. Person rows always get pushed (with a
+    // `hidden` flag when their dept is collapsed) so we can animate their height instead of
+    // popping them in/out of the DOM.
+    const rowList = []; roles.forEach(role => {
+      if (fRole !== "All" && role?.toLowerCase() !== fRole.toLowerCase()) return;
+      const isC = !!tCollapsed[role];
+      rowList.push({ type: "group", role, util: grpUtil(role) });
+      roleMap[role].forEach(p => {
+        if (fPers.length > 0 && !fPers.includes(String(p.id))) return;
+        const bars = isC ? [] : getPersonBars(p.id);
+        rowList.push({ type: "person", person: p, util: getUtil(p.id), bars, hidden: isC });
+      });
+    });
+    // Precompute which task IDs are in a dep group — used to render the chain icon on bars
+    const depGroupTaskIds = new Set();
+    tasks.forEach(job => {
+      const panels = job.subs || [];
+      panels.forEach(panel => {
+        if ((panel.deps || []).some(d => panels.find(s => s.id === d))) {
+          depGroupTaskIds.add(panel.id);
+          (panel.deps || []).filter(d => panels.find(s => s.id === d)).forEach(d => depGroupTaskIds.add(d));
+        }
+        const ops = panel.subs || [];
+        ops.forEach(op => {
+          if ((op.deps || []).some(d => ops.find(o => o.id === d))) {
+            depGroupTaskIds.add(op.id);
+            (op.deps || []).filter(d => ops.find(o => o.id === d)).forEach(d => depGroupTaskIds.add(d));
+          }
+        });
+      });
+    });
+    const subH = 34;
+    const tW = lW + days.length * cW;
+    const totalH = rowList.reduce((s, r) => {
+      if (r.type === "group") return s + grpH;
+      if (r.type === "person") return s + (r.hidden ? 0 : rH);
+      if (r.type === "subtask") return s + subH;
+      return s + rH;
+    }, 0) + 56;
+    // Team day-view bar drag
+    // rawBarS/rawBarE: actual visual start/end hours from barPositions (may differ from barTask.startHour/hpd when auto-stacked)
+    const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null, rawBarS = null, rawBarE = null) => {
+      if (!barTask) return;
+      e.preventDefault(); e.stopPropagation();
+      const DHS = 5, DHE = 21, DNH = 16;
+      const origHour = rawBarS ?? (barTask.startHour ?? 8);
+      const origHpd = rawBarE != null ? (rawBarE - origHour) : (barTask.hpd || 0);
+      const origEnd = origHour + origHpd;
+      const sx = e.clientX, sy = e.clientY;
+      let moved = false;
+      const pid = barTask.isSub ? barTask.pid : null;
+      // Measure the timeline area (right side of the row) at drag start
+      const timelineEl = e.currentTarget.parentElement; // position:relative flex div
+      const rowRect = timelineEl.getBoundingClientRect();
+      const timelineLeft = rowRect.left;
+      const timelineWidth = Math.max(rowRect.width, 1);
+      // Compute where within the bar we grabbed (in hours)
+      const cursorHourAtStart = DHS + (sx - timelineLeft) / timelineWidth * DNH;
+      const grabOffsetHours = mode === "move" ? Math.max(0, Math.min(origHpd, cursorHourAtStart - origHour)) : 0;
+      const grabOffsetPx = grabOffsetHours / DNH * timelineWidth;
+      const barH = rH - 8;
+      // Use actual visual duration (origHpd from rawBarE-rawBarS, or 2h fallback for no-hours bars)
+      const visualDuration = origHpd > 0 ? origHpd : 2;
+      const barW = Math.max(32, visualDuration / DNH * timelineWidth - 4);
+      // Pending values for left/right resize — only commit to state on mouseup to prevent jump
+      const pending = { startHour: origHour, hpd: origHpd };
+      const fmTimeH = h => { const H = Math.floor(h), M = Math.round((h % 1) * 60); return `${H > 12 ? H - 12 : H === 0 ? 12 : H}:${String(M).padStart(2, "0")} ${H >= 12 ? "PM" : "AM"}`; };
+      // Helper: which person row is under a given clientY
+      const getPersonAtY = (clientY) => {
+        const el = teamContainerRef.current; if (!el) return null;
+        const rect = el.getBoundingClientRect();
+        let relY = clientY - rect.top - 48; // 48 = hour header height
+        for (const row of rowList) {
+          const h = row.type === "group" ? grpH : (row.hidden ? 0 : rH);
+          if (h === 0) continue;
+          if (relY < h) return row.type === "person" ? row.person : null;
+          relY -= h;
+        }
+        return null;
+      };
+      const onM = me => {
+        const dx = me.clientX - sx;
+        if (Math.abs(dx) > 8 || Math.abs(me.clientY - sy) > 10) moved = true;
+        if (!moved) return;
+        setDayDragInfo({ itemId: barTask.id, mode });
+        if (mode === "move") {
+          // Compute drop hour for tooltip
+          const dropHour = Math.max(DHS, Math.min(DHE - origHpd, (DHS + (me.clientX - grabOffsetPx - timelineLeft) / timelineWidth * DNH)));
+          const dropH = Math.floor(dropHour), dropM = Math.round((dropHour % 1) * 60);
+          const dropLabel = `${dropH > 12 ? dropH - 12 : dropH === 0 ? 12 : dropH}:${String(dropM).padStart(2,"0")} ${dropH >= 12 ? "PM" : "AM"}`;
+          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: barTask.color, label: `${barTask.title || ""}`, time: dropLabel });
+          const target = getPersonAtY(me.clientY);
+          setDayDragTarget(target && target.id !== fromPersonId ? target.id : null);
+        } else if (mode === "left") {
+          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
+          const newStart = Math.round(cursorHour * 4) / 4;
+          pending.startHour = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
+          pending.hpd = Math.round((origEnd - pending.startHour) * 100) / 100;
+          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour) });
+        } else {
+          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
+          const clamped = Math.max(origHour + 0.25, Math.min(DHE, Math.round(cursorHour * 4) / 4));
+          pending.hpd = Math.round((clamped - origHour) * 100) / 100;
+          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(origHour + pending.hpd) });
+        }
+      };
+      const onU = (me) => {
+        document.removeEventListener("mousemove", onM);
+        document.removeEventListener("mouseup", onU);
+        if (moved && mode === "move") {
+          // Apply ghost's final position to the real task
+          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
+          const newStart = Math.round((cursorHour - grabOffsetHours) * 4) / 4;
+          const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), newStart));
+          updTask(barTask.id, { startHour: clamped }, pid);
+          const target = getPersonAtY(me.clientY);
+          if (fromPersonId && target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+        } else if (moved && mode === "left") {
+          updTask(barTask.id, { startHour: pending.startHour, hpd: pending.hpd }, pid);
+        } else if (moved && mode === "right") {
+          updTask(barTask.id, { hpd: pending.hpd }, pid);
+        }
+        isDraggingRef.current = false;
+        setTeamDayGhost(null);
+        setDayDragInfo(null);
+        setDayDragTarget(null);
+        if (!moved && mode === "move") openDetail(barTask);
+      };
+      document.addEventListener("mousemove", onM);
+      document.addEventListener("mouseup", onU);
     };
 
-    return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 16 }}>
-        {/* Top bar — title + search + Export + (+ New Client). No Cloud button. */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, flexShrink: 0 }}>Clients</h3>
-            <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
-              <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-            <Tip label="Export">
-              <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); }} style={{ height: 29, width: 29, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              </button>
-            </Tip>
-            {can("manageClients") && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * COLORS.length)], notes: "" })}>+ New Client</Btn>}
-          </div>
-        </div>
-
-        {/* Body — sections per client */}
-        <div style={{ flex: 1, overflow: "auto", paddingRight: 4 }}>
-          {visibleClients.length === 0 && clients.length === 0 && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
-              <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></div>
-              <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>No clients yet</h3>
-              <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 240, lineHeight: 1.65 }}>Add your first client to organize jobs by company</p>
-              {can("manageClients") && <Btn size="sm" style={{ marginTop: 8 }} onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * COLORS.length)], notes: "" })}>+ New Client</Btn>}
-            </div>
-          )}
-
-          {visibleClients.map(c => {
-            const cJobs = tasks.filter(t => t.clientId === c.id && t.status !== "Finished");
-            return renderSection(
-              c.id,
-              <>
-                <div style={{ width: 22, height: 22, borderRadius: 6, background: c.color, color: isLight(c.color) ? "#000" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{c.name[0]}</div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{c.name}</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{cJobs.length}</span>
-                {c.contact && <span style={{ fontSize: 11, color: T.textDim, marginLeft: 4 }}>{c.contact}</span>}
-              </>,
-              cJobs,
-              c.color,
-              e => { e.preventDefault(); e.stopPropagation(); setClientCtx({ x: e.clientX, y: e.clientY, client: c }); }
-            );
-          })}
-
-          {unassignedActive.length > 0 && renderSection(
-            "__unassigned__",
-            <>
-              <div style={{ width: 22, height: 22, borderRadius: 6, background: T.textDim + "33", color: T.textDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>?</div>
-              <span style={{ fontSize: 13, fontWeight: 700, color: T.textSec }}>Unassigned</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, background: T.border, borderRadius: 10, padding: "1px 8px" }}>{unassignedActive.length}</span>
-            </>,
-            unassignedActive,
-            T.textDim
-          )}
-        </div>
-      </div>
-    );
-  };
-  const renderAnalytics = () => {
-    // â”€â”€ Period selector â†’ date range â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const today = new Date(TD + "T12:00:00");
-    let periodStart, periodEnd, periodDays;
-    if (analyticsPeriod === "week") {
-      const d = today.getDay();
-      const mondayOffset = d === 0 ? -6 : 1 - d;
-      const s = new Date(today); s.setDate(today.getDate() + mondayOffset);
-      const e = new Date(s); e.setDate(s.getDate() + 6);
-      periodStart = toDS(s); periodEnd = toDS(e); periodDays = 7;
-    } else if (analyticsPeriod === "month") {
-      const s = new Date(today.getFullYear(), today.getMonth(), 1);
-      const e = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-      periodStart = toDS(s); periodEnd = toDS(e); periodDays = e.getDate();
-    } else {
-      const s = new Date(today.getFullYear(), 0, 1);
-      const e = new Date(today.getFullYear(), 11, 31);
-      periodStart = toDS(s); periodEnd = toDS(e); periodDays = 365;
-    }
-    const daysInPeriod = []; { let d = periodStart; while (d <= periodEnd) { daysInPeriod.push(d); d = addD(d, 1); } }
-
-    // â”€â”€ KPI strip math â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const periodEntries = timeclock.filter(e => e.date >= periodStart && e.date <= periodEnd && !e.eventType);
-    const hoursLogged = Math.round(periodEntries.reduce((s, e) => s + (e.hours || 0), 0) * 10) / 10;
-    const activeJobs = tasks.filter(t => t.status !== "Finished" && t.start <= periodEnd && t.end >= periodStart);
-    const avgPct = activeJobs.length ? Math.round(activeJobs.reduce((s, j) => s + _jobPct(j), 0) / activeJobs.length) : 0;
-    const onTimeCount = activeJobs.filter(j => getHealth(j) === "ontime").length;
-    const onTimePct = activeJobs.length ? Math.round((onTimeCount / activeJobs.length) * 100) : 0;
-
-    // â”€â”€ Hours over time (line chart) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // week â†’ 7 daily buckets; month â†’ weekly buckets; year â†’ 12 monthly buckets
-    const buckets = [];
-    if (analyticsPeriod === "week") {
-      daysInPeriod.forEach(d => {
-        const h = timeclock.filter(e => e.date === d && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
-        const label = new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
-        buckets.push({ label, h });
-      });
-    } else if (analyticsPeriod === "month") {
-      // 5 buckets (~weekly)
-      const chunk = Math.ceil(daysInPeriod.length / 5);
-      for (let i = 0; i < daysInPeriod.length; i += chunk) {
-        const slice = daysInPeriod.slice(i, i + chunk);
-        const h = timeclock.filter(e => slice.includes(e.date) && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
-        const label = new Date(slice[0] + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        buckets.push({ label, h });
-      }
-    } else {
-      for (let m = 0; m < 12; m++) {
-        const monthStart = toDS(new Date(today.getFullYear(), m, 1));
-        const monthEnd = toDS(new Date(today.getFullYear(), m + 1, 0));
-        const h = timeclock.filter(e => e.date >= monthStart && e.date <= monthEnd && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
-        const label = new Date(today.getFullYear(), m, 1).toLocaleDateString("en-US", { month: "short" });
-        buckets.push({ label, h });
-      }
-    }
-    const maxBucket = Math.max(...buckets.map(b => b.h), 1);
-
-    // â”€â”€ Per-person workload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const personRows = people.filter(p => p.payType !== "salary").map(p => {
-      const scheduled = daysInPeriod.reduce((s, d) => {
-        if (!orgSettings.workDays.includes(new Date(d + "T12:00:00").getDay())) return s;
-        return s + bookedHrs(p.id, d);
-      }, 0);
-      const logged = timeclock.filter(e => String(e.personId) === String(p.id) && e.date >= periodStart && e.date <= periodEnd && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
-      return { p, scheduled: Math.round(scheduled * 10) / 10, logged: Math.round(logged * 10) / 10 };
-    }).filter(r => r.scheduled > 0 || r.logged > 0).sort((a, b) => (b.scheduled + b.logged) - (a.scheduled + a.logged)).slice(0, 15);
-    const maxPersonHours = Math.max(...personRows.map(r => Math.max(r.scheduled, r.logged)), 1);
-
-    // â”€â”€ Department breakdown (scheduled hours) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const deptTotals = {};
-    people.forEach(p => {
-      const dept = p.department || "Unassigned";
-      const sched = daysInPeriod.reduce((s, d) => {
-        if (!orgSettings.workDays.includes(new Date(d + "T12:00:00").getDay())) return s;
-        return s + bookedHrs(p.id, d);
-      }, 0);
-      deptTotals[dept] = (deptTotals[dept] || 0) + sched;
-    });
-    const deptList = Object.entries(deptTotals).filter(([_, h]) => h > 0).sort((a, b) => b[1] - a[1]);
-    const deptTotal = deptList.reduce((s, [_, h]) => s + h, 0);
-
-    // Donut math
-    const donutCx = 90, donutCy = 90, rOuter = 80, rInner = 50;
-    let donutAcc = 0;
-    const donutSlices = deptList.map(([dept, h], i) => {
-      const startA = (donutAcc / Math.max(deptTotal, 1)) * Math.PI * 2 - Math.PI / 2;
-      donutAcc += h;
-      const endA = (donutAcc / Math.max(deptTotal, 1)) * Math.PI * 2 - Math.PI / 2;
-      const large = (endA - startA) > Math.PI ? 1 : 0;
-      const x1 = donutCx + rOuter * Math.cos(startA), y1 = donutCy + rOuter * Math.sin(startA);
-      const x2 = donutCx + rOuter * Math.cos(endA),   y2 = donutCy + rOuter * Math.sin(endA);
-      const x3 = donutCx + rInner * Math.cos(endA),   y3 = donutCy + rInner * Math.sin(endA);
-      const x4 = donutCx + rInner * Math.cos(startA), y4 = donutCy + rInner * Math.sin(startA);
-      const path = `M ${x1} ${y1} A ${rOuter} ${rOuter} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${rInner} ${rInner} 0 ${large} 0 ${x4} ${y4} Z`;
-      return { dept, h, path, color: COLORS[i % COLORS.length] };
-    });
-
-    // â”€â”€ Existing card data (kept) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const tot = tasks.length;
-    const bySt = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length }));
-    const byPr = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length }));
-    const cr = tot ? Math.round(tasks.filter(t => t.status === "Finished").length / tot * 100) : 0;
-    const tl = people.map(p => ({ n: p.name.split(" ")[0], h: bookedHrs(p.id, TD), cap: p.cap })).sort((a, b) => b.h - a.h).slice(0, 12);
-    const mx = Math.max(...tl.map(t => Math.max(t.h, t.cap)), 1);
-
-    // Line chart geometry — generous left margin for y-labels, top padding so the peak point
-    // doesn't kiss the chart edge. padL/padR tuned to let the polyline run nearly edge-to-edge
-    // inside its card (card has padding:0 so the SVG fills full width).
-    const lineW = 1200, lineH = 240;
-    const padL = 42, padR = 14, padT = 28, padB = 32;
-    const innerW = lineW - padL - padR;
-    const innerH = lineH - padT - padB;
-    const xStep = buckets.length > 1 ? innerW / (buckets.length - 1) : 0;
-    const yScale = (h) => padT + innerH - (h / maxBucket) * innerH;
-    const linePts = buckets.map((b, i) => ({ x: padL + i * xStep, y: yScale(b.h) }));
-    const linePoly = linePts.map(p => `${p.x},${p.y}`).join(" ");
-    const areaPoly = linePts.length ? `${padL},${padT + innerH} ${linePoly} ${padL + (buckets.length - 1) * xStep},${padT + innerH}` : "";
-    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ frac: f, val: f * maxBucket }));
-
-    return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Header — title + period pill toggle */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Analytics</h3>
-        <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
-          {[{ id: "week", label: "This Week" }, { id: "month", label: "This Month" }, { id: "year", label: "This Year" }].map(p => {
-            const active = analyticsPeriod === p.id;
-            return <button key={p.id} onClick={() => setAnalyticsPeriod(p.id)} style={{ padding: "5px 14px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{p.label}</button>;
-          })}
-        </div>
-      </div>
-
-      {/* KPI strip — 4 tiles */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-        {[
-          { label: "Hours logged", val: hoursLogged, suffix: "h", color: T.accent },
-          { label: "Active jobs", val: activeJobs.length, suffix: "", color: "#3b82f6" },
-          { label: "Avg completion", val: avgPct, suffix: "%", color: "#10b981" },
-          { label: "On-time", val: onTimePct, suffix: "%", color: onTimePct >= 80 ? "#10b981" : onTimePct >= 50 ? "#f59e0b" : T.danger },
-        ].map((k, i) => (
-          <div key={k.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", fontFamily: T.font }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{k.label}</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: k.color, fontFamily: T.mono, lineHeight: 1.1 }}>{k.val}{k.suffix}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Hours over time — line chart */}
-      <Card delay={0} style={{ padding: 0, overflow: "hidden" }}>
-        <h4 style={{ color: T.textSec, margin: 0, padding: "20px 24px 10px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours Logged Over Time</h4>
-        {buckets.every(b => b.h === 0) ? (
-          <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No hours logged in this period.</div>
-        ) : (
-          <svg viewBox={`0 0 ${lineW} ${lineH}`} style={{ width: "100%", height: "auto", maxHeight: 280, display: "block" }}>
-            {/* horizontal gridlines + y-axis labels on the left */}
-            {yTicks.map((t, i) => {
-              const y = padT + innerH - t.frac * innerH;
-              return (
-                <g key={i}>
-                  <line x1={padL} y1={y} x2={padL + innerW} y2={y} stroke={T.border} strokeWidth="1" strokeDasharray="3,3" opacity={t.frac === 0 ? 0.7 : 0.45} />
-                  <text x={padL - 8} y={y + 3} textAnchor="end" fontSize="10" fill={T.textDim} fontFamily={T.font}>{Math.round(t.val)}h</text>
-                </g>
-              );
-            })}
-            {/* area fill */}
-            <polygon points={areaPoly} fill={T.accent} fillOpacity="0.18" />
-            {/* line */}
-            <polyline points={linePoly} fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-            {/* dots */}
-            {linePts.map((p, i) => (
-              <g key={i}>
-                <circle cx={p.x} cy={p.y} r="4" fill={T.card} stroke={T.accent} strokeWidth="2" />
-                <title>{buckets[i].label}: {buckets[i].h.toFixed(1)}h</title>
-              </g>
-            ))}
-            {/* x-axis labels */}
-            {buckets.map((b, i) => (
-              <text key={i} x={padL + i * xStep} y={lineH - 10} textAnchor="middle" fontSize="10" fill={T.textDim} fontFamily={T.font}>{b.label}</text>
-            ))}
-          </svg>
-        )}
-      </Card>
-
-      {/* Row: Per-person workload (2/3) + Department donut (1/3) */}
-      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 20 }}>
-        <Card delay={50}>
-          <h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Per-Person Workload</h4>
-          {personRows.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No workload data in this period.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 120px", gap: 12, alignItems: "center", fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", paddingBottom: 4, borderBottom: `1px solid ${T.border}` }}>
-                <span>Name</span>
-                <span><span style={{ color: T.accent }}>â— logged</span> &nbsp; <span style={{ color: T.textDim }}>â— scheduled</span></span>
-                <span style={{ textAlign: "right" }}>hrs (logged / sched)</span>
+    return <div>
+      {/* Top nav */}
+      <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", flexWrap: "wrap", position: "relative", minHeight: 44, justifyContent: isAdmin ? "flex-start" : "center" }}>
+        {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Member</Btn>
+          <Btn size="sm" variant={barSelectMode ? "primary" : "ghost"} style={!barSelectMode ? { background: "transparent" } : {}} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
+          {barSelectMode && <Btn size="sm" variant="ghost" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>{selBars.size > 0 ? "None" : "All"}</Btn>}
+          {barSelectMode && selBars.size > 0 && <><span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selBars.size} selected</span><Btn size="sm" variant="ghost" style={{ color: "#ef4444", borderColor: "#ef444444" }} onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn></>}
+        <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
+          <Tip label="Filters">
+          <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
+          </button>
+          </Tip>
+          <FadeOnClose open={filterOpen}><div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sort By</div>
+              <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+                {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
+                  <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
+                ))}
               </div>
-              {personRows.map(({ p, scheduled, logged }) => {
-                // Per-row normalization — each row's bar fills proportionally to its own max
-                // (scheduled or logged), so one mega-booked person doesn't dwarf others.
-                const rowMax = Math.max(scheduled, logged, 1);
-                const schedPct = (scheduled / rowMax) * 100;
-                const logPct = (logged / rowMax) * 100;
-                const over = logged > scheduled;
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 11, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>)}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Time Period</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Task #</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
+                <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role / Area</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
+                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 11, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+              </div>
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+            </div></FadeOnClose>
+          </div>
+        </div>}
+        <div style={{ position: isAdmin ? "absolute" : "relative", left: isAdmin ? "50%" : "auto", transform: isAdmin ? "translateX(-50%)" : "none", display: "flex", gap: 12, alignItems: "center" }}>
+          <Btn variant="primary" size="sm" style={{ boxShadow: `0 0 0 1px ${T.accent}55, 0 2px 10px ${T.accent}55` }} onClick={() => {
+            if (tMode === "day") { setTStart(TD); setTEnd(TD); }
+            else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
+          }}>Today</Btn>
+          <SlidingPill
+            options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
+            value={tMode}
+            onChange={m => {
+              setTMode(m);
+              if (m==="day") { setTStart(TD); setTEnd(TD); }
+              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setTStart(mon); setTEnd(addD(mon,6)); }
+              else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setTStart(toDS(first)); setTEnd(toDS(last)); }
+            }}
+          />
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Btn variant="ghost" size="sm" onClick={() => {
+              if (tMode === "day") { setTStart(addD(tStart, -1)); setTEnd(addD(tEnd, -1)); }
+              else if (tMode === "week") { setTStart(addD(tStart, -7)); setTEnd(addD(tEnd, -7)); }
+              else { const d = new Date(tStart + "T12:00:00"); d.setMonth(d.getMonth() - 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
+            }}>◀</Btn>
+            <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 180, textAlign: "center" }}>{(() => {
+              const s = new Date(tStart + "T12:00:00");
+              if (tMode === "day") return s.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+              if (tMode === "week") { const e = new Date(tEnd + "T12:00:00"); return `${s.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`; }
+              return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+            })()}</span>
+            <Btn variant="ghost" size="sm" onClick={() => {
+              if (tMode === "day") { setTStart(addD(tStart, 1)); setTEnd(addD(tEnd, 1)); }
+              else if (tMode === "week") { setTStart(addD(tStart, 7)); setTEnd(addD(tEnd, 7)); }
+              else { const d = new Date(tStart + "T12:00:00"); d.setMonth(d.getMonth() + 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
+            }}>▶</Btn>
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
+          {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
+            <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
+            <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
+          </div>}
+          {tMode === "month" && <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            <input type="range" min={1} max={3} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} style={{ width: 80, cursor: "pointer", accentColor: T.accent }} />
+          </div>}
+          <Btn size="sm" onClick={() => setBcModalState("open")} style={{ padding: "7px 10px" }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></Btn>
+          {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
+        </div>
+      </div>
+
+      {people.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 24px", textAlign: "center", gap: 14 }}>
+        <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+        <h2 style={{ margin: 0, fontSize: 34, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>No team members yet</h2>
+        <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 400, lineHeight: 1.75 }}>
+          Add your first team member to start scheduling and assigning jobs
+        </p>
+        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
+      </div>}
+      {/* Hourly day view */}
+      {people.length > 0 && tMode === "day" && (() => {
+        const HS = 5, HE = 21, NH = HE - HS; // 5am – 9pm, 16 hours
+        const hours = Array.from({length: NH}, (_, i) => HS + i);
+        const fmH = h => h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
+        const now = new Date();
+        const nowH = now.getHours() + now.getMinutes() / 60;
+        const isToday = tStart === TD;
+        return (
+          <div ref={teamContainerRef} style={{width:"100%"}}>
+            <div style={{overflow:"hidden", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
+              <div style={{display:"flex", flexDirection:"column", width:"100%"}}>
+                {/* Hour header */}
+                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`, height:48}}>
+                  <div style={{minWidth:lW,maxWidth:lW,borderRight:`1px solid ${T.border}`,background:T.surface,height:48,display:"flex",alignItems:"center",padding:"0 16px",fontSize:12,color:T.textSec,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",flexShrink:0}}>Person</div>
+                  <div style={{flex:1,display:"flex"}}>
+                    {hours.map(h => { const isCurH = isToday && Math.floor(nowH) === h; return <div key={h} style={{flex:1,height:48,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:h<7||h>=18?T.textDim+"66":T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<7||h>=18?T.bg+"66":"transparent",gap:2}}><span style={{fontSize:11,fontWeight:isCurH?800:500}}>{fmH(h)}</span>{isCurH&&<div style={{width:4,height:4,borderRadius:2,background:T.accent}}/>}</div>; })}
+                  </div>
+                </div>
+                {/* Rows */}
+                {rowList.map(row => {
+                  if (row.type === "group") {
+                    const isC = tCollapsed[row.role];
+                    const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
+                    return <div key={row.role} style={{display:"flex",height:grpH,borderBottom:`1px solid ${T.border}`,background:T.bg+"66"}}>
+                      <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:10,padding:"0 16px",borderRight:`1px solid ${T.border}`,background:T.bg+"cc",cursor:"pointer",flexShrink:0}} onClick={()=>setTCollapsed(p=>({...p,[row.role]:!p[row.role]}))}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+                        <span style={{fontSize:14,fontWeight:700,color:T.text,flex:1}}>{row.role}</span>
+                        <span style={{fontSize:13,fontWeight:700,color:utilC,fontFamily:T.mono}}>{row.util}%</span>
+                        {isAdmin && <button onClick={e=>{e.stopPropagation();setPersonModal({id:null,name:"",role:row.role,email:"",cap:8,teamNumber:null,isTeamLead:false,isEngineer:false,userRole:"user"});}} title={`Add member to ${row.role}`} style={{background:"none",border:`1px solid ${T.border}`,borderRadius:4,color:T.textDim,fontSize:14,lineHeight:1,padding:"1px 6px",cursor:"pointer",flexShrink:0}}>+</button>}
+                      </div>
+                      <div style={{flex:1,display:"flex"}}>
+                        {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:h<7||h>=18?T.bg+"cc":T.bg+"44",borderRight:`1px solid ${T.bg}33`}}/>)}
+                      </div>
+                    </div>;
+                  }
+                  const p = row.person;
+                  const dayOfWeek = new Date(tStart + "T12:00:00").getDay();
+                  const todayBars = row.bars.filter(b => {
+                    if (b.type === "eng-chip") return false;
+                    if (b.start > tStart || b.end < tStart) return false;
+                    const bIsMultiDay = b.task?.start && b.task?.end && b.task.start !== b.task.end && b.task?.startHour == null;
+                    if (bIsMultiDay && !orgSettings.workDays.includes(dayOfWeek)) return false;
+                    return true;
+                  });
+                  const pOff = isOff(p.id, tStart);
+                  const offType = pOff ? ((p.timeOff||[]).find(to=>tStart>=to.start&&tStart<=to.end)||{}).type||"PTO" : null;
+                  const offR = pOff ? getOffReason(p.id, tStart) : null;
+                  const offColor = offType === "UTO" ? "#f59e0b" : "#10b981";
+                  // Stack bars sequentially from workStart; use startHour if manually positioned
+                  const _phD = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
+                  const wsH = _phD(orgSettings.workStart||"07:00");
+                  const weH = _phD(orgSettings.workEnd||"15:00");
+                  let cumH = wsH;
+                  const barPositions = todayBars.map(bar => {
+                    const hpd = bar.task?.hpd || 0;
+                    const hasManual = bar.task?.startHour != null;
+                    const isMultiDay = !hasManual && bar.task?.start && bar.task?.end && bar.task.start !== bar.task.end;
+                    let rawS, rawE;
+                    if (isMultiDay) {
+                      const fullDays = Math.floor(hpd / productiveHoursPerDay);
+                      const remainingHours = hpd % productiveHoursPerDay;
+                      const dayIndex = diffBD(bar.task.start, tStart);
+                      const isLastDay = remainingHours > 0 && dayIndex >= fullDays;
+                      rawS = wsH;
+                      if (isLastDay) {
+                        // Walk from workStart, accumulating productive time and skipping breaks/lunch
+                        const _phW = t => { const [h, m] = (t || "0:0").split(":").map(Number); return h + m / 60; };
+                        const deadWindows = (orgSettings.breaks || []).map(b => ({ start: _phW(b.time), dur: (b.durationMinutes || 0) / 60 }));
+                        const lnch = orgSettings.lunch || { time: "12:00", durationMinutes: 30 };
+                        deadWindows.push({ start: _phW(lnch.time), dur: (lnch.durationMinutes || 0) / 60 });
+                        deadWindows.sort((a, b) => a.start - b.start);
+                        let clockPos = wsH;
+                        let prodLeft = remainingHours;
+                        for (const win of deadWindows) {
+                          if (win.start <= clockPos) continue;
+                          const prodUntilWin = win.start - clockPos;
+                          if (prodLeft <= prodUntilWin) { clockPos += prodLeft; prodLeft = 0; break; }
+                          prodLeft -= prodUntilWin;
+                          clockPos = win.start + win.dur;
+                        }
+                        rawE = Math.min(clockPos + prodLeft, weH);
+                      } else {
+                        rawE = weH;
+                      }
+                    } else {
+                      rawS = hasManual ? bar.task.startHour : cumH;
+                      rawE = hpd > 0 ? Math.min(rawS + hpd, HE) : Math.min(rawS + 2, HE);
+                    }
+                    if (!hasManual) cumH = rawE;
+                    return { bar, rawS, rawE, hpd };
+                  });
+                  const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
+                  const isDropTarget = dayDragTarget === p.id;
+                  return <div key={p.id} style={{display:"flex",height:row.hidden ? 0 : rH,overflow:"hidden",borderBottom:row.hidden?"none":`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",opacity:row.hidden?0:1,pointerEvents:row.hidden?"none":"auto",transition:"height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.1s"}}>
+                    <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
+                      <div style={{width:28,height:28,borderRadius:14,background:T.surface,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.text,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
+                        <div style={{fontSize:11,color:T.textDim}}>{p.department} · {p.cap}h</div>
+                      </div>
+                      <span style={{fontSize:12,fontWeight:700,color:utilC,fontFamily:T.mono,flexShrink:0}}>{row.util}%</span>
+                    </div>
+                    <div style={{flex:1,position:"relative",display:"flex"}}>
+                      {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:pOff?offColor+"12":h<7||h>=18?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
+                        {pOff && <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(135deg,${offColor}12,${offColor}12 4px,transparent 4px,transparent 8px)`,pointerEvents:"none"}}/>}
+                        <div style={{position:"absolute",top:0,bottom:0,left:"50%",width:1,background:T.bg+"55",pointerEvents:"none"}}/>
+                      </div>)}
+                      {!pOff && barPositions.map(({bar, rawS, rawE, hpd}) => {
+                        const visS = Math.max(rawS, HS), visE = Math.min(rawE, HE);
+                        if (visE <= visS) return null;
+                        const isDraggingThis = dayDragInfo?.itemId === bar.task?.id;
+                        return <div key={bar.id}
+                          onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); } }}
+                          onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
+                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2),transition:"box-shadow 0.1s,opacity 0.2s"}}
+                          onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); }}>
+                          <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                            <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
+                          </div>
+                          <span style={{fontSize:10,color:isLight(bar.color)?'#000000':'#ffffff',fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
+                          <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                            <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
+                          </div>
+                          {hpd >= orgSettings.hpd && (() => {
+                            const _ph = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
+                            const wsH = _ph(orgSettings.workStart||"07:00");
+                            const totalM = (rawE - wsH) * 60;
+                            if (totalM <= 0) return null;
+                            const lnch = orgSettings.lunch || { time: "12:00", durationMinutes: 30 };
+                            return [...(orgSettings.breaks||[]).map((b,i)=>({time:b.time,dur:b.durationMinutes||15,label:"B",key:"b"+i})),{time:lnch.time,dur:lnch.durationMinutes||30,label:"L",key:"l"}].map(mk=>{
+                              const mkH = _ph(mk.time);
+                              if (mkH >= rawE) return null;
+                              const startPct = ((mkH - wsH) * 60 / totalM) * 100;
+                              const wPct = (mk.dur / totalM) * 100;
+                              if (startPct>=100||startPct+wPct<=0) return null;
+                              return <div key={mk.key} style={{position:"absolute",left:`${startPct}%`,top:0,bottom:0,width:`${wPct}%`,background:"rgba(0,0,0,0.25)",pointerEvents:"none",zIndex:4,display:"flex",alignItems:"center",justifyContent:"center"}}>
+                                <span style={{fontSize:10,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1,pointerEvents:"none",userSelect:"none"}}>{mk.label}</span>
+                              </div>;
+                            });
+                          })()}
+                        </div>;
+                      })}
+                      {pOff && <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
+                        <span style={{fontSize:12,color:offColor,fontWeight:600,background:T.surface+"cc",padding:"2px 8px",borderRadius:4}}>{offType}{offR?` · ${offR}`:""}</span>
+                      </div>}
+                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
+                    </div>
+                  </div>;
+                })}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+      {/* Resource timeline grid */}
+      {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
+      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month" && monthZoom > 1) ? "hidden" : undefined, border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+        <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
+          {/* Dual header: week groups + day numbers */}
+          <div style={{ borderBottom: `2px solid ${T.border}` }}>
+            <div style={{ display: "flex" }}>
+              <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, height: 28 }} />
+              <div style={{ display: "flex", flex: 1 }}>{hGroups.map(g => <div key={g.key} style={{ flex: g.span, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: T.textSec, letterSpacing: "0.06em", borderRight: `1px solid ${T.border}`, background: T.bg + "44" }}>{g.label}</div>)}</div>
+            </div>
+            <div style={{ display: "flex" }}>
+              <div style={{ minWidth: lW, maxWidth: lW, height: 28, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15 }} />
+              <div style={{ display: "flex", flex: 1 }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textDim + "66" : T.textDim, fontWeight: isT ? 700 : 400, background: wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}`, gap: 0 }}><span style={{ fontSize: 9, opacity: 0.7, lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}</div>
+            </div>
+          </div>
+          {/* Rows */}
+          {rowList.map((row, ri) => {
+            if (row.type === "group") {
+              const isC = tCollapsed[row.role];
+              const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
+              const isGroupDrop = rowDragId != null && rowDragOver?.type === "group" && rowDragOver.id === row.role;
+              return <div key={row.role} data-rowtype="group" data-rowid={row.role} style={{ display: "flex", height: grpH, borderBottom: `1px solid ${T.border}`, background: isGroupDrop ? T.accent + "18" : T.bg + "66", outline: isGroupDrop ? `2px dashed ${T.accent}66` : "none", transition: "background 0.1s" }}>
+                <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: isGroupDrop ? T.accent + "18" : T.bg + "cc", zIndex: 10, cursor: "pointer", transition: "background 0.1s" }} onClick={() => setTCollapsed(p => ({ ...p, [row.role]: !p[row.role] }))}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>{row.role}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono }}>{row.util}%</span>
+                  {isAdmin && <button onClick={e => { e.stopPropagation(); setPersonModal({ id: null, name: "", role: row.role, email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" }); }} title={`Add member to ${row.role}`} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.textDim, fontSize: 14, lineHeight: 1, padding: "1px 6px", cursor: "pointer", flexShrink: 0 }}>+</button>}
+                </div>
+                <div style={{ flex: 1, display: "flex" }}>{days.map(day => { const wk = !orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? T.bg + "cc" : T.bg + "44", borderRight: `1px solid ${T.bg}33` }} />; })}</div>
+              </div>;
+            }
+            if (row.type === "subtask") {
+              // Subtask row
+              const sub = row.sub;
+              const parentBar = row.parentBar;
+              const nDays = days.length;
+              const sx = (diffD(tStart, sub.start < tStart ? tStart : sub.start) / nDays * 100) + "%";
+              const sw = (Math.max(diffD(sub.start < tStart ? tStart : sub.start, sub.end > tEnd ? tEnd : sub.end) + 1, 1) / nDays * 100) + "%";
+              return <div key={`sub-${row.person.id}-${sub.id}`} style={{ display: "flex", height: subH, borderBottom: `1px solid ${T.bg}33`, background: T.bg + "22" }}>
+                <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 6, padding: "0 16px 0 56px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.bg + "33", zIndex: 10 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: 3, background: sub.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
+                </div>
+                <div style={{ flex: 1, position: "relative", display: "flex" }}>
+                  {days.map(day => { const wk = !orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? T.bg + "88" : "transparent", borderRight: `1px solid ${T.bg}22` }} />; })}
+                  {sub.start <= tEnd && sub.end >= tStart && (() => {
+                    const subSegs = weekdaySegments(sub.start, sub.end, tStart, tEnd, orgSettings.workDays);
+                    return subSegs.map((seg, si) => {
+                      const segSx = (diffD(tStart, seg.start) / nDays * 100) + "%";
+                      const segSw = ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
+                      const isFirst = si === 0, isLast = si === subSegs.length - 1;
+                      return <div key={si}
+                        onContextMenu={e => handleCtx(e, { ...sub, isSub: true, pid: row.parentTaskId }, "team")}
+                        onMouseDown={e => {
+                          if (e.button !== 0) return;
+                          e.preventDefault();
+                          const startX = e.clientX; const os = sub.start, oe = sub.end; let moved = false, lastDx = 0;
+                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx !== 0) moved = true; if (dx !== lastDx) { lastDx = dx; updTask(sub.id, { start: addD(os, dx), end: addD(oe, dx) }, row.parentTaskId); } };
+                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                        }}
+                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, borderRight: !isLast ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, borderLeft: !isFirst ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
+                        {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
+                          e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
+                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
+                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                        }} />}
+                        {isLast && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
+                          e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const oe = sub.end; let lastDx = 0;
+                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ne = addD(oe, dx); if (ne >= sub.start) updTask(sub.id, { end: ne }, row.parentTaskId); };
+                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                        }} />}
+                        {isFirst && <span style={{ fontSize: 10, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, opacity: 0.9 }}>{sub.title}</span>}
+                      </div>;
+                    });
+                  })()}
+                </div>
+              </div>;
+            }
+            // Person row
+            const p = row.person;
+            const bars = (row.bars || []).filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i);
+            // Precompute stacking order for single-day partial-hour bars (month view only)
+            const singleDayStacking = {};
+            if (tMode === "month" || tMode === "week") {
+              const _dayBars = bars.filter(b => { const _tsz = Math.max(1, (b.task?.team || []).length); const _phd = (b.task?.hpd || 0) > 0 ? b.task.hpd / _tsz : productiveHoursPerDay; return b.type === "task" && b.task?.start && b.task?.end && b.task.start === b.task.end && _phd > 0 && _phd <= productiveHoursPerDay; });
+              _dayBars.sort((a, b) => (a.task?.startHour ?? workStartH) - (b.task?.startHour ?? workStartH));
+              _dayBars.forEach(bar => {
+                if (!singleDayStacking[bar.start]) singleDayStacking[bar.start] = [];
+                singleDayStacking[bar.start].push(bar.id);
+              });
+            }
+            const utilC = row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim;
+            const isDrop = dropTarget === p.id;
+            const isBeingDragged = rowDragId === p.id;
+            const isDragBefore = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "before";
+            const isDragAfter  = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "after";
+            return <div key={p.id} data-rowtype="person" data-rowid={p.id} onClick={teamSelectMode ? () => setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }) : undefined} style={{ display: "flex", height: row.hidden ? 0 : rH, overflow: "hidden", borderBottom: row.hidden ? "none" : `1px solid ${isDrop ? T.accent : T.bg + "55"}`, position: "relative", background: teamSelectMode && selPeople.has(p.id) ? T.accent + "18" : isDrop ? T.accent + "08" : "transparent", opacity: row.hidden ? 0 : (isBeingDragged ? 0.35 : 1), transition: "height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.15s, border-color 0.15s", pointerEvents: row.hidden ? "none" : "auto", cursor: teamSelectMode ? "pointer" : "default" }}>
+              {/* Insertion line indicators */}
+              {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
+              {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
+              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", height: "100%", opacity: barSelectMode || !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "opacity 0.2s" }}>
+                {/* Drag handle */}
+                <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
+                <div style={{ width: 28, height: 28, borderRadius: 14, background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.text, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono, flexShrink: 0 }}>{row.util}%</span>
+                {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
+                {!teamSelectMode && can("manageTeam") && <Btn variant="ghost" size="sm" style={{ padding: "4px 6px", fontSize: 11 }} onClick={() => setPersonModal({ ...p })}>Edit</Btn>}
+                </div>
+              </div>
+              <div style={{ flex: 1, position: "relative", display: "flex" }}>
+                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
+                {/* Ghost: dragged bar + dep-group member previews */}
+                {teamDragInfo && (() => {
+                  const nDays = days.length;
+                  const { snapStart, snapEnd, hasOverlap, barColor, groupSnaps } = teamDragInfo;
+                  const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
+                  const ghosts = [];
+                  if (teamDragInfo.targetPersonId === p.id && teamDragInfo.translateX != null && (Math.abs(teamDragInfo.translateX) > 4 || Math.abs(teamDragInfo.translateY || 0) > 4)) {
+                    const _liveRef = teamDragLiveRef.current;
+                    const _liveSnapDay = _liveRef?.snapStart || snapStart;
+                    const _liveSnapEnd = _liveRef?.snapEnd || snapEnd;
+                    const _ghostLeft = _liveRef?.ghostLeftPct != null
+                      ? _liveRef.ghostLeftPct
+                      : (days.indexOf(_liveSnapDay) >= 0 ? (days.indexOf(_liveSnapDay) / nDays * 100) : (diffD(tStart, _liveSnapDay) / nDays * 100));
+                    const _ghostBarHpd = teamDragInfo.barHpd || 0;
+                    const _dropHour = _liveRef?.dropHour ?? workStartH;
+                    const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
+                    const _ghostVisualDays = (() => {
+                      if (_ghostBarHpd <= 0) return Math.max(1, diffBD(teamDragInfo.origStart, teamDragInfo.origEnd) + 1);
+                      const _ghTotalClockH = productiveHoursPerDay > 0 ? (_ghostBarHpd / productiveHoursPerDay) * totalWorkH : 0;
+                      const _ghFirstDayAvailH = workEndH - _dropHour;
+                      if (_ghTotalClockH <= _ghFirstDayAvailH) return 1;
+                      let _ghRem = _ghTotalClockH - _ghFirstDayAvailH;
+                      let _ghDays = 1;
+                      while (_ghRem > totalWorkH) { _ghRem -= totalWorkH; _ghDays++; }
+                      return _ghDays + 1;
+                    })();
+                    const _ghostWBudget = _ghostBarHpd > 0 ? Math.max(0.03 / nDays * 100, (_ghostBarHpd / productiveHoursPerDay) / nDays * 100) : _ghostVisualDays / nDays * 100;
+                    const _ghostEndDay = addBD(_liveSnapDay, _ghostVisualDays - 1, { workDays: orgSettings.workDays, holidays: orgSettings.holidays });
+                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd, orgSettings.workDays);
+                    const _oneDayW = 1 / nDays * 100;
+                    const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
+                    let _ghostWRemaining = _ghostWBudget;
+                    _ghostSegs.forEach((seg, gi) => {
+                      const isFirst = gi === 0;
+                      const isLast = gi === _ghostSegs.length - 1;
+                      const _segIdx = days.indexOf(seg.start);
+                      const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _ghostHourOffW : 0);
+                      const _segEndIdx = days.indexOf(seg.end);
+                      const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
+                      const _segAvailW = _segRightPct - segLeft;
+                      const segW = isLast ? Math.max(0, _ghostWRemaining) : Math.max(0.5, Math.min(_ghostWRemaining, _segAvailW));
+                      _ghostWRemaining = Math.max(0, _ghostWRemaining - segW);
+                      ghosts.push(<div key={`team-ghost-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                    });
+                  }
+                  (groupSnaps || []).forEach(gs => {
+                    if ((gs.personIds || []).includes(p.id)) {
+                      const _gsDropHour = gs.dropHour ?? workStartH;
+                      const _gsOffH = Math.max(0, _gsDropHour - workStartH);
+                      const _gsOneDayW = 1 / nDays * 100;
+                      const _gsHourOffW = (_gsOffH / totalWorkH) * _gsOneDayW;
+                      const _gsHpd = gs.barHpd || 0;
+                      const _gsWBudget = _gsHpd > 0 ? Math.max(0.03 / nDays * 100, (_gsHpd / productiveHoursPerDay) / nDays * 100) : (Math.max(diffD(gs.snapStart, gs.snapEnd) + 1, 1) / nDays * 100);
+                      const _gsSegs = weekdaySegments(gs.snapStart, gs.snapEnd, tStart, tEnd, orgSettings.workDays);
+                      let _gsWRemaining = _gsWBudget;
+                      _gsSegs.forEach((seg, gi) => {
+                        const isFirst = gi === 0;
+                        const isLast = gi === _gsSegs.length - 1;
+                        const _segIdx = days.indexOf(seg.start);
+                        const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _gsHourOffW : 0);
+                        const _segEndIdx = days.indexOf(seg.end);
+                        const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
+                        const _segAvailW = _segRightPct - segLeft;
+                        const segW = isLast ? Math.max(0, _gsWRemaining) : Math.max(0.5, Math.min(_gsWRemaining, _segAvailW));
+                        _gsWRemaining = Math.max(0, _gsWRemaining - segW);
+                        ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                      });
+                    }
+                  });
+                  return ghosts.length ? <>{ghosts}</> : null;
+                })()}
+                {/* Dep-group snap connector — thin accent line shown only when ghost is snapped flush to a sibling */}
+                {teamDragInfo?.snapConnector && (() => {
+                  const sc = teamDragInfo.snapConnector;
+                  if (sc.ghostPersonId == null || sc.siblingPersonId == null) return null;
+                  const ghostIdx = rowList.findIndex(r => r.type === "person" && r.person?.id === sc.ghostPersonId);
+                  const sibIdx = rowList.findIndex(r => r.type === "person" && r.person?.id === sc.siblingPersonId);
+                  if (ghostIdx < 0 || sibIdx < 0) return null;
+                  const minIdx = Math.min(ghostIdx, sibIdx);
+                  const maxIdx = Math.max(ghostIdx, sibIdx);
+                  if (ri < minIdx || ri > maxIdx) return null;
+                  const _bdIdx = days.indexOf(sc.boundaryDay);
+                  if (_bdIdx < 0) return null;
+                  const _hourOff = ((sc.boundaryHour ?? workStartH) - workStartH) / totalWorkH;
+                  const _bdX = (_bdIdx + _hourOff) / days.length * 100;
+                  return <div style={{ position: "absolute", left: `${_bdX}%`, top: 0, bottom: 0, width: 1, background: T.accent, opacity: 0.55, pointerEvents: "none", zIndex: 38, boxShadow: `0 0 4px ${T.accent}88` }} />;
+                })()}
+                {/* Task/PTO bars */}
+                {bars.map(bar => {
+                  const nDays = days.length;
+                  const _opStart = bar.task?.start; const _opEnd = bar.task?.end;
+                  const _barTeamSz = Math.max(1, (bar.task?.team || []).length);
+                  const _barHpd = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay;
+                  const _barStartH = bar.task?.startHour ?? workStartH;
+                  const isSingleDayPartial = (tMode === "month" || tMode === "week") && bar.type === "task" && _opStart && _opEnd && _opStart === _opEnd && _barHpd <= productiveHoursPerDay;
+                  const isHourPositioned = (tMode === "month" || tMode === "week") && bar.type === "task" && bar.task?.startHour != null && bar.task.startHour > workStartH;
+                  const _offsetH = _barStartH - workStartH;
+                  const _barClockH = (_barHpd / productiveHoursPerDay) * totalWorkH;
+                  const _firstDayCapacity = isHourPositioned ? Math.max(0, (totalWorkH - _offsetH) / totalWorkH * productiveHoursPerDay) : productiveHoursPerDay;
+                  const _barWorkDays = orgSettings.workDays;
+                  const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && !isWorkDay(addD(bar.end, 1), _barWorkDays);
+                  // Always derive the bar's visual end from hpd + current workDays so the bar adapts
+                  // when the org's working-days set changes, regardless of what the task's stored end says.
+                  const _visualWorkDays = (!isSingleDayPartial && bar.type === "task" && _opStart && _opEnd && _opStart !== _opEnd)
+                    ? (() => {
+                        if (!isHourPositioned) return Math.max(1, Math.ceil(_barHpd / productiveHoursPerDay));
+                        const _vClockH = productiveHoursPerDay > 0 ? (_barHpd / productiveHoursPerDay) * totalWorkH : 0;
+                        const _vFirstAvailH = workEndH - _barStartH;
+                        if (_vClockH <= _vFirstAvailH) return 1;
+                        let _vRem = _vClockH - _vFirstAvailH;
+                        let _vDays = 1;
+                        while (_vRem > totalWorkH) { _vRem -= totalWorkH; _vDays++; }
+                        return _vDays + 1;
+                      })()
+                    : null;
+                  const _effectiveSingleDay = isSingleDayPartial || (_visualWorkDays === 1 && _barHpd <= productiveHoursPerDay);
+                  const _barBDOpts = { workDays: _barWorkDays, holidays: orgSettings.holidays };
+                  const _segsEnd = _visualWorkDays != null
+                    ? addBD(bar.start, _visualWorkDays - 1, _barBDOpts)
+                    : _willOverflowWeekend
+                      ? addBD(bar.end, 1, _barBDOpts)
+                      : bar.end;
+                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd, _barWorkDays, true);
+                  const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
+                  const _baseXPct = diffD(tStart, bar.start) / nDays * 100;
+                  const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
+                  const _wBudget = Math.max(0.03 / nDays * 100, (_barHpd / productiveHoursPerDay) / nDays * 100);
+                  const stackIdx = _effectiveSingleDay ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
+                  const stackShift = (_effectiveSingleDay && stackIdx > 0 && !isHourPositioned) ? stackIdx * _wBudget : 0;
+                  const _oneDayPct = 1 / nDays * 100;
+                  const _hourOffsetPct = ((_barStartH - workStartH) / totalWorkH) * _oneDayPct;
+                  const x = (_baseXPct + _hourOffsetPct + stackShift) + "%";
+                  const _segRightPct = (diffD(tStart, firstBarSeg.end) + 1) / nDays * 100;
+                  const _xNum = _baseXPct + _hourOffsetPct + stackShift;
+                  // No 0.5% min floor — it would expand the first segment past _segRightPct (the column's right edge),
+                  // causing the bar to bleed into the next column (e.g., the weekend gap after Friday).
+                  const _wFirst = Math.max(0, Math.min(_wBudget, _segRightPct - _xNum));
+                  const w = _wFirst + "%";
+                  // Engineering chip — render as compact pill, opens job detail
+                  if (bar.type === "eng-chip") {
+                    const chipJob = tasks.find(j => j.id === bar.jobId);
+                    return <div key={bar.id}
+                      onClick={() => { if (chipJob) openDetail(chipJob); }}
+                      style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 20, background: bar.allDone ? "#10b981" : "#3b82f6", border: `1.5px solid ${bar.allDone ? "#10b98166" : "#3b82f666"}`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
+                      onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
+                      <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bar.panelTitle}</span>
+                      {!bar.allDone && <span style={{ fontSize: 9, color: "rgba(255,255,255,0.75)", marginLeft: 4, whiteSpace: "nowrap" }}>· {bar.activeStep}</span>}
+                      {bar.allDone && <span style={{ fontSize: 10, marginLeft: 4 }}>✓</span>}
+                    </div>;
+                  }
+                  const isPto = bar.type === "pto";
+                  const isExp = false;
+                  const handleTeamDrag = (e) => {
+                    if (!can("moveJobs")) { if (!isPto && bar.task) openDetail(bar.task); return; }
+                    if (isPto) {
+                      // PTO drag
+                      e.preventDefault();
+                      const sx = e.clientX;
+                      const pid = bar.personId, idx = bar.toIdx;
+                      const pp = people.find(x => x.id === pid);
+                      if (!pp) return;
+                      const pto = (pp.timeOff || [])[idx];
+                      if (!pto) return;
+                      const os = pto.start, oe = pto.end;
+                      let moved = false, lastDx = 0;
+                      const onM = me => {
+                        const rawDx = (me.clientX - sx) / cW;
+                        const dx = rawDx >= 0 ? Math.floor(rawDx) : Math.ceil(rawDx);
+                        if (Math.abs(dx) > 0) moved = true;
+                        if (dx !== lastDx) { lastDx = dx; updTimeOff(pid, idx, { start: addD(os, dx), end: addD(oe, dx) }); }
+                      };
+                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                      document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                      return;
+                    }
+                    if (!bar.task) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    let sx = e.clientX; const sy = e.clientY;
+                    const _barClientRect = e.currentTarget?.getBoundingClientRect();
+                    const _grabPx = _barClientRect ? Math.max(0, e.clientX - _barClientRect.left) : 0;
+                    const _barRect = e.currentTarget?.getBoundingClientRect();
+                    const _grabOffsetPct = _barRect ? (e.clientX - _barRect.left) / _barRect.width : 0.5;
+                    const os = bar.task.start, oe = bar.task.end;
+                    // Working days are read from current org settings (single source of truth).
+                    const barWorkDays = orgSettings.workDays;
+                    const barBDOpts = { workDays: barWorkDays, holidays: orgSettings.holidays };
+                    const wdDuration = getWorkingDayDuration(os, oe, barWorkDays);
+                    const _dragTeamSz = Math.max(1, (bar.task?.team || []).length);
+                    // If the bar is partially worked, the drag ghost represents only the remaining hours —
+                    // the worked portion stays anchored visually and is split off on commit.
+                    const _dragWS = deriveWorkedState(bar.task);
+                    const _effectiveHpdForDrag = _dragWS.isPartiallyWorked ? _dragWS.remainingHpd : (bar.task?.hpd || 0);
+                    const _dragBarHpd = _effectiveHpdForDrag > 0 ? _effectiveHpdForDrag / _dragTeamSz : productiveHoursPerDay;
+                    const _dragOffsetH = Math.max(0, (bar.task?.startHour ?? workStartH) - workStartH);
+                    const _visualWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil(_dragBarHpd / productiveHoursPerDay)) : wdDuration;
+                    const taskPid = bar.task.pid || null;
+                    const origPerson = p.id;
+                    // Dep group — collect all bars in the same dependency chain
+                    const depGroupIds = getDepGroup(bar.task.id, tasks);
+                    const isGroupDrag = depGroupIds.size > 1;
+                    const groupMembers = isGroupDrag ? (() => {
+                      const members = [];
+                      depGroupIds.forEach(id => {
+                        if (id === bar.task.id) return;
+                        for (const job of tasks) {
+                          for (const panel of (job.subs || [])) {
+                            const op = (panel.subs || []).find(o => o.id === id);
+                            if (op) { members.push({ id, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); return; }
+                          }
+                          const panel = (job.subs || []).find(s => s.id === id);
+                          if (panel) { members.push({ id, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [] }); return; }
+                        }
+                      });
+                      return members;
+                    })() : [];
+                    // Dep mode: free for non-dep tasks, otherwise read from task or parent panel
+                    const depsMode = (() => {
+                      if (!isGroupDrag) return "free";
+                      if (bar.task.level === 2 && bar.task.grandPid) {
+                        const parentPanel = tasks.find(j => j.id === bar.task.grandPid)?.subs?.find(p => p.id === bar.task.pid);
+                        return bar.task?.depsMode || parentPanel?.depsMode || "unlocked";
+                      }
+                      if (bar.task.level === 1) {
+                        const parentJob = tasks.find(j => (j.subs || []).find(p => p.id === bar.task.id));
+                        const panel = parentJob?.subs?.find(p => p.id === bar.task.id);
+                        return panel?.depsMode || "unlocked";
+                      }
+                      return "free";
+                    })();
+                    // Unlocked: find predecessor and successor by chronological order within the dep group
+                    let predecessorEnd = null, predecessorEndHour = null, predecessorId = null, predecessorPersonId = null;
+                    let successorStart = null, successorStartHour = null, successorId = null, successorPersonId = null;
+                    if (depsMode === "unlocked" && isGroupDrag) {
+                      let siblings = [];
+                      for (const job of tasks) {
+                        for (const panel of (job.subs || [])) {
+                          if ((panel.subs || []).find(o => o.id === bar.task.id)) { siblings = panel.subs || []; break; }
+                        }
+                        if (siblings.length) break;
+                      }
+                      // Sort all group members by start date — predecessor is the one before, successor is the one after
+                      const groupSiblings = siblings
+                        .filter(s => depGroupIds.has(s.id))
+                        .sort((a, b) => a.start < b.start ? -1 : 1);
+                      const myIndex = groupSiblings.findIndex(s => s.id === bar.task.id);
+                      const predecessor = myIndex > 0 ? groupSiblings[myIndex - 1] : null;
+                      const successor = myIndex < groupSiblings.length - 1 ? groupSiblings[myIndex + 1] : null;
+                      predecessorEnd = predecessor ? predecessor.end : null;
+                      predecessorEndHour = predecessor ? (predecessor.endHour ?? workEndH) : null;
+                      predecessorId = predecessor ? predecessor.id : null;
+                      predecessorPersonId = predecessor ? (predecessor.team || [])[0] : null;
+                      successorStart = successor ? successor.start : null;
+                      successorStartHour = successor ? (successor.startHour ?? workStartH) : null;
+                      successorId = successor ? successor.id : null;
+                      successorPersonId = successor ? (successor.team || [])[0] : null;
+                    }
+                    // Clamp helper: keeps a start date within unlocked dep boundaries
+                    const clampUnlocked = (start, duration) => {
+                      let s = start;
+                      if (predecessorEnd !== null) { const minS = addBD(predecessorEnd, 1); if (s < minS) s = minS; }
+                      if (successorStart !== null) { const latestS = addBD(successorStart, -duration); if (s > latestS) s = latestS; }
+                      return s;
+                    };
+                    // Multi-select drag — collect all other selected bars
+                    const isMultiDrag = barSelectMode && selBars.has(bar.id) && selBars.size > 1;
+                    const multiDragMembers = isMultiDrag ? (() => {
+                      const members = [];
+                      const otherIds = [...selBars].filter(id => id !== bar.task.id);
+                      for (const bid of otherIds) {
+                        for (const job of tasks) {
+                          let found = false;
+                          for (const panel of (job.subs || [])) {
+                            const op = (panel.subs || []).find(o => o.id === bid);
+                            if (op) { members.push({ id: bid, origStart: op.start, origEnd: op.end, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [], origPerson: (op.team || [])[0] ?? origPerson }); found = true; break; }
+                            if (panel.id === bid) { members.push({ id: bid, origStart: panel.start, origEnd: panel.end, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [], origPerson: (panel.team || [])[0] ?? origPerson }); found = true; break; }
+                          }
+                          if (found) break;
+                        }
+                      }
+                      return members;
+                    })() : [];
+                    // All IDs being moved — used to exclude them from conflict detection
+                    const movingIds = new Set([bar.task.id, ...groupMembers.map(m => m.id), ...multiDragMembers.map(m => m.id)]);
+                    let moved = false, lastDropPid = null;
+                    const gridEl = teamRef.current;
+                    // Measure actual rendered column width from the grid area div so drop
+                    // snaps to exactly where the bar visually is, regardless of cW state lag.
+                    const gridAreaEl = e.currentTarget?.parentElement;
+                    const liveCW = gridAreaEl ? gridAreaEl.getBoundingClientRect().width / days.length : cW;
+                    // ── Edge auto-scroll during drag ──────────────────────────
+                    let autoScrollAccum = 0, autoScrollRaf = null;
+                    let lastCX = e.clientX, lastCY = e.clientY;
+                    const autoScrollStep = () => {
+                      const containerEl = teamRef.current;
+                      if (!containerEl) { autoScrollRaf = null; return; }
+                      const rect = containerEl.getBoundingClientRect();
+                      const THRESHOLD = 80, MIN_SPD = 3, MAX_SPD = 12;
+                      const distL = lastCX - rect.left;
+                      const distR = rect.right - lastCX;
+                      let speed = 0, dir = 0;
+                      if (distL >= 0 && distL < THRESHOLD) { dir = -1; speed = MIN_SPD + (MAX_SPD - MIN_SPD) * (1 - distL / THRESHOLD); }
+                      else if (distR >= 0 && distR < THRESHOLD) { dir = 1; speed = MIN_SPD + (MAX_SPD - MIN_SPD) * (1 - distR / THRESHOLD); }
+                      if (speed > 0) {
+                        autoScrollAccum += speed * dir;
+                        const wholeDays = Math.trunc(autoScrollAccum / liveCW);
+                        if (wholeDays !== 0) {
+                          autoScrollAccum -= wholeDays * liveCW;
+                          setTStart(prev => addD(prev, wholeDays));
+                          setTEnd(prev => addD(prev, wholeDays));
+                          // Shift sx so bar stays under cursor as the timeline moves
+                          sx -= wholeDays * liveCW;
+                          // Push a fresh drag state update so the bar visually follows
+                          const pxDx2 = lastCX - sx;
+                          const pxDy2 = lastCY - sy;
+                          const dx2 = Math.round(pxDx2 / liveCW);
+                          let snapS2 = nextBD(addD(os, dx2), barBDOpts);
+                          const snapE2 = addBD(snapS2, _visualWD - 1, barBDOpts);
+                          setTeamDragInfo(prev => {
+                            if (!prev) return prev;
+                            // Recompute dep-group ghost positions so they don't lag the dragged bar during auto-scroll.
+                            const _osH2 = bar.task?.startHour ?? workStartH;
+                            const _hourDelta2 = (prev.dropHour ?? _osH2) - _osH2;
+                            const groupSnaps2 = (isGroupDrag && depsMode !== "unlocked" ? groupMembers : []).map(m => {
+                              const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
+                              let mSnap = addBD(snapS2, _mOffset, barBDOpts);
+                              let mHour = (m.origStartHour ?? workStartH) + _hourDelta2;
+                              while (mHour >= workEndH) { mHour -= totalWorkH; mSnap = addBD(mSnap, 1, barBDOpts); }
+                              while (mHour < workStartH) { mHour += totalWorkH; mSnap = addBD(mSnap, -1, barBDOpts); }
+                              const mDropHour = Math.round(mHour * 2) / 2;
+                              const _mTeamSz = Math.max(1, (m.personIds || []).length);
+                              const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
+                              const _mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
+                              const _mFirstAvailH = workEndH - mDropHour;
+                              let _mVDays;
+                              if (_mTotalClockH <= _mFirstAvailH) _mVDays = 1;
+                              else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
+                              return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
+                            });
+                            return { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2, groupSnaps: groupSnaps2 };
+                          });
+                        }
+                      }
+                      autoScrollRaf = requestAnimationFrame(autoScrollStep);
+                    };
+                    // ─────────────────────────────────────────────────────────
+                    const onM = me => {
+                      lastCX = me.clientX; lastCY = me.clientY;
+                      const pxDx = me.clientX - sx;
+                      const pxDy = me.clientY - sy;
+                      if (Math.abs(pxDx) > 2 || Math.abs(pxDy) > 8) moved = true;
+                      // Detect target row for reassign
+                      if (gridEl) {
+                        const personRows = gridEl.querySelectorAll("[data-rowtype='person']");
+                        let found = null;
+                        personRows.forEach(el => {
+                          const rect = el.getBoundingClientRect();
+                          if (me.clientY >= rect.top && me.clientY <= rect.bottom) found = el.getAttribute("data-rowid");
+                        });
+                        if (found !== null) { const pObj = people.find(x => String(x.id) === found); if (pObj) found = pObj.id; }
+                        if (found !== lastDropPid) { lastDropPid = found; setDropTarget(found); }
+                      }
+                      // Use live-measured column width so overlap preview matches actual render
+                      const dx = Math.round(pxDx / liveCW);
+                      let dropHour = null;
+                      let snapS = nextBD(addD(os, dx), barBDOpts);
+                      if (tMode === "month") {
+                        const _mRect = gridAreaEl?.getBoundingClientRect();
+                        if (_mRect) {
+                          const _mcx = (me.clientX - _grabPx) - _mRect.left;
+                          const _rawDayIdx = _mcx / liveCW;
+                          let _di = Math.max(0, Math.min(days.length - 1, Math.floor(_rawDayIdx)));
+                          const _origDi = _di;
+                          while (_di < days.length - 1 && !isWorkDay(days[_di], barWorkDays)) _di++;
+                          const _snapDay = isWorkDay(days[_di], barWorkDays) ? days[_di] : snapS;
+                          snapS = _snapDay;
+                          if (isWorkDay(days[_origDi], barWorkDays)) {
+                            const _colFrac = Math.min(0.9999, Math.max(0, _rawDayIdx - _origDi));
+                            const _rawHour = workStartH + _colFrac * totalWorkH;
+                            const _snappedHour = Math.round(_rawHour * 2) / 2;
+                            dropHour = Math.max(0, _snappedHour);
+                          } else {
+                            dropHour = workStartH;
+                          }
+                          // Snap-forward: if the drop would leave only a sliver on the first day
+                          // (less than 2h before workEnd) AND the next day is non-working, advance
+                          // to the next workday's start so the bar doesn't begin with a tiny piece
+                          // right before a non-working day gap.
+                          if (dropHour > workEndH - 2) {
+                            let _walk = addD(snapS, 1);
+                            const _max = addD(snapS, 30);
+                            if (!isWorkDay(_walk, barWorkDays)) {
+                              while (_walk <= _max && !isWorkDay(_walk, barWorkDays)) _walk = addD(_walk, 1);
+                              snapS = _walk;
+                              dropHour = workStartH;
+                            }
+                          }
+                        }
+                      }
+                      // Unlocked: ghost tracks cursor freely past siblings. Overlap with a dep-group sibling
+                      // turns the ghost red (see overlap detection below) and rejects the drop.
+                      // Magnetic snap — when the cursor is within a small threshold of a sibling boundary
+                      // (on the safe side, before red), pull the ghost flush so tasks can be butted easily.
+                      let _snapConnector = null;
+                      if (depsMode === "unlocked" && isGroupDrag && dropHour !== null) {
+                        const _snapTh = 2; // working-hours of magnetism on each side of a sibling boundary
+                        const _phi = (d, h) => {
+                          const bdDiff = d >= os ? diffBD(os, d, barBDOpts) : -diffBD(d, os, barBDOpts);
+                          return bdDiff * totalWorkH + ((h ?? workStartH) - workStartH);
+                        };
+                        const _phiInv = (clock) => {
+                          const bdOff = Math.floor(clock / totalWorkH);
+                          const hrOff = clock - bdOff * totalWorkH;
+                          return { day: addBD(os, bdOff, barBDOpts), hour: Math.round((workStartH + hrOff) * 2) / 2 };
+                        };
+                        const _ghostClockH = productiveHoursPerDay > 0 ? (_dragBarHpd / productiveHoursPerDay) * totalWorkH : 0;
+                        const _phiStart = _phi(snapS, dropHour);
+                        const _phiEnd = _phiStart + _ghostClockH;
+                        let _didSnap = false;
+                        if (predecessorEnd !== null) {
+                          const _phiPredEnd = _phi(predecessorEnd, predecessorEndHour);
+                          const _delta = _phiStart - _phiPredEnd;
+                          if (_delta > 0 && _delta < _snapTh) {
+                            const _inv = _phiInv(_phiPredEnd);
+                            snapS = _inv.day; dropHour = _inv.hour;
+                            _didSnap = true;
+                            _snapConnector = { siblingId: predecessorId, siblingPersonId: predecessorPersonId, boundaryDay: predecessorEnd, boundaryHour: predecessorEndHour };
+                          }
+                        }
+                        if (!_didSnap && successorStart !== null) {
+                          const _phiSuccStart = _phi(successorStart, successorStartHour);
+                          const _delta = _phiSuccStart - _phiEnd;
+                          if (_delta > 0 && _delta < _snapTh) {
+                            const _inv = _phiInv(_phiStart + _delta);
+                            snapS = _inv.day; dropHour = _inv.hour;
+                            _snapConnector = { siblingId: successorId, siblingPersonId: successorPersonId, boundaryDay: successorStart, boundaryHour: successorStartHour };
+                          }
+                        }
+                      }
+                      const _dropProdOff = dropHour != null ? Math.max(0, dropHour - workStartH) / totalWorkH * productiveHoursPerDay : 0;
+                      const _liveVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_dropProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
+                      let snapE = addBD(snapS, _liveVWD - 1, barBDOpts);
+                      // Group member ghost positions — locked moves all together; free/unlocked moves only dragged task
+                      const _osH = bar.task?.startHour ?? workStartH;
+                      const _hourDelta = (dropHour ?? _osH) - _osH;
+                      const groupSnaps = [
+                        ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
+                      ].map(m => {
+                        const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
+                        let mSnap = addBD(snapS, _mOffset, barBDOpts);
+                        let mHour = (m.origStartHour ?? workStartH) + _hourDelta;
+                        while (mHour >= workEndH) { mHour -= totalWorkH; mSnap = addBD(mSnap, 1, barBDOpts); }
+                        while (mHour < workStartH) { mHour += totalWorkH; mSnap = addBD(mSnap, -1, barBDOpts); }
+                        const mDropHour = Math.round(mHour * 2) / 2;
+                        const _mTeamSz = Math.max(1, (m.personIds || []).length);
+                        const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
+                        const _mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
+                        const _mFirstAvailH = workEndH - mDropHour;
+                        let _mVDays;
+                        if (_mTotalClockH <= _mFirstAvailH) _mVDays = 1;
+                        else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
+                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
+                      });
+                      const targetPid = lastDropPid || origPerson;
+                      const movingTaskId = bar.task?.id;
+                      // FREE DRAG — ghost follows cursor; turns red over conflicts; drop rejected if red.
+                      // Visual extent of an op (date + hour) — matches bar render using team-divided hpd
+                      const _opVisual = (op) => {
+                        if (!op.start || !op.end) return { endDate: op.end || op.start, endHour: workEndH };
+                        const _tSz = Math.max(1, (op.team || []).length);
+                        const _h = (op.hpd || 0) > 0 ? op.hpd / _tSz : productiveHoursPerDay;
+                        const _sH = op.startHour ?? workStartH;
+                        const _clockH = productiveHoursPerDay > 0 ? (_h / productiveHoursPerDay) * totalWorkH : 0;
+                        const _isHourPositioned = op.startHour != null && op.startHour > workStartH;
+                        const _hasStoredEnd = op.endHour != null && op.start !== op.end;
+                        const _singleDayPartial = op.start === op.end && _h <= productiveHoursPerDay;
+                        if (_singleDayPartial) return { endDate: op.start, endHour: _sH + _clockH };
+                        if (op.start === op.end) {
+                          if (op.endHour != null) return { endDate: op.start, endHour: op.endHour };
+                          return { endDate: op.start, endHour: Math.min(workEndH, _sH + _clockH) };
+                        }
+                        if (!_isHourPositioned && _hasStoredEnd) return { endDate: op.end, endHour: op.endHour };
+                        if (_isHourPositioned) {
+                          const _firstAvail = workEndH - _sH;
+                          if (_clockH <= _firstAvail) return { endDate: op.start, endHour: _sH + _clockH };
+                          let _rem = _clockH - _firstAvail;
+                          let _days = 1;
+                          while (_rem > totalWorkH) { _rem -= totalWorkH; _days++; }
+                          return { endDate: addBD(op.start, _days), endHour: workStartH + _rem };
+                        }
+                        const _baseDays = Math.max(1, Math.ceil(_h / productiveHoursPerDay));
+                        const _lastDayProd = _h - (_baseDays - 1) * productiveHoursPerDay;
+                        const _lastDayClock = productiveHoursPerDay > 0 ? (_lastDayProd / productiveHoursPerDay) * totalWorkH : totalWorkH;
+                        return { endDate: addBD(op.start, _baseDays - 1), endHour: workStartH + _lastDayClock };
+                      };
+                      // Ghost's own visual end (date + hour) from current snapS/dropHour/hpd
+                      const _ghostDH = dropHour ?? workStartH;
+                      const _ghostClockH = productiveHoursPerDay > 0 ? (_dragBarHpd / productiveHoursPerDay) * totalWorkH : 0;
+                      const _ghostFirstAvail = workEndH - _ghostDH;
+                      let _ghostED, _ghostEH;
+                      if (_ghostClockH <= _ghostFirstAvail) {
+                        _ghostED = snapS;
+                        _ghostEH = _ghostDH + _ghostClockH;
+                      } else {
+                        let _rem = _ghostClockH - _ghostFirstAvail;
+                        let _days = 1;
+                        while (_rem > totalWorkH) { _rem -= totalWorkH; _days++; }
+                        _ghostED = addBD(snapS, _days);
+                        _ghostEH = workStartH + _rem;
+                      }
+                      snapE = _ghostED;
+                      // Lex-order interval overlap on (date, hour) — A overlaps B iff A.start < B.end AND A.end > B.start
+                      let hasOverlap = false;
+                      let overlapInfo = null;
+                      outer: for (const job of tasks) {
+                        for (const panel of (job.subs || [])) {
+                          for (const op of (panel.subs || [])) {
+                            if (op.id === movingTaskId || op.status === "Finished") continue;
+                            if (!(op.team || []).includes(targetPid)) continue;
+                            if (!op.start || !op.end) continue;
+                            const _v = _opVisual(op);
+                            const _opSH = op.startHour ?? workStartH;
+                            const _aBeforeB = (snapS < _v.endDate) || (snapS === _v.endDate && _ghostDH < _v.endHour);
+                            const _aAfterB = (_ghostED > op.start) || (_ghostED === op.start && _ghostEH > _opSH);
+                            if (_aBeforeB && _aAfterB) {
+                              hasOverlap = true;
+                              overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: _v.endDate };
+                              break outer;
+                            }
+                          }
+                        }
+                      }
+                      // Unlocked dep-group sibling overlap: a dragged bar must not overlap any sibling in its
+                      // dep group, regardless of which person each sibling is assigned to.
+                      if (!hasOverlap && depsMode === "unlocked" && isGroupDrag) {
+                        outerSib: for (const job of tasks) {
+                          for (const panel of (job.subs || [])) {
+                            for (const op of (panel.subs || [])) {
+                              if (!depGroupIds.has(op.id) || op.id === movingTaskId) continue;
+                              if (!op.start || !op.end) continue;
+                              const _v = _opVisual(op);
+                              const _opSH = op.startHour ?? workStartH;
+                              const _aBeforeB = (snapS < _v.endDate) || (snapS === _v.endDate && _ghostDH < _v.endHour);
+                              const _aAfterB = (_ghostED > op.start) || (_ghostED === op.start && _ghostEH > _opSH);
+                              if (_aBeforeB && _aAfterB) {
+                                hasOverlap = true;
+                                overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: _v.endDate, isDepSibling: true };
+                                break outerSib;
+                              }
+                            }
+                          }
+                        }
+                      }
+                      if (snapS === null) return;
+                      const _mRectForRef = gridAreaEl?.getBoundingClientRect();
+                      const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
+                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo };
+                      // Bars that should visually move + fade together with the dragged bar:
+                      // multi-select members, plus dep-group members when the group is locked.
+                      const _movingBarIds = new Set();
+                      if (isMultiDrag) multiDragMembers.forEach(m => _movingBarIds.add(m.id));
+                      if (isGroupDrag && depsMode === "locked") groupMembers.forEach(m => _movingBarIds.add(m.id));
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
+                    };
+                    const onU = me => {
+                      cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
+                      document.removeEventListener("mousemove", onM);
+                      document.removeEventListener("mouseup", onU);
+                      isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
+                      if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openDetail(bar.task); } return; }
+                      const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
+                      const finalDx = Math.round((me.clientX - sx) / liveCW);
+                      const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(os, finalDx));
+                      const _finalDropH = teamDragLiveRef.current?.dropHour ?? workStartH;
+                      const _finalProdOff = Math.max(0, _finalDropH - workStartH) / totalWorkH * productiveHoursPerDay;
+                      const _finalVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_finalProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
+                      const newEnd = addBD(newStart, _finalVWD - 1);
+                      // Unlocked: drop position is unclamped — sibling overlap is caught by the hasOverlap check below.
+                      let effStart = newStart;
+                      const effEnd = addBD(effStart, _finalVWD - 1);
+                      const dropPerson = lastDropPid || origPerson;
+                      const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
+                      const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+                      // Block on PTO — cannot push time off
+                      const person = people.find(x => x.id === dropPerson);
+                      if (person) {
+                        for (const to of (person.timeOff || [])) {
+                          if (to.start <= newEnd && to.end >= newStart) {
+                            showOverlapIfAny([{ person: person.name, isPto: true, panelTitle: to.reason || to.type || "PTO", start: to.start, end: to.end }]);
+                            return;
+                          }
+                        }
+                      }
+                      // Reject drop if the ghost was red (overlapping another job) — show error, no auto-push
+                      if (teamDragLiveRef.current?.hasOverlap) {
+                        const _info = teamDragLiveRef.current.overlapInfo;
+                        if (_info?.isDepSibling) {
+                          showDepSiblingError(_info);
+                          return;
+                        }
+                        const _personName = person?.name || "";
+                        showOverlapIfAny([{ person: _personName, opTitle: _info?.opTitle || "", panelTitle: _info?.panelTitle || "", jobTitle: _info?.jobTitle || "", start: _info?.start, end: _info?.end, isPto: false }]);
+                        return;
+                      }
+                      if (tMode === "month" && bar.task && !isPto) {
+                        const _gRect = gridAreaEl?.getBoundingClientRect();
+                        if (!_gRect) return;
+                        const _cxDrop = (me.clientX - _grabPx) - _gRect.left;
+                        const _dayIdx = Math.max(0, Math.min(days.length - 1, Math.floor(_cxDrop / liveCW)));
+                        let _di2 = _dayIdx;
+                        while (_di2 < days.length - 1 && !isWorkDay(days[_di2], barWorkDays)) _di2++;
+                        effStart = isWorkDay(days[_di2], barWorkDays) ? days[_di2] : null;
+                        if (!effStart) return;
+                        // Use the ghost's exact position — free movement, no auto-snap (overlap was already rejected above)
+                        effStart = teamDragLiveRef.current?.snapStart || effStart;
+                        let finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
+                        // Snap-forward (final guard, mirrors onM): if drop would leave only a sliver
+                        // on the first day before a non-working day, advance to next workday start.
+                        if (finalHour > workEndH - 2) {
+                          let _walk = addD(effStart, 1);
+                          const _max = addD(effStart, 30);
+                          if (!isWorkDay(_walk, barWorkDays)) {
+                            while (_walk <= _max && !isWorkDay(_walk, barWorkDays)) _walk = addD(_walk, 1);
+                            effStart = _walk;
+                            finalHour = workStartH;
+                          }
+                        }
+                        // ── Auto-split on drag-end for partially-worked ops ──
+                        // If the bar has worked hours and the user moved it, leave the worked portion
+                        // anchored (locked) and spawn a new op for the remaining hours at the drop.
+                        const _splitWS = deriveWorkedState(bar.task);
+                        if (_splitWS.isPartiallyWorked && effStart !== os) {
+                          // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
+                          const _calcEnd = (startDate, startHourArg, hpdAmt) => {
+                            const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
+                            const _firstAvail = workEndH - startHourArg;
+                            if (_clkH <= _firstAvail) {
+                              return { end: startDate, endHour: Math.round((startHourArg + _clkH) * 2) / 2 };
+                            }
+                            let _rem = _clkH - _firstAvail;
+                            let _day = startDate;
+                            while (_rem > totalWorkH) { _rem -= totalWorkH; _day = sAddBD(_day, 1); }
+                            return { end: sAddBD(_day, 1), endHour: Math.round((workStartH + _rem) * 2) / 2 };
+                          };
+                          const osH = bar.task.startHour ?? workStartH;
+                          const workedEnds = _calcEnd(os, osH, _splitWS.workedHpd);
+                          const remEnds   = _calcEnd(effStart, finalHour, _splitWS.remainingHpd);
+                          const newOpId = uid();
+                          setTasks(prev => {
+                            const next = prev.map(job => ({
+                              ...job,
+                              subs: (job.subs || []).map(panel => {
+                                const idx = (panel.subs || []).findIndex(o => o.id === bar.task.id);
+                                if (idx < 0) return panel;
+                                const orig = panel.subs[idx];
+                                const updatedOrig = {
+                                  ...orig,
+                                  hpd: _splitWS.workedHpd,
+                                  end: workedEnds.end,
+                                  endHour: workedEnds.endHour,
+                                  locked: true,
+                                };
+                                const { actualHours: _drop, ...origMinusActual } = orig;
+                                const newOp = {
+                                  ...origMinusActual,
+                                  id: newOpId,
+                                  hpd: _splitWS.remainingHpd,
+                                  loggedHours: 0,
+                                  locked: false,
+                                  status: "Not Started",
+                                  deps: [],
+                                  start: effStart,
+                                  end: remEnds.end,
+                                  startHour: finalHour,
+                                  endHour: remEnds.endHour,
+                                  moveLog: [],
+                                  ...(lastDropPid && lastDropPid !== origPerson ? { team: (orig.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}),
+                                };
+                                const nextSubs = [...panel.subs];
+                                nextSubs.splice(idx, 1, updatedOrig, newOp);
+                                return { ...panel, subs: nextSubs };
+                              }),
+                            }));
+                            return recalcBounds(next, loggedInUser?.name || "Split-on-drag");
+                          });
+                          setTimeout(() => doSaveRef.current(), 0);
+                          return;
+                        }
+                        const _totalClockH0 = productiveHoursPerDay > 0 ? ((bar.task.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
+                        const _firstDayAvailH0 = workEndH - finalHour;
+                        let _newEnd = effStart;
+                        if (_totalClockH0 > _firstDayAvailH0) {
+                          let _rem0 = _totalClockH0 - _firstDayAvailH0;
+                          let _day0 = effStart;
+                          while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = addBD(_day0, 1); }
+                          _newEnd = addBD(_day0, 1);
+                        }
+                        const _totalClockH = productiveHoursPerDay > 0 ? ((bar.task.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
+                        const _firstDayAvailH = workEndH - finalHour;
+                        let _rawEndH;
+                        if (_totalClockH <= _firstDayAvailH) {
+                          _rawEndH = finalHour + _totalClockH;
+                        } else {
+                          let _rem = _totalClockH - _firstDayAvailH;
+                          while (_rem > totalWorkH) _rem -= totalWorkH;
+                          _rawEndH = workStartH + _rem;
+                        }
+                        const _endHour = Math.round(_rawEndH * 2) / 2;
+                        const _mWdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
+                        const osH = bar.task.startHour ?? workStartH;
+                        const _hourDelta = finalHour - osH;
+                        const groupMonthMoves = (isGroupDrag && depsMode === "locked") ? groupMembers.map(m => {
+                          let mStartDay = addBD(m.origStart, _mWdDelta);
+                          let mStartH = m.origStartHour + _hourDelta;
+                          while (mStartH >= workEndH) { mStartH -= totalWorkH; mStartDay = addBD(mStartDay, 1); }
+                          while (mStartH < workStartH) { mStartH += totalWorkH; mStartDay = addBD(mStartDay, -1); }
+                          const mStartHour = Math.round(mStartH * 2) / 2;
+                          const mTotalClockH = productiveHoursPerDay > 0 ? ((m.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
+                          const mFirstAvailH = workEndH - mStartHour;
+                          let mNewEnd = mStartDay;
+                          if (mTotalClockH > mFirstAvailH) {
+                            let rem = mTotalClockH - mFirstAvailH;
+                            let day = mStartDay;
+                            while (rem > totalWorkH) { rem -= totalWorkH; day = addBD(day, 1); }
+                            mNewEnd = addBD(day, 1);
+                          }
+                          let mRawEndH;
+                          if (mTotalClockH <= mFirstAvailH) mRawEndH = mStartHour + mTotalClockH;
+                          else { let rem = mTotalClockH - mFirstAvailH; while (rem > totalWorkH) rem -= totalWorkH; mRawEndH = workStartH + rem; }
+                          const mEndHour = Math.round(mRawEndH * 2) / 2;
+                          return { id: m.id, newStart: mStartDay, newEnd: mNewEnd, newStartHour: mStartHour, newEndHour: mEndHour };
+                        }) : [];
+                        setTasks(prev => {
+                          const next = prev.map(job => ({
+                            ...job,
+                            subs: (job.subs || []).map(panel => ({
+                              ...panel,
+                              subs: (panel.subs || []).map(op => {
+                                if (op.id === bar.task.id) {
+                                  return { ...op, start: effStart, end: _newEnd, startHour: finalHour, endHour: _endHour, ...(lastDropPid && lastDropPid !== origPerson ? { team: (op.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}) };
+                                }
+                                const gm = groupMonthMoves.find(m => m.id === op.id);
+                                if (gm) return { ...op, start: gm.newStart, end: gm.newEnd, startHour: gm.newStartHour, endHour: gm.newEndHour };
+                                return op;
+                              })
+                            }))
+                          }));
+                          return recalcBounds(next, loggedInUser?.name || "Drag");
+                        });
+                        setTimeout(() => doSaveRef.current(), 0);
+                        return;
+                      }
+                      // Compute final positions for all group members + multi-selected bars (same delta)
+                      const wdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
+                      const groupFinalMoves = [
+                        // Locked mode: all dep-group members move by the same delta as the dragged bar
+                        // Unlocked mode: each task moves independently — only the dragged task moves
+                        ...(depsMode === "locked" ? groupMembers.map(m => {
+                          const mStart = nextBD(addD(m.origStart, finalDx));
+                          return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
+                        }) : []),
+                        ...multiDragMembers.map(m => {
+                          const mStart = addBD(m.origStart, wdDelta);
+                          const mEnd   = addBD(m.origEnd,   wdDelta);
+                          return { ...m, newStart: mStart, newEnd: mEnd };
+                        }),
+                      ];
+                      // Conflict detection — exclude all moving IDs as obstacles for each other
+                      const { pushes: mainPushes, blocked: mainBlocked, lockedOps: mainLocked } = previewPush(tasks, bar.task.id, dropPerson, effStart, effEnd, movingIds);
+                      if (mainBlocked) { showLockedError(mainLocked); return; }
+                      let allPushes = [...mainPushes];
+                      let anyBlocked = false; let allLocked = [];
+                      for (const gm of groupFinalMoves) {
+                        for (const personId of gm.personIds) {
+                          const { pushes: gmPushes, blocked: gmBlocked, lockedOps: gmLocked } = previewPush(tasks, gm.id, personId, gm.newStart, gm.newEnd, movingIds);
+                          if (gmBlocked) { anyBlocked = true; allLocked = [...allLocked, ...gmLocked]; break; }
+                          gmPushes.forEach(push => { if (!allPushes.find(x => x.opId === push.opId)) allPushes.push(push); });
+                        }
+                        if (anyBlocked) break;
+                      }
+                      if (anyBlocked) { showLockedError(allLocked); return; }
+                      const logBase = { date: TD, movedBy: movedByName, reason: "Moved in schedule" };
+                      const allMoves = [
+                        { id: bar.task.id, newStart: effStart, newEnd: effEnd, logEntry: { ...logBase, fromStart: os, fromEnd: oe, toStart: effStart, toEnd: effEnd } },
+                        ...groupFinalMoves.map(m => ({ id: m.id, newStart: m.newStart, newEnd: m.newEnd, logEntry: { ...logBase, fromStart: m.origStart, fromEnd: m.origEnd, toStart: m.newStart, toEnd: m.newEnd } }))
+                      ];
+                      const withMove = buildGroupMove(tasks, allMoves);
+                      // Expand viewport to include all newly placed bars
+                      const allNewStarts = [effStart, ...groupFinalMoves.map(m => m.newStart)];
+                      const minNewStart = allNewStarts.reduce((a, b) => a < b ? a : b, effStart);
+                      const applyReassign = (snapshot) => {
+                        const allReassignments = [
+                          { taskId: bar.task.id, pid: taskPid, fromPerson: origPerson },
+                          ...multiDragMembers.map(m => ({ taskId: m.id, pid: m.pid, fromPerson: m.origPerson }))
+                        ];
+                        return snapshot.map(t => {
+                          let updated = { ...t };
+                          allReassignments.forEach(({ taskId, pid, fromPerson }) => {
+                            if (pid) {
+                              const panelIdx = (updated.subs || []).findIndex(s => s.id === pid);
+                              if (panelIdx >= 0) {
+                                const newSubs = [...(updated.subs || [])];
+                                newSubs[panelIdx] = {
+                                  ...newSubs[panelIdx],
+                                  subs: (newSubs[panelIdx].subs || []).map(op =>
+                                    op.id === taskId
+                                      ? { ...op, team: (op.team || []).map(x => x === fromPerson ? lastDropPid : x) }
+                                      : op
+                                  )
+                                };
+                                updated = { ...updated, subs: newSubs };
+                              }
+                              if (updated.id === pid) {
+                                updated = {
+                                  ...updated,
+                                  subs: (updated.subs || []).map(s =>
+                                    s.id === taskId
+                                      ? { ...s, team: (s.team || []).map(x => x === fromPerson ? lastDropPid : x) }
+                                      : s
+                                  )
+                                };
+                              }
+                            } else if (updated.id === taskId) {
+                              updated = {
+                                ...updated,
+                                team: (updated.team || []).map(x => x === fromPerson ? lastDropPid : x)
+                              };
+                            }
+                          });
+                          return updated;
+                        });
+                      };
+                      const effectiveReassign = isReassign && multiDragMembers.length === 0;
+                      const commit = (snapshot) => {
+                        setTStart(p => minNewStart < p ? minNewStart : p);
+                        setTEnd(p => newEnd > p ? newEnd : p);
+                        // Apply member date updates directly from groupFinalMoves so they are
+                        // guaranteed correct regardless of whether buildGroupMove found them
+                        let base = snapshot;
+                        if (multiDragMembers.length > 0) {
+                          const mm = new Map(
+                            groupFinalMoves
+                              .filter(gm => multiDragMembers.some(m => m.id === gm.id))
+                              .map(gm => [gm.id, gm])
+                          );
+                          if (mm.size > 0) {
+                            base = snapshot.map(job => {
+                              let jobChanged = false;
+                              const newSubs = (job.subs || []).map(panel => {
+                                let panelChanged = false;
+                                let p = panel;
+                                if (mm.has(panel.id)) {
+                                  const mv = mm.get(panel.id);
+                                  p = { ...p, start: mv.newStart, end: mv.newEnd };
+                                  panelChanged = true;
+                                }
+                                const newOps = (p.subs || []).map(op => {
+                                  if (!mm.has(op.id)) return op;
+                                  panelChanged = true;
+                                  return { ...op, start: mm.get(op.id).newStart, end: mm.get(op.id).newEnd };
+                                });
+                                if (panelChanged) { jobChanged = true; return { ...p, subs: newOps }; }
+                                return panel;
+                              });
+                              return jobChanged ? { ...job, subs: newSubs } : job;
+                            });
+                          }
+                        }
+                        setTasks(effectiveReassign && multiDragMembers.length === 0 ? applyReassign(base) : base);
+                      };
+                      if (allPushes.length > 0) {
+                        const withPushes = applyPushes(withMove, allPushes, movedByName);
+                        setConfirmPush({
+                          pushes: allPushes, people,
+                          onConfirm:       () => { commit(withPushes); setConfirmPush(null); },
+                          onConfirmSingle: () => { commit(withMove);   setConfirmPush(null); },
+                          onCancel:        () => { setConfirmPush(null); },
+                        });
+                        return;
+                      }
+                      commit(withMove);
+                    };
+                    document.addEventListener("mousemove", onM);
+                    document.addEventListener("mouseup", onU);
+                    autoScrollRaf = requestAnimationFrame(autoScrollStep);
+                  };
+                  const handleTeamResize = (e, side) => {
+                    if (!can("moveJobs")) return;
+                    if (isPto) {
+                      e.preventDefault(); e.stopPropagation();
+                      const sx = e.clientX;
+                      const pid = bar.personId, idx = bar.toIdx;
+                      const pp = people.find(x => x.id === pid);
+                      if (!pp) return;
+                      const pto = (pp.timeOff || [])[idx];
+                      if (!pto) return;
+                      const os = pto.start, oe = pto.end; let lastDx = 0;
+                      const onM = me => {
+                        const rawDx2 = (me.clientX - sx) / cW;
+                        const dx = rawDx2 >= 0 ? Math.floor(rawDx2) : Math.ceil(rawDx2);
+                        if (dx === lastDx) return; lastDx = dx;
+                        if (side === "left") { const ns = addD(os, dx); if (ns <= oe) updTimeOff(pid, idx, { start: ns }); }
+                        else { const ne = addD(oe, dx); if (ne >= os) updTimeOff(pid, idx, { end: ne }); }
+                      };
+                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                      document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                      return;
+                    }
+                    if (!bar.task) return;
+                    e.preventDefault(); e.stopPropagation();
+                    isDraggingRef.current = true;
+                    const sx = e.clientX;
+                    const os = bar.task.start, oe = bar.task.end;
+                    const osH = bar.task.startHour ?? workStartH;
+                    const _origHpd = bar.task.hpd || 0;
+                    // Working days are read from current org settings (single source of truth).
+                    const barWorkDays = orgSettings.workDays;
+                    const barBDOpts = { workDays: barWorkDays, holidays: orgSettings.holidays };
+                    // Derive original endHour from stored value or from start/hpd
+                    let oeH;
+                    if (bar.task.endHour != null) {
+                      oeH = bar.task.endHour;
+                    } else {
+                      const _origClockH = productiveHoursPerDay > 0 ? (_origHpd / productiveHoursPerDay) * totalWorkH : 0;
+                      if (os === oe) {
+                        oeH = osH + _origClockH;
+                      } else {
+                        const _firstAvail = workEndH - osH;
+                        if (_origClockH <= _firstAvail) { oeH = osH + _origClockH; }
+                        else {
+                          let _rem = _origClockH - _firstAvail;
+                          while (_rem > totalWorkH) _rem -= totalWorkH;
+                          oeH = workStartH + _rem;
+                        }
+                      }
+                    }
+                    oeH = Math.round(oeH * 2) / 2;
+                    const taskPid2 = bar.task.pid || null;
+                    const pending = { start: os, end: oe, startHour: osH, endHour: oeH, hpd: _origHpd };
+                    let lastDx = 0;
+                    // Compute total productive hpd from a (sDay, sH) → (eDay, eH) span (clock-hours scaled to productive)
+                    const _computeHpd = (sDay, sH, eDay, eH) => {
+                      let clockH;
+                      if (sDay === eDay) {
+                        clockH = Math.max(0.5, eH - sH);
+                      } else {
+                        const n = diffBD(sDay, eDay, barBDOpts) + 1;
+                        clockH = (workEndH - sH) + Math.max(0, n - 2) * totalWorkH + (eH - workStartH);
+                      }
+                      return Math.max(0.5, clockH / totalWorkH * productiveHoursPerDay);
+                    };
+                    // Find the grid area for month-mode (date, hour) positioning — bar.parentElement is the row's day-grid
+                    const _barEl = e.currentTarget.parentElement;
+                    const _gridAreaEl = _barEl?.parentElement || null;
+                    const onM = me => {
+                      if (tMode === "month" && _gridAreaEl) {
+                        const rect = _gridAreaEl.getBoundingClientRect();
+                        const cxRel = me.clientX - rect.left;
+                        const dayW = rect.width / Math.max(1, days.length);
+                        const rawDayIdx = cxRel / dayW;
+                        const _origDi = Math.max(0, Math.min(days.length - 1, Math.floor(rawDayIdx)));
+                        // Walk forward through non-working days (same as move ghost) — keeps clock-time continuous across gaps
+                        let dIdx = _origDi;
+                        while (dIdx < days.length - 1 && !isWorkDay(days[dIdx], barWorkDays)) dIdx++;
+                        const targetDay = days[dIdx];
+                        if (!targetDay || !isWorkDay(targetDay, barWorkDays)) return;
+                        // On a workday cursor, use the column fraction; on a non-workday cursor, snap to workStartH of the resolved workday.
+                        // Left handle caps startHour at workEndH - 0.5 — startHour === workEndH would put the bar's first segment
+                        // at the next column's left edge (visual overflow into the non-workday gap).
+                        const _maxH = side === "left" ? workEndH - 0.5 : workEndH;
+                        let clampedHour;
+                        if (isWorkDay(days[_origDi], barWorkDays)) {
+                          const colFrac = Math.min(0.9999, Math.max(0, rawDayIdx - _origDi));
+                          const rawHour = workStartH + colFrac * totalWorkH;
+                          const snapHour = Math.round(rawHour * 2) / 2;
+                          clampedHour = Math.max(workStartH, Math.min(_maxH, snapHour));
+                        } else {
+                          clampedHour = workStartH;
+                        }
+                        if (side === "left") {
+                          let _finalDay = targetDay, _finalHour = clampedHour;
+                          // Weekend-boundary case only: if cursor lands in the last hour of a workday AND the next day is a weekend,
+                          // the first segment would be a sub-hour sliver visually adjacent to the weekend gap (where overflow is most
+                          // visible). Advance the start to the workday after the weekend instead — keeps the bar's first segment from
+                          // ever needing to be that narrow against a visible day boundary.
+                          const _nextDayIdx = dIdx + 1;
+                          const _nextDay = _nextDayIdx < days.length ? days[_nextDayIdx] : null;
+                          if (_finalHour > workEndH - 1 && _nextDay && !isWorkDay(_nextDay, barWorkDays)) {
+                            let _ni = _nextDayIdx;
+                            while (_ni < days.length && !isWorkDay(days[_ni], barWorkDays)) _ni++;
+                            if (_ni < days.length && isWorkDay(days[_ni], barWorkDays) && days[_ni] <= oe) {
+                              _finalDay = days[_ni];
+                              _finalHour = workStartH;
+                            }
+                          }
+                          if (_finalDay > oe) return;
+                          if (_finalDay === oe && _finalHour >= oeH) return;
+                          if (_finalDay === pending.start && _finalHour === pending.startHour) return;
+                          pending.start = _finalDay;
+                          pending.startHour = _finalHour;
+                          pending.hpd = _computeHpd(_finalDay, _finalHour, oe, oeH);
+                        } else {
+                          if (targetDay < os) return;
+                          if (targetDay === os && clampedHour <= osH) return;
+                          if (targetDay === pending.end && clampedHour === pending.endHour) return;
+                          pending.end = targetDay;
+                          pending.endHour = clampedHour;
+                          pending.hpd = _computeHpd(os, osH, targetDay, clampedHour);
+                        }
+                        updTask(bar.task.id, { start: pending.start, end: pending.end, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd }, taskPid2);
+                        // Floating tooltip showing the edge being dragged
+                        const _tipDay = side === "left" ? pending.start : pending.end;
+                        const _tipHour = side === "left" ? pending.startHour : pending.endHour;
+                        const _tipH = Math.floor(_tipHour);
+                        const _tipM = Math.round((_tipHour - _tipH) * 60);
+                        const _tipTime = `${_tipH > 12 ? _tipH - 12 : _tipH === 0 ? 12 : _tipH}:${String(_tipM).padStart(2, "0")} ${_tipH >= 12 ? "PM" : "AM"}`;
+                        const _tipDate = new Date(_tipDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                        setResizeTooltip({ x: me.clientX, y: me.clientY, time: _tipTime, date: _tipDate, side });
+                      } else {
+                        // Non-month mode: day-level resize
+                        const rawDx3 = (me.clientX - sx) / cW;
+                        const dx = rawDx3 >= 0 ? Math.floor(rawDx3) : Math.ceil(rawDx3);
+                        if (dx === lastDx) return; lastDx = dx;
+                        if (side === "left") {
+                          const ns = addD(os, dx);
+                          if (ns <= oe) { pending.start = ns; updTask(bar.task.id, { start: ns }, taskPid2); }
+                        } else {
+                          const ne = addD(oe, dx);
+                          if (ne >= os) { pending.end = ne; updTask(bar.task.id, { end: ne }, taskPid2); }
+                        }
+                        const _tipDay = side === "left" ? pending.start : pending.end;
+                        const _tipDate = new Date(_tipDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                        setResizeTooltip({ x: me.clientX, y: me.clientY, time: "", date: _tipDate, side });
+                      }
+                    };
+                    const onU = () => {
+                      document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU);
+                      isDraggingRef.current = false;
+                      setResizeTooltip(null);
+                      const personId = bar.task.team[0];
+                      if (!personId) return;
+                      const isMonth = tMode === "month";
+                      const newStart = isMonth ? pending.start : (side === "left" ? nextBD(addD(os, lastDx)) : os);
+                      const newEnd = isMonth ? pending.end : (side === "right" ? nextBD(addD(oe, lastDx)) : oe);
+                      const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+                      setTasks(prev => {
+                        let reverted = prev.map(t => {
+                          if (taskPid2) {
+                            const pi2 = (t.subs || []).findIndex(s => s.id === taskPid2);
+                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === bar.task.id ? { ...op, start: os, end: oe, startHour: osH, endHour: bar.task.endHour ?? null, hpd: _origHpd } : op) }; return { ...t, subs: ns }; }
+                          }
+                          return t;
+                        });
+                        let isLocked = false;
+                        reverted.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && isOpLocked(op)) isLocked = true; })));
+                        if (isLocked) { setTimeout(() => showLockedError([{ opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]), 0); return reverted; }
+                        const applyResize = (tl) => tl.map(t => {
+                          if (taskPid2) {
+                            const pi2 = (t.subs || []).findIndex(s => s.id === taskPid2);
+                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => {
+                              if (op.id === bar.task.id) {
+                                const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual resize" };
+                                return isMonth
+                                  ? { ...op, start: newStart, end: newEnd, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd, moveLog: [...(op.moveLog || []), logEntry] }
+                                  : { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] };
+                              }
+                              return op;
+                            }) }; return { ...t, subs: ns }; }
+                          }
+                          return t;
+                        });
+                        const { pushes, blocked, lockedOps } = previewPush(reverted, bar.task.id, personId, newStart, newEnd);
+                        if (blocked) { setTimeout(() => showLockedError(lockedOps), 0); return reverted; }
+                        if (pushes.length > 0) {
+                          const revertedSnapshot = JSON.parse(JSON.stringify(reverted));
+                          const finalState = applyPushes(applyResize(reverted), pushes, movedByName);
+                          const finalStateSingle = recalcBounds(applyResize(reverted), movedByName);
+                          setTimeout(() => {
+                            setConfirmPush({
+                              pushes, people,
+                              onConfirm: () => { setTasks(finalState); setConfirmPush(null); },
+                              onConfirmSingle: () => { setTasks(finalStateSingle); setConfirmPush(null); },
+                              onCancel: () => { setTasks(revertedSnapshot); setConfirmPush(null); },
+                            });
+                          }, 0);
+                          return reverted;
+                        }
+                        return recalcBounds(applyResize(reverted), movedByName);
+                      });
+                    };
+                    document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+                  };
+                  const ws = !isPto ? deriveWorkedState(bar.task) : null;
+                  const barLocked = !isPto && bar.task && ws && ws.displayLocked;
+                  // Worked-overlay budget: percent-of-timeline width covered by the striped portion.
+                  // Distributes across multi-segment bars in lockstep with the bar's own width budget.
+                  const _workedCellsTotal = ws ? ws.workedFraction * _wBudget : 0;
+                  let _workedRemainingBudget = _workedCellsTotal;
+                  const hasMoveLog = !isPto && bar.task && (bar.task.moveLog || []).length > 0;
+                  const bc = bar.color;
+                  const iconColor = isLight(bc) ? '#000000' : '#ffffff';
+                  const isHighlighted = !isPto && bar.task?.id === scheduleHighlightId;
+                  const isDraggingThis = teamDragInfo?.barId === bar.id;
+                  const isMultiDragging = !isDraggingThis && !!(teamDragInfo?.multiDragIds?.has(bar.id));
+                  const dragTx = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateX || 0) : 0;
+                  const dragTy = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateY || 0) : 0;
+                  const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
+                  const _isDragActive = (isDraggingThis || isMultiDragging) && (Math.abs(teamDragInfo?.translateX || 0) > 4 || Math.abs(teamDragInfo?.translateY || 0) > 4);
+                  const barOpacity = _isDragActive ? 0 : barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
+                  const isBarSelected = barSelectMode && selBars.has(bar.id);
+                  const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
+                  const barKey = bar.id + "_0_" + bar.start;
+                  const _barEndHour = bar.task?.endHour != null ? bar.task.endHour : (() => {
+                    const _totalClockH = productiveHoursPerDay > 0 ? (_barHpd / productiveHoursPerDay) * totalWorkH : 0;
+                    const _firstDayAvailH = workEndH - _barStartH;
+                    if (_totalClockH <= _firstDayAvailH) return Math.round((_barStartH + _totalClockH) * 2) / 2;
+                    let _rem = _totalClockH - _firstDayAvailH;
+                    while (_rem > totalWorkH) _rem -= totalWorkH;
+                    return Math.round((workStartH + _rem) * 2) / 2;
+                  })();
+                  let _wRemainingBudget = Math.max(0, _wBudget - _wFirst);
+                  return [<div key={barKey}
+                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
+                    onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                    onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
+                    {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
+                      const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
+                      _workedRemainingBudget = Math.max(0, _workedRemainingBudget - _segWorked);
+                      const pctOfDiv = _wFirst > 0 ? (_segWorked / _wFirst) * 100 : 0;
+                      if (pctOfDiv <= 0) return null;
+                      return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: T.radiusXs, borderBottomLeftRadius: T.radiusXs, zIndex: 2 }} />;
+                    })()}
+                    {can("moveJobs") && !barLocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {barSegs.length === 1 && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                    {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
+                    {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
+                    {hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
+                    <span style={{ fontSize: 11, color: isPto ? bar.color : (isLight(bc) ? '#000000' : '#ffffff'), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
+                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
+                  </div>,
+                  ...barSegs.slice(1).map((seg, si) => {
+                    const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
+                    const isLastSeg = si === barSegs.length - 2;
+                    const _segCalDays = diffD(seg.start, seg.end) + 1;
+                    const _segAvailW = _segCalDays / nDays * 100;
+                    // Last-segment width must include any full workdays preceding the end day in the segment
+                    // (weekdaySegments groups contiguous workdays into one range, e.g., Mon-Tue is one segment).
+                    const _tailWNum = Math.max(0, isLastSeg ? ((_segCalDays - 1) + (_barEndHour - workStartH) / totalWorkH) * _oneDayPct : Math.min(_wRemainingBudget, _segAvailW));
+                    const tailW = _tailWNum + "%";
+                    _wRemainingBudget = Math.max(0, _wRemainingBudget - _tailWNum);
+                    const isPto2 = bar.type === "pto";
+                    const bc2 = bar.color;
+                    return <div key={bar.id + "_t" + si + "_" + seg.start}
+                      onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
+                      onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, ${bc2}33, ${bc2}33 4px, ${bc2}18 4px, ${bc2}18 8px)` : bc2, border: isBarSelected ? `2px solid #fff` : `2px dashed ${isPto2 ? bc2 + "88" : bc2 + "cc"}`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
+                      {!isPto2 && ws && _workedRemainingBudget > 0 && _tailWNum > 0 && (() => {
+                        const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _tailWNum));
+                        _workedRemainingBudget = Math.max(0, _workedRemainingBudget - _segWorked);
+                        const pctOfDiv = _tailWNum > 0 ? (_segWorked / _tailWNum) * 100 : 0;
+                        if (pctOfDiv <= 0) return null;
+                        return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />;
+                      })()}
+                      {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    </div>;
+                  })];
+                })}
+              </div>
+            </div>;
+          })}
+          {/* Today line — faint */}
+          {TD >= tStart && TD <= tEnd && <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(diffD(tStart, TD) + 0.5) / days.length})`, width: 1, background: T.accent + "33", zIndex: 12, pointerEvents: "none" }} />}
+        </div>
+      </div>
+      </div>}
+      {tMode !== "day" && (() => {
+        const scrStart = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()-6); return toDS(new Date(d.getFullYear(),d.getMonth(),1)); })();
+        const scrEnd   = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()+12); return toDS(new Date(d.getFullYear(),d.getMonth()+1,0)); })();
+        const scrDays  = diffD(scrStart, scrEnd) + 1;
+        const thumbL   = Math.max(0, Math.min(98, (diffD(scrStart, tStart) / scrDays) * 100));
+        const thumbW   = Math.max(2, Math.min(100 - thumbL, ((diffD(tStart, tEnd) + 1) / scrDays) * 100));
+        const months   = [];
+        let md = new Date(scrStart+"T12:00:00");
+        while (toDS(md) <= scrEnd) {
+          months.push({ pct: (diffD(scrStart, toDS(new Date(md.getFullYear(),md.getMonth(),1))) / scrDays)*100, label: md.toLocaleDateString("en-US",{month:"short"}), isJan: md.getMonth()===0, year: md.getFullYear() });
+          md.setMonth(md.getMonth()+1);
+        }
+        const handleThumbDrag = e => {
+          e.stopPropagation();
+          const trackRect = e.currentTarget.parentElement.getBoundingClientRect();
+          const startX = e.clientX, startTS = tStart, startTE = tEnd;
+          const span = diffD(tStart, tEnd);
+          const pxPerDay = trackRect.width / scrDays;
+          const sty = document.createElement("style"); sty.textContent="*{cursor:grabbing!important;user-select:none!important}"; document.head.appendChild(sty);
+          const onM = me => { const delta=Math.round((me.clientX-startX)/pxPerDay); let ns=addD(startTS,delta),ne=addD(startTE,delta); if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}setTStart(ns);setTEnd(ne); };
+          const onU = () => { document.head.removeChild(sty); document.removeEventListener("mousemove",onM); document.removeEventListener("mouseup",onU); };
+          document.addEventListener("mousemove",onM); document.addEventListener("mouseup",onU);
+        };
+        const handleTrackClick = e => {
+          if (e.target !== e.currentTarget) return;
+          const rect = e.currentTarget.getBoundingClientRect();
+          const pct = (e.clientX - rect.left) / rect.width;
+          const target = addD(scrStart, Math.round(pct * scrDays));
+          const span = diffD(tStart, tEnd), half = Math.floor(span/2);
+          let ns=addD(target,-half), ne=addD(target,span-half);
+          if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}
+          setTStart(ns); setTEnd(ne);
+        };
+        return (
+          <div style={{ marginTop: 6, userSelect: "none" }}>
+            <div style={{ position: "relative", height: 30, cursor: "pointer" }} onClick={handleTrackClick}>
+              {months.map((m,i) => <div key={i} style={{ position:"absolute", bottom:0, left:`${m.pct}%`, transform:"translateX(-50%)", fontSize:9, color:T.textDim, fontWeight:m.isJan?700:400, lineHeight:1, whiteSpace:"nowrap", pointerEvents:"none", textAlign:"center" }}>{m.label}{m.isJan && <span style={{display:"block",fontSize:8,opacity:0.6}}>{m.year}</span>}</div>)}
+              <div style={{ position:"absolute", left:0, right:0, top:"40%", height:6, transform:"translateY(-50%)", background:T.bg, borderRadius:3, border:`1px solid ${T.border}` }} />
+              <div style={{ position:"absolute", top:"40%", left:`${thumbL}%`, width:`${thumbW}%`, height:10, transform:"translateY(-50%)", background:T.accent+"88", borderRadius:4, border:`1.5px solid ${T.accent}`, cursor:"grab", minWidth:8 }}
+                onMouseDown={handleThumbDrag} onClick={e=>e.stopPropagation()}
+                onMouseEnter={e=>e.currentTarget.style.background=T.accent+"cc"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"88"} />
+            </div>
+          </div>
+        );
+      })()}
+      {/* ── Daily Schedule Status ── */}
+      {people.length > 0 && (() => {
+        const getStatusBars = (pid) => {
+          const todayBars = [], futureBars = [];
+          tasks.forEach(job => {
+            if ((job.jobType || "panel") === "panel") {
+              (job.subs || []).forEach(panel => {
+                (panel.subs || []).forEach(op => {
+                  if (!(op.team || []).includes(pid)) return;
+                  if (op.status === "Finished") return;
+                  if (!op.start || !op.end) return;
+                  const tc = panel.color || "#94a3b8";
+                  const bar = { id: op.id, start: op.start, end: op.end, color: tc, task: { ...op, color: tc, jobTitle: job.title, panelTitle: panel.title, level: 2 } };
+                  if (op.start <= TD && op.end >= TD) todayBars.push(bar);
+                  else if (op.start > TD) futureBars.push(bar);
+                });
+                if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
+                  const tc = panel.color || "#94a3b8";
+                  const bar = { id: panel.id, start: panel.start, end: panel.end, color: tc, task: { ...panel, color: tc, jobTitle: job.title, panelTitle: null, level: 1 } };
+                  if (panel.start <= TD && panel.end >= TD) todayBars.push(bar);
+                  else if (panel.start > TD) futureBars.push(bar);
+                }
+              });
+            } else {
+              (job.subs || []).forEach(sub => {
+                if (!(sub.team || []).includes(pid)) return;
+                if (sub.status === "Finished") return;
+                if (!sub.start || !sub.end) return;
+                const tc = sub.color || "#94a3b8";
+                const bar = { id: sub.id, start: sub.start, end: sub.end, color: tc, task: { ...sub, color: tc, jobTitle: job.title, panelTitle: null, level: 1 } };
+                if (sub.start <= TD && sub.end >= TD) todayBars.push(bar);
+                else if (sub.start > TD) futureBars.push(bar);
+              });
+            }
+          });
+          futureBars.sort((a, b) => a.start.localeCompare(b.start));
+          return { todayBars, nextBar: futureBars[0] || null };
+        };
+        const workersToday = people
+          .map(p => { const { todayBars, nextBar } = getStatusBars(p.id); return todayBars.length > 0 ? { person: p, todayBars, nextBar } : null; })
+          .filter(Boolean);
+        if (workersToday.length === 0) return null;
+        const navToWeek = (dateStr) => {
+          const d = new Date(dateStr + "T12:00:00");
+          const dow = d.getDay();
+          const mon = addD(dateStr, -(dow === 0 ? 6 : dow - 1));
+          setTMode("week"); setTStart(mon); setTEnd(addD(mon, 6));
+        };
+        const fmRange = (s, e) => {
+          const sd = new Date(s + "T12:00:00"), ed = new Date(e + "T12:00:00");
+          if (s === e) return sd.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+          return `${sd.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${ed.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+        };
+        return (
+          <div style={{ background: T.bg, padding: "28px 20px 18px" }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Schedule Status</div>
+            <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
+              {workersToday.map(({ person, todayBars, nextBar }) => {
+                const isActive = !!person.activeJobClock;
+                const initials = person.name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
+                const todayBar = todayBars[0];
+                const totalHours = todayBar.task?.hpd || productiveHoursPerDay;
+                const jcLive = person.activeJobClock;
+                const liveElapsed = (jcLive?.clockIn && jcLive?.opId === todayBar.task?.id)
+                  ? Math.max(0, (Date.now() - new Date(jcLive.clockIn).getTime()) / 3600000 - (jcLive.totalPausedMs || 0) / 3600000)
+                  : 0;
+                const loggedHours = (todayBar.task?.loggedHours || 0) + liveElapsed;
+                const progressPct = Math.min(100, totalHours > 0 ? (loggedHours / totalHours) * 100 : 0);
                 return (
-                  <div key={p.id} style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 140px", gap: 12, alignItems: "center", padding: "4px 0" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: p.color || T.accent, color: isLight(p.color || T.accent) ? "#000" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
-                      <span style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                  <div key={person.id} style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                      <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: person.color || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: isLight(person.color || T.accent) ? "#000" : "#fff" }}>{initials}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
+                        <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.department || ""}</div>
+                      </div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: isActive ? "#10b981" : T.textDim, flexShrink: 0, paddingTop: 2, letterSpacing: "0.03em" }}>{isActive ? "Active" : "Not Active"}</div>
                     </div>
-                    <div style={{ position: "relative", height: 20, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${schedPct}%`, background: T.textDim + "55", transition: "width 0.3s" }} />
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${logPct}%`, background: over ? "#f59e0b" : T.accent, transition: "width 0.3s" }} />
+                    <div
+                      onClick={() => navToWeek(TD)}
+                      onMouseEnter={e => e.currentTarget.style.borderColor = todayBar.color + "99"}
+                      onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
+                      style={{ cursor: "pointer", padding: "10px 10px 8px", borderRadius: T.radiusSm, background: T.surface, border: `1px solid ${T.border}`, transition: "border-color 0.15s" }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: todayBar.color, flexShrink: 0 }} />
+                        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{todayBar.task?.jobTitle || "—"}</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6, paddingLeft: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minHeight: 16 }}>
+                        {todayBar.task?.panelTitle ? `${todayBar.task.panelTitle}${todayBar.task?.title ? " · " + todayBar.task.title : ""}` : (todayBar.task?.title || "")}
+                      </div>
+                      <div style={{ height: 3, borderRadius: 2, background: T.border, overflow: "hidden", marginBottom: 4 }}>
+                        <div style={{ height: "100%", width: `${progressPct}%`, background: todayBar.color || T.accent, borderRadius: 2 }} />
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.textDim }}>
+                        <span>{loggedHours.toFixed(1)}h logged</span>
+                        <span>{totalHours.toFixed(1)}h sched</span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textAlign: "right" }}><span style={{ color: over ? "#f59e0b" : T.accent, fontWeight: 700 }}>{logged}h</span> <span style={{ opacity: 0.6 }}>/ {scheduled}h</span></div>
+                    {nextBar && (
+                      <div
+                        onClick={() => navToWeek(nextBar.start)}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = nextBar.color + "99"}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
+                        style={{ cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusSm, background: T.surface, border: `1px solid ${T.border}`, transition: "border-color 0.15s" }}
+                      >
+                        <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 3 }}>Next Task</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextBar.task?.jobTitle || "—"}</div>
+                        {nextBar.task?.panelTitle && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextBar.task.panelTitle}</div>}
+                        <div style={{ fontSize: 10, color: T.textDim, marginTop: 2, fontFamily: T.mono }}>{fmRange(nextBar.start, nextBar.end)}</div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
-          )}
-        </Card>
-
-        <Card delay={100}>
-          <h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Department Breakdown</h4>
-          {deptList.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No scheduled hours in this period.</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
-              <svg viewBox="0 0 180 180" style={{ width: 180, height: 180, display: "block" }}>
-                {donutSlices.map(s => <path key={s.dept} d={s.path} fill={s.color}><title>{s.dept}: {Math.round(s.h)}h</title></path>)}
-                <text x="90" y="86" textAnchor="middle" fontSize="20" fontWeight="800" fill={T.text} fontFamily={T.mono}>{Math.round(deptTotal)}</text>
-                <text x="90" y="102" textAnchor="middle" fontSize="9" fill={T.textDim} fontFamily={T.font} letterSpacing="0.08em">TOTAL HOURS</text>
-              </svg>
-              <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 5 }}>
-                {donutSlices.map(s => (
-                  <div key={s.dept} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
-                    <span style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.dept}</span>
-                    <span style={{ color: T.textDim, fontFamily: T.mono }}>{Math.round(s.h)}h</span>
-                    <span style={{ color: T.textDim, fontFamily: T.mono, width: 36, textAlign: "right" }}>{Math.round((s.h / deptTotal) * 100)}%</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </Card>
-      </div>
-
-      {/* Existing cards — kept below */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
-        <Card delay={150}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 52, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 13, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} jobs</div></Card>
-        <Card delay={200}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Status</h4>{bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: STA_C[s.n] }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{s.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{s.c}</span></div>)}</Card>
-        <Card delay={250}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Priority</h4>{byPr.map(p => <div key={p.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: PRI_C[p.n] }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{p.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{p.c}</span></div>)}</Card>
-      </div>
-      <Card delay={300}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Workload Today</h4><div style={{ display: "flex", alignItems: "end", gap: 8, height: 160, padding: "0 8px" }}>{tl.map(t => <div key={t.n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}><span style={{ fontSize: 11, fontFamily: T.mono, color: t.h > t.cap ? T.danger : T.textSec, fontWeight: 600 }}>{t.h.toFixed(1)}</span><div style={{ width: "100%", background: T.bg, borderRadius: 4, position: "relative", height: Math.max((Math.max(t.h, t.cap) / mx) * 110, 6) }}><div style={{ position: "absolute", bottom: 0, width: "100%", borderRadius: 4, background: t.h > t.cap ? T.danger : t.h / t.cap > 0.7 ? "#f59e0b" : T.accent, height: Math.max((t.h / mx) * 110, 3) }} /></div><span style={{ fontSize: 10, color: T.textDim, textAlign: "center", fontWeight: 500 }}>{t.n}</span></div>)}</div></Card>
+          </div>
+        );
+      })()}
+    {teamDragInfo && teamDragInfo.taskTitle && (() => {
+      let label = teamDragInfo.taskTitle;
+      if (tMode === "month" && teamDragInfo.dropHour != null) {
+        const _sHRounded = Math.round(teamDragInfo.dropHour * 2) / 2;
+        const sH = Math.floor(_sHRounded); const sM = (_sHRounded % 1) >= 0.5 ? 30 : 0;
+        const sAmpm = sH >= 12 ? "PM" : "AM"; const sH12 = sH > 12 ? sH - 12 : sH === 0 ? 12 : sH;
+        const timeStr = `${sH12}:${String(sM).padStart(2, "0")} ${sAmpm}`;
+        const startLabel = teamDragInfo.snapStart ? new Date(teamDragInfo.snapStart + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "";
+        const _ttBarHpd = teamDragInfo.barHpd || 0;
+        const _ttTotalClockH = productiveHoursPerDay > 0 ? (_ttBarHpd / productiveHoursPerDay) * totalWorkH : 0;
+        const _ttFirstDayAvailH = workEndH - teamDragInfo.dropHour;
+        let endLabel, endTimeStr;
+        if (_ttTotalClockH <= _ttFirstDayAvailH) {
+          endLabel = startLabel;
+          const _rawEndH = Math.round((teamDragInfo.dropHour + _ttTotalClockH) * 2) / 2;
+          const eH = Math.floor(_rawEndH); const eM = (_rawEndH % 1) >= 0.5 ? 30 : 0;
+          const eAmpm = eH >= 12 ? "PM" : "AM"; const eH12 = eH > 12 ? eH - 12 : eH === 0 ? 12 : eH;
+          endTimeStr = `${eH12}:${String(eM).padStart(2, "0")} ${eAmpm}`;
+        } else {
+          let _rem = _ttTotalClockH - _ttFirstDayAvailH;
+          let _daysForward = 1;
+          while (_rem > totalWorkH) { _rem -= totalWorkH; _daysForward++; }
+          const _endDate = teamDragInfo.snapStart ? addBD(teamDragInfo.snapStart, _daysForward) : "";
+          endLabel = _endDate ? new Date(_endDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : startLabel;
+          const _rawEndH = Math.round((workStartH + _rem) * 2) / 2;
+          const eH = Math.floor(_rawEndH); const eM = (_rawEndH % 1) >= 0.5 ? 30 : 0;
+          const eAmpm = eH >= 12 ? "PM" : "AM"; const eH12 = eH > 12 ? eH - 12 : eH === 0 ? 12 : eH;
+          endTimeStr = `${eH12}:${String(eM).padStart(2, "0")} ${eAmpm}`;
+        }
+        label = `${startLabel}  ·  ${timeStr}  →  ${endLabel}  ·  ${endTimeStr}`;
+      }
+      return <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 8, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{label}</div>;
+    })()}
     </div>;
   };
+  const renderAnalytics = () => { const tot = tasks.length; const bySt = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length })); const byPr = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length })); const cr = tot ? Math.round(tasks.filter(t => t.status === "Finished").length / tot * 100) : 0; const tl = people.map(p => ({ n: p.name.split(" ")[0], h: bookedHrs(p.id, TD), cap: p.cap })).sort((a, b) => b.h - a.h).slice(0, 12); const mx = Math.max(...tl.map(t => Math.max(t.h, t.cap)), 1);
+    return <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 20 }}>
+      <Card delay={0}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 64, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 15, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} jobs</div></Card>
+      <Card delay={50}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Status</h4>{bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}><div style={{ width: 12, height: 12, borderRadius: 6, background: STA_C[s.n] }} /><span style={{ flex: 1, fontSize: 15, color: T.textSec }}>{s.n}</span><span style={{ fontSize: 18, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{s.c}</span></div>)}</Card>
+      <Card delay={100}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Priority</h4>{byPr.map(p => <div key={p.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}><div style={{ width: 12, height: 12, borderRadius: 6, background: PRI_C[p.n] }} /><span style={{ flex: 1, fontSize: 15, color: T.textSec }}>{p.n}</span><span style={{ fontSize: 18, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{p.c}</span></div>)}</Card>
+      <Card delay={150} style={{ gridColumn: "1 / -1" }}><h4 style={{ color: T.textSec, margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Workload Today</h4><div style={{ display: "flex", alignItems: "end", gap: 8, height: 180, padding: "0 8px" }}>{tl.map(t => <div key={t.n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}><span style={{ fontSize: 12, fontFamily: T.mono, color: t.h > t.cap ? T.danger : T.textSec, fontWeight: 600 }}>{t.h.toFixed(1)}</span><div style={{ width: "100%", background: T.bg, borderRadius: 4, position: "relative", height: Math.max((Math.max(t.h, t.cap) / mx) * 130, 6) }}><div style={{ position: "absolute", bottom: 0, width: "100%", borderRadius: 4, background: t.h > t.cap ? T.danger : t.h / t.cap > 0.7 ? "#f59e0b" : T.accent, height: Math.max((t.h / mx) * 130, 3) }} /></div><span style={{ fontSize: 11, color: T.textDim, textAlign: "center", fontWeight: 500 }}>{t.n}</span></div>)}</div></Card>
+    </div>; };
 
   // ═══════════════════ CALENDAR ═══════════════════
   const [calM, setCalM] = useState(NOW.getMonth()); const [calY, setCalY] = useState(NOW.getFullYear());
@@ -10915,12 +12737,10 @@ ${jobsCtx || "No jobs found."}`;
           <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canRedo ? T.border : "transparent"}`, background: canRedo ? T.bg : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↪</button></Tip>
         </div>
       </div>
-      {/* Flex spacer — pushes the left-side group leftward while the center column floats absolutely. */}
-      <div style={{ flex: 1, minWidth: 0 }} />
-      {/* CENTER: search+ask — absolutely centered to the viewport so left/right cluster widths don't shift it. */}
-      <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", pointerEvents: "auto" }}>
-        <div ref={searchRef} style={{ position: "relative", width: "min(500px, 45vw)", minWidth: 0 }}>
+      {/* CENTER: search+ask on top, nav on bottom — stacked and centered */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", width: "100%" }}>
+        <div ref={searchRef} style={{ position: "relative", width: "min(440px, 70%)", minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 14px", borderRadius: 22, border: `1px solid ${searchOpen ? T.accent + "66" : T.border}`, background: T.bg, transition: "all 0.2s" }}>
             <span style={{ lineHeight: 0, color: T.textDim }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
             <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search jobs, clients, team members..." style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.font }} />
@@ -11022,12 +12842,176 @@ ${jobsCtx || "No jobs found."}`;
             })}
           </div></FadeOnClose>
         </div>
+        {/* Settings Gear */}
+        <div ref={settingsRef} style={{ position: "relative" }}>
+          <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ background: settingsOpen ? T.accent + "15" : "transparent", border: `1px solid ${settingsOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={settingsOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.3s", transform: settingsOpen ? "rotate(90deg)" : "none" }}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+          <FadeOnClose open={settingsOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 32, top: 60, width: 520, maxHeight: "85vh", overflowY: settingsScrollable ? "auto" : "hidden", overflowX: "hidden", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, fontFamily: T.font }}>
+            <div style={{ padding: "12px 16px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+              {(prefOpen || settingsTab === "org") && <button onClick={() => { setPrefOpen(false); setSettingsTab("main"); }} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 18, lineHeight: 1, padding: "0 4px 0 0" }}>←</button>}
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>{prefOpen ? "Preferences" : settingsTab === "org" ? "Organization" : "Settings"}</div>
+            </div>
+            {prefOpen ? <>
+              {/* ── Customization (moved from top-level Settings) ── */}
+              <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "15ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, lineHeight: 0 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Customization</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>Theme, colors &amp; presets</div>
+                </div>
+                <div style={{ width: 12, height: 12, borderRadius: 6, background: T.accent, marginRight: 4 }} />
+                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+              </button>
+              {/* ── Sidebar mode (inline radio — hover vs button) — placed right under Customization ── */}
+              <div style={{ padding: "11px 16px", borderTop: `1px solid ${T.border}`, fontFamily: T.font, display: "flex", alignItems: "center", gap: 11 }}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+                </span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Sidebar</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{sidebarMode === "hover" ? "Auto-expand on hover" : "Toggle with the menu button"}</div>
+                </div>
+                <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                  {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
+                    const active = sidebarMode === opt.id;
+                    return (
+                      <button key={opt.id} onClick={() => setSidebarMode(opt.id)} style={{ padding: "4px 11px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "30ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Scheduling</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>Hours/day, weekends &amp; holidays</div>
+                </div>
+                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+              </button>
+              <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "60ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Sign Off Preferences</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div>
+                </div>
+                <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+              </button>
+            </> : settingsTab === "org" && isAdmin ? (<>
+              <div style={{ padding: "16px 16px 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* Company Name row */}
+                <div style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Company Name</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{orgName || "—"}</div>
+                    </div>
+                    {orgEditing !== "name" && (
+                      <button onClick={() => { setOrgNameInput(orgName || ""); setOrgNameError(""); setOrgEditing("name"); }} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent + "55"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Edit</button>
+                    )}
+                  </div>
+                  {orgEditing === "name" && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                      <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 14, outline: "none", boxSizing: "border-box", marginBottom: 6, fontFamily: T.font }} />
+                      {orgNameError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>{orgNameError}</div>}
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                        <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(localStorage.getItem("tq_org_config") || "null") || {}; localStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 13, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {/* Org Code row */}
+                <div style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>Organization Code</div>
+                      <div style={{ fontSize: 17, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "0.06em" }}>{orgCode || "—"}</div>
+                    </div>
+                    {orgEditing !== "code" && (
+                      <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent + "55"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Edit</button>
+                    )}
+                  </div>
+                  {orgEditing === "code" && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
+                      <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Changing this code reloads the app. Everyone signs in with the new code.</div>
+                      <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 14, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
+                      {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 8 }}>{orgCodeError}</div>}
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                        <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); localStorage.setItem("tq_org_code", newCode); localStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 13, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>) : <>
+            {/* ── Preferences ── */}
+            <button onClick={() => setPrefOpen(true)} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "60ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Preferences</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Customize, Scheduling &amp; Sign Off</div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>
+            {/* ── Departments ── */}
+            <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "90ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Departments</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>{orgSettings.roles.length} department{orgSettings.roles.length !== 1 ? "s" : ""} defined</div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>
+            {/* ── Workers ── */}
+            {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "120ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Permissions</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Manage team members &amp; access</div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>}
+            {/* ── Clients ── */}
+            <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "150ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Clients</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>{clients.length} client{clients.length !== 1 ? "s" : ""}</div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>
+            {/* ── Organization ── */}
+            {isAdmin && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setSettingsTab("org"); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "165ms" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "11"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Organization</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>Code: <span style={{ fontFamily: T.mono, fontWeight: 700 }}>{orgCode || "—"}</span></div>
+              </div>
+              <span style={{ fontSize: 16, color: T.textDim }}>›</span>
+            </button>}
+            <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
+            <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "11px 16px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 11, fontFamily: T.font, textAlign: "left", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: "180ms" }} onMouseEnter={e => e.currentTarget.style.background = "#ef444411"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", color: "#ef4444", lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#ef4444" }}>Log Out</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>{loggedInUser.name}</div>
+              </div>
+            </button>
+            </>}
+          </div></FadeOnClose>
+        </div>
       </div>
     </div>}
     {/* ── Body — sidebar + content ── */}
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: T.surface }}>
     {/* ── Left sidebar — chevron + vertical nav + profile ── */}
-    {!isMobile && <aside onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? (sidebarSettingsExpanded === "orgSettings" ? 320 : 220) : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+    {!isMobile && <aside onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
@@ -11036,9 +13020,8 @@ ${jobsCtx || "No jobs found."}`;
           </span>
         </button>
       </div>
-      {/* Nav buttons — scrollable when content (especially expanded Settings panels) exceeds height.
-          Scrollbar is hidden visually; users still scroll via trackpad / mouse wheel. */}
-      <div className="tq-hide-scrollbar" style={{ display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", scrollbarWidth: "none", msOverflowStyle: "none", transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+      {/* Nav buttons */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {views.map(v => {
           const active = view === v.id;
           return (
@@ -11053,167 +13036,16 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           );
         })}
-        {/* ─── Settings tree (in-sidebar) — collapsible parent + 4 sub-items ─── */}
-        <div aria-hidden={!sidebarExpanded} style={{ height: 1, background: T.border + "55", margin: sidebarExpanded ? "12px 12px 8px" : "10px 12px", opacity: sidebarExpanded ? 1 : 0.5, transition: "margin 0.2s ease, opacity 0.2s ease" }} />
-        {/* Settings parent — collapsible */}
-        <button onClick={() => setSidebarSettingsOpen(o => !o)}
-          onMouseEnter={e => { if (!sidebarExpanded) tipCtx.show("Settings", e.clientX, e.clientY); e.currentTarget.style.background = T.accent + "0c"; }}
-          onMouseLeave={e => { tipCtx.hide(); e.currentTarget.style.background = "transparent"; }}
-          onMouseDown={() => tipCtx.hide()}
-          style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
-          <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          </span>
-          <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
-        </button>
-        {/* Settings children — animated retract (mirrors PM / queue collapse pattern).
-            Opacity stays at 1 so the visual is purely a "sucking back" height collapse — no fade. */}
-        <div style={{ display: "grid", gridTemplateRows: sidebarSettingsOpen && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.28s cubic-bezier(0.4,0,0.2,1)", pointerEvents: sidebarSettingsOpen && sidebarExpanded ? "auto" : "none" }}>
-          <div style={{ overflow: "hidden", minHeight: 0 }}>
-            <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
-              {/* Design — inline expand */}
-              <button onClick={() => setSidebarSettingsExpanded(e => e === "design" ? null : "design")}
-                onMouseEnter={e => { if (sidebarSettingsExpanded !== "design") e.currentTarget.style.background = T.accent + "0c"; }}
-                onMouseLeave={e => { if (sidebarSettingsExpanded !== "design") e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: sidebarSettingsExpanded === "design" ? T.accent + "0c" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.accent }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left" }}>Design</span>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsExpanded === "design" ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
-              </button>
-              <div style={{ display: "grid", gridTemplateRows: sidebarSettingsExpanded === "design" ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: sidebarSettingsExpanded === "design" ? "auto" : "none" }}>
-                <div style={{ overflow: "hidden", minHeight: 0 }}>
-                  <div style={{ padding: "6px 14px 10px 28px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Theme</div>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
-                          const active = themeMode === th.id;
-                          return <button key={th.id} onClick={() => setThemeMode(th.id)} style={{ flex: 1, padding: "5px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.textDim, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
-                        })}
-                      </div>
-                      {themeMode === "custom" && <button onClick={() => setCustomizationOpen(true)} style={{ width: "100%", marginTop: 6, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Customize colors…</button>}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sidebar</div>
-                      <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
-                        {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
-                          const active = sidebarMode === opt.id;
-                          return <button key={opt.id} onClick={() => setSidebarMode(opt.id)} style={{ flex: 1, padding: "4px 8px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {/* Fast TRAQS — opens the upload flow */}
-              {can("editJobs") && <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.accent }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left" }}>Fast TRAQS</span>
-              </button>}
-              {/* Permissions — opens existing modal */}
-              {isAdmin && <button onClick={() => { setUsersOpen(true); setSettingsUser(null); }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left" }}>Permissions</span>
-              </button>}
-              {/* Departments — opens existing modal */}
-              {isAdmin && <button onClick={() => setRolesSettingsOpen(true)}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left" }}>Departments</span>
-              </button>}
-              {/* Organization Settings — inline expand */}
-              {isAdmin && <button onClick={() => setSidebarSettingsExpanded(e => e === "orgSettings" ? null : "orgSettings")}
-                onMouseEnter={e => { if (sidebarSettingsExpanded !== "orgSettings") e.currentTarget.style.background = T.accent + "0c"; }}
-                onMouseLeave={e => { if (sidebarSettingsExpanded !== "orgSettings") e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: sidebarSettingsExpanded === "orgSettings" ? T.accent + "0c" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Organization</span>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsExpanded === "orgSettings" ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
-              </button>}
-              {isAdmin && <div style={{ display: "grid", gridTemplateRows: sidebarSettingsExpanded === "orgSettings" ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: sidebarSettingsExpanded === "orgSettings" ? "auto" : "none" }}>
-                <div style={{ overflow: "hidden", minHeight: 0 }}>
-                  <div style={{ padding: "6px 14px 10px 28px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
-                    {/* Company Name row */}
-                    <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "8px 10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Company Name</div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{orgName || "—"}</div>
-                        </div>
-                        {orgEditing !== "name" && <button onClick={() => { setOrgNameInput(orgName || ""); setOrgNameError(""); setOrgEditing("name"); }} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
-                      </div>
-                      {orgEditing === "name" && <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-                        <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "5px 8px", borderRadius: T.radiusXs, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box", marginBottom: 4, fontFamily: T.font }} />
-                        {orgNameError && <div style={{ fontSize: 10, color: "#ef4444", marginBottom: 4 }}>{orgNameError}</div>}
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                          <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(localStorage.getItem("tq_org_config") || "null") || {}; localStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "5px 0", borderRadius: T.radiusXs, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 10, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
-                        </div>
-                      </div>}
-                    </div>
-                    {/* Org Code row */}
-                    <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "8px 10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Org Code</div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "0.06em" }}>{orgCode || "—"}</div>
-                        </div>
-                        {orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
-                      </div>
-                      {orgEditing === "code" && <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-                        <div style={{ fontSize: 10, color: T.textDim, marginBottom: 6 }}>Changing this reloads the app. Everyone signs in with the new code.</div>
-                        <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "5px 8px", borderRadius: T.radiusXs, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 4, textTransform: "uppercase" }} />
-                        {orgCodeError && <div style={{ fontSize: 10, color: "#ef4444", marginBottom: 4 }}>{orgCodeError}</div>}
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                          <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); localStorage.setItem("tq_org_code", newCode); localStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "5px 0", borderRadius: T.radiusXs, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 10, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
-                        </div>
-                      </div>}
-                    </div>
-                    {/* Reset user PIN */}
-                    <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "8px 10px" }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Reset User PIN</div>
-                      <div style={{ marginBottom: 6 }}>
-                        <SearchSelect value={pinResetUserId} onChange={v => setPinResetUserId(v || "")} options={people.map(p => ({ value: p.id, label: p.name, color: p.color, sub: p.department || "" }))} placeholder="Search…" compact emptyLabel="No one selected" />
-                      </div>
-                      <input type="password" value={pinResetValue} onChange={e => setPinResetValue(e.target.value.replace(/\D/g, ""))} placeholder="New PIN (4–6 digits)" maxLength={6} style={{ width: "100%", padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 11, fontFamily: T.mono, letterSpacing: "0.2em", outline: "none", boxSizing: "border-box", marginBottom: 4 }} />
-                      <button disabled={!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4} onClick={() => {
-                        const v = pinResetValue.trim();
-                        setPeople(prev => prev.map(p => String(p.id) === String(pinResetUserId) ? { ...p, pin: v } : p));
-                        setPinResetUserId(""); setPinResetValue("");
-                        setPinResetToast("PIN updated");
-                        setTimeout(() => setPinResetToast(""), 1600);
-                      }} style={{ width: "100%", padding: "5px 0", borderRadius: T.radiusXs, border: "none", background: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? T.border : T.accent, color: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? T.textDim : "#fff", fontSize: 10, fontWeight: 700, cursor: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? "not-allowed" : "pointer", fontFamily: T.font }}>Reset PIN</button>
-                      {pinResetToast && <div style={{ fontSize: 10, color: "#10b981", marginTop: 4, textAlign: "center", fontWeight: 700 }}>✓ {pinResetToast}</div>}
-                    </div>
-                    {/* Launchers for legacy preferences screens */}
-                    <button onClick={() => setOrgSettingsOpen(true)} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Scheduling preferences</button>
-                    <button onClick={() => setSignOffSettingsOpen(true)} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Sign-Off templates</button>
-                  </div>
-                </div>
-              </div>}
-            </div>
-          </div>
-        </div>
+        {/* Fast TRAQS — glowing pill; height + opacity collapse together with the sidebar */}
+        {can("editJobs") && <div aria-hidden={!sidebarExpanded} style={{ overflow: "hidden", maxHeight: sidebarExpanded ? 44 : 0, marginTop: sidebarExpanded ? 6 : 0, opacity: sidebarExpanded ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), margin-top 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.18s 0.06s", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
+          <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}
+            style={{ width: "100%", padding: "9px 12px", borderRadius: 999, border: `1px solid ${T.accent}66`, background: `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`, color: T.accent, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 7, whiteSpace: "nowrap", transition: "background 0.2s, border-color 0.2s" }}
+            onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}2a, ${T.accent}14)`; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}18, ${T.accent}08)`; e.currentTarget.style.borderColor = T.accent + "66"; }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
+            FAST TRAQS
+          </button>
+        </div>}
       </div>
       {/* Org name — subtly displayed above the profile, only when sidebar is expanded */}
       <div style={{ padding: "0 16px", flexShrink: 0, overflow: "hidden", maxHeight: sidebarExpanded && orgName ? 22 : 0, opacity: sidebarExpanded && orgName ? 0.55 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s 0.06s ease" }}>
@@ -11243,7 +13075,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </aside>}
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", background: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
-      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
+      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     </div>
     {/* ── BuilderTrend Modal ── */}
@@ -12999,20 +14831,6 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}
-
-    {/* ─── Client section context menu (Edit / Delete) — opens from right-click on a client header in the Clients page ─── */}
-    <FadeOnClose open={!!clientCtx}>{clientCtx && <div onClick={() => setClientCtx(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
-      <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: Math.min(clientCtx.x, window.innerWidth - 220), top: Math.min(clientCtx.y, window.innerHeight - 200), zIndex: 9999, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
-        <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 14, height: 14, borderRadius: 4, background: clientCtx.client.color, flexShrink: 0 }} />
-            {clientCtx.client.name}
-          </div>
-        </div>
-        <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit" onClick={() => { setClientModal({ ...clientCtx.client }); setClientCtx(null); }} />
-        <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>} label="Delete" danger onClick={() => { setConfirmDeleteClient(clientCtx.client.id); setClientCtx(null); }} />
-      </div>
-    </div>}</FadeOnClose>
 
     {/* ─── Group context menu ─── */}
     <FadeOnClose open={!!groupCtxMenu}>{groupCtxMenu && <div onClick={() => setGroupCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
