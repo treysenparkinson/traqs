@@ -3397,7 +3397,12 @@ Extraction rules:
   const handlePendingItemDrop = (itemId, personId, dayStr) => {
     const item = pendingScheduleItems.find(i => i.id === itemId);
     if (!item) return;
-    const start = dayStr, end = dayStr;
+    // Compute true duration from hpd (total hours / productive hours per workday).
+    // sub-1-day stays on a single day (partial-width bar via startHour/endHour); multi-day
+    // spans the right number of business days so the bar lands at its real length immediately.
+    const daysNeeded = Math.max(1, Math.ceil((item.hpd || 0) / productiveHoursPerDay));
+    const start = dayStr;
+    const end = daysNeeded > 1 ? addBD(dayStr, daysNeeded - 1) : dayStr;
     setTasks(prev => prev.map(job => {
       if (job.id !== item.jobId) return job;
       return { ...job, subs: (job.subs || []).map(pnl => {
@@ -16040,7 +16045,21 @@ ${jobsCtx || "No jobs found."}`;
             {pendingScheduleItems.map(item => (
               <div key={item.id}
                 draggable="true"
-                onDragStart={e => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/x-traqs-pending", item.id); }}
+                onDragStart={e => {
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("application/x-traqs-pending", item.id);
+                  // Build a custom drag ghost styled like a schedule bar — colored rectangle,
+                  // bold title, length proportional to op duration (hpd / productive hours/day).
+                  const days = Math.max(1, Math.ceil((item.hpd || 0) / productiveHoursPerDay));
+                  const cw = teamCWRef.current && teamCWRef.current > 0 ? teamCWRef.current : 60;
+                  const ghostW = Math.max(80, Math.min(cw * days - 4, 800));
+                  const ghost = document.createElement("div");
+                  ghost.textContent = item.title || "(untitled)";
+                  ghost.style.cssText = `position:absolute;top:-1000px;left:-1000px;height:34px;width:${ghostW}px;padding:0 12px;background:${item.color};color:${isLight(item.color) ? "#000" : "#fff"};border-radius:6px;font-family:${T.font.split(",")[0]};font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,0.35);border:1.5px solid ${item.color};`;
+                  document.body.appendChild(ghost);
+                  e.dataTransfer.setDragImage(ghost, 14, 17);
+                  setTimeout(() => { try { document.body.removeChild(ghost); } catch (_) {} }, 0);
+                }}
                 style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 12px", cursor: "grab", display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s, transform 0.12s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "88"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}>
