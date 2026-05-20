@@ -612,6 +612,8 @@ html { scroll-behavior: smooth; }
   .anim-card-wrap:hover  { transform: none; box-shadow: none; }
   .anim-card-wrap:active { transform: scale(0.97); transition-duration: 0.1s; }
 }
+.tq-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.tq-hide-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 `;
 if (!document.querySelector('style[data-traqs]')) { animStyle.setAttribute("data-traqs", "1"); document.head.appendChild(animStyle); }
 
@@ -2441,6 +2443,12 @@ Extraction rules:
   const [editAddedIds, setEditAddedIds] = useState(() => new Set()); // ids added during current edit session — drives "New" badge
   const [editToast, setEditToast] = useState(null); // { msg, key } — transient confirmation toast
   const [editPopBtn, setEditPopBtn] = useState(null); // id of the add button currently doing a pop animation
+  // Floating "Pending Schedule" tray — populated when the edit-job modal is saved with newly
+  // added ops. The tray shows one card per pending op; user drags each card onto a person row +
+  // day cell on the Schedule page to place it. Empty tray = hidden.
+  // Shape: { id, jobId, panelId, opId, title, hpd, requiredDepartment, color }
+  const [pendingScheduleItems, setPendingScheduleItems] = useState([]);
+  const [pendingTrayPos, setPendingTrayPos] = useState({ x: null, y: null }); // null = use default placement
   const [quickChat, setQuickChat] = useState(null);
   const [quickChatInput, setQuickChatInput] = useState("");
   const [quickChatSending, setQuickChatSending] = useState(false);
@@ -3381,6 +3389,30 @@ Extraction rules:
     }
     return t;
   }));
+  };
+
+  // Place a pending-tray item onto a person's row at a specific date. Used by the floating
+  // "Pending Schedule" tray's drop handlers — sets start/end to the dropped day and adds the
+  // person to the op's team. Removes the item from the tray afterward.
+  const handlePendingItemDrop = (itemId, personId, dayStr) => {
+    const item = pendingScheduleItems.find(i => i.id === itemId);
+    if (!item) return;
+    const start = dayStr, end = dayStr;
+    setTasks(prev => prev.map(job => {
+      if (job.id !== item.jobId) return job;
+      return { ...job, subs: (job.subs || []).map(pnl => {
+        if (pnl.id !== item.panelId) return pnl;
+        if (item.kind === "op") {
+          return { ...pnl, subs: (pnl.subs || []).map(op => {
+            if (op.id !== item.opId) return op;
+            return { ...op, start, end, team: Array.from(new Set([...(op.team || []), personId])), status: op.status === "Not Started" ? "Pending" : op.status };
+          }) };
+        }
+        // panel-only placement
+        return { ...pnl, start, end, team: Array.from(new Set([...(pnl.team || []), personId])) };
+      }) };
+    }));
+    setPendingScheduleItems(prev => prev.filter(i => i.id !== itemId));
   };
 
   const reassignTask = (taskId, fromPersonId, toPersonId, parentId = null) => {
@@ -7127,7 +7159,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
-                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
+                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-pending")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }} onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }} onDrop={e => { e.currentTarget.style.boxShadow = "none"; const itemId = e.dataTransfer.getData("application/x-traqs-pending"); if (!itemId) return; e.preventDefault(); handlePendingItemDrop(itemId, p.id, day); }} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}33`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
                 {/* Ghost: dragged bar + dep-group member previews */}
                 {teamDragInfo && (() => {
                   const nDays = days.length;
@@ -15974,6 +16006,59 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}
 
+    {/* ─── Pending Schedule tray — floating draggable window with newly-added ops to place ─── */}
+    {pendingScheduleItems.length > 0 && (() => {
+      // Default placement: top-right of the viewport, below the brand strip
+      const defaultX = typeof window !== "undefined" ? window.innerWidth - 312 : 100;
+      const defaultY = 96;
+      const tx = pendingTrayPos.x == null ? defaultX : pendingTrayPos.x;
+      const ty = pendingTrayPos.y == null ? defaultY : pendingTrayPos.y;
+      const startWindowDrag = (e) => {
+        e.preventDefault();
+        const sx = e.clientX, sy = e.clientY;
+        const ox = tx, oy = ty;
+        const onMove = me => {
+          setPendingTrayPos({ x: Math.max(8, Math.min(window.innerWidth - 288, ox + (me.clientX - sx))), y: Math.max(8, Math.min(window.innerHeight - 80, oy + (me.clientY - sy))) });
+        };
+        const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      };
+      return (
+        <div style={{ position: "fixed", left: tx, top: ty, width: 280, maxHeight: "70vh", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radius, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", zIndex: 1500, display: "flex", flexDirection: "column", fontFamily: T.font, animation: "fadeIn 0.22s ease-out" }}>
+          {/* Header — drag handle */}
+          <div onMouseDown={startWindowDrag} style={{ padding: "12px 14px", borderBottom: `1px solid ${T.border}`, cursor: "grab", userSelect: "none", display: "flex", alignItems: "center", gap: 8 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style={{ color: T.textDim, flexShrink: 0 }}><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: T.text, letterSpacing: "0.03em", textTransform: "uppercase" }}>Place New Tasks</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>Drag each onto the schedule · {pendingScheduleItems.length} left</div>
+            </div>
+            <button onClick={() => setPendingScheduleItems([])} title="Cancel" style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>✕</button>
+          </div>
+          {/* Cards list */}
+          <div className="tq-hide-scrollbar" style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+            {pendingScheduleItems.map(item => (
+              <div key={item.id}
+                draggable="true"
+                onDragStart={e => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("application/x-traqs-pending", item.id); }}
+                style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 12px", cursor: "grab", display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s, transform 0.12s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "88"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}>
+                <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: item.color, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
+                  <div style={{ fontSize: 10, color: T.textDim, marginTop: 2, display: "flex", gap: 8 }}>
+                    {item.requiredDepartment && <span>{item.requiredDepartment}</span>}
+                    <span style={{ fontFamily: T.mono }}>{item.hpd}h</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    })()}
+
     {/* Edit Job modal — simple field update, no wizard */}
     <FadeOnClose open={!!editJobModal} duration={220}>{editJobModal && (() => {
       console.log("=== EDIT JOB MODAL STATE ===", editJobModal);
@@ -15981,8 +16066,9 @@ ${jobsCtx || "No jobs found."}`;
       const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
       const saveEditJob = () => {
         if (!ej.title.trim()) return;
-        // Recompute the job's start/end from its panels (if any) so it stays bounded by its children
-        const allPanelDates = (ej.subs || []).filter(p => p.start && p.end);
+        // Recompute job bounds from panels that have dates set. New (unscheduled) ops are
+        // excluded from bounds — they'll get their dates when dropped onto the Schedule.
+        const allPanelDates = (ej.subs || []).filter(p => p.start && p.end && !editAddedIds.has(p.id));
         const computedStart = allPanelDates.length ? allPanelDates.map(p => p.start).sort()[0] : ej.start;
         const computedEnd = allPanelDates.length ? allPanelDates.map(p => p.end).sort().slice(-1)[0] : ej.end;
         updTask(ej.id, {
@@ -16001,6 +16087,35 @@ ${jobsCtx || "No jobs found."}`;
           end: computedEnd,
           subs: ej.subs,
         });
+        // If new ops/panels were added during this edit session, populate the floating
+        // "Pending Schedule" tray. The user then drags each card onto the Schedule grid.
+        if (editAddedIds.size > 0) {
+          const items = [];
+          (ej.subs || []).forEach(panel => {
+            const panelIsNew = editAddedIds.has(panel.id);
+            const opsAdded = (panel.subs || []).filter(o => editAddedIds.has(o.id));
+            // One card per OP. A new panel with no ops gets its own card.
+            opsAdded.forEach(op => items.push({
+              id: op.id, jobId: ej.id, panelId: panel.id, opId: op.id, kind: "op",
+              title: op.title, hpd: op.hpd ?? ej.hpd,
+              requiredDepartment: op.requiredDepartment || panel.requiredDepartment || "",
+              color: panel.color || "#94a3b8",
+            }));
+            if (panelIsNew && (panel.subs || []).length === 0) {
+              items.push({
+                id: panel.id, jobId: ej.id, panelId: panel.id, opId: null, kind: "panel",
+                title: panel.title, hpd: panel.hpd ?? ej.hpd,
+                requiredDepartment: panel.requiredDepartment || "",
+                color: panel.color || "#94a3b8",
+              });
+            }
+          });
+          if (items.length > 0) {
+            setPendingScheduleItems(items);
+            setPendingTrayPos({ x: null, y: null });
+            setView("schedule");
+          }
+        }
         setEditJobModal(null);
       };
       const flashToast = (msg) => {
@@ -16264,15 +16379,9 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
             </div>
-            {/* Footer */}
+            {/* Footer — Reschedule button removed; Save now opens the floating tray when new ops exist */}
             <div style={{ padding: "18px 32px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
-              {editAddedIds.size > 0 && (
-                <button onClick={rescheduleJob} title="Auto-reschedule the job to fit the newly added items" style={{ padding: "9px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}88`, background: `linear-gradient(135deg, ${T.accent}26, ${T.accent}10)`, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 7, animation: "fastTraqIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both", boxShadow: `0 4px 14px ${T.accent}28` }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                  Reschedule
-                </button>
-              )}
-              <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: editAddedIds.size > 0 ? "cancelScoot 0.5s ease-out both" : "none" }}>Cancel</button>
+              <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
             </div>
           </div>
