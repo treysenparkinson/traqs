@@ -1630,7 +1630,9 @@ Extraction rules:
   // inline sub-panels (Design or Organization Settings). Permissions/Departments just open
   // their existing modals, so they don't participate in this expanded state.
   const [sidebarSettingsOpen, setSidebarSettingsOpen] = useState(false);
-  const [sidebarSettingsExpanded, setSidebarSettingsExpanded] = useState(null); // "design" | "orgSettings" | null
+  // Design + Organization launchers in the sidebar Settings tree open dedicated modals (TRAQS fade pattern).
+  const [designModalOpen, setDesignModalOpen] = useState(false);
+  const [orgSettingsModalOpen, setOrgSettingsModalOpen] = useState(false);
   // Admin tool — quick PIN reset surfaced inside the Organization Settings panel.
   const [pinResetUserId, setPinResetUserId] = useState("");
   const [pinResetValue, setPinResetValue] = useState("");
@@ -5811,7 +5813,7 @@ ${jobsCtx || "No jobs found."}`;
       {taskSubView === "list" && (() => {
         const orderedStdCols = colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
         const customWidths = colWidths.slice(12, colWidths.length - 1);
-        const COL = ["44px", ...orderedStdCols.map(c => colWidths[1 + c.i] + "px"), ...customWidths.map(w => w + "px"), "36px"].join(" ");
+        const COL = [...orderedStdCols.map(c => colWidths[1 + c.i] + "px"), ...customWidths.map(w => w + "px"), "36px"].join(" ");
         const cellAlignJc = cellAlign === "right" ? "flex-end" : cellAlign === "center" ? "center" : "flex-start";
         const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
         const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "8px 10px", background: T.surface };
@@ -5854,10 +5856,15 @@ ${jobsCtx || "No jobs found."}`;
           const cycleStatusSub = (item2, pid2) => { const i = STATUSES.indexOf(item2.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item2.id, pid: pid2 || null, title: item2.title, jobNumber: null }); } else { updTask(item2.id, { status: next }, pid2); } };
           const isScheduledLater = level === 0 ? !!item.scheduledLater : !!(tasks.find(t => t.id === jobId)?.scheduledLater);
           const safeDate = ds => { if (!ds) return "—"; const d = new Date(ds + "T12:00:00"); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
+          const nameHasSubs = (item.subs || []).length > 0;
+          const nameIsExpanded = expandedJobs.has(item.id);
           switch (colId) {
             case "name": return (
-              <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: level === 0 ? 10 : 8 + indent }}
+              <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: (level === 0 ? 14 : 12) + indent, position: "relative" }}
                 onDoubleClick={e => { if (!jobSelectMode) startEdit(e, item.id, "title"); }}>
+                {level === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobColor || item.color }} />}
+                <svg width="10" height="10" viewBox="0 0 10 10" onClick={e => { if (!nameHasSubs) return; e.stopPropagation(); toggleJobExpand(item.id); }} style={{ transform: nameIsExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, flexShrink: 0, visibility: nameHasSubs ? "visible" : "hidden", cursor: nameHasSubs ? "pointer" : "default" }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                {level === 0 && !jobSelectMode && <div style={{ opacity: 0.22, cursor: "grab", color: T.textDim, fontSize: 13, lineHeight: 1, userSelect: "none", flexShrink: 0 }}>⠿</div>}
                 {level === 0 && jobSelectMode && <div style={{ width: 15, height: 15, borderRadius: "50%", border: `2px solid ${selJobs.has(item.id) ? T.accent : T.border}`, background: selJobs.has(item.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{selJobs.has(item.id) && <svg width="7" height="7" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
                 {level === 0 && !jobSelectMode && (() => {
                   const jobUnread = unreadByThread.filter(u => u.jobId === item.id);
@@ -6011,14 +6018,6 @@ ${jobsCtx || "No jobs found."}`;
               onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { toggleJobExpand(item.id); } }}
               onContextMenu={level === 0 ? e => handleCtx(e, { ...item, level: 0 }, "job-detail") : e => handleCtx(e, { ...item, isSub: true, pid: pid, grandPid: level === 2 ? jobId : null, level, panelTitle: level === 2 ? (tasks.flatMap(j => j.subs || []).find(p => p.id === panelId)?.title || "") : "" }, "job-detail")}
             >
-              {/* Expand toggle + color bar + drag grip */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, paddingLeft: indent + 6, cursor: hasSubs ? "pointer" : "default", position: "relative" }}
-                onClick={e => { if (!hasSubs) return; e.stopPropagation(); toggleJobExpand(item.id); }}>
-                {level === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobColor || item.color }} />}
-                {level === 0 && !jobSelectMode && <div style={{ opacity: 0.22, cursor: "grab", color: T.textDim, fontSize: 13, lineHeight: 1, userSelect: "none", flexShrink: 0 }}>⠿</div>}
-                <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, flexShrink: 0, visibility: hasSubs ? "visible" : "hidden" }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </div>
-
               {/* Dynamic standard columns */}
               {orderedStdCols.map(col => {
                 const cs = getCellCondStyle(col.id);
@@ -6084,7 +6083,6 @@ ${jobsCtx || "No jobs found."}`;
             const gridOnClick = () => { if (gridCell) setGridCell(null); setColPickerOpen(false); setExportOpen(false); };
             const ColHeaders = () => (
               <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.surface, borderBottom: `1.5px solid ${T.border}` }}>
-                <div style={{ ...hdrCell, borderRight: `1px solid ${T.border}`, padding: 0 }} />
                 {orderedStdCols.map((col, displayIdx) => {
                   const widthIdx = 1 + col.i;
                   const isDragOver = colDropIdx === displayIdx && colDragRef.current !== col.id;
@@ -13109,10 +13107,11 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Notification Bell */}
         <div ref={notifRef} style={{ position: "relative" }}>
-          <Tip label="Notifications"><button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 9px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.2s" }}>
+          <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1 }}>{unreadByThread.length > 9 ? "9+" : unreadMessages.length}</span>}
-          </button></Tip>
+            <span style={{ fontSize: 12, fontWeight: 600, color: notifOpen ? T.accent : T.textSec, letterSpacing: "0.01em" }}>Notifications</span>
+            {unreadByThread.length > 0 && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px" }}>{unreadByThread.length > 9 ? "9+" : unreadMessages.length}</span>}
+          </button>
           <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
             <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Notifications</div>
@@ -13146,7 +13145,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Body — sidebar + content ── */}
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: T.surface }}>
     {/* ── Left sidebar — chevron + vertical nav + profile ── */}
-    {!isMobile && <aside onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? (sidebarSettingsExpanded === "orgSettings" ? 320 : 220) : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+    {!isMobile && <aside onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
@@ -13174,7 +13173,7 @@ ${jobsCtx || "No jobs found."}`;
         {/* ─── Settings tree (in-sidebar) — collapsible parent + 4 sub-items ─── */}
         <div aria-hidden={!sidebarExpanded} style={{ height: 1, background: T.border + "55", margin: sidebarExpanded ? "12px 12px 8px" : "10px 12px", opacity: sidebarExpanded ? 1 : 0.5, transition: "margin 0.2s ease, opacity 0.2s ease" }} />
         {/* Settings parent — collapsible */}
-        <button onClick={() => setSidebarSettingsOpen(o => !o)}
+        <button onClick={() => { if (sidebarMode === "button" && !sidebarExpanded) { setSidebarExpanded(true); setSidebarSettingsOpen(true); } else { setSidebarSettingsOpen(o => !o); } }}
           onMouseEnter={e => { if (!sidebarExpanded) tipCtx.show("Settings", e.clientX, e.clientY); e.currentTarget.style.background = T.accent + "0c"; }}
           onMouseLeave={e => { tipCtx.hide(); e.currentTarget.style.background = "transparent"; }}
           onMouseDown={() => tipCtx.hide()}
@@ -13189,42 +13188,16 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "grid", gridTemplateRows: sidebarSettingsOpen && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: sidebarSettingsOpen && sidebarExpanded ? 1 : 0, pointerEvents: sidebarSettingsOpen && sidebarExpanded ? "auto" : "none" }}>
           <div style={{ overflow: "hidden", minHeight: 0 }}>
             <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
-              {/* Design — inline expand */}
-              <button onClick={() => setSidebarSettingsExpanded(e => e === "design" ? null : "design")}
-                onMouseEnter={e => { if (sidebarSettingsExpanded !== "design") e.currentTarget.style.background = T.accent + "0c"; }}
-                onMouseLeave={e => { if (sidebarSettingsExpanded !== "design") e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: sidebarSettingsExpanded === "design" ? T.accent + "0c" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
+              {/* Design — opens modal */}
+              <button onClick={() => setDesignModalOpen(true)}
+                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.accent }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
                 </span>
                 <span style={{ flex: 1, textAlign: "left" }}>Design</span>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsExpanded === "design" ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
               </button>
-              <div style={{ display: "grid", gridTemplateRows: sidebarSettingsExpanded === "design" ? "1fr" : "0fr", transition: "grid-template-rows 0.2s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease", opacity: sidebarSettingsExpanded === "design" ? 1 : 0, pointerEvents: sidebarSettingsExpanded === "design" ? "auto" : "none" }}>
-                <div style={{ overflow: "hidden", minHeight: 0 }}>
-                  <div style={{ padding: "6px 14px 10px 28px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Theme</div>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
-                          const active = themeMode === th.id;
-                          return <button key={th.id} onClick={() => setThemeMode(th.id)} style={{ flex: 1, padding: "5px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.textDim, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
-                        })}
-                      </div>
-                      {themeMode === "custom" && <button onClick={() => setCustomizationOpen(true)} style={{ width: "100%", marginTop: 6, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Customize colors…</button>}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sidebar</div>
-                      <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
-                        {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
-                          const active = sidebarMode === opt.id;
-                          return <button key={opt.id} onClick={() => setSidebarMode(opt.id)} style={{ flex: 1, padding: "4px 8px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
               {/* Fast TRAQS — opens the upload flow */}
               {can("editJobs") && <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}
                 onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
@@ -13255,79 +13228,16 @@ ${jobsCtx || "No jobs found."}`;
                 </span>
                 <span style={{ flex: 1, textAlign: "left" }}>Departments</span>
               </button>}
-              {/* Organization Settings — inline expand */}
-              {isAdmin && <button onClick={() => setSidebarSettingsExpanded(e => e === "orgSettings" ? null : "orgSettings")}
-                onMouseEnter={e => { if (sidebarSettingsExpanded !== "orgSettings") e.currentTarget.style.background = T.accent + "0c"; }}
-                onMouseLeave={e => { if (sidebarSettingsExpanded !== "orgSettings") e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: sidebarSettingsExpanded === "orgSettings" ? T.accent + "0c" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
+              {/* Organization — opens modal */}
+              {isAdmin && <button onClick={() => setOrgSettingsModalOpen(true)}
+                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 </span>
                 <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Organization</span>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsExpanded === "orgSettings" ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
               </button>}
-              {isAdmin && <div style={{ display: "grid", gridTemplateRows: sidebarSettingsExpanded === "orgSettings" ? "1fr" : "0fr", transition: "grid-template-rows 0.2s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease", opacity: sidebarSettingsExpanded === "orgSettings" ? 1 : 0, pointerEvents: sidebarSettingsExpanded === "orgSettings" ? "auto" : "none" }}>
-                <div style={{ overflow: "hidden", minHeight: 0 }}>
-                  <div style={{ padding: "6px 14px 10px 28px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
-                    {/* Company Name row */}
-                    <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "8px 10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Company Name</div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{orgName || "—"}</div>
-                        </div>
-                        {orgEditing !== "name" && <button onClick={() => { setOrgNameInput(orgName || ""); setOrgNameError(""); setOrgEditing("name"); }} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
-                      </div>
-                      {orgEditing === "name" && <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-                        <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "5px 8px", borderRadius: T.radiusXs, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 12, outline: "none", boxSizing: "border-box", marginBottom: 4, fontFamily: T.font }} />
-                        {orgNameError && <div style={{ fontSize: 10, color: "#ef4444", marginBottom: 4 }}>{orgNameError}</div>}
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                          <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(localStorage.getItem("tq_org_config") || "null") || {}; localStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "5px 0", borderRadius: T.radiusXs, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 10, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
-                        </div>
-                      </div>}
-                    </div>
-                    {/* Org Code row */}
-                    <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "8px 10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Org Code</div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "0.06em" }}>{orgCode || "—"}</div>
-                        </div>
-                        {orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "3px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
-                      </div>
-                      {orgEditing === "code" && <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${T.border}` }}>
-                        <div style={{ fontSize: 10, color: T.textDim, marginBottom: 6 }}>Changing this reloads the app. Everyone signs in with the new code.</div>
-                        <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "5px 8px", borderRadius: T.radiusXs, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 4, textTransform: "uppercase" }} />
-                        {orgCodeError && <div style={{ fontSize: 10, color: "#ef4444", marginBottom: 4 }}>{orgCodeError}</div>}
-                        <div style={{ display: "flex", gap: 4 }}>
-                          <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                          <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); localStorage.setItem("tq_org_code", newCode); localStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "5px 0", borderRadius: T.radiusXs, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 10, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
-                        </div>
-                      </div>}
-                    </div>
-                    {/* Reset user PIN */}
-                    <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "8px 10px" }}>
-                      <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Reset User PIN</div>
-                      <div style={{ marginBottom: 6 }}>
-                        <SearchSelect value={pinResetUserId} onChange={v => setPinResetUserId(v || "")} options={people.map(p => ({ value: p.id, label: p.name, color: p.color, sub: p.department || "" }))} placeholder="Search…" compact emptyLabel="No one selected" />
-                      </div>
-                      <input type="password" value={pinResetValue} onChange={e => setPinResetValue(e.target.value.replace(/\D/g, ""))} placeholder="New PIN (4–6 digits)" maxLength={6} style={{ width: "100%", padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 11, fontFamily: T.mono, letterSpacing: "0.2em", outline: "none", boxSizing: "border-box", marginBottom: 4 }} />
-                      <button disabled={!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4} onClick={() => {
-                        const v = pinResetValue.trim();
-                        setPeople(prev => prev.map(p => String(p.id) === String(pinResetUserId) ? { ...p, pin: v } : p));
-                        setPinResetUserId(""); setPinResetValue("");
-                        setPinResetToast("PIN updated");
-                        setTimeout(() => setPinResetToast(""), 1600);
-                      }} style={{ width: "100%", padding: "5px 0", borderRadius: T.radiusXs, border: "none", background: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? T.border : T.accent, color: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? T.textDim : "#fff", fontSize: 10, fontWeight: 700, cursor: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? "not-allowed" : "pointer", fontFamily: T.font }}>Reset PIN</button>
-                      {pinResetToast && <div style={{ fontSize: 10, color: "#10b981", marginTop: 4, textAlign: "center", fontWeight: 700 }}>✓ {pinResetToast}</div>}
-                    </div>
-                    {/* Launchers for legacy preferences screens */}
-                    <button onClick={() => setOrgSettingsOpen(true)} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Scheduling preferences</button>
-                    <button onClick={() => setSignOffSettingsOpen(true)} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Sign-Off templates</button>
-                  </div>
-                </div>
-              </div>}
             </div>
           </div>
         </div>
@@ -13439,6 +13349,111 @@ ${jobsCtx || "No jobs found."}`;
       <span style={{ fontSize: 9, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", fontWeight: 600, fontFamily: T.font, marginRight: 6 }}>{resizeTooltip.side === "left" ? "Start" : "End"}</span>
       <span style={{ fontFamily: T.font }}>{resizeTooltip.date}{resizeTooltip.time ? ` · ${resizeTooltip.time}` : ""}</span>
     </div>}
+    {/* Design Modal — fades in / out */}
+    <FadeOnClose open={designModalOpen} duration={220}>{designModalOpen && (
+      <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }}
+        onClick={() => setDesignModalOpen(false)}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(440px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto" }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg></span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Design</span>
+            <button onClick={() => setDesignModalOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
+          </div>
+          <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 18 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Theme</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
+                  const active = themeMode === th.id;
+                  return <button key={th.id} onClick={() => setThemeMode(th.id)} style={{ flex: 1, padding: "8px 8px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
+                })}
+              </div>
+              {themeMode === "custom" && <button onClick={() => setCustomizationOpen(true)} style={{ width: "100%", marginTop: 10, padding: "8px 10px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Customize colors…</button>}
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Sidebar</div>
+              <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
+                  const active = sidebarMode === opt.id;
+                  return <button key={opt.id} onClick={() => setSidebarMode(opt.id)} style={{ flex: 1, padding: "6px 12px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}</FadeOnClose>
+    {/* Organization Modal — fades in / out (admin only) */}
+    <FadeOnClose open={orgSettingsModalOpen} duration={220}>{orgSettingsModalOpen && (
+      <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }}
+        onClick={() => setOrgSettingsModalOpen(false)}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto" }}>
+          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Organization</span>
+            <button onClick={() => setOrgSettingsModalOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
+          </div>
+          <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: 12 }}>
+            {/* Company Name row */}
+            <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "10px 12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>Company Name</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{orgName || "—"}</div>
+                </div>
+                {orgEditing !== "name" && <button onClick={() => { setOrgNameInput(orgName || ""); setOrgNameError(""); setOrgEditing("name"); }} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
+              </div>
+              {orgEditing === "name" && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 6, fontFamily: T.font }} />
+                {orgNameError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgNameError}</div>}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                  <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(localStorage.getItem("tq_org_config") || "null") || {}; localStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
+                </div>
+              </div>}
+            </div>
+            {/* Org Code row */}
+            <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "10px 12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>Org Code</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "0.06em" }}>{orgCode || "—"}</div>
+                </div>
+                {orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
+              </div>
+              {orgEditing === "code" && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Changing this reloads the app. Everyone signs in with the new code.</div>
+                <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
+                {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgCodeError}</div>}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                  <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); localStorage.setItem("tq_org_code", newCode); localStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
+                </div>
+              </div>}
+            </div>
+            {/* Reset user PIN */}
+            <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "10px 12px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Reset User PIN</div>
+              <div style={{ marginBottom: 8 }}>
+                <SearchSelect value={pinResetUserId} onChange={v => setPinResetUserId(v || "")} options={people.map(p => ({ value: p.id, label: p.name, color: p.color, sub: p.department || "" }))} placeholder="Search…" compact emptyLabel="No one selected" />
+              </div>
+              <input type="password" value={pinResetValue} onChange={e => setPinResetValue(e.target.value.replace(/\D/g, ""))} placeholder="New PIN (4–6 digits)" maxLength={6} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.mono, letterSpacing: "0.2em", outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+              <button disabled={!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4} onClick={() => {
+                const v = pinResetValue.trim();
+                setPeople(prev => prev.map(p => String(p.id) === String(pinResetUserId) ? { ...p, pin: v } : p));
+                setPinResetUserId(""); setPinResetValue("");
+                setPinResetToast("PIN updated");
+                setTimeout(() => setPinResetToast(""), 1600);
+              }} style={{ width: "100%", padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? T.border : T.accent, color: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? "not-allowed" : "pointer", fontFamily: T.font }}>Reset PIN</button>
+              {pinResetToast && <div style={{ fontSize: 11, color: "#10b981", marginTop: 6, textAlign: "center", fontWeight: 700 }}>✓ {pinResetToast}</div>}
+            </div>
+            {/* Launchers for legacy preferences screens */}
+            <button onClick={() => { setOrgSettingsModalOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Scheduling preferences</button>
+            <button onClick={() => { setOrgSettingsModalOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Sign-Off templates</button>
+          </div>
+        </div>
+      </div>
+    )}</FadeOnClose>
     {/* Customization Modal */}
     {customizationOpen && (() => {
       return <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}
