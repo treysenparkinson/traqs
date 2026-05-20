@@ -8653,7 +8653,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
 
       {/* Hours over time — line chart */}
-      <Card delay={0} style={{ padding: 0, overflow: "hidden" }}>
+      <Card style={{ padding: 0, overflow: "hidden", animation: "none" }}>
         <h4 style={{ color: T.textSec, margin: 0, padding: "20px 24px 10px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours Logged Over Time</h4>
         {buckets.every(b => b.h === 0) ? (
           <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No hours logged in this period.</div>
@@ -8690,7 +8690,7 @@ ${jobsCtx || "No jobs found."}`;
 
       {/* Row: Per-person workload (2/3) + Department donut (1/3) */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 20 }}>
-        <Card delay={50}>
+        <Card style={{ animation: "none" }}>
           <h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Per-Person Workload</h4>
           {personRows.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No workload data in this period.</div>
@@ -8726,7 +8726,7 @@ ${jobsCtx || "No jobs found."}`;
           )}
         </Card>
 
-        <Card delay={100}>
+        <Card style={{ animation: "none" }}>
           <h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Department Breakdown</h4>
           {deptList.length === 0 ? (
             <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No scheduled hours in this period.</div>
@@ -8754,11 +8754,11 @@ ${jobsCtx || "No jobs found."}`;
 
       {/* Existing cards — kept below */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
-        <Card delay={150}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 52, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 13, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} jobs</div></Card>
-        <Card delay={200}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Status</h4>{bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: STA_C[s.n] }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{s.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{s.c}</span></div>)}</Card>
-        <Card delay={250}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Priority</h4>{byPr.map(p => <div key={p.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: PRI_C[p.n] }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{p.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{p.c}</span></div>)}</Card>
+        <Card style={{ animation: "none" }}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 52, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 13, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} jobs</div></Card>
+        <Card style={{ animation: "none" }}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Status</h4>{bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: STA_C[s.n] }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{s.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{s.c}</span></div>)}</Card>
+        <Card style={{ animation: "none" }}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Priority</h4>{byPr.map(p => <div key={p.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: PRI_C[p.n] }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{p.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{p.c}</span></div>)}</Card>
       </div>
-      <Card delay={300}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Workload Today</h4><div style={{ display: "flex", alignItems: "end", gap: 8, height: 160, padding: "0 8px" }}>{tl.map(t => <div key={t.n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}><span style={{ fontSize: 11, fontFamily: T.mono, color: t.h > t.cap ? T.danger : T.textSec, fontWeight: 600 }}>{t.h.toFixed(1)}</span><div style={{ width: "100%", background: T.bg, borderRadius: 4, position: "relative", height: Math.max((Math.max(t.h, t.cap) / mx) * 110, 6) }}><div style={{ position: "absolute", bottom: 0, width: "100%", borderRadius: 4, background: t.h > t.cap ? T.danger : t.h / t.cap > 0.7 ? "#f59e0b" : T.accent, height: Math.max((t.h / mx) * 110, 3) }} /></div><span style={{ fontSize: 10, color: T.textDim, textAlign: "center", fontWeight: 500 }}>{t.n}</span></div>)}</div></Card>
+      <Card style={{ animation: "none" }}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Workload Today</h4><div style={{ display: "flex", alignItems: "end", gap: 8, height: 160, padding: "0 8px" }}>{tl.map(t => <div key={t.n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}><span style={{ fontSize: 11, fontFamily: T.mono, color: t.h > t.cap ? T.danger : T.textSec, fontWeight: 600 }}>{t.h.toFixed(1)}</span><div style={{ width: "100%", background: T.bg, borderRadius: 4, position: "relative", height: Math.max((Math.max(t.h, t.cap) / mx) * 110, 6) }}><div style={{ position: "absolute", bottom: 0, width: "100%", borderRadius: 4, background: t.h > t.cap ? T.danger : t.h / t.cap > 0.7 ? "#f59e0b" : T.accent, height: Math.max((t.h / mx) * 110, 3) }} /></div><span style={{ fontSize: 10, color: T.textDim, textAlign: "center", fontWeight: 500 }}>{t.n}</span></div>)}</div></Card>
     </div>;
   };
 
