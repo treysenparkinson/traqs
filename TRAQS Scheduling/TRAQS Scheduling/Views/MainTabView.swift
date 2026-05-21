@@ -175,7 +175,7 @@ private struct SideMenu: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Header inside the drawer — wordmark + close
                 HStack {
-                    TRAQSWordmark(size: 30)
+                    TRAQSWordmark(size: 50)
                     Spacer()
                     Button { close() } label: {
                         Image(systemName: "xmark")

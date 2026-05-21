@@ -11,7 +11,7 @@ struct LoginView: View {
                 Spacer()
 
                 VStack(spacing: 12) {
-                    TRAQSWordmark(size: 56)
+                    TRAQSWordmark(size: 80)
                     Text("Scheduling & Production Management")
                         .font(TTypo.sm(13))
                         .foregroundStyle(Color(hex: T.muted))

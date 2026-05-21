@@ -8,11 +8,17 @@ import SwiftUI
 
 struct TRAQSWordmark: View {
     @Environment(ThemeSettings.self) private var themeSettings
-    var size: CGFloat = 28
+    var size: CGFloat = 44
 
     var body: some View {
         Image(themeSettings.isLightTheme ? "TRAQSLogoBlack" : "TRAQSLogoWhite")
             .resizable()
+            // .interpolation(.high) tells SwiftUI to use high-quality
+            // sampling when scaling the 3840-wide source down to display
+            // size, and .antialiased smooths the resulting glyph edges so
+            // the wordmark doesn't look pixelated in the nav header.
+            .interpolation(.high)
+            .antialiased(true)
             .scaledToFit()
             .frame(height: size)
     }
@@ -20,7 +26,7 @@ struct TRAQSWordmark: View {
 
 // Back-compat: a few places still call TRAQSNavLogo() — keep as the image wordmark.
 struct TRAQSNavLogo: View {
-    var body: some View { TRAQSWordmark(size: 28) }
+    var body: some View { TRAQSWordmark(size: 44) }
 }
 
 // MARK: - Screen Header
@@ -31,9 +37,9 @@ struct TRAQSNavHeader<Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 2) {
             TRAQSMenuButton()
-            TRAQSWordmark(size: 38)
+            TRAQSWordmark(size: 58)
             Spacer()
             HStack(spacing: 6) {
                 trailing()

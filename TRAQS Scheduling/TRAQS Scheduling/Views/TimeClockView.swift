@@ -5,6 +5,12 @@ import Combine
 // Lives in TimeClockView.swift / struct TimeClockView for back-compat.
 // Per-job time tracking; no payroll clock-in on mobile (desktop-only).
 
+// One shared ISO8601 formatter for the whole Hours tab. The view recomputes
+// every second from the ticker, so freshly allocating a formatter on every
+// elapsed-label tick or weekHours pass was both wasteful and (under load on
+// older devices) a likely cause of the intermittent stalls/errors on this tab.
+private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
+
 struct TimeClockView: View {
     @Environment(AppState.self) private var appState
     @State private var now = Date()
@@ -80,11 +86,20 @@ struct TimeClockView: View {
     /// so this is a best-effort: sum each job's loggedHours that the user is
     /// a member of. Plus live running clock.)
     private var weekHours: Double {
-        let me = appState.currentPersonId
+        // Safe optional binding instead of `me!` force unwraps inside escaping
+        // closures — the previous short-circuit pattern (`me == nil || … me! …`)
+        // was logically sound but fragile, and the most likely candidate for
+        // the intermittent runtime errors on this tab.
         let totalLogged = appState.jobs.reduce(0.0) { acc, job in
-            let onJob = me == nil
-                || job.team.contains(me!)
-                || job.subs.contains(where: { p in p.team.contains(me!) || p.subs.contains { $0.team.contains(me!) } })
+            let onJob: Bool
+            if let me = appState.currentPersonId {
+                onJob = job.team.contains(me)
+                    || job.subs.contains { panel in
+                        panel.team.contains(me) || panel.subs.contains { $0.team.contains(me) }
+                    }
+            } else {
+                onJob = true
+            }
             return onJob ? acc + (job.loggedHours ?? 0) : acc
         }
         return totalLogged + liveRunningHours
@@ -92,10 +107,10 @@ struct TimeClockView: View {
 
     private var liveRunningHours: Double {
         guard let jc = activeJobClock,
-              let s = ISO8601DateFormatter().date(from: jc.clockIn) else { return 0 }
+              let s = isoFormatter.date(from: jc.clockIn) else { return 0 }
         var ms = now.timeIntervalSince(s) * 1000
         ms -= (jc.totalPausedMs ?? 0)
-        if let p = jc.pausedAt, let pStart = ISO8601DateFormatter().date(from: p) {
+        if let p = jc.pausedAt, let pStart = isoFormatter.date(from: p) {
             ms -= now.timeIntervalSince(pStart) * 1000
         }
         return max(0, ms / 1000 / 3600)
@@ -130,7 +145,7 @@ struct TimeClockView: View {
     /// A real per-entry data feed would replace this.
     private var groupedEntries: [EntryGroup] {
         guard let jc = activeJobClock,
-              let s = ISO8601DateFormatter().date(from: jc.clockIn) else { return [] }
+              let s = isoFormatter.date(from: jc.clockIn) else { return [] }
         let cal = Calendar.current
         let day = cal.startOfDay(for: s)
         let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
@@ -144,7 +159,7 @@ struct TimeClockView: View {
                               deptLabel: dept.label,
                               deptColor: dept.color,
                               running: true)
-        return [EntryGroup(id: ISO8601DateFormatter().string(from: day),
+        return [EntryGroup(id: isoFormatter.string(from: day),
                            label: df.string(from: s),
                            entries: [entry])]
     }
@@ -307,10 +322,10 @@ private struct RunningEntryCard: View {
     let onPauseResume: () -> Void
 
     private var elapsedLabel: String {
-        guard let s = ISO8601DateFormatter().date(from: jobClock.clockIn) else { return "—" }
+        guard let s = isoFormatter.date(from: jobClock.clockIn) else { return "—" }
         var ms = now.timeIntervalSince(s) * 1000
         ms -= (jobClock.totalPausedMs ?? 0)
-        if let p = jobClock.pausedAt, let pStart = ISO8601DateFormatter().date(from: p) {
+        if let p = jobClock.pausedAt, let pStart = isoFormatter.date(from: p) {
             ms -= now.timeIntervalSince(pStart) * 1000
         }
         let secs = max(0, Int(ms / 1000))

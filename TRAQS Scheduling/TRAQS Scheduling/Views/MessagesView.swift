@@ -208,9 +208,6 @@ private struct ChannelRow: View {
     private var subtitle: String {
         thread.lastMessage.map { $0.text } ?? ""
     }
-    private var time: String {
-        thread.lastMessage?.timestamp.shortTimestamp ?? ""
-    }
     private var avatarColor: Color {
         Color(hex: thread.lastMessage?.authorColor ?? T.muted)
     }
@@ -236,17 +233,11 @@ private struct ChannelRow: View {
                 .frame(width: 40, height: 40)
             }
             VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(thread.displayTitle)
-                        .font(TTypo.smBold(14))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .lineLimit(1)
-                    Spacer()
-                    Text(time)
-                        .font(TTypo.mono(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .tnum()
-                }
+                Text(thread.displayTitle)
+                    .font(TTypo.smBold(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 6) {
                     Text(subtitle)
                         .font(TTypo.xs(12))
@@ -372,6 +363,7 @@ struct ThreadRow: View {
 
 struct ThreadDetailView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
     let threadKey: String
     @State private var newText = ""
     @State private var isSending = false
@@ -399,11 +391,36 @@ struct ThreadDetailView: View {
         return threadKey
     }
 
+    /// Participants for the header avatar stack.
+    /// - DM: the two ids encoded in the threadKey.
+    /// - Group: members of the matching ChatGroup.
+    /// - Job/panel/op: union of authors and participantIds from messages so
+    ///   far (best-effort — the desktop doesn't carry membership on those
+    ///   scopes either; this matches who's actually been involved).
+    private var threadParticipants: [Person] {
+        if threadKey.hasPrefix("dm:") {
+            let ids = String(threadKey.dropFirst(3)).components(separatedBy: "_")
+            return ids.compactMap { id in appState.people.first(where: { $0.id == id }) }
+        }
+        if threadKey.hasPrefix("group:") {
+            let name = String(threadKey.dropFirst(6))
+            if let g = appState.groups.first(where: { $0.name == name }) {
+                return g.memberIds.compactMap { id in appState.people.first(where: { $0.id == id }) }
+            }
+        }
+        let ids = Set(liveMessages.flatMap { [$0.authorId] + $0.participantIds })
+        return ids.compactMap { id in appState.people.first(where: { $0.id == id }) }
+    }
+
     var body: some View {
         ZStack {
             Color(hex: T.bg).ignoresSafeArea()
 
             VStack(spacing: 0) {
+                ThreadHeader(title: displayTitle,
+                             participants: threadParticipants,
+                             onBack: { dismiss() })
+
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 12) {
@@ -467,12 +484,7 @@ struct ThreadDetailView: View {
                 }
             }
         }
-        .navigationTitle(displayTitle)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     private func isMyMessage(_ msg: Message) -> Bool {
@@ -584,6 +596,83 @@ struct MessageBubble: View {
 
             if !isMe { Spacer(minLength: 40) }
         }
+    }
+}
+
+// MARK: - Thread Header (back · title · participant avatars)
+
+private struct ThreadHeader: View {
+    let title: String
+    let participants: [Person]
+    let onBack: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(Color(hex: T.surface)))
+                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            Text(title)
+                .font(TTypo.smBold(15))
+                .foregroundStyle(Color(hex: T.ink))
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer(minLength: 8)
+
+            if !participants.isEmpty {
+                ParticipantStack(people: participants)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+        .background(Color(hex: T.bg))
+    }
+}
+
+/// Up to three overlapping avatar circles. If more than three participants
+/// exist, the fourth slot becomes a "+N" indicator instead of the next avatar.
+private struct ParticipantStack: View {
+    let people: [Person]
+
+    private let avatarSize: CGFloat = 28
+    private let overlap: CGFloat = 10
+    private let maxShown: Int = 3
+
+    var body: some View {
+        HStack(spacing: -overlap) {
+            ForEach(Array(people.prefix(maxShown).enumerated()), id: \.element.id) { _, p in
+                Avatar(initials: initials(p.name),
+                       size: avatarSize,
+                       fill: Color(hex: p.color))
+                    .overlay(Circle().stroke(Color(hex: T.bg), lineWidth: 2))
+            }
+            if people.count > maxShown {
+                ZStack {
+                    Circle().fill(Color(hex: T.surface))
+                    Text("+\(people.count - maxShown)")
+                        .font(TTypo.xsBold(11))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .tnum()
+                }
+                .frame(width: avatarSize, height: avatarSize)
+                .overlay(Circle().stroke(Color(hex: T.bg), lineWidth: 2))
+            }
+        }
+    }
+
+    private func initials(_ name: String) -> String {
+        name.split(separator: " ")
+            .prefix(2)
+            .map { String($0.prefix(1)).uppercased() }
+            .joined()
     }
 }
 

@@ -5,7 +5,7 @@ struct SplashView: View {
 
     @State private var overallOpacity = 1.0
 
-    private let logoSize: CGFloat = 64          // very large wordmark — splash hero
+    private let logoSize: CGFloat = 96          // very large wordmark — splash hero
 
     var body: some View {
         ZStack {
