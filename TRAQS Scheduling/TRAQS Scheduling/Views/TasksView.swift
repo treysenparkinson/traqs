@@ -219,7 +219,7 @@ struct TasksView: View {
         let dayTasks = tasks(for: day)
         if dayTasks.isEmpty {
             VStack(spacing: 6) {
-                NoJobsPlaceholder(text: "No tasks on this day")
+                NoJobsPlaceholder(text: "No jobs scheduled")
                 diagnosticLine
             }
             .padding(.horizontal, 16).padding(.top, 8)
@@ -257,10 +257,12 @@ struct TasksView: View {
 
     /// Every (job → panel → op) where the current user is on the op's team.
     /// If the user is on `panel.team` but no specific op, surface a single
-    /// panel-level assignment for that panel.
-    /// If the user is on `job.team` only (with no panel/op membership),
-    /// surface every panel of that job as a panel-level assignment so
-    /// they at least see what they were assigned to.
+    /// panel-level assignment for that panel. Job-level `team` membership
+    /// alone does NOT surface assignments — being listed on a job's team
+    /// (typical for admins/watchers) without an actual panel or op
+    /// assignment isn't "scheduled work", and inflating it to one entry
+    /// per panel turned every admin's tasks view into the whole company's
+    /// schedule.
     private var myTasks: [TaskAssignment] {
         guard let me = appState.currentPersonId else { return [] }
         var out: [TaskAssignment] = []
@@ -271,22 +273,13 @@ struct TasksView: View {
                 if !hay.contains(q) { continue }
             }
 
-            var addedAny = false
             for panel in job.subs {
                 let myOps = panel.subs.filter { $0.team.contains(me) }
                 if !myOps.isEmpty {
                     for op in myOps {
                         out.append(TaskAssignment(job: job, panel: panel, op: op))
                     }
-                    addedAny = true
                 } else if panel.team.contains(me) {
-                    out.append(TaskAssignment(job: job, panel: panel, op: nil))
-                    addedAny = true
-                }
-            }
-            // Fallback: user on job.team only → list every panel so the job is visible.
-            if !addedAny, job.team.contains(me) {
-                for panel in job.subs {
                     out.append(TaskAssignment(job: job, panel: panel, op: nil))
                 }
             }
@@ -428,7 +421,7 @@ private struct DayGroupedTaskList: View {
                 }
             }
             if populated.isEmpty {
-                NoJobsPlaceholder(text: "No tasks in this range")
+                NoJobsPlaceholder(text: "No jobs scheduled in this range")
                     .padding(.horizontal, 16)
             }
         }
