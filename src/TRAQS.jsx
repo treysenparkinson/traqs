@@ -2329,21 +2329,29 @@ Extraction rules:
       seen.add(t.id);
       return true;
     });
-    return deduped.map(job => ({
-      ...job,
-      subs: (job.subs || []).map(panel => {
-        // Heal panels that were saved without a color (older / wizard-created jobs).
-        const panelColor = panel.color || _colorForId(panel.id);
-        return {
+    return deduped.map(job => {
+      // One color per job — panels and ops always inherit it. Source: existing job.color,
+      // else the first colored panel/op we find, else a stable hash from the job id.
+      let jobColor = job.color;
+      if (!jobColor) {
+        outer: for (const p of (job.subs || [])) {
+          if (p.color) { jobColor = p.color; break; }
+          for (const o of (p.subs || [])) {
+            if (o.color) { jobColor = o.color; break outer; }
+          }
+        }
+      }
+      if (!jobColor) jobColor = _colorForId(job.id);
+      return {
+        ...job,
+        color: jobColor,
+        subs: (job.subs || []).map(panel => ({
           ...panel,
-          color: panelColor,
-          subs: (panel.subs || []).map(op => {
-            const norm = normalizeOp(op);
-            return { ...norm, color: norm.color || panelColor };
-          }),
-        };
-      }),
-    }));
+          color: jobColor,
+          subs: (panel.subs || []).map(op => ({ ...normalizeOp(op), color: jobColor })),
+        })),
+      };
+    });
   };
 
   // Load all data from S3 on mount; fall back to seed data if S3 is empty
@@ -2717,7 +2725,7 @@ Extraction rules:
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
 
 
-  const allItems = useMemo(() => { let r = []; tasks.forEach(t => { r.push({ ...t, color: "#94a3b8", isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { const pc = s.color || "#94a3b8"; r.push({ ...s, color: pc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: pc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
+  const allItems = useMemo(() => { let r = []; tasks.forEach(t => { const jc = t.color || "#94a3b8"; r.push({ ...t, color: jc, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { r.push({ ...s, color: jc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: jc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
   const taskColor = useCallback(t => t.color || T.accent, []);
   const taskOwner = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.name.split(" ")[0] : null; }, [people]);
   const filtered = useMemo(() => tasks.filter(t => {
@@ -3376,7 +3384,10 @@ Extraction rules:
     // Level 0: updating a job — everything inside moves with it
     if (t.id === id) {
       const updated = { ...t, ...upd };
-      if ((upd.start || upd.end) && (t.subs || []).length > 0) {
+      // Only auto-shift child panels when the caller didn't supply its own subs.
+      // The Edit Job modal sends a full subs array with edited titles/dates already
+      // baked in, so we must not overwrite it from the stale t.subs here.
+      if ((upd.start || upd.end) && (t.subs || []).length > 0 && !upd.subs) {
         const startDelta = upd.start ? diffD(t.start, upd.start) : 0;
         const endDelta = upd.end ? diffD(t.end, upd.end) : 0;
         // Move: shift all panels and their operations equally
@@ -3470,7 +3481,7 @@ Extraction rules:
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
-  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [] }, parentId: pid }); };
+  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid }); };
   const openEdit = (t) => {
     // Locate the freshest copy of the job from tasks so we always edit the latest data
     const live = tasks.find(x => x.id === t.id) || t;
@@ -3489,6 +3500,7 @@ Extraction rules:
       hpd: live.hpd ?? 7.5,
       start: live.start || TD,
       end: live.end || TD,
+      color: live.color || live.subs?.[0]?.color || _colorForId(live.id),
       subs: JSON.parse(JSON.stringify(live.subs || [])), // deep clone so edits don't mutate the live tasks state until save
     });
     setEditAddedIds(new Set());
@@ -3712,9 +3724,12 @@ ${jobsCtx || "No jobs found."}`;
     // created without one (e.g. from the auto-add-panels flow) — otherwise it persists color-less
     // and renders grey after the next poll refetch.
     const isGeneralTask = (ed.jobType || "panel") !== "panel";
-    const withIds = { ...ed, subs: (ed.subs || []).map(panel => {
+    // Unified job color — every panel and op under this job uses it. Fall back to the first
+    // colored panel (legacy data) and then to a stable hash of the job id.
+    const jobColor = ed.color || (ed.subs || []).map(p => p.color).find(Boolean) || _colorForId(ed.id || "new");
+    const withIds = { ...ed, color: jobColor, subs: (ed.subs || []).map(panel => {
       const pid = panel.id || uid();
-      const pColor = panel.color || _colorForId(pid);
+      const pColor = jobColor;
       return isGeneralTask
       ? { ...panel, id: pid, color: pColor }
       : { ...panel, id: pid, color: pColor, subs: (panel.subs || []).map(op => {
@@ -3738,7 +3753,7 @@ ${jobsCtx || "No jobs found."}`;
             while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = sAddBD(_day0, 1); }
             _opEnd = sAddBD(_day0, 1);
           }
-          return { ...op, id: op.id || uid(), end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
+          return { ...op, id: op.id || uid(), color: jobColor, end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
         }) };
     }) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
@@ -12158,7 +12173,7 @@ ${jobsCtx || "No jobs found."}`;
                       </div>}
                     </div>
                     <input value={panel.title} onChange={e => updatePanel({title:e.target.value})} placeholder="Operation name"
-                      onKeyDown={e => { if(e.key==="Enter") { e.preventDefault(); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],subs:[],color:randomJobColor()}] })); } }}
+                      onKeyDown={e => { if(e.key==="Enter") { e.preventDefault(); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],subs:[],color:p.color||randomJobColor()}] })); } }}
                       style={{ flex:1, padding:"7px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
                     {panel.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
                     <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
@@ -12366,7 +12381,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>;
               })}
             </div>
-            <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],requiredDepartment:"",subs:[],color:randomJobColor()}] })); }}
+            <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],requiredDepartment:"",subs:[],color:p.color||randomJobColor()}] })); }}
               style={{ display:"block", width:"100%", padding:"18px 0", borderRadius:T.radiusSm, border:`2px dashed ${T.accent}55`, background:T.accent+"08", color:T.accent, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.background=T.accent+"18"; e.currentTarget.style.borderColor=T.accent; }}
               onMouseLeave={e => { e.currentTarget.style.background=T.accent+"08"; e.currentTarget.style.borderColor=T.accent+"55"; }}>
@@ -16105,6 +16120,12 @@ ${jobsCtx || "No jobs found."}`;
         const allPanelDates = (ej.subs || []).filter(p => p.start && p.end && !editAddedIds.has(p.id));
         const computedStart = allPanelDates.length ? allPanelDates.map(p => p.start).sort()[0] : ej.start;
         const computedEnd = allPanelDates.length ? allPanelDates.map(p => p.end).sort().slice(-1)[0] : ej.end;
+        // Propagate the job color down to every panel and op so the whole job stays color-grouped.
+        const colored = (ej.subs || []).map(panel => ({
+          ...panel,
+          color: ej.color,
+          subs: (panel.subs || []).map(op => ({ ...op, color: ej.color })),
+        }));
         updTask(ej.id, {
           title: ej.title.trim(),
           jobNumber: ej.jobNumber,
@@ -16119,7 +16140,8 @@ ${jobsCtx || "No jobs found."}`;
           hpd: ej.hpd,
           start: computedStart,
           end: computedEnd,
-          subs: ej.subs,
+          color: ej.color,
+          subs: colored,
         });
         // If new ops/panels were added during this edit session, populate the floating
         // "Pending Schedule" tray. The user then drags each card onto the Schedule grid.
@@ -16133,14 +16155,14 @@ ${jobsCtx || "No jobs found."}`;
               id: op.id, jobId: ej.id, panelId: panel.id, opId: op.id, kind: "op",
               title: op.title, hpd: op.hpd ?? ej.hpd,
               requiredDepartment: op.requiredDepartment || panel.requiredDepartment || "",
-              color: panel.color || "#94a3b8",
+              color: ej.color || panel.color || "#94a3b8",
             }));
             if (panelIsNew && (panel.subs || []).length === 0) {
               items.push({
                 id: panel.id, jobId: ej.id, panelId: panel.id, opId: null, kind: "panel",
                 title: panel.title, hpd: panel.hpd ?? ej.hpd,
                 requiredDepartment: panel.requiredDepartment || "",
-                color: panel.color || "#94a3b8",
+                color: ej.color || panel.color || "#94a3b8",
               });
             }
           });
@@ -16327,6 +16349,30 @@ ${jobsCtx || "No jobs found."}`;
                 <div>
                   {fieldLabel("Due Date")}
                   {fieldInput(ej.dueDate, v => setEj({ dueDate: v }), { type: "date" })}
+                </div>
+              </div>
+              {/* Job Color — applies to every panel & operation under this job */}
+              <div>
+                {fieldLabel("Job Color")}
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ position: "relative" }}>
+                    <button onClick={e => { e.stopPropagation(); setColorDropId(colorDropId === "editJobColor" ? null : "editJobColor"); }}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, cursor: "pointer", fontFamily: T.font, transition: "border 0.15s, box-shadow 0.15s" }}>
+                      <div style={{ width: 22, height: 22, borderRadius: 6, background: ej.color, border: `1px solid ${T.border}`, boxShadow: `0 0 0 2px ${ej.color}33` }} />
+                      <span style={{ fontSize: 12, fontFamily: T.mono, color: T.textDim, letterSpacing: "0.03em" }}>{ej.color}</span>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    {colorDropId === "editJobColor" && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 2300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: 12, width: 232, display: "flex", flexDirection: "column", gap: 10, animation: "menuIn 0.15s ease-out" }}>
+                      <HexColorPicker color={ej.color} onChange={c => setEj({ color: c })} style={{ width: "100%", height: 170 }} />
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {COLORS.map(c => <button key={c} onClick={() => setEj({ color: c })} title={c} style={{ width: 22, height: 22, borderRadius: 6, background: c, border: ej.color?.toLowerCase() === c.toLowerCase() ? `2px solid ${T.text}` : `1px solid ${T.border}`, cursor: "pointer", padding: 0 }} />)}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+                        <button onClick={() => setColorDropId(null)} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
+                      </div>
+                    </div>}
+                  </div>
+                  <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.font }}>All panels and operations under this job will use this color.</div>
                 </div>
               </div>
               {/* Notes — full width */}
