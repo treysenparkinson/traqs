@@ -1,12 +1,12 @@
 {
   "images" : [
     {
-      "filename" : "traqs-wordmark-dark.png",
+      "filename" : "traqs-wordmark-paper-transparent (2).png",
       "idiom" : "universal",
       "scale" : "1x"
     },
     {
-      "filename" : "traqs-wordmark-light.png",
+      "filename" : "traqs-wordmark-ink-transparent.png",
       "idiom" : "universal",
       "scale" : "2x"
     },

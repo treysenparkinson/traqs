@@ -28,6 +28,11 @@ struct TRAQS_SchedulingApp: App {
                 .onChange(of: appState.currentPersonId) { _, personId in
                     if let personId {
                         OneSignal.login(personId)
+                        // The web's notify.js filters out anyone whose person
+                        // record doesn't have `pushToken` set. Writing the
+                        // OneSignal subscription ID back to people.json is
+                        // what actually opts this device into pushes.
+                        appState.registerPushTokenIfNeeded()
                     }
                 }
         }

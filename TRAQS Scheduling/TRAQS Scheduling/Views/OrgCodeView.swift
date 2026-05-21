@@ -4,6 +4,13 @@ struct OrgCodeView: View {
     @Environment(AuthManager.self) private var auth
     @Environment(AppState.self) private var appState
 
+    /// Email we tried to auto-resolve. Shown in the subtitle so the user can
+    /// confirm they're logged in as the right person before typing a code.
+    var noticeEmail: String? = nil
+    /// Human-readable explanation when auto-link couldn't find/resolve an org.
+    /// `nil` means we fell here without trying (e.g. first launch).
+    var autoLinkError: String? = nil
+
     @State private var code = ""
     @State private var isChecking = false
     @State private var error: String?
@@ -19,10 +26,22 @@ struct OrgCodeView: View {
                     Text("Enter Org Code")
                         .font(.title.bold())
                         .foregroundColor(Color(hex: T.text))
-                    Text("Enter your organization's TRAQS code to continue.")
-                        .font(.subheadline)
-                        .foregroundColor(Color(hex: T.muted))
-                        .multilineTextAlignment(.center)
+                    if let msg = autoLinkError {
+                        Text(msg)
+                            .font(.subheadline)
+                            .foregroundColor(Color(hex: T.muted))
+                            .multilineTextAlignment(.center)
+                    } else {
+                        Text("Enter your organization's TRAQS code to continue.")
+                            .font(.subheadline)
+                            .foregroundColor(Color(hex: T.muted))
+                            .multilineTextAlignment(.center)
+                    }
+                    if let email = noticeEmail, !email.isEmpty {
+                        Text("Signed in as \(email)")
+                            .font(.caption)
+                            .foregroundColor(Color(hex: T.muted))
+                    }
                 }
 
                 VStack(spacing: 12) {

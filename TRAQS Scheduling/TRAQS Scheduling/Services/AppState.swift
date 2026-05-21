@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import OneSignalFramework
 
 @MainActor
 @Observable
@@ -227,6 +228,33 @@ class AppState {
         panel.engineering = eng
         job.subs[pi] = panel
         updateJob(job)
+
+        // Mirror the web app's notify side-effects: every sign-off fires a
+        // "step" notification, and the final one (all three done) also fires
+        // "ready". See src/TRAQS.jsx around the engineering-signoff handler.
+        let jobTeamIds = job.team
+        let jobTitle = job.title
+        let jobNumber = job.jobNumber
+        let panelTitle = panel.title
+        let stepLabel = step.label
+        let allDone = eng.designed != nil && eng.verified != nil && eng.sentToPerforex != nil
+        Task { [api] in
+            guard let api else { return }
+            try? await api.sendNotification(NotifyPayload(
+                type: "step",
+                jobTitle: jobTitle, jobNumber: jobNumber,
+                panelTitle: panelTitle, stepLabel: stepLabel,
+                jobTeamIds: jobTeamIds, newTeamIds: nil, clientName: nil
+            ))
+            if allDone {
+                try? await api.sendNotification(NotifyPayload(
+                    type: "ready",
+                    jobTitle: jobTitle, jobNumber: jobNumber,
+                    panelTitle: panelTitle, stepLabel: stepLabel,
+                    jobTeamIds: jobTeamIds, newTeamIds: nil, clientName: nil
+                ))
+            }
+        }
     }
 
     func revertSignOff(jobId: String, panelId: String, step: EngStep) {
@@ -363,6 +391,41 @@ class AppState {
         } catch {
             saveStatus = .error(error.localizedDescription)
         }
+    }
+
+    // MARK: - Push token registration
+    // notify.js filters pushes by `person.pushToken` truthiness — if iOS
+    // doesn't write the OneSignal subscription ID back to the people roster,
+    // the device never receives notifications even though OneSignal.login()
+    // ran. Poll the SDK for up to ~10s post-login since the subscription ID
+    // isn't always ready immediately after init.
+    private var pushRegisterTask: Task<Void, Never>?
+
+    func registerPushTokenIfNeeded() {
+        pushRegisterTask?.cancel()
+        pushRegisterTask = Task { [weak self] in
+            guard let self else { return }
+            for _ in 0..<20 {
+                if Task.isCancelled { return }
+                let id = OneSignal.User.pushSubscription.id
+                if let id, !id.isEmpty {
+                    await self.writePushToken(id)
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
+    }
+
+    private func writePushToken(_ token: String) async {
+        guard let api,
+              let personId = currentPersonId,
+              let idx = people.firstIndex(where: { $0.id == personId }),
+              people[idx].pushToken != token else { return }
+        var updated = people
+        updated[idx].pushToken = token
+        people = updated
+        try? await api.savePeople(updated)
     }
 
     // MARK: - Auto-match person by email

@@ -313,6 +313,23 @@ struct APIService {
         }
         return try JSONDecoder().decode(OrgInfo.self, from: data)
     }
+
+    /// Resolve which orgs an authenticated user belongs to, by email. Used by
+    /// the mobile app after Auth0 login to skip the manual org-code prompt.
+    static func lookupOrgByEmail(email: String, token: String) async throws -> [OrgMatch] {
+        let encoded = email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/org-lookup?email=\(encoded)") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+        struct Wrapper: Decodable { let matches: [OrgMatch] }
+        return try JSONDecoder().decode(Wrapper.self, from: data).matches
+    }
 }
 
 struct OrgInfo: Decodable {
@@ -320,4 +337,11 @@ struct OrgInfo: Decodable {
     let domain: String?
     let adminEmail: String?
     let connection: String?
+}
+
+struct OrgMatch: Decodable, Hashable {
+    let code: String
+    let name: String?
+    let domain: String?
+    let adminEmail: String?
 }
