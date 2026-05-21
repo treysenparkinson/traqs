@@ -2330,8 +2330,8 @@ Extraction rules:
       return true;
     });
     return deduped.map(job => {
-      // One color per job — panels and ops always inherit it. Source: existing job.color,
-      // else the first colored panel/op we find, else a stable hash from the job id.
+      // The job color is the default for its panels & ops; each panel/op may override.
+      // Resolve a job color from existing value → first colored child → stable id hash.
       let jobColor = job.color;
       if (!jobColor) {
         outer: for (const p of (job.subs || [])) {
@@ -2347,8 +2347,11 @@ Extraction rules:
         color: jobColor,
         subs: (job.subs || []).map(panel => ({
           ...panel,
-          color: jobColor,
-          subs: (panel.subs || []).map(op => ({ ...normalizeOp(op), color: jobColor })),
+          color: panel.color || jobColor,
+          subs: (panel.subs || []).map(op => {
+            const norm = normalizeOp(op);
+            return { ...norm, color: norm.color || panel.color || jobColor };
+          }),
         })),
       };
     });
@@ -2725,7 +2728,7 @@ Extraction rules:
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
 
 
-  const allItems = useMemo(() => { let r = []; tasks.forEach(t => { const jc = t.color || "#94a3b8"; r.push({ ...t, color: jc, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { r.push({ ...s, color: jc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: jc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
+  const allItems = useMemo(() => { let r = []; tasks.forEach(t => { const jc = t.color || "#94a3b8"; r.push({ ...t, color: jc, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { const pc = s.color || jc; r.push({ ...s, color: pc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: op.color || pc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
   const taskColor = useCallback(t => t.color || T.accent, []);
   const taskOwner = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.name.split(" ")[0] : null; }, [people]);
   const filtered = useMemo(() => tasks.filter(t => {
@@ -3724,12 +3727,12 @@ ${jobsCtx || "No jobs found."}`;
     // created without one (e.g. from the auto-add-panels flow) — otherwise it persists color-less
     // and renders grey after the next poll refetch.
     const isGeneralTask = (ed.jobType || "panel") !== "panel";
-    // Unified job color — every panel and op under this job uses it. Fall back to the first
-    // colored panel (legacy data) and then to a stable hash of the job id.
+    // Default job color (used when a panel or op doesn't have its own). Per-task overrides
+    // chosen in the editor are preserved below.
     const jobColor = ed.color || (ed.subs || []).map(p => p.color).find(Boolean) || _colorForId(ed.id || "new");
     const withIds = { ...ed, color: jobColor, subs: (ed.subs || []).map(panel => {
       const pid = panel.id || uid();
-      const pColor = jobColor;
+      const pColor = panel.color || jobColor;
       return isGeneralTask
       ? { ...panel, id: pid, color: pColor }
       : { ...panel, id: pid, color: pColor, subs: (panel.subs || []).map(op => {
@@ -3753,7 +3756,7 @@ ${jobsCtx || "No jobs found."}`;
             while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = sAddBD(_day0, 1); }
             _opEnd = sAddBD(_day0, 1);
           }
-          return { ...op, id: op.id || uid(), color: jobColor, end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
+          return { ...op, id: op.id || uid(), color: op.color || pColor, end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
         }) };
     }) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
@@ -16120,12 +16123,6 @@ ${jobsCtx || "No jobs found."}`;
         const allPanelDates = (ej.subs || []).filter(p => p.start && p.end && !editAddedIds.has(p.id));
         const computedStart = allPanelDates.length ? allPanelDates.map(p => p.start).sort()[0] : ej.start;
         const computedEnd = allPanelDates.length ? allPanelDates.map(p => p.end).sort().slice(-1)[0] : ej.end;
-        // Propagate the job color down to every panel and op so the whole job stays color-grouped.
-        const colored = (ej.subs || []).map(panel => ({
-          ...panel,
-          color: ej.color,
-          subs: (panel.subs || []).map(op => ({ ...op, color: ej.color })),
-        }));
         updTask(ej.id, {
           title: ej.title.trim(),
           jobNumber: ej.jobNumber,
@@ -16141,7 +16138,7 @@ ${jobsCtx || "No jobs found."}`;
           start: computedStart,
           end: computedEnd,
           color: ej.color,
-          subs: colored,
+          subs: ej.subs,
         });
         // If new ops/panels were added during this edit session, populate the floating
         // "Pending Schedule" tray. The user then drags each card onto the Schedule grid.
@@ -16155,14 +16152,14 @@ ${jobsCtx || "No jobs found."}`;
               id: op.id, jobId: ej.id, panelId: panel.id, opId: op.id, kind: "op",
               title: op.title, hpd: op.hpd ?? ej.hpd,
               requiredDepartment: op.requiredDepartment || panel.requiredDepartment || "",
-              color: ej.color || panel.color || "#94a3b8",
+              color: op.color || panel.color || ej.color || "#94a3b8",
             }));
             if (panelIsNew && (panel.subs || []).length === 0) {
               items.push({
                 id: panel.id, jobId: ej.id, panelId: panel.id, opId: null, kind: "panel",
                 title: panel.title, hpd: panel.hpd ?? ej.hpd,
                 requiredDepartment: panel.requiredDepartment || "",
-                color: ej.color || panel.color || "#94a3b8",
+                color: panel.color || ej.color || "#94a3b8",
               });
             }
           });
@@ -16351,30 +16348,6 @@ ${jobsCtx || "No jobs found."}`;
                   {fieldInput(ej.dueDate, v => setEj({ dueDate: v }), { type: "date" })}
                 </div>
               </div>
-              {/* Job Color — applies to every panel & operation under this job */}
-              <div>
-                {fieldLabel("Job Color")}
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ position: "relative" }}>
-                    <button onClick={e => { e.stopPropagation(); setColorDropId(colorDropId === "editJobColor" ? null : "editJobColor"); }}
-                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, cursor: "pointer", fontFamily: T.font, transition: "border 0.15s, box-shadow 0.15s" }}>
-                      <div style={{ width: 22, height: 22, borderRadius: 6, background: ej.color, border: `1px solid ${T.border}`, boxShadow: `0 0 0 2px ${ej.color}33` }} />
-                      <span style={{ fontSize: 12, fontFamily: T.mono, color: T.textDim, letterSpacing: "0.03em" }}>{ej.color}</span>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    </button>
-                    {colorDropId === "editJobColor" && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 2300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: 12, width: 232, display: "flex", flexDirection: "column", gap: 10, animation: "menuIn 0.15s ease-out" }}>
-                      <HexColorPicker color={ej.color} onChange={c => setEj({ color: c })} style={{ width: "100%", height: 170 }} />
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {COLORS.map(c => <button key={c} onClick={() => setEj({ color: c })} title={c} style={{ width: 22, height: 22, borderRadius: 6, background: c, border: ej.color?.toLowerCase() === c.toLowerCase() ? `2px solid ${T.text}` : `1px solid ${T.border}`, cursor: "pointer", padding: 0 }} />)}
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
-                        <button onClick={() => setColorDropId(null)} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
-                      </div>
-                    </div>}
-                  </div>
-                  <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.font }}>All panels and operations under this job will use this color.</div>
-                </div>
-              </div>
               {/* Notes — full width */}
               <div>
                 {fieldLabel("Notes")}
@@ -16405,14 +16378,26 @@ ${jobsCtx || "No jobs found."}`;
                       style={{ position: "relative", background: T.surface, border: `1px solid ${isPanelDragOver ? T.accent : T.border}`, borderRadius: T.radiusSm, padding: 12, fontFamily: T.font, opacity: isPanelBeingDragged ? 0.5 : 1, transition: "border-color 0.15s, opacity 0.15s" }}>
                       {editAddedIds.has(panel.id) && <div style={{ position: "absolute", top: -7, right: -7, padding: "2px 7px", borderRadius: 10, background: T.accent, color: T.accentText, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: T.font, animation: "newBadgePulse 1.6s ease-out infinite", zIndex: 2 }}>New</div>}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                        <div
-                          draggable
-                          onDragStart={e => { e.dataTransfer.effectAllowed = "move"; setEditDrag({ kind: "panel", panelIdx: pi }); }}
-                          onDragEnd={() => setEditDrag(null)}
-                          title="Drag to reorder"
-                          style={{ cursor: "grab", color: T.textDim, padding: "4px 2px", display: "flex", alignItems: "center", lineHeight: 0, userSelect: "none" }}>
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
-                        </div>
+                        {(() => { const pColor = panel.color || ej.color; return (
+                        <div style={{ position: "relative", flexShrink: 0 }}>
+                          <div
+                            draggable
+                            onDragStart={e => { e.dataTransfer.effectAllowed = "move"; setEditDrag({ kind: "panel", panelIdx: pi }); }}
+                            onDragEnd={() => setEditDrag(null)}
+                            onClick={e => { e.stopPropagation(); setColorDropId(colorDropId === `editPanel-${panel.id}` ? null : `editPanel-${panel.id}`); }}
+                            title="Click to change color · Drag to reorder"
+                            style={{ width: 22, height: 22, borderRadius: 6, background: pColor, border: `1.5px solid ${T.border}`, boxShadow: `0 0 0 2px ${pColor}33`, cursor: "grab", flexShrink: 0 }} />
+                          {colorDropId === `editPanel-${panel.id}` && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 2300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: 10, width: 220, display: "flex", flexDirection: "column", gap: 8, animation: "menuIn 0.15s ease-out" }}>
+                            <HexColorPicker color={pColor} onChange={c => updPanel(pi, { color: c })} style={{ width: "100%", height: 160 }} />
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                              {COLORS.map(c => <button key={c} onClick={() => updPanel(pi, { color: c })} title={c} style={{ width: 20, height: 20, borderRadius: 5, background: c, border: pColor?.toLowerCase() === c.toLowerCase() ? `2px solid ${T.text}` : `1px solid ${T.border}`, cursor: "pointer", padding: 0 }} />)}
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                              <button onClick={() => updPanel(pi, { color: ej.color })} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Reset to job</button>
+                              <button onClick={() => setColorDropId(null)} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
+                            </div>
+                          </div>}
+                        </div>); })()}
                         <input value={panel.title} onChange={e => updPanel(pi, { title: e.target.value })} placeholder="Panel name" style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                         <button onClick={() => removePanel(pi)} title="Delete panel" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
@@ -16433,7 +16418,7 @@ ${jobsCtx || "No jobs found."}`;
                               onDragStart={e => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; setEditDrag({ kind: "op", panelIdx: pi, opIdx: oi }); }}
                               onDragEnd={() => setEditDrag(null)}
                               title="Drag to reorder"
-                              style={{ cursor: "grab", color: T.textDim, padding: "2px 1px", display: "flex", alignItems: "center", lineHeight: 0, userSelect: "none" }}>
+                              style={{ cursor: "grab", color: T.textDim, padding: "2px 1px", display: "flex", alignItems: "center", lineHeight: 0, userSelect: "none", flexShrink: 0 }}>
                               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
                             </div>
                             <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
