@@ -37,6 +37,12 @@ struct APIService {
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")
+        // Bypass URLSession's HTTP cache. The Netlify functions don't emit
+        // Cache-Control headers, so URLSession's heuristic freshness can
+        // serve a stale body — which on the messaging endpoints means the
+        // tester's device never sees newly posted messages until the cache
+        // entry naturally expires.
+        req.cachePolicy = .reloadIgnoringLocalCacheData
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -46,6 +52,28 @@ struct APIService {
 
     private func perform(_ req: URLRequest) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(for: req)
+
+        // Transparent retry on 401. The Netlify functions use
+        // `createRemoteJWKSet` which lazily fetches Auth0's JWKS on the
+        // first verification after a function cold-start. If that fetch
+        // hiccups or hasn't completed in time, `validateToken` throws
+        // and the handler returns 401 — even though the token itself is
+        // perfectly valid. By the time the user retries, the JWKS is
+        // cached in the warm container and verification succeeds. We do
+        // that retry automatically so the user doesn't see a spurious
+        // 401 every time a Netlify function spins up cold.
+        //
+        // Retry is safe: every server handler validates the token BEFORE
+        // mutating any state, so a 401 means no side effects occurred.
+        if let http = response as? HTTPURLResponse, http.statusCode == 401 {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            let (data2, response2) = try await URLSession.shared.data(for: req)
+            if let http2 = response2 as? HTTPURLResponse, !(200...299).contains(http2.statusCode) {
+                throw APIError.httpError(http2.statusCode)
+            }
+            return data2
+        }
+
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             throw APIError.httpError(http.statusCode)
         }
@@ -77,6 +105,20 @@ struct APIService {
     func savePeople(_ people: [Person]) async throws {
         let body = try JSONEncoder().encode(people)
         let req = try request("people", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    /// Patch only the supplied fields of a single person. Prevents the
+    /// race where iOS writes the entire people array and clobbers a
+    /// concurrent server-side mutation like jobClockIn that touches one
+    /// field of one person. Use this for granular updates (push token,
+    /// role toggle, etc.) instead of savePeople.
+    func patchPerson(personId: String, fields: [String: Any]) async throws {
+        let body = try JSONSerialization.data(
+            withJSONObject: ["personId": personId, "fields": fields],
+            options: []
+        )
+        let req = try request("people", method: "PATCH", body: body)
         _ = try await perform(req)
     }
 
@@ -137,41 +179,104 @@ struct APIService {
         return try decoder.decode(OrgSettings.self, from: data)
     }
 
+    func saveOrgSettings(_ settings: OrgSettings) async throws {
+        let body = try JSONEncoder().encode(settings)
+        let req = try request("settings", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    // MARK: - Attachments
+
+    /// Upload a single binary attachment. `data` should be raw bytes;
+    /// they're base64-encoded before posting because the server expects
+    /// either a `data:<mime>;base64,...` URL string or plain base64.
+    struct AttachmentResult: Decodable {
+        let key: String
+        let filename: String
+        let mimeType: String
+        let size: Int
+    }
+    func uploadAttachment(filename: String, mimeType: String, data: Data) async throws -> AttachmentResult {
+        let base64 = data.base64EncodedString()
+        let body = try JSONSerialization.data(withJSONObject: [
+            "filename": filename,
+            "mimeType": mimeType,
+            "data": "data:\(mimeType);base64,\(base64)",
+        ])
+        let req = try request("attachment", method: "POST", body: body)
+        let resp = try await perform(req)
+        return try decoder.decode(AttachmentResult.self, from: resp)
+    }
+
+    // MARK: - Forgot org code (unauthenticated)
+
+    /// Trigger a "your org codes" recovery email. Server is silent about
+    /// whether the email matched anything, to prevent enumeration.
+    static func forgotOrgCode(email: String) async throws {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/forgot-org") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["email": email])
+        let (_, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+    }
+
+    // MARK: - Admin timeclock (Bearer-only)
+
+    private struct AdminClockTimePayload: Encodable {
+        let action: String
+        let personId: String
+        let clockInTime: String?
+        let clockOutTime: String?
+        let note: String?
+    }
+
+    /// Admin force-clocks a person in. `clockInTime` is optional; if nil,
+    /// the server uses its own clock.
+    func adminClockIn(personId: String, clockInTime: String? = nil) async throws {
+        let body = try JSONEncoder().encode(AdminClockTimePayload(
+            action: "adminClockIn", personId: personId,
+            clockInTime: clockInTime, clockOutTime: nil, note: nil))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    /// Admin force-clocks a person out. Optionally annotate the entry.
+    func adminClockOut(personId: String, clockOutTime: String? = nil, note: String? = nil) async throws {
+        let body = try JSONEncoder().encode(AdminClockTimePayload(
+            action: "adminClockOut", personId: personId,
+            clockInTime: nil, clockOutTime: clockOutTime, note: note))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    private struct AdminEditEntryPayload: Encodable {
+        let action = "adminEditEntry"
+        let entryId: String
+        let clockIn: String
+        let clockOut: String
+    }
+
+    /// Admin edits an existing timeclock entry's clockIn/clockOut.
+    /// Server recalculates `hours` and `date` from `clockIn`.
+    func adminEditEntry(entryId: String, clockIn: String, clockOut: String) async throws {
+        let body = try JSONEncoder().encode(AdminEditEntryPayload(
+            entryId: entryId, clockIn: clockIn, clockOut: clockOut))
+        let req = try request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
     // MARK: - Notify
 
     func sendNotification(_ payload: NotifyPayload) async throws {
         let body = try JSONEncoder().encode(payload)
         let req = try request("notify", method: "POST", body: body)
         _ = try await perform(req)
-    }
-
-    // MARK: - AI Schedule
-
-    struct AIRequest: Encodable {
-        let system: String
-        let messages: [[String: String]]
-        let max_tokens: Int
-    }
-
-    struct AIResponse: Decodable {
-        struct Content: Decodable {
-            let text: String?
-            let type: String
-        }
-        let content: [Content]
-    }
-
-    func askAI(system: String, userMessage: String) async throws -> String {
-        let payload = AIRequest(
-            system: system,
-            messages: [["role": "user", "content": userMessage]],
-            max_tokens: 4096
-        )
-        let body = try JSONEncoder().encode(payload)
-        let req = try request("ai-schedule", method: "POST", body: body)
-        let data = try await perform(req)
-        let response = try decoder.decode(AIResponse.self, from: data)
-        return response.content.compactMap { $0.text }.joined()
     }
 
     // MARK: - Time Clock
@@ -253,6 +358,17 @@ struct APIService {
         let body = try JSONEncoder().encode(TimeclockFinishPayload(personId: personId, pin: pin, jobId: jobId, panelId: panelId, opId: opId))
         let req = try request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
+    }
+
+    // MARK: - Timeclock history (read)
+
+    /// Fetch historical timeclock entries. Optionally filter by personId
+    /// — server-side filter avoids pulling the whole org's history.
+    func fetchTimeclock(personId: String? = nil) async throws -> [TimeclockEntry] {
+        let path = personId.map { "timeclock?personId=\($0)" } ?? "timeclock"
+        let req = try request(path)
+        let data = try await perform(req)
+        return try decoder.decode([TimeclockEntry].self, from: data)
     }
 
     // MARK: - Job Clock (Bearer-only, no PIN)

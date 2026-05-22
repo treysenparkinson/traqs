@@ -14,7 +14,7 @@ struct RootView: View {
     @State private var lookupError: String?
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             Group {
                 if !auth.isAuthenticated {
                     LoginView()
@@ -36,10 +36,13 @@ struct RootView: View {
             .onChange(of: auth.isAuthenticated) { _, _ in handleAuthState() }
             .onChange(of: auth.userEmail) { _, _ in handleAuthState() }
 
+            ErrorBanner()
+                .zIndex(2)
+
             if showSplash {
                 SplashView(isShowing: $showSplash)
                     .transition(.opacity)
-                    .zIndex(1)
+                    .zIndex(3)
             }
         }
     }
@@ -169,5 +172,75 @@ private struct OrgPickerView: View {
                     .padding(.bottom, 24)
             }
         }
+    }
+}
+
+// MARK: - Global error banner
+// Watches every error field on AppState and pops a red banner from the
+// top when any of them is set. Auto-dismisses after 5s and on tap.
+// Before this existed, every async failure (clock-in/out, finish request,
+// save) set an error field that nothing read — failures were invisible.
+
+private struct ErrorBanner: View {
+    @Environment(AppState.self) private var appState
+
+    @State private var dismissTask: Task<Void, Never>?
+
+    private var currentError: String? {
+        if let e = appState.clockError, !e.isEmpty { return e }
+        if let e = appState.errorMessage, !e.isEmpty { return e }
+        if case let .error(msg) = appState.saveStatus, !msg.isEmpty { return msg }
+        return nil
+    }
+
+    var body: some View {
+        VStack {
+            if let msg = currentError {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.white)
+                    Text(msg)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 8)
+                    Button(action: clearError) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(Color.red.opacity(0.92))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .onTapGesture { clearError() }
+                .onAppear { scheduleAutoDismiss() }
+                .onChange(of: msg) { _, _ in scheduleAutoDismiss() }
+            }
+            Spacer()
+        }
+        .animation(.easeOut(duration: 0.2), value: currentError)
+    }
+
+    private func scheduleAutoDismiss() {
+        dismissTask?.cancel()
+        dismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            if !Task.isCancelled { clearError() }
+        }
+    }
+
+    private func clearError() {
+        dismissTask?.cancel()
+        appState.clockError = nil
+        appState.errorMessage = nil
+        if case .error = appState.saveStatus { appState.saveStatus = .idle }
     }
 }

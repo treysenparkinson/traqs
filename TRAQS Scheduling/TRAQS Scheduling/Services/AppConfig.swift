@@ -1,5 +1,31 @@
 import Foundation
 
+extension Date {
+    /// Parse an ISO8601 timestamp tolerant of fractional seconds.
+    ///
+    /// The Netlify functions emit timestamps via JavaScript's
+    /// `new Date().toISOString()`, which always includes milliseconds
+    /// (`2026-05-22T19:30:00.123Z`). Swift's default `ISO8601DateFormatter`
+    /// silently fails on that input unless `.withFractionalSeconds` is set —
+    /// which is why the live job-clock counter on the Tasks tab showed "—"
+    /// the moment the auto-refresh replaced our optimistic clockIn (written
+    /// without fractions) with the server's canonical one. This helper
+    /// tries fractional first and falls back to no-fractions so every
+    /// callsite can stop worrying about the format.
+    static func fromFlexibleISO8601(_ string: String) -> Date? {
+        if let d = isoFractional.date(from: string) { return d }
+        return isoPlain.date(from: string)
+    }
+
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let isoPlain: ISO8601DateFormatter = ISO8601DateFormatter()
+}
+
 enum AppConfig {
     static let netlifyBase = "https://traqs.netlify.app/.netlify/functions"
 

@@ -75,5 +75,58 @@ export async function handler(event) {
     }
   }
 
+  // PATCH — granular per-person field merge. Use this for single-field
+  // updates (push token, role toggle, etc.) so we don't write the whole
+  // people array and clobber concurrent server-side mutations like
+  // jobClockIn that touch one field of one person.
+  if (event.httpMethod === "PATCH") {
+    let tokenPayload;
+    try {
+      tokenPayload = await validateToken(event);
+    } catch (e) {
+      return err(401, e.message);
+    }
+    try {
+      const body = JSON.parse(event.body);
+      const { personId, fields } = body ?? {};
+      if (!personId) return err(400, "Missing personId");
+      if (!fields || typeof fields !== "object" || Array.isArray(fields)) {
+        return err(400, "Missing or invalid fields object");
+      }
+
+      // Block id/pin from being changed via this endpoint. id is the
+      // primary key; pin should only flow through dedicated admin paths.
+      const { id: _id, pin: _pin, ...allowedFields } = fields;
+
+      const existing = (await readJson(s3Key)) ?? [];
+      const idx = existing.findIndex(p => String(p.id) === String(personId));
+      if (idx === -1) return err(404, "Person not found");
+
+      // userRole changes still require admin even via PATCH.
+      if ("userRole" in allowedFields && allowedFields.userRole !== existing[idx].userRole) {
+        const requesterEmail = (
+          tokenPayload.email ||
+          tokenPayload["https://traqs.matrixsystems.com/email"] ||
+          ""
+        ).toLowerCase();
+        if (!requesterEmail) return err(403, "Cannot verify requester identity — role change denied");
+        const requesterIsAdmin = existing.some(
+          p => p.userRole === "admin" && p.email?.toLowerCase() === requesterEmail
+        );
+        if (!requesterIsAdmin) return err(403, "Only admins can change user roles");
+      }
+
+      existing[idx] = { ...existing[idx], ...allowedFields };
+      await writeJson(s3Key, existing);
+
+      // Strip PIN before returning, matching the GET behavior.
+      const { pin: _omit, ...safe } = existing[idx];
+      return json(200, safe);
+    } catch (e) {
+      console.error("people PATCH error:", e);
+      return err(500, "Failed to patch person");
+    }
+  }
+
   return err(405, "Method not allowed");
 }

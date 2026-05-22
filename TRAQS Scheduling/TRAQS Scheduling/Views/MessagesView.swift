@@ -156,7 +156,13 @@ struct MessagesView: View {
                 ThreadDetailView(threadKey: key)
             }
             .sheet(isPresented: $showNewGroup) {
-                NewGroupSheet { name in
+                NewGroupSheet { name, memberIds in
+                    // Persist the group server-side so other devices see
+                    // it. Without this, "create group" only changed local
+                    // navigation state and the group never reached
+                    // groups.json — desktop and other iOS devices would
+                    // never see the new group.
+                    Task { await appState.createGroup(name: name, memberIds: memberIds) }
                     navigationPath.append("group:\(name)")
                 }
             }
@@ -169,6 +175,7 @@ struct MessagesView: View {
             }
         }
         .task { await appState.refreshMessages() }
+        .refreshable { await appState.refreshMessages() }
     }
 }
 
@@ -437,6 +444,7 @@ struct ThreadDetailView: View {
                         }
                         .padding()
                     }
+                    .refreshable { await appState.refreshMessages() }
                     .onChange(of: liveMessages.count) {
                         if let last = liveMessages.last {
                             withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -485,6 +493,17 @@ struct ThreadDetailView: View {
             }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task(id: threadKey) {
+            // Poll every 3s while this conversation is open. The global
+            // 15s auto-refresh feels too slow when two people are actively
+            // chatting; the recipient should see your message in seconds,
+            // not next-pollster. SwiftUI cancels this Task automatically
+            // when the view disappears.
+            while !Task.isCancelled {
+                await appState.refreshMessages()
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+        }
     }
 
     private func isMyMessage(_ msg: Message) -> Bool {
@@ -681,7 +700,11 @@ private struct ParticipantStack: View {
 struct NewGroupSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
-    let onCreate: (String) -> Void
+    /// Callback receives the group name and the selected member IDs.
+    /// Previously the sheet only handed back the name, which silently
+    /// dropped the member selection — the caller had no way to persist
+    /// the group to the server.
+    let onCreate: (String, [String]) -> Void
 
     @State private var groupName = ""
     @State private var selectedIds: Set<String> = []
@@ -776,8 +799,15 @@ struct NewGroupSheet: View {
                         Button {
                             let name = groupName.trimmingCharacters(in: .whitespaces)
                             guard !name.isEmpty else { return }
+                            // Always include the current user in the
+                            // group; selectedIds only contains the OTHER
+                            // people the creator picked.
+                            var members = Array(selectedIds)
+                            if let me = appState.currentPersonId, !members.contains(me) {
+                                members.insert(me, at: 0)
+                            }
                             dismiss()
-                            onCreate(name)
+                            onCreate(name, members)
                         } label: {
                             Text("Create Group")
                                 .fontWeight(.semibold)

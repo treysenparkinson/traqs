@@ -294,6 +294,37 @@ struct ActiveClockIn: Codable, Equatable {
     }
 }
 
+/// One historical pay-clock entry from the server's timeclock.json. Each
+/// entry is either a completed clock-in/out span (with hours) or a single
+/// event row (lunchStart, lunchEnd, breakStart, breakEnd) — desktop's
+/// admin view groups them. iOS needs the model to read them.
+struct TimeclockEntry: Codable, Equatable, Identifiable {
+    var id: String
+    var personId: String
+    var date: String?           // "YYYY-MM-DD"
+    var clockIn: String?        // ISO8601 (may have ms)
+    var clockOut: String?       // ISO8601 (may have ms)
+    var hours: Double?
+    var jobRefs: [JobRef]?
+    var note: String?
+    var eventType: String?      // present for lunchStart/lunchEnd/breakStart/breakEnd rows
+    var timestamp: String?      // ISO8601 for event-type rows
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id         = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        personId   = (try? c.decodeFlexID(forKey: .personId)) ?? ""
+        date       = try? c.decodeIfPresent(String.self, forKey: .date)
+        clockIn    = try? c.decodeIfPresent(String.self, forKey: .clockIn)
+        clockOut   = try? c.decodeIfPresent(String.self, forKey: .clockOut)
+        hours      = try? c.decodeIfPresent(Double.self, forKey: .hours)
+        jobRefs    = try? c.decodeIfPresent([JobRef].self, forKey: .jobRefs)
+        note       = try? c.decodeIfPresent(String.self, forKey: .note)
+        eventType  = try? c.decodeIfPresent(String.self, forKey: .eventType)
+        timestamp  = try? c.decodeIfPresent(String.self, forKey: .timestamp)
+    }
+}
+
 // MARK: - Active Job Clock (single in-progress job per person, separate from payroll clock)
 
 struct ActiveJobClock: Codable, Equatable {
@@ -471,6 +502,10 @@ struct ChatGroup: Codable, Identifiable {
     var id: String
     var name: String
     var memberIds: [String]
+
+    init(id: String, name: String, memberIds: [String]) {
+        self.id = id; self.name = name; self.memberIds = memberIds
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)

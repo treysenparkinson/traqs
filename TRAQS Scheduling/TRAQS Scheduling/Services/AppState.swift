@@ -12,6 +12,10 @@ class AppState {
     var clients: [Client] = []
     var messages: [Message] = []
     var groups: [ChatGroup] = []
+    /// Historical pay-clock entries (per-person, lifetime) from the
+    /// server's timeclock.json. Loaded on demand because the dataset
+    /// can be large; views that need it call `refreshTimeclock()`.
+    var timeclockEntries: [TimeclockEntry] = []
     /// Org-level settings (hpd, workStart/End, lunch, breaks, payPeriod, …).
     /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
     var orgSettings: OrgSettings = .default
@@ -349,6 +353,66 @@ class AppState {
         }
     }
 
+    /// Pull historical timeclock entries. Pass `personId` to filter on the
+    /// server side (the only practical option for non-admins). Admins on
+    /// the desktop pull the whole org's history; iOS can do the same by
+    /// passing nil, but that's a heavy fetch.
+    func refreshTimeclock(personId: String? = nil) async {
+        guard let api else { return }
+        if let entries = try? await api.fetchTimeclock(personId: personId) {
+            timeclockEntries = entries
+        }
+    }
+
+    /// Pull just the org settings. Views like the Schedule and Tasks
+    /// tabs call this on appear so changes the admin makes on the
+    /// Netlify desktop (workdays, holidays, hpd, etc.) show up
+    /// immediately on iOS instead of waiting up to 15s for the next
+    /// global auto-refresh.
+    func refreshOrgSettings() async {
+        guard let api else { return }
+        if let s = try? await api.fetchOrgSettings() { orgSettings = s }
+    }
+
+    /// Create a new chat group and persist it to the server. Before this
+    /// existed, the New Group sheet was decorative — it only changed
+    /// local navigation state. Other devices (and the same device after
+    /// a relaunch) never saw the group.
+    func createGroup(name: String, memberIds: [String]) async {
+        guard let api else { return }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let group = ChatGroup(id: UUID().uuidString, name: trimmed, memberIds: memberIds)
+        // Optimistic local update so the inbox surfaces the new group
+        // immediately. The server save runs in the background.
+        var updated = groups
+        if !updated.contains(where: { $0.name == trimmed }) {
+            updated.append(group)
+            groups = updated
+        }
+        do {
+            try await api.saveGroups(updated)
+        } catch {
+            errorMessage = "Failed to create group: \(error.localizedDescription)"
+        }
+    }
+
+    /// Delete an entire message thread (DM, job, panel, op, or group).
+    /// Server removes every message with that threadKey from messages.json.
+    func deleteThread(threadKey: String) async {
+        guard let api else { return }
+        // Optimistic local removal so the inbox doesn't keep showing the
+        // thread while the network call is in flight.
+        let snapshot = messages
+        messages.removeAll { $0.threadKey == threadKey }
+        do {
+            try await api.deleteThread(threadKey: threadKey)
+        } catch {
+            messages = snapshot   // restore on failure
+            errorMessage = "Failed to delete thread: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Undo / Redo
 
     func undo() {
@@ -374,7 +438,11 @@ class AppState {
         saveTask?.cancel()
         saveStatus = .saving
         saveTask = Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            // 1s debounce matches the desktop. Previously 3s meant a
+            // user editing on iOS could lose up to 3 seconds of work on
+            // a crash, and another device's poll cycle (15-30s) could
+            // run between the edit and the sync.
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
             guard !Task.isCancelled else { return }
             await persistJobs()
         }
@@ -425,7 +493,23 @@ class AppState {
         var updated = people
         updated[idx].pushToken = token
         people = updated
-        try? await api.savePeople(updated)
+
+        // Try the granular PATCH first — it avoids the savePeople race
+        // that could clobber a concurrent server-side jobClockIn. If the
+        // server doesn't speak PATCH yet (older Netlify deploy, returns
+        // 405), fall back to the whole-array POST so push tokens still
+        // land in people.json. Without this fallback, the chat
+        // notifications break the moment the iOS client races ahead of
+        // the Netlify deploy.
+        do {
+            try await api.patchPerson(personId: personId, fields: ["pushToken": token])
+        } catch APIError.httpError(405), APIError.httpError(404) {
+            try? await api.savePeople(updated)
+        } catch {
+            // Any other error: also fall back, since we'd rather have
+            // push working with the legacy race than not working at all.
+            try? await api.savePeople(updated)
+        }
     }
 
     // MARK: - Auto-match person by email
@@ -493,13 +577,30 @@ class AppState {
 
     func timeclockFinishRequest(jobId: String, panelId: String, opId: String) async {
         guard let api, let personId = clockedInPersonId, let pin = clockedInPin else { return }
-        // Optimistic update
+        // Optimistic update so the user sees "Finish Requested" immediately.
         if let ji = jobs.firstIndex(where: { $0.id == jobId }),
            let pi = jobs[ji].subs.firstIndex(where: { $0.id == panelId }),
            let oi = jobs[ji].subs[pi].subs.firstIndex(where: { $0.id == opId }) {
             jobs[ji].subs[pi].subs[oi].pendingFinish = true
         }
-        try? await api.timeclockFinishRequest(personId: personId, pin: pin, jobId: jobId, panelId: panelId, opId: opId)
+        do {
+            try await api.timeclockFinishRequest(personId: personId, pin: pin,
+                                                 jobId: jobId, panelId: panelId, opId: opId)
+            // Server updates pendingFinish in tasks.json. Refetch so the
+            // local jobs array matches the canonical server state — if we
+            // don't, the flag lives only in memory and any subsequent
+            // saveJobs (from another mutation) could clobber it.
+            await refreshJobsQuietly()
+        } catch {
+            // Revert the optimistic flip so the user doesn't see a phantom
+            // "Finish Requested" state that the server never recorded.
+            if let ji = jobs.firstIndex(where: { $0.id == jobId }),
+               let pi = jobs[ji].subs.firstIndex(where: { $0.id == panelId }),
+               let oi = jobs[ji].subs[pi].subs.firstIndex(where: { $0.id == opId }) {
+                jobs[ji].subs[pi].subs[oi].pendingFinish = false
+            }
+            clockError = "Failed to request finish: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Job Clock (Bearer-only, no PIN; uses currentPersonId)
@@ -521,45 +622,82 @@ class AppState {
                     jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
         guard let api, let personId = currentPersonId else { return }
 
-        // Optimistic update — replace the whole array so @Observable definitely
-        // notices the change.
-        let optimistic = ActiveJobClock(
-            clockIn: ISO8601DateFormatter().string(from: Date()),
-            jobId: jobId, panelId: panelId, opId: opId,
-            jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle
-        )
-        if let idx = people.firstIndex(where: { $0.id == personId }) {
-            var newPeople = people
-            newPeople[idx].activeJobClock = optimistic
-            people = newPeople
-        }
-        clockChangeAt = Date()
-
         do {
             try await api.jobClockIn(personId: personId, jobId: jobId, panelId: panelId, opId: opId,
                                      jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle)
-            // Refresh jobs (op status → "In Progress" lands here) but skip
-            // people — the grace-window snapshot inside loadAll preserves the
-            // activeJobClock either way.
+
+            // Update local state AFTER the server confirms. Doing it
+            // before meant the card flipped to "TRACKING" before the
+            // server actually accepted the clock-in — when the server
+            // then failed, we had to revert, and the user saw a flash.
+            // Now we only show TRACKING when the server says we're in.
+            let optimistic = ActiveJobClock(
+                clockIn: ISO8601DateFormatter().string(from: Date()),
+                jobId: jobId, panelId: panelId, opId: opId,
+                jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle
+            )
+            if let idx = people.firstIndex(where: { $0.id == personId }) {
+                var newPeople = people
+                newPeople[idx].activeJobClock = optimistic
+                people = newPeople
+            }
+            clockChangeAt = Date()
+
+            // Refresh jobs (op status → "In Progress" lands here) and
+            // pick up the server's canonical clockIn timestamp via the
+            // grace-window snapshot in loadAll. refreshJobsQuietly only
+            // touches jobs so it can't blow away our local activeJobClock.
             await refreshJobsQuietly()
+        } catch APIError.httpError(409) {
+            // Server says "already clocked in" — that's effectively the
+            // state we wanted to reach. The most common cause was the
+            // user tapping LOG TIME multiple times because the first tap
+            // had no visible feedback: the first request succeeded, the
+            // second got 409. The STARTING… indicator should make this
+            // rare, but we still treat it as success.
+            await loadAll()
         } catch {
-            clockError = error.localizedDescription
+            clockError = "Failed to start: \(error.localizedDescription)"
         }
     }
 
-    func jobClockOut() async {
-        guard let api, let personId = currentPersonId else { return }
-
-        // Optimistic clear — whole-array assignment so @Observable always fires.
-        if let idx = people.firstIndex(where: { $0.id == personId }) {
+    /// Synchronous optimistic clear. Call this from the STOP button BEFORE
+    /// kicking off the async network call — it nukes the active job clock
+    /// on the current frame so the card flips from "TRACKING / STOP" to
+    /// "LOG TIME" instantly, instead of waiting for the Task to be
+    /// scheduled, hop into MainActor, run the mutation, and only then
+    /// notify SwiftUI. That hop is what was making STOP feel laggy.
+    func markJobClockedOutLocally() {
+        guard let personId = currentPersonId else { return }
+        if let idx = people.firstIndex(where: { $0.id == personId }),
+           people[idx].activeJobClock != nil {
             var newPeople = people
             newPeople[idx].activeJobClock = nil
             people = newPeople
         }
         clockChangeAt = Date()
+    }
+
+    func jobClockOut() async {
+        guard let api, let personId = currentPersonId else { return }
 
         do {
             try await api.jobClockOut(personId: personId)
+            // Clear locally ONLY after the server confirms. Keeping the
+            // active clock visible during the network call lets the STOP
+            // button show its "STOPPING…" state without the counter
+            // collapsing to "—" mid-flight.
+            markJobClockedOutLocally()
+            await refreshJobsQuietly()
+        } catch APIError.httpError(409) {
+            // Server says we're not clocked into any job — a race between
+            // an optimistic local clock-in and a concurrent savePeople
+            // (e.g. push-token registration) can land us here with local
+            // showing active but the server's people.json showing null.
+            // The user tapped STOP intending to be clocked out; align
+            // local to the server's truth so the card flips correctly
+            // instead of "glitching back" to STOP.
+            markJobClockedOutLocally()
             await refreshJobsQuietly()
         } catch {
             clockError = error.localizedDescription
@@ -690,7 +828,7 @@ class AppState {
         var live: Double = 0
         if let activeP = people.first(where: { $0.activeJobClock?.opId == op.id && !($0.activeJobClock?.clockIn.isEmpty ?? true) }),
            let jc = activeP.activeJobClock,
-           let started = ISO8601DateFormatter().date(from: jc.clockIn) {
+           let started = Date.fromFlexibleISO8601(jc.clockIn) {
             let elapsedH = Date().timeIntervalSince(started) / 3600
             let pausedH = (jc.totalPausedMs ?? 0) / 3_600_000
             live = max(0, elapsedH - pausedH)

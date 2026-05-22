@@ -103,6 +103,7 @@ struct TasksView: View {
             .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
         }
         .toolbar(.hidden, for: .navigationBar)
+        .task { await appState.refreshOrgSettings() }
         }
     }
 
@@ -124,18 +125,30 @@ struct TasksView: View {
 
     private var weekView: some View {
         let counts = dayCountMap
-        let days = weekDates(around: selectedDate)
-        let byDay = tasksByStartDay(in: days)
+        // Show only work days in the week strip. The user's earlier choice
+        // of "show muted" left weekend pills at 38% opacity, which on
+        // device wasn't reading as clearly muted — so we now literally
+        // omit non-work days.
+        let allDays = weekDates(around: selectedDate)
+        let days = allDays.filter(isWorkDay)
         return VStack(spacing: 0) {
             WeekStrip(
                 days: days,
                 selected: selectedDate,
                 countFor: { counts[cal.startOfDay(for: $0)] ?? 0 },
-                onPick: { day in withAnimation(.easeInOut(duration: 0.18)) { selectedDate = day } }
+                onPick: { day in withAnimation(.easeInOut(duration: 0.18)) { selectedDate = day } },
+                isWorkDay: isWorkDay
             )
             .padding(.horizontal, 16).padding(.bottom, 14)
 
-            DayGroupedTaskList(days: days, tasksByDay: byDay)
+            // Show tasks for the SELECTED day only — not the whole week.
+            // Previously we rendered a day-grouped list of every populated
+            // day in the week, which made the week view feel like an
+            // information dump. Picking a pill now filters the list to
+            // just that day, like a calendar app.
+            daySummaryLine(tasks: tasks(for: selectedDate))
+                .padding(.horizontal, 16).padding(.bottom, 8)
+            taskList(for: selectedDate)
                 .padding(.bottom, 24)
         }
     }
@@ -144,8 +157,6 @@ struct TasksView: View {
 
     private var monthView: some View {
         let counts = dayCountMap
-        let monthDates = monthDays(of: selectedDate)
-        let byDay = tasksByStartDay(in: monthDates)
         return VStack(spacing: 0) {
             MonthCalendar(
                 month: selectedDate,
@@ -155,7 +166,11 @@ struct TasksView: View {
             )
             .padding(.horizontal, 16).padding(.bottom, 14)
 
-            DayGroupedTaskList(days: monthDates, tasksByDay: byDay)
+            // Same pattern as the Week view: show tasks for the SELECTED
+            // day only. Tapping a calendar cell filters the list below.
+            daySummaryLine(tasks: tasks(for: selectedDate))
+                .padding(.horizontal, 16).padding(.bottom, 8)
+            taskList(for: selectedDate)
                 .padding(.bottom, 24)
         }
     }
@@ -287,8 +302,19 @@ struct TasksView: View {
         return out
     }
 
+    /// Mirrors the desktop's `isWorkDay`: a date is a work day iff its weekday
+    /// (0=Sun … 6=Sat) is in `orgSettings.workDays`. Calendar reports weekday
+    /// 1=Sun … 7=Sat, so subtract 1 to align with the JS convention the org
+    /// settings use.
+    private func isWorkDay(_ day: Date) -> Bool {
+        let jsDay = cal.component(.weekday, from: day) - 1
+        return appState.orgSettings.workDays.contains(jsDay)
+    }
+
     /// Pre-computed map of `startOfDay → task count`. One pass through
     /// `myTasks`, then every Week/Month/Year cell does an O(1) lookup.
+    /// Non-work days are never counted — matches desktop where bars are
+    /// clipped to `orgSettings.workDays`.
     private var dayCountMap: [Date: Int] {
         var map: [Date: Int] = [:]
         for task in myTasks {
@@ -296,7 +322,9 @@ struct TasksView: View {
             var day = cal.startOfDay(for: s)
             let end = cal.startOfDay(for: e)
             while day <= end {
-                map[day, default: 0] += 1
+                if isWorkDay(day) {
+                    map[day, default: 0] += 1
+                }
                 guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
                 day = next
             }
@@ -304,8 +332,11 @@ struct TasksView: View {
         return map
     }
 
-    /// Tasks whose date range includes `day`.
+    /// Tasks whose date range includes `day`. Returns empty on non-work days
+    /// so the Today view never lists work for a Saturday/Sunday when the org
+    /// isn't scheduled to operate then.
     private func tasks(for day: Date) -> [TaskAssignment] {
+        guard isWorkDay(day) else { return [] }
         let dayStart = cal.startOfDay(for: day)
         let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
         return myTasks.filter {
@@ -344,7 +375,16 @@ struct TasksView: View {
             let taskEnd = cal.startOfDay(for: e)
             if taskEnd < wStart || taskStart > wEnd { continue }
 
-            let placement = max(taskStart, wStart)
+            // Place the task on its actual start day clamped to the window —
+            // but shift forward to the next work day if that lands on a
+            // non-work day (Sat/Sun for default workDays). Mirrors the desktop
+            // gantt's behavior of clipping bars to work days only.
+            var placement = max(taskStart, wStart)
+            while placement <= wEnd && placement <= taskEnd && !isWorkDay(placement) {
+                guard let next = cal.date(byAdding: .day, value: 1, to: placement) else { break }
+                placement = next
+            }
+            if placement > wEnd || placement > taskEnd { continue }
             map[placement, default: []].append(task)
         }
         for (k, v) in map {
@@ -379,7 +419,7 @@ struct TasksView: View {
             var day = cal.startOfDay(for: s)
             let end = cal.startOfDay(for: e)
             while day <= end {
-                if bounds.contains(day) {
+                if bounds.contains(day) && isWorkDay(day) {
                     map[day, default: []].append(task)
                 }
                 guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
@@ -466,6 +506,9 @@ private struct WeekStrip: View {
     let selected: Date
     let countFor: (Date) -> Int
     let onPick: (Date) -> Void
+    /// Returns true when the date is part of `orgSettings.workDays`. Non-work
+    /// days are shown muted and aren't tappable (and never display dots).
+    let isWorkDay: (Date) -> Bool
     private let cal = Calendar.current
 
     var body: some View {
@@ -473,9 +516,10 @@ private struct WeekStrip: View {
             ForEach(days, id: \.self) { d in
                 let isSelected = cal.isDate(d, inSameDayAs: selected)
                 let isToday = cal.isDateInToday(d)
-                let count = countFor(d)
+                let workDay = isWorkDay(d)
+                let count = workDay ? countFor(d) : 0
 
-                Button { onPick(d) } label: {
+                Button { if workDay { onPick(d) } } label: {
                     VStack(spacing: 4) {
                         Text(dowChar(d))
                             .font(TTypo.xsBold(11))
@@ -485,9 +529,13 @@ private struct WeekStrip: View {
                             .font(TTypo.smBold(15))
                             .foregroundStyle(Color(hex: T.ink))
                             .tnum()
-                        // Up to 4 magenta dots; hollow for zero
+                        // Up to 4 magenta dots on work days; hollow for zero.
+                        // Non-work days draw nothing so the cell reads clearly
+                        // as "no work happens here".
                         HStack(spacing: 2) {
-                            if count == 0 {
+                            if !workDay {
+                                Color.clear.frame(width: 4, height: 4)
+                            } else if count == 0 {
                                 Circle().fill(.clear).frame(width: 4, height: 4)
                                     .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
                             } else {
@@ -505,8 +553,10 @@ private struct WeekStrip: View {
                     .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
                         .stroke(isSelected ? Color(hex: T.sky) : (isToday ? Color(hex: T.ink).opacity(0.25) : Color(hex: T.hair)),
                                 lineWidth: 1))
+                    .opacity(workDay ? 1.0 : 0.38)
                 }
                 .buttonStyle(.plain)
+                .disabled(!workDay)
             }
         }
     }
@@ -772,6 +822,8 @@ private struct TaskCardV1: View {
     @Environment(AppState.self) private var appState
     let task: TaskAssignment
     @State private var showLogConfirm = false
+    @State private var isStopping = false
+    @State private var isStarting = false
 
     private var isActive: Bool {
         guard let jc = appState.myActiveJobClock else { return false }
@@ -819,16 +871,19 @@ private struct TaskCardV1: View {
         return "\(f.string(from: s)) – \(f.string(from: e))"
     }
 
-    private var liveElapsed: String {
+    /// Format the elapsed time against the active job clock at the given
+    /// reference date. Returns "—" if no clock is running. Format is
+    /// "0h 0m 5s" — explicit unit letters so the user can read it at a glance.
+    private func elapsedLabel(at ref: Date) -> String {
         guard let jc = appState.myActiveJobClock,
-              let started = ISO8601DateFormatter().date(from: jc.clockIn) else { return "—" }
-        var ms = Date().timeIntervalSince(started) * 1000
+              let started = Date.fromFlexibleISO8601(jc.clockIn) else { return "—" }
+        var ms = ref.timeIntervalSince(started) * 1000
         ms -= (jc.totalPausedMs ?? 0)
-        if let p = jc.pausedAt, let pStart = ISO8601DateFormatter().date(from: p) {
-            ms -= Date().timeIntervalSince(pStart) * 1000
+        if let p = jc.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
+            ms -= ref.timeIntervalSince(pStart) * 1000
         }
         let secs = max(0, Int(ms / 1000))
-        return String(format: "%d:%02d", secs / 3600, (secs % 3600) / 60)
+        return String(format: "%dh %dm %ds", secs / 3600, (secs % 3600) / 60, secs % 60)
     }
 
     var body: some View {
@@ -892,12 +947,23 @@ private struct TaskCardV1: View {
             .padding(16)
         }
         .animation(.easeInOut(duration: 0.2), value: isActive)
+        .animation(.easeInOut(duration: 0.25), value: isStarting)
+        .animation(.easeInOut(duration: 0.25), value: isStopping)
         .sheet(isPresented: $showLogConfirm) {
             LogTimeConfirmSheet(task: task,
                                 deptLabel: dept.label,
                                 deptColor: dept.color,
                                 customer: clientName,
                                 onConfirm: {
+                                    // Set isStarting BEFORE the sheet
+                                    // dismisses so the queued row's button
+                                    // immediately shows STARTING… instead
+                                    // of LOG TIME. Without this, the user
+                                    // saw a frozen LOG TIME button and
+                                    // tapped it repeatedly — which is how
+                                    // they triggered the 409 "already
+                                    // clocked in" race.
+                                    isStarting = true
                                     Task {
                                         await appState.jobClockIn(
                                             jobId: task.job.id,
@@ -906,6 +972,7 @@ private struct TaskCardV1: View {
                                             jobTitle: task.job.title,
                                             panelTitle: task.panel.title,
                                             opTitle: task.op?.title)
+                                        isStarting = false
                                     }
                                 })
                 .presentationDetents([.medium])
@@ -928,19 +995,38 @@ private struct TaskCardV1: View {
                             .tLabel(tracking: 1.0)
                     }
                     Spacer()
-                    Text("\(liveElapsed) · \(Int(pct))%")
-                        .font(TTypo.mono(11))
-                        .foregroundStyle(Color(hex: T.sky))
-                        .tnum()
+                    // TimelineView re-renders every second using the SwiftUI
+                    // scheduler — it survives parent re-renders, doesn't need
+                    // an external @State + Timer.publish, and is the supported
+                    // primitive for live ticking content.
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text("\(elapsedLabel(at: context.date)) · \(Int(pct))%")
+                            .font(TTypo.monoBold(13))
+                            .foregroundStyle(Color(hex: T.sky))
+                            .tnum()
+                    }
                 }
                 Bar(pct: pct, height: 6, fill: Color(hex: T.sky))
             }
             Button {
-                Task { await appState.jobClockOut() }
+                guard !isStopping else { return }
+                isStopping = true
+                Task {
+                    await appState.jobClockOut()
+                    isStopping = false
+                }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "stop.fill")
-                    Text("STOP").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                    if isStopping {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.white)
+                            .scaleEffect(0.7)
+                        Text("STOPPING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                    } else {
+                        Image(systemName: "stop.fill")
+                        Text("STOP").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                    }
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 14).padding(.vertical, 8)
@@ -949,6 +1035,7 @@ private struct TaskCardV1: View {
                         radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
             }
             .buttonStyle(.plain)
+            .disabled(isStopping)
         }
     }
 
@@ -957,18 +1044,27 @@ private struct TaskCardV1: View {
         HStack {
             HStack(spacing: 6) {
                 TIconView(icon: .pin, size: 12, color: Color(hex: T.muted))
-                Text("Queued")
+                Text(isStarting ? "Starting…" : "Queued")
                     .font(TTypo.xsBold(11))
                     .foregroundStyle(Color(hex: T.muted))
                     .tLabel(tracking: 1.0)
             }
             Spacer()
             Button {
+                guard !isStarting else { return }
                 showLogConfirm = true
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "play.fill")
-                    Text("LOG TIME").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                    if isStarting {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(Color(hex: T.ink))
+                            .scaleEffect(0.7)
+                        Text("STARTING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                    } else {
+                        Image(systemName: "play.fill")
+                        Text("LOG TIME").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                    }
                 }
                 .foregroundStyle(Color(hex: T.ink))
                 .padding(.horizontal, 12).padding(.vertical, 7)
@@ -978,6 +1074,7 @@ private struct TaskCardV1: View {
                         radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
             }
             .buttonStyle(.plain)
+            .disabled(isStarting)
         }
     }
 }

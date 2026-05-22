@@ -87,6 +87,7 @@ struct GanttView: View {
         }
         .animation(.easeInOut(duration: 0.18), value: segment)
         .onReceive(nowTimer) { _ in now = Date() }
+        .task { await appState.refreshOrgSettings() }
         .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
         .sheet(isPresented: $showDatePicker) {
             // Jump-to-date picker — wireframe Day view doesn't have an inline
@@ -129,14 +130,27 @@ struct GanttView: View {
         }
     }
 
-    // MARK: Week dates (Mon→Sun around selectedDate)
+    // MARK: Week dates (Mon→Sun around selectedDate, filtered to work days)
+
+    /// Mirrors the desktop's `isWorkDay`. orgSettings.workDays uses
+    /// JS day-of-week (0=Sun…6=Sat); Calendar uses 1=Sun…7=Sat.
+    private func isWorkDay(_ date: Date) -> Bool {
+        let jsDay = cal.component(.weekday, from: date) - 1
+        return appState.orgSettings.workDays.contains(jsDay)
+    }
 
     private var weekDates: [Date] {
         let weekday = cal.component(.weekday, from: selectedDate)
         let toMon = weekday == 1 ? -6 : -(weekday - 2)
         guard let mon = cal.date(byAdding: .day, value: toMon, to: cal.startOfDay(for: selectedDate))
         else { return [] }
-        return (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: mon) }
+        let allSeven = (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: mon) }
+        // Hide non-work days from the week grid — the user's org setting
+        // says Mon–Fri only, so Sat/Sun columns shouldn't even appear.
+        // If somehow workDays is empty (mis-saved config), fall back to
+        // showing all 7 so the view never collapses to nothing.
+        let filtered = allSeven.filter(isWorkDay)
+        return filtered.isEmpty ? allSeven : filtered
     }
 
     // MARK: Data → schedule blocks

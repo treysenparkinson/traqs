@@ -15,6 +15,7 @@ struct TimeClockView: View {
     @Environment(AppState.self) private var appState
     @State private var now = Date()
     @State private var showSettings = false
+    @State private var isStopping = false
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -46,7 +47,15 @@ struct TimeClockView: View {
                     if let active = activeJobClock {
                         TSectionTitle(title: "Running")
                         RunningEntryCard(jobClock: active, now: now,
-                                         onStop: { Task { await appState.jobClockOut() } },
+                                         isStopping: isStopping,
+                                         onStop: {
+                                             guard !isStopping else { return }
+                                             isStopping = true
+                                             Task {
+                                                 await appState.jobClockOut()
+                                                 isStopping = false
+                                             }
+                                         },
                                          onPauseResume: { Task {
                                              if active.isPaused { await appState.jobResume() }
                                              else { await appState.jobPause() }
@@ -107,10 +116,10 @@ struct TimeClockView: View {
 
     private var liveRunningHours: Double {
         guard let jc = activeJobClock,
-              let s = isoFormatter.date(from: jc.clockIn) else { return 0 }
+              let s = Date.fromFlexibleISO8601(jc.clockIn) else { return 0 }
         var ms = now.timeIntervalSince(s) * 1000
         ms -= (jc.totalPausedMs ?? 0)
-        if let p = jc.pausedAt, let pStart = isoFormatter.date(from: p) {
+        if let p = jc.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
             ms -= now.timeIntervalSince(pStart) * 1000
         }
         return max(0, ms / 1000 / 3600)
@@ -145,7 +154,7 @@ struct TimeClockView: View {
     /// A real per-entry data feed would replace this.
     private var groupedEntries: [EntryGroup] {
         guard let jc = activeJobClock,
-              let s = isoFormatter.date(from: jc.clockIn) else { return [] }
+              let s = Date.fromFlexibleISO8601(jc.clockIn) else { return [] }
         let cal = Calendar.current
         let day = cal.startOfDay(for: s)
         let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
@@ -318,14 +327,15 @@ private struct DailyBarsCard: View {
 private struct RunningEntryCard: View {
     let jobClock: ActiveJobClock
     let now: Date
+    let isStopping: Bool
     let onStop: () -> Void
     let onPauseResume: () -> Void
 
     private var elapsedLabel: String {
-        guard let s = isoFormatter.date(from: jobClock.clockIn) else { return "—" }
+        guard let s = Date.fromFlexibleISO8601(jobClock.clockIn) else { return "—" }
         var ms = now.timeIntervalSince(s) * 1000
         ms -= (jobClock.totalPausedMs ?? 0)
-        if let p = jobClock.pausedAt, let pStart = isoFormatter.date(from: p) {
+        if let p = jobClock.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
             ms -= now.timeIntervalSince(pStart) * 1000
         }
         let secs = max(0, Int(ms / 1000))
@@ -364,14 +374,23 @@ private struct RunningEntryCard: View {
                 .buttonStyle(.plain)
                 Button(action: onStop) {
                     HStack(spacing: 5) {
-                        Image(systemName: "stop.fill")
-                        Text("STOP").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
+                        if isStopping {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .tint(.white)
+                                .scaleEffect(0.6)
+                            Text("STOPPING…").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
+                        } else {
+                            Image(systemName: "stop.fill")
+                            Text("STOP").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
+                        }
                     }
                     .foregroundStyle(.white)
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(Capsule().fill(Color(hex: T.sky)))
                 }
                 .buttonStyle(.plain)
+                .disabled(isStopping)
             }
             .padding(12)
         }

@@ -25,13 +25,21 @@ struct TRAQS_SchedulingApp: App {
                 .environment(appNav)
                 .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
                 .id(themeSettings.version)
-                .onChange(of: appState.currentPersonId) { _, personId in
+                .onChange(of: appState.currentPersonId, initial: true) { _, personId in
+                    // `initial: true` is critical — without it, this only
+                    // fired when currentPersonId *changed*, which meant a
+                    // returning user (personId already loaded from Keychain
+                    // on launch) never got OneSignal.login called. The
+                    // external user ID was unset on the OneSignal side, so
+                    // the server's include_external_user_ids never matched
+                    // and pushes were silently dropped. Fixing this is
+                    // what makes message notifications actually arrive.
                     if let personId {
                         OneSignal.login(personId)
-                        // The web's notify.js filters out anyone whose person
-                        // record doesn't have `pushToken` set. Writing the
-                        // OneSignal subscription ID back to people.json is
-                        // what actually opts this device into pushes.
+                        // notify.js / messages.js filter recipients by
+                        // person.pushToken. Writing the OneSignal
+                        // subscription ID back to people.json is what
+                        // actually opts this device into pushes.
                         appState.registerPushTokenIfNeeded()
                     }
                 }
