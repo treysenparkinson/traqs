@@ -36,7 +36,19 @@ struct MessagesView: View {
     var allThreads: [MessageThread] {
         let myId = appState.currentPersonId
         let readMap = appState.threadReadAt
+        // Drop threads the current user isn't a participant in BEFORE
+        // building MessageThread values. The server now also enforces
+        // this on GET, so in normal operation appState.messages will
+        // already be scoped — this is defense-in-depth for stale caches
+        // (a session that loaded before the server fix shipped, or a
+        // dev/test environment still hitting an unfiltered endpoint).
         return Dictionary(grouping: appState.messages, by: \.threadKey)
+            .filter { key, _ in
+                Self.canViewThread(key,
+                                   myId: myId,
+                                   jobs: appState.jobs,
+                                   groups: appState.groups)
+            }
             .map { key, msgs in
                 MessageThread(
                     key: key,
@@ -46,6 +58,56 @@ struct MessagesView: View {
                 )
             }
             .sorted { ($0.messages.last?.timestamp ?? "") > ($1.messages.last?.timestamp ?? "") }
+    }
+
+    /// Mirrors the server's `canViewThread` so a stale or unfiltered
+    /// `appState.messages` array can't expose threads the user shouldn't
+    /// see. Closed by default — unrecognized threadKey prefixes are
+    /// hidden, matching the server.
+    static func canViewThread(_ threadKey: String,
+                              myId: String?,
+                              jobs: [Job],
+                              groups: [ChatGroup]) -> Bool {
+        guard let myId, !myId.isEmpty else { return false }
+        if threadKey.hasPrefix("dm:") {
+            return threadKey.dropFirst(3)
+                .components(separatedBy: "_")
+                .contains(myId)
+        }
+        if threadKey.hasPrefix("group:") {
+            let ref = String(threadKey.dropFirst(6))
+            guard let g = groups.first(where: { $0.name == ref || $0.id == ref })
+            else { return false }
+            return g.memberIds.contains(myId)
+        }
+        if threadKey.hasPrefix("job:") {
+            let jobId = String(threadKey.dropFirst(4))
+            return jobs.first(where: { $0.id == jobId }).map { userInJob(myId, $0) } ?? false
+        }
+        if threadKey.hasPrefix("panel:") {
+            let panelId = String(threadKey.dropFirst(6))
+            return jobs.first(where: { j in j.subs.contains(where: { $0.id == panelId }) })
+                .map { userInJob(myId, $0) } ?? false
+        }
+        if threadKey.hasPrefix("op:") {
+            let opId = String(threadKey.dropFirst(3))
+            for j in jobs {
+                for p in j.subs where p.subs.contains(where: { $0.id == opId }) {
+                    return userInJob(myId, j)
+                }
+            }
+            return false
+        }
+        return false
+    }
+
+    private static func userInJob(_ myId: String, _ j: Job) -> Bool {
+        if j.team.contains(myId) { return true }
+        for p in j.subs {
+            if p.team.contains(myId) { return true }
+            for o in p.subs where o.team.contains(myId) { return true }
+        }
+        return false
     }
 
     var filteredThreads: [MessageThread] {
@@ -681,12 +743,45 @@ struct ThreadDetailView: View {
         default: break
         }
 
-        let participantIds: [String]
-        if scopeKey == "dm" {
-            participantIds = idValue.components(separatedBy: "_")
-        } else {
-            participantIds = [authorId]
-        }
+        // Canonical participant set per thread type. Without this, group
+        // and job/panel/op messages were stored with just [authorId],
+        // which meant the server's push-notification step targeted no
+        // one — recipients silently went without a notification. Also
+        // used by client-side filtering as a sanity layer.
+        let participantIds: [String] = {
+            if scopeKey == "dm" {
+                return idValue.components(separatedBy: "_")
+            }
+            if scopeKey == "group" {
+                if let g = appState.groups.first(where: { $0.name == idValue || $0.id == idValue }) {
+                    return g.memberIds
+                }
+                return [authorId]
+            }
+            // job / panel / op: union of every team[] on the parent job,
+            // its panels, and its operations — matches the visibility
+            // rule we just put in place server-side.
+            let parentJob: Job? = {
+                switch scopeKey {
+                case "job":   return appState.jobs.first(where: { $0.id == idValue })
+                case "panel": return appState.jobs.first(where: { j in j.subs.contains { $0.id == idValue } })
+                case "op":
+                    for j in appState.jobs {
+                        if j.subs.contains(where: { p in p.subs.contains { $0.id == idValue } }) { return j }
+                    }
+                    return nil
+                default: return nil
+                }
+            }()
+            guard let j = parentJob else { return [authorId] }
+            var ids = Set<String>(j.team)
+            for p in j.subs {
+                ids.formUnion(p.team)
+                for o in p.subs { ids.formUnion(o.team) }
+            }
+            ids.insert(authorId)   // sender always counts (even if not on team)
+            return Array(ids)
+        }()
 
         let msgId = UUID().uuidString
         myMessageIds.insert(msgId)

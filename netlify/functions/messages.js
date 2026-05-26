@@ -2,47 +2,188 @@ import { validateToken } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 
-function getOrgKey(event) {
-  const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!orgCode || !/^[a-zA-Z0-9]{3,20}$/.test(orgCode)) return null;
-  return `orgs/${orgCode}/messages.json`;
+function orgCodeOf(event) {
+  return event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
+}
+
+function orgKey(event, file) {
+  const code = orgCodeOf(event);
+  if (!code || !/^[a-zA-Z0-9]{3,20}$/.test(code)) return null;
+  return `orgs/${code}/${file}`;
 }
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
+// Resolve the authenticated viewer to their personId by matching the
+// token's email against people.json. Returns null when we can't map
+// the caller to a known person — the response then filters to an empty
+// list rather than 500ing, which keeps the error path indistinguishable
+// from "user has no threads yet" and avoids leaking membership info.
+async function resolveViewerId(event, people) {
+  let payload;
+  try {
+    payload = await validateToken(event);
+  } catch (e) {
+    return { error: 401, message: e.message };
+  }
+  const email = String(payload?.email || "").toLowerCase().trim();
+  if (!email) return { error: 401, message: "Token missing email claim" };
+  const me = (people || []).find(p => String(p.email || "").toLowerCase().trim() === email);
+  if (!me?.id) return { viewerId: null };
+  return { viewerId: String(me.id) };
+}
+
+// True if `viewerId` participates in the thread identified by `threadKey`.
+// Rules:
+//   dm:a_b        → viewer is one of the two ids
+//   group:<name>  → viewer is in that group's memberIds
+//   job:<id>      → viewer is assigned to the job at any level (job.team,
+//                   any panel.team, or any operation.team within that job)
+//   panel:<id>    → same rule as the parent job
+//   op:<id>       → same rule as the parent job
+// Anything else is rejected. Closed-by-default keeps mistakes safe.
+function canViewThread(threadKey, viewerId, jobs, groups) {
+  if (!viewerId || !threadKey) return false;
+  if (threadKey.startsWith("dm:")) {
+    return threadKey.slice(3).split("_").map(String).includes(viewerId);
+  }
+  if (threadKey.startsWith("group:")) {
+    const ref = threadKey.slice(6);
+    const g = (groups || []).find(g => String(g.name) === ref || String(g.id) === ref);
+    return !!g && (g.memberIds || []).map(String).includes(viewerId);
+  }
+  if (threadKey.startsWith("job:")) {
+    const j = (jobs || []).find(j => String(j.id) === threadKey.slice(4));
+    return j ? userInJob(viewerId, j) : false;
+  }
+  if (threadKey.startsWith("panel:")) {
+    const panelId = threadKey.slice(6);
+    const j = (jobs || []).find(j => (j.subs || []).some(p => String(p.id) === panelId));
+    return j ? userInJob(viewerId, j) : false;
+  }
+  if (threadKey.startsWith("op:")) {
+    const opId = threadKey.slice(3);
+    for (const j of (jobs || [])) {
+      for (const p of (j.subs || [])) {
+        if ((p.subs || []).some(o => String(o.id) === opId)) return userInJob(viewerId, j);
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
+function userInJob(viewerId, j) {
+  const has = arr => Array.isArray(arr) && arr.map(String).includes(viewerId);
+  if (has(j.team)) return true;
+  for (const p of (j.subs || [])) {
+    if (has(p.team)) return true;
+    for (const o of (p.subs || [])) if (has(o.team)) return true;
+  }
+  return false;
+}
+
+// Canonical set of person ids who should be notified for a message
+// posted to `threadKey`. Computed from groups/tasks rather than trusting
+// the body's participantIds — older iOS clients store only the sender
+// there, so trusting it silently drops every other recipient's push.
+function recipientsForThread(threadKey, jobs, groups) {
+  if (!threadKey) return [];
+  if (threadKey.startsWith("dm:")) {
+    return threadKey.slice(3).split("_").map(String);
+  }
+  if (threadKey.startsWith("group:")) {
+    const ref = threadKey.slice(6);
+    const g = (groups || []).find(g => String(g.name) === ref || String(g.id) === ref);
+    return g ? (g.memberIds || []).map(String) : [];
+  }
+  let job = null;
+  if (threadKey.startsWith("job:")) {
+    job = (jobs || []).find(j => String(j.id) === threadKey.slice(4));
+  } else if (threadKey.startsWith("panel:")) {
+    const panelId = threadKey.slice(6);
+    job = (jobs || []).find(j => (j.subs || []).some(p => String(p.id) === panelId));
+  } else if (threadKey.startsWith("op:")) {
+    const opId = threadKey.slice(3);
+    for (const j of (jobs || [])) {
+      for (const p of (j.subs || [])) {
+        if ((p.subs || []).some(o => String(o.id) === opId)) { job = j; break; }
+      }
+      if (job) break;
+    }
+  }
+  if (!job) return [];
+  const ids = new Set();
+  for (const id of (job.team || [])) ids.add(String(id));
+  for (const p of (job.subs || [])) {
+    for (const id of (p.team || [])) ids.add(String(id));
+    for (const o of (p.subs || [])) for (const id of (o.team || [])) ids.add(String(id));
+  }
+  return Array.from(ids);
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const s3Key = getOrgKey(event);
-  if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
+  const messagesKey = orgKey(event, "messages.json");
+  if (!messagesKey) return err(400, "Missing or invalid X-Org-Code header");
 
-  // GET — read all messages (no auth required)
+  // GET — return only the threads the authenticated viewer participates
+  // in. Previously this returned the entire org's messages.json to
+  // anyone with the org code, which exposed every conversation to
+  // every teammate.
   if (event.httpMethod === "GET") {
     try {
-      const data = await readJson(s3Key);
-      return json(200, data ?? []);
+      const [messages, people, jobs, groups] = await Promise.all([
+        readJson(messagesKey).then(v => v ?? []),
+        readJson(orgKey(event, "people.json")).then(v => v ?? []),
+        readJson(orgKey(event, "tasks.json")).then(v => v ?? []),
+        readJson(orgKey(event, "groups.json")).then(v => v ?? []),
+      ]);
+      const r = await resolveViewerId(event, people);
+      if (r.error) return err(r.error, r.message);
+      const viewerId = r.viewerId;
+      if (!viewerId) return json(200, []);   // unknown viewer → nothing
+      // Cache thread-level decisions so we don't re-evaluate per message.
+      const decision = new Map();
+      const filtered = messages.filter(m => {
+        if (!decision.has(m.threadKey)) {
+          decision.set(m.threadKey, canViewThread(m.threadKey, viewerId, jobs, groups));
+        }
+        return decision.get(m.threadKey);
+      });
+      return json(200, filtered);
     } catch (e) {
       console.error("messages GET error:", e);
       return err(500, "Failed to read messages");
     }
   }
 
-  // POST — append a new message (org code gates access; auth is attempted but not required)
   if (event.httpMethod === "POST") {
     let body;
-    try {
-      body = JSON.parse(event.body);
-    } catch {
-      return err(400, "Invalid JSON body");
-    }
+    try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON body"); }
 
     const { threadKey, scope, jobId, panelId, opId, text, authorId, authorName, authorColor, participantIds, attachments, type, finishRequestId } = body ?? {};
     if (!threadKey || (!text?.trim() && !attachments?.length) || !authorId) return err(400, "Missing required fields");
 
     try {
-      const messages = await readJson(s3Key) ?? [];
+      const [existing, people, jobs, groups] = await Promise.all([
+        readJson(messagesKey).then(v => v ?? []),
+        readJson(orgKey(event, "people.json")).then(v => v ?? []),
+        readJson(orgKey(event, "tasks.json")).then(v => v ?? []),
+        readJson(orgKey(event, "groups.json")).then(v => v ?? []),
+      ]);
+      const r = await resolveViewerId(event, people);
+      if (r.error) return err(r.error, r.message);
+      const viewerId = r.viewerId;
+      // Sender must be a participant in the thread they're posting to,
+      // AND the authorId on the body must match the authenticated user
+      // (prevents impersonation by sending arbitrary authorIds).
+      if (!viewerId || viewerId !== String(authorId)) return err(403, "Author does not match authenticated user");
+      if (!canViewThread(threadKey, viewerId, jobs, groups)) return err(403, "Not a participant in this thread");
+
       const newMsg = {
         id: makeId(),
         threadKey,
@@ -59,19 +200,19 @@ export async function handler(event) {
         timestamp: new Date().toISOString(),
         ...(type ? { type, finishRequestId: finishRequestId || null } : {}),
       };
-      messages.push(newMsg);
-      // Keep last 2000 messages to prevent unbounded growth
-      await writeJson(s3Key, messages.slice(-2000));
+      existing.push(newMsg);
+      await writeJson(messagesKey, existing.slice(-2000));
 
-      // Push notification to participants (excluding sender)
+      // Push notification to participants (excluding sender). Derived
+      // from canonical group/task membership instead of body.participantIds
+      // because older iOS clients only stored [authorId] there — trusting
+      // it meant nobody but the sender ever got pushed for group/job
+      // threads.
       const appId  = process.env.ONESIGNAL_APP_ID;
       const apiKey = process.env.ONESIGNAL_API_KEY;
       if (appId && apiKey) {
-        const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-        const people = await readJson(`orgs/${orgCode}/people.json`) ?? [];
-        const targetIds = (participantIds || [])
-          .filter(id => String(id) !== String(authorId))
-          .map(id => String(id));
+        const targetIds = recipientsForThread(threadKey, jobs, groups)
+          .filter(id => id !== String(authorId));
         const registered = people
           .filter(p => p.pushToken && targetIds.includes(String(p.id)))
           .map(p => String(p.id));
@@ -83,7 +224,7 @@ export async function handler(event) {
               app_id: appId,
               include_external_user_ids: registered,
               channel_for_external_user_ids: "push",
-              headings: { en: `💬 ${authorName}` },
+              headings: { en: `${authorName}` },
               contents: { en: text?.trim() || "Sent an attachment" },
               data: { threadKey, scope },
             }),
@@ -98,20 +239,27 @@ export async function handler(event) {
     }
   }
 
-  // DELETE — remove all messages for a threadKey (auth required)
   if (event.httpMethod === "DELETE") {
-    try {
-      await validateToken(event);
-    } catch (e) {
-      return err(401, e.message);
-    }
     const threadKey = event.queryStringParameters?.threadKey;
     if (!threadKey) return err(400, "threadKey query param required");
     try {
-      const messages = await readJson(s3Key) ?? [];
-      const filtered = messages.filter(m => m.threadKey !== threadKey);
-      await writeJson(s3Key, filtered);
-      return json(200, { ok: true, deleted: messages.length - filtered.length });
+      const [existing, people, jobs, groups] = await Promise.all([
+        readJson(messagesKey).then(v => v ?? []),
+        readJson(orgKey(event, "people.json")).then(v => v ?? []),
+        readJson(orgKey(event, "tasks.json")).then(v => v ?? []),
+        readJson(orgKey(event, "groups.json")).then(v => v ?? []),
+      ]);
+      const r = await resolveViewerId(event, people);
+      if (r.error) return err(r.error, r.message);
+      // Only participants can delete a thread. Without this, any
+      // authenticated user with the org code could erase any
+      // conversation in the org.
+      if (!r.viewerId || !canViewThread(threadKey, r.viewerId, jobs, groups)) {
+        return err(403, "Not a participant in this thread");
+      }
+      const filtered = existing.filter(m => m.threadKey !== threadKey);
+      await writeJson(messagesKey, filtered);
+      return json(200, { ok: true, deleted: existing.length - filtered.length });
     } catch (e) {
       console.error("messages DELETE error:", e);
       return err(500, "Failed to delete messages");
