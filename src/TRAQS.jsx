@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
@@ -10401,15 +10401,12 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             )}
 
-            {/* Action buttons — one horizontal row when clocked in: Clock Out, Lunch, Break, Start Job */}
+            {/* Action buttons — one horizontal row when clocked in: Clock Out, Lunch, Start Job */}
             {isClockedIn ? (
               <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={openClockOut} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
                 {orgSettings.trackLunch && (
                   <button onClick={openLunch} disabled={isOnBreak} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: isOnLunch ? "#f59e0b18" : "none", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1 }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
-                )}
-                {orgSettings.trackBreaks && (
-                  <button onClick={openBreak} disabled={isOnLunch} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnBreak ? "#f59e0b" : "#f59e0b60"}`, background: isOnBreak ? "#f59e0b18" : "none", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnLunch ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnLunch ? 0.45 : 1 }}>{isOnBreak ? "End Break" : "Start Break"}</button>
                 )}
                 {!loggedInUser.activeJobClock && (
                   <button onClick={openStartJobPicker} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #22c55e60", background: "none", color: "#22c55e", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Start Job</button>
@@ -14051,38 +14048,85 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
 
-    {/* ── Admin Clock-In/Out Popover (press a person's status badge) ── */}
-    <FadeOnClose open={!!clockPopover}>{clockPopover && <div>
-      <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setClockPopover(null)} />
-      <div style={{ position: "fixed", left: clockPopover.x, top: clockPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 180, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
-        {[
-          { key: "in", label: "Clock In", color: "#22c55e", icon: "▶" },
-          { key: "out", label: "Clock Out", color: "#ef4444", icon: "■" },
-        ].map((opt, oi) => {
-          const isCurrent = opt.key !== clockPopover.action; // the "current" state is the OPPOSITE of the action (e.g., if action is "in", they're currently "out")
-          const fk = `clockPop-${opt.key}`;
-          return (
-            <div key={opt.key} onClick={() => {
-              if (isCurrent) return;
-              setDropFlashKey(fk);
-              const d = new Date();
-              const tsLocal = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}T${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
-              setTimeout(() => {
-                setClockTimeModal({ personId: clockPopover.personId, personName: clockPopover.personName, action: opt.key, ts: tsLocal });
-                setClockPopover(null);
-                setDropFlashKey(null);
-              }, 150);
-            }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${oi * 38}ms both ease-out`, opacity: isCurrent ? 0.5 : 1, background: isCurrent ? opt.color + "12" : "transparent" }}
-            onMouseEnter={e => { if (!isCurrent && !dropFlashKey) e.currentTarget.style.background = opt.color + "18"; }}
-            onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? opt.color + "12" : "transparent"; }}>
-              <span style={{ fontSize: 11, color: opt.color, flexShrink: 0, width: 10, textAlign: "center" }}>{opt.icon}</span>
-              <span style={{ fontSize: 13, fontWeight: isCurrent ? 600 : 500, color: isCurrent ? opt.color : T.text, flex: 1 }}>{opt.label}</span>
-              {isCurrent && <span style={{ fontSize: 10, color: opt.color, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>Current</span>}
-            </div>
-          );
-        })}
-      </div>
-    </div>}</FadeOnClose>
+    {/* ── Admin Clock-In/Out/Lunch/Break Popover (press a person's status badge) ── */}
+    <FadeOnClose open={!!clockPopover}>{clockPopover && (() => {
+      // Look up the person to derive accurate state for each option.
+      const cpPerson = people.find(p => p.id === clockPopover.personId);
+      const cpEvents = cpPerson?.activeClockIn?.events || [];
+      const cpClockedIn = !!cpPerson?.activeClockIn;
+      const cpLastLunch = [...cpEvents].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+      const cpLastBreak = [...cpEvents].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+      const cpOnLunch = cpClockedIn && cpLastLunch?.type === "lunchStart";
+      const cpOnBreak = cpClockedIn && cpLastBreak?.type === "breakStart";
+
+      // Build the option list — order: Clock In/Out, Lunch (Start or End), Break (Start or End).
+      const options = [];
+      if (cpClockedIn) {
+        options.push({ key: "clockOut",  label: "Clock Out",  color: "#ef4444", icon: "■",  kind: "clock" });
+      } else {
+        options.push({ key: "clockIn",   label: "Clock In",   color: "#22c55e", icon: "▶", kind: "clock" });
+      }
+      if (cpClockedIn) {
+        options.push(cpOnLunch
+          ? { key: "lunchEnd",   label: "End Lunch",   color: "#f59e0b", icon: "●", kind: "event", disabled: cpOnBreak }
+          : { key: "lunchStart", label: "Start Lunch", color: "#f59e0b", icon: "●", kind: "event", disabled: cpOnBreak });
+        options.push(cpOnBreak
+          ? { key: "breakEnd",   label: "End Break",   color: "#f59e0b", icon: "○", kind: "event", disabled: cpOnLunch }
+          : { key: "breakStart", label: "Start Break", color: "#f59e0b", icon: "○", kind: "event", disabled: cpOnLunch });
+      }
+
+      const runEvent = async (eventKey) => {
+        // eventKey: lunchStart | lunchEnd | breakStart | breakEnd
+        const apiAction = "admin" + eventKey.charAt(0).toUpperCase() + eventKey.slice(1);
+        try {
+          const res = await adminTimeclockEventAction({ action: apiAction, personId: clockPopover.personId }, getToken, orgCode);
+          if (res.ok) {
+            setPeople(pp => pp.map(p => p.id === clockPopover.personId ? { ...p, activeClockIn: res.activeClockIn } : p));
+            if (res.event) setTimeclock(tc => [...tc, res.event]);
+          } else {
+            alert(res.error || "Failed");
+          }
+        } catch { alert("Network error"); }
+      };
+
+      return (<div>
+        <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setClockPopover(null)} />
+        <div style={{ position: "fixed", left: clockPopover.x, top: clockPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 180, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+          {options.map((opt, oi) => {
+            const fk = `clockPop-${opt.key}`;
+            const disabled = !!opt.disabled;
+            return (
+              <div key={opt.key} onClick={() => {
+                if (disabled) return;
+                setDropFlashKey(fk);
+                if (opt.kind === "clock") {
+                  // Clock In/Out still uses the time-picker modal so admins can backdate.
+                  const d = new Date();
+                  const tsLocal = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}T${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+                  setTimeout(() => {
+                    setClockTimeModal({ personId: clockPopover.personId, personName: clockPopover.personName, action: opt.key === "clockIn" ? "in" : "out", ts: tsLocal });
+                    setClockPopover(null);
+                    setDropFlashKey(null);
+                  }, 150);
+                } else {
+                  // Lunch/Break events fire immediately — admin sets state right now.
+                  setTimeout(() => {
+                    runEvent(opt.key);
+                    setClockPopover(null);
+                    setDropFlashKey(null);
+                  }, 150);
+                }
+              }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: disabled ? "not-allowed" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${oi * 38}ms both ease-out`, opacity: disabled ? 0.4 : 1 }}
+              onMouseEnter={e => { if (!disabled && !dropFlashKey) e.currentTarget.style.background = opt.color + "18"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+                <span style={{ fontSize: 11, color: opt.color, flexShrink: 0, width: 10, textAlign: "center" }}>{opt.icon}</span>
+                <span style={{ fontSize: 13, fontWeight: 500, color: T.text, flex: 1 }}>{opt.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>);
+    })()}</FadeOnClose>
 
     {/* ── Admin Clock-In/Out Time-Picker Confirm Modal ── */}
     <FadeOnClose open={!!clockTimeModal} duration={220}>{clockTimeModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClockTimeModal(null)}>

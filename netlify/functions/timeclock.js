@@ -175,6 +175,49 @@ export async function handler(event) {
       }
     }
 
+    // ── Admin Lunch/Break Events (Bearer token, no PIN) ──────────────────────
+    if (action === "adminLunchStart" || action === "adminLunchEnd" || action === "adminBreakStart" || action === "adminBreakEnd") {
+      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      const { personId: albPersonId, ts: albTs } = body;
+      if (!albPersonId) return err(400, "Missing personId");
+
+      let albPeople;
+      try { albPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+
+      const albIdx = albPeople.findIndex(p => String(p.id) === String(albPersonId));
+      if (albIdx === -1) return err(404, "Person not found");
+
+      const albPerson = albPeople[albIdx];
+      if (!albPerson.activeClockIn) return err(409, "Not currently clocked in");
+
+      const albEvents = albPerson.activeClockIn.events || [];
+      const evtType = action === "adminLunchStart" ? "lunchStart"
+                    : action === "adminLunchEnd"   ? "lunchEnd"
+                    : action === "adminBreakStart" ? "breakStart"
+                    :                                "breakEnd";
+
+      // Guard against doubling up the same state.
+      if (evtType === "lunchStart" || evtType === "lunchEnd") {
+        const lastLunch = [...albEvents].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+        if (evtType === "lunchStart" && lastLunch?.type === "lunchStart") return err(409, "Already on lunch");
+        if (evtType === "lunchEnd" && (!lastLunch || lastLunch.type !== "lunchStart")) return err(409, "Not on lunch");
+      } else {
+        const lastBreak = [...albEvents].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+        if (evtType === "breakStart" && lastBreak?.type === "breakStart") return err(409, "Already on break");
+        if (evtType === "breakEnd" && (!lastBreak || lastBreak.type !== "breakStart")) return err(409, "Not on break");
+      }
+
+      const albTimestamp = albTs || new Date().toISOString();
+      albPeople[albIdx] = { ...albPerson, activeClockIn: { ...albPerson.activeClockIn, events: [...albEvents, { type: evtType, ts: albTimestamp }] } };
+      try { await writeJson(peopleKey, albPeople); } catch { return err(500, "Failed to save"); }
+
+      const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: albTimestamp.slice(0, 10), eventType: evtType, timestamp: albTimestamp };
+      let albLog; try { albLog = await readJson(clockKey) ?? []; } catch { albLog = []; }
+      albLog.push(albEvt); try { await writeJson(clockKey, albLog); } catch { /* non-fatal */ }
+
+      return json(200, { ok: true, event: albEvt, activeClockIn: albPeople[albIdx].activeClockIn });
+    }
+
     // ── Job Clock In (Bearer token, no PIN) ──────────────────────────────────
     if (action === "jobClockIn") {
       try { await validateToken(event); } catch (e) { return err(401, e.message); }
