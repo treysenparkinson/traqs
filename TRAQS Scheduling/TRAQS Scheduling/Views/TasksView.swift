@@ -1118,15 +1118,31 @@ private struct TaskCardV1: View {
 
     @ViewBuilder
     private var queuedRow: some View {
-        HStack {
-            HStack(spacing: 6) {
-                TIconView(icon: .pin, size: 12, color: Color(hex: T.muted))
-                Text(isStarting ? "Starting…" : "Queued")
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.0)
+        // Show the job's current progress even when not clocked in, so the
+        // card communicates how far along the work is at a glance. Same
+        // pct source as the active row (op % when this is an op, else the
+        // panel's rolled-up %). Rendered in the dept color (vs the active
+        // sky/amber) so it reads as "not currently tracking".
+        let pct = task.op.map { Double(appState.opPct($0)) }
+                  ?? Double(appState.panelPct(task.panel))
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    HStack(spacing: 5) {
+                        TIconView(icon: .pin, size: 11, color: Color(hex: T.muted))
+                        Text(isStarting ? "STARTING…" : "PROGRESS")
+                            .font(TTypo.xsBold(11))
+                            .foregroundStyle(Color(hex: T.muted))
+                            .tLabel(tracking: 1.0)
+                    }
+                    Spacer()
+                    Text("\(Int(pct))%")
+                        .font(TTypo.monoBold(13))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tnum()
+                }
+                Bar(pct: pct, height: 6, fill: dept.color)
             }
-            Spacer()
             Button {
                 guard !isStarting else { return }
                 showLogConfirm = true
