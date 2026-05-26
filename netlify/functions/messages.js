@@ -16,11 +16,42 @@ function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-// Resolve the authenticated viewer to their personId by matching the
-// token's email against people.json. Returns null when we can't map
-// the caller to a known person — the response then filters to an empty
-// list rather than 500ing, which keeps the error path indistinguishable
-// from "user has no threads yet" and avoids leaking membership info.
+// Cache /userinfo results by the JWT `sub` so warm function containers
+// don't re-fetch on every request. Auth0 access tokens for custom APIs
+// don't include the email claim by default — only `sub`, `iss`, `aud`,
+// `exp`, `iat` — so we have to hit /userinfo (which is bound to the
+// token itself, no spoofing risk) to get the user's email.
+const userinfoCache = new Map();
+
+async function emailForToken(event, payload) {
+  if (payload?.email) return String(payload.email).toLowerCase().trim();
+  const sub = payload?.sub;
+  if (sub && userinfoCache.has(sub)) return userinfoCache.get(sub);
+
+  const authHeader = event.headers?.authorization || event.headers?.Authorization || "";
+  if (!authHeader.startsWith("Bearer ")) return null;
+  const domain = process.env.AUTH0_DOMAIN;
+  if (!domain) return null;
+
+  try {
+    const res = await fetch(`https://${domain}/userinfo`, {
+      headers: { Authorization: authHeader },
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    const email = String(body?.email || "").toLowerCase().trim();
+    if (sub && email) userinfoCache.set(sub, email);
+    return email || null;
+  } catch {
+    return null;
+  }
+}
+
+// Resolve the authenticated viewer to their personId. Returns
+// `{ error, message }` for token/auth failures, `{ viewerId: null }`
+// when the auth succeeded but the email isn't tied to any Person in
+// this org (the response then filters to an empty list rather than
+// 500ing, and avoids leaking org membership to outsiders).
 async function resolveViewerId(event, people) {
   let payload;
   try {
@@ -28,8 +59,8 @@ async function resolveViewerId(event, people) {
   } catch (e) {
     return { error: 401, message: e.message };
   }
-  const email = String(payload?.email || "").toLowerCase().trim();
-  if (!email) return { error: 401, message: "Token missing email claim" };
+  const email = await emailForToken(event, payload);
+  if (!email) return { error: 401, message: "Could not resolve user email" };
   const me = (people || []).find(p => String(p.email || "").toLowerCase().trim() === email);
   if (!me?.id) return { viewerId: null };
   return { viewerId: String(me.id) };
