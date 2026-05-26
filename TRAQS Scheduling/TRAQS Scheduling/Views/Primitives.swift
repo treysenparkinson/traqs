@@ -24,11 +24,15 @@ struct SBox<Content: View>: View {
     var dashed: Bool = false
     var raised: Bool = false         // adds soft raised shadow
     var sky: Bool = false            // adds active sky-tinted shadow + 1px sky ring
+    var amber: Bool = false          // paused/on-break state — amber ring + tint, takes precedence over sky
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: size.radius, style: .continuous)
-        let f = fill ?? Color(hex: T.surface)
+        // Amber (paused) wins over sky (active) so a paused active card
+        // reads as on-break, not running.
+        let highlight: Color? = amber ? Color(hex: T.amber) : (sky ? Color(hex: T.sky) : nil)
+        let f = fill ?? (amber ? Color(hex: T.amber).opacity(0.06) : Color(hex: T.surface))
         let s = stroke ?? Color(hex: T.hair)
 
         return content()
@@ -40,16 +44,15 @@ struct SBox<Content: View>: View {
                 .foregroundStyle(s)
             )
             .overlay(
-                sky ? AnyView(shape.strokeBorder(Color(hex: T.sky).opacity(0.30), lineWidth: 1)) : AnyView(EmptyView())
+                highlight.map { c in AnyView(shape.strokeBorder(c.opacity(0.35), lineWidth: 1)) } ?? AnyView(EmptyView())
             )
             .compositingGroup()
             .shadow(
-                color: sky
-                    ? Color(hex: T.sky).opacity(T.skyShadowOpacity)
-                    : (raised ? Color.black.opacity(T.raisedShadowOpacity) : .clear),
-                radius: sky ? T.skyShadowRadius : T.raisedShadowRadius,
+                color: highlight.map { $0.opacity(T.skyShadowOpacity) }
+                    ?? (raised ? Color.black.opacity(T.raisedShadowOpacity) : .clear),
+                radius: highlight != nil ? T.skyShadowRadius : T.raisedShadowRadius,
                 x: 0,
-                y: sky ? T.skyShadowY : T.raisedShadowY
+                y: highlight != nil ? T.skyShadowY : T.raisedShadowY
             )
     }
 }

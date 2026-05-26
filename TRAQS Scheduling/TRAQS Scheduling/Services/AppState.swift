@@ -713,22 +713,55 @@ class AppState {
         }
     }
 
+    /// Flip the current person's job-clock pause state locally so the card
+    /// updates on the FIRST tap instead of waiting for the round-trip.
+    /// `clockChangeAt` is set so loadAll's grace window preserves this
+    /// optimistic value while the server catches up.
+    private func setLocalPause(personId: String, paused: Bool) {
+        guard let idx = people.firstIndex(where: { $0.id == personId }),
+              people[idx].activeJobClock != nil else { return }
+        var newPeople = people
+        if paused {
+            if newPeople[idx].activeJobClock?.pausedAt == nil {
+                newPeople[idx].activeJobClock?.pausedAt = ISO8601DateFormatter().string(from: Date())
+            }
+        } else {
+            newPeople[idx].activeJobClock?.pausedAt = nil
+        }
+        people = newPeople
+        clockChangeAt = Date()
+    }
+
     func jobPause() async {
         guard let api, let personId = currentPersonId else { return }
+        setLocalPause(personId: personId, paused: true)   // optimistic
         do {
             try await api.jobPause(personId: personId)
-            await loadAll()
+            await refreshJobsQuietly()
+        } catch APIError.httpError(409) {
+            // Server says it's already paused — local already reflects
+            // that, so this is effectively success, not an error.
+            await refreshJobsQuietly()
         } catch {
+            setLocalPause(personId: personId, paused: false)   // revert
             clockError = error.localizedDescription
         }
     }
 
     func jobResume() async {
         guard let api, let personId = currentPersonId else { return }
+        setLocalPause(personId: personId, paused: false)   // optimistic
         do {
             try await api.jobResume(personId: personId)
-            await loadAll()
+            await refreshJobsQuietly()
+        } catch APIError.httpError(409) {
+            // Server says it's already running — the most common cause of
+            // the old "press resume twice" bug: the first tap resumed on
+            // the server but local state still showed paused, so the
+            // second tap 409'd. Local already shows running; treat as success.
+            await refreshJobsQuietly()
         } catch {
+            setLocalPause(personId: personId, paused: true)   // revert
             clockError = error.localizedDescription
         }
     }

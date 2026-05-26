@@ -824,11 +824,18 @@ private struct TaskCardV1: View {
     @State private var showLogConfirm = false
     @State private var isStopping = false
     @State private var isStarting = false
+    @State private var isPausing = false
 
     private var isActive: Bool {
         guard let jc = appState.myActiveJobClock else { return false }
         if let opId = task.op?.id { return jc.opId == opId }
         return jc.opId == nil && jc.panelId == task.panel.id
+    }
+
+    /// This task is the active job clock AND that clock is paused (on
+    /// break). Drives the amber card highlight + "Paused" badge.
+    private var isPaused: Bool {
+        isActive && (appState.myActiveJobClock?.isPaused == true)
     }
 
     private var dept: (label: String, color: Color) {
@@ -887,7 +894,7 @@ private struct TaskCardV1: View {
     }
 
     var body: some View {
-        SBox(size: .lg, sky: isActive) {
+        SBox(size: .lg, sky: isActive && !isPaused, amber: isPaused) {
             VStack(alignment: .leading, spacing: 0) {
                 // Top row: dept tag + #ID  ·······  status badge
                 HStack(spacing: 10) {
@@ -899,7 +906,14 @@ private struct TaskCardV1: View {
                             .tnum()
                     }
                     Spacer()
-                    StatusBadge(status: task.status)
+                    if isPaused {
+                        Chip(label: "PAUSED",
+                             fill: Color(hex: T.amber).opacity(0.12),
+                             stroke: Color(hex: T.amber),
+                             color: Color(hex: T.amber))
+                    } else {
+                        StatusBadge(status: task.status)
+                    }
                 }
 
                 // Headline: TASK title — what the user is actually doing
@@ -949,6 +963,7 @@ private struct TaskCardV1: View {
         .animation(.easeInOut(duration: 0.2), value: isActive)
         .animation(.easeInOut(duration: 0.25), value: isStarting)
         .animation(.easeInOut(duration: 0.25), value: isStopping)
+        .animation(.easeInOut(duration: 0.25), value: isPausing)
         .sheet(isPresented: $showLogConfirm) {
             LogTimeConfirmSheet(task: task,
                                 deptLabel: dept.label,
@@ -984,30 +999,92 @@ private struct TaskCardV1: View {
     private var activeRow: some View {
         let pct = task.op.map { Double(appState.opPct($0)) }
                   ?? Double(appState.panelPct(task.panel))
-        HStack(spacing: 10) {
+        // Read pause state from the live activeJobClock so the row
+        // reflects the server's truth, not just local optimistic state.
+        // `elapsedLabel` already subtracts pausedAt time so the timer
+        // visibly freezes while on break.
+        let isOnBreak = appState.myActiveJobClock?.isPaused == true
+        let trackColor = isOnBreak ? Color(hex: T.amber) : Color(hex: T.sky)
+        let trackLabel = isOnBreak ? "ON BREAK" : "TRACKING"
+
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     HStack(spacing: 5) {
-                        Circle().fill(Color(hex: T.sky)).frame(width: 7, height: 7)
-                        Text("TRACKING")
+                        Circle().fill(trackColor).frame(width: 7, height: 7)
+                        Text(trackLabel)
                             .font(TTypo.xsBold(11))
-                            .foregroundStyle(Color(hex: T.sky))
+                            .foregroundStyle(trackColor)
                             .tLabel(tracking: 1.0)
                     }
                     Spacer()
-                    // TimelineView re-renders every second using the SwiftUI
-                    // scheduler — it survives parent re-renders, doesn't need
-                    // an external @State + Timer.publish, and is the supported
-                    // primitive for live ticking content.
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text("\(elapsedLabel(at: context.date)) · \(Int(pct))%")
                             .font(TTypo.monoBold(13))
-                            .foregroundStyle(Color(hex: T.sky))
+                            .foregroundStyle(trackColor)
                             .tnum()
                     }
                 }
-                Bar(pct: pct, height: 6, fill: Color(hex: T.sky))
+                Bar(pct: pct, height: 6, fill: trackColor)
             }
+
+            // Break / End Break — compact circular amber button so it
+            // fits beside the timer + STOP without crowding. Pauses the
+            // job clock without ending payroll: the worker stays on the
+            // clock for pay while on break.
+            Button {
+                guard !isPausing else { return }
+                isPausing = true
+                Task {
+                    if isOnBreak {
+                        await appState.jobResume()
+                    } else {
+                        await appState.jobPause()
+                    }
+                    isPausing = false
+                }
+            } label: {
+                if isOnBreak {
+                    // On break: a labeled "Resume" capsule — the timer is
+                    // frozen so there's room, and the explicit word reads
+                    // clearer than a bare play glyph.
+                    HStack(spacing: 6) {
+                        if isPausing {
+                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
+                            Text("RESUMING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                        } else {
+                            Image(systemName: "play.fill")
+                            Text("RESUME").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(Capsule().fill(Color(hex: T.amber)))
+                    .shadow(color: Color(hex: T.amber).opacity(T.skyShadowOpacity),
+                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                } else {
+                    // Working: compact circular pause icon so the timer +
+                    // STOP fit on one row without crowding.
+                    Group {
+                        if isPausing {
+                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
+                        } else {
+                            Image(systemName: "pause.fill").font(.system(size: 13, weight: .bold))
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(Color(hex: T.amber)))
+                    .shadow(color: Color(hex: T.amber).opacity(T.skyShadowOpacity),
+                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(isPausing || isStopping)
+
+            // Stop — clocks out of the job entirely. Disabled while
+            // paused so the user doesn't accidentally end the timer
+            // when they meant to resume.
             Button {
                 guard !isStopping else { return }
                 isStopping = true
@@ -1029,13 +1106,13 @@ private struct TaskCardV1: View {
                     }
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 14).padding(.vertical, 8)
+                .padding(.horizontal, 12).padding(.vertical, 8)
                 .background(Capsule().fill(Color(hex: T.sky)))
                 .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
                         radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
             }
             .buttonStyle(.plain)
-            .disabled(isStopping)
+            .disabled(isStopping || isPausing)
         }
     }
 
