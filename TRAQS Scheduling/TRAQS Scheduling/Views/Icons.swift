@@ -13,7 +13,7 @@ enum TIcon: String {
     case mic, paperclip, settings, send
     case person, map, list, cal, sparkle, bell, signOut
     case clients, team
-    case select, trash
+    case select, trash, admin
 
     var sfName: String {
         switch self {
@@ -50,6 +50,7 @@ enum TIcon: String {
         case .team:      return "person.2"
         case .select:    return "checkmark.circle"
         case .trash:     return "trash"
+        case .admin:     return "shield.lefthalf.filled"
         }
     }
 }

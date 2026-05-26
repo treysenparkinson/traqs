@@ -35,6 +35,7 @@ struct MainTabView: View {
     @State private var dragOffset: CGFloat = 0          // additive offset during a live drag
     @State private var isDragging: Bool = false
     @State private var showSettings: Bool = false
+    @State private var showAdmin: Bool = false
 
     /// Current X position of the drawer's leading edge.
     /// -drawerWidth = fully closed (off-screen left). 0 = fully open.
@@ -83,11 +84,18 @@ struct MainTabView: View {
                          DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                              showSettings = true
                          }
+                     },
+                     openAdmin: {
+                         closeMenu()
+                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                             showAdmin = true
+                         }
                      })
                 .offset(x: drawerX)
                 .zIndex(2)
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .fullScreenCover(isPresented: $showAdmin) { AdminView() }
         .preferredColorScheme(.light)
         .animation(.easeInOut(duration: 0.22), value: appNav.selected)
         .animation(isDragging ? nil
@@ -160,6 +168,7 @@ private struct SideMenu: View {
     @Environment(AuthManager.self) private var auth
     let close: () -> Void
     let openSettings: () -> Void
+    let openAdmin: () -> Void
 
     private var person: Person? { appState.currentPerson }
     private var initials: String {
@@ -214,6 +223,12 @@ private struct SideMenu: View {
                     .padding(.vertical, 12)
 
                 VStack(spacing: 4) {
+                    if appState.isAdmin {
+                        SideMenuRow(icon: .admin,
+                                    label: "Admin",
+                                    isOn: false,
+                                    action: openAdmin)
+                    }
                     SideMenuRow(icon: .settings,
                                 label: "Settings",
                                 isOn: false,
