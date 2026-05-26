@@ -26,6 +26,13 @@ struct MessagesView: View {
     @State private var showSearch = false
     @FocusState private var searchFocused: Bool
 
+    // Bulk-select / delete state. When `selectMode` is on, rows render
+    // a checkbox indicator instead of navigating on tap, and the top
+    // bar swaps its icons for [Done, Delete].
+    @State private var selectMode = false
+    @State private var selectedKeys: Set<String> = []
+    @State private var showDeleteConfirm = false
+
     var allThreads: [MessageThread] {
         let myId = appState.currentPersonId
         let readMap = appState.threadReadAt
@@ -75,25 +82,78 @@ struct MessagesView: View {
                 VStack(spacing: 0) {
                     // Sticky header.
                     TRAQSNavHeader {
-                        IconBtn(icon: .search, size: 18) {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                showSearch.toggle()
-                                if !showSearch { searchText = "" }
+                        if selectMode {
+                            Button {
+                                exitSelectMode()
+                            } label: {
+                                Text("Done")
+                                    .font(TTypo.smBold(14))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 8)
+                                    .background(Capsule().fill(Color(hex: T.surface)))
+                                    .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
                             }
-                            if showSearch { searchFocused = true }
+                            .buttonStyle(.plain)
+
+                            Button {
+                                showDeleteConfirm = true
+                            } label: {
+                                HStack(spacing: 6) {
+                                    TIconView(icon: .trash, size: 16, color: .white, weight: .bold)
+                                    if !selectedKeys.isEmpty {
+                                        Text("\(selectedKeys.count)")
+                                            .font(TTypo.smBold(13))
+                                            .foregroundStyle(.white)
+                                            .tnum()
+                                    }
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .background(Capsule().fill(Color.red.opacity(selectedKeys.isEmpty ? 0.4 : 1.0)))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(selectedKeys.isEmpty)
+                        } else {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    selectMode = true
+                                }
+                            } label: {
+                                Text("Select")
+                                    .font(TTypo.smBold(13))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 36)
+                                    .background(Capsule().fill(Color(hex: T.surface)))
+                                    .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                                    .compositingGroup()
+                                    .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
+                                            radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
+                            }
+                            .buttonStyle(.plain)
+
+                            IconBtn(icon: .search, size: 18) {
+                                withAnimation(.easeInOut(duration: 0.18)) {
+                                    showSearch.toggle()
+                                    if !showSearch { searchText = "" }
+                                }
+                                if showSearch { searchFocused = true }
+                            }
+                            Button {
+                                showNewGroup = true   // default to group creation; DM is in sheet
+                            } label: {
+                                TIconView(icon: .plus, size: 18, color: .white, weight: .bold)
+                                    .padding(9)
+                                    .background(Circle().fill(Color(hex: T.sky)))
+                                    .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
+                                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        Button {
-                            showNewGroup = true   // default to group creation; DM is in sheet
-                        } label: {
-                            TIconView(icon: .plus, size: 18, color: .white, weight: .bold)
-                                .padding(9)
-                                .background(Circle().fill(Color(hex: T.sky)))
-                                .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                                        radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
-                        }
-                        .buttonStyle(.plain)
                     }
                     .background(Color(hex: T.bg))
+                    .animation(.easeInOut(duration: 0.18), value: selectMode)
 
                     if showSearch {
                         SearchBar(text: $searchText,
@@ -127,14 +187,7 @@ struct MessagesView: View {
                                     SBox(size: .md, raised: true) {
                                         VStack(spacing: 0) {
                                             ForEach(Array(filteredThreads.enumerated()), id: \.element.id) { (i, t) in
-                                                NavigationLink(value: t.key) {
-                                                    ChannelRow(thread: t,
-                                                               people: appState.people)
-                                                }
-                                                .buttonStyle(.plain)
-                                                .simultaneousGesture(TapGesture().onEnded {
-                                                    appState.markThreadRead(t.key)
-                                                })
+                                                threadRow(t)
                                                 if i < filteredThreads.count - 1 {
                                                     SLine().padding(.leading, 60)
                                                 }
@@ -173,9 +226,58 @@ struct MessagesView: View {
                     navigationPath.append("dm:\(ids.joined(separator: "_"))")
                 }
             }
+            .alert("Delete \(selectedKeys.count) conversation\(selectedKeys.count == 1 ? "" : "s")?",
+                   isPresented: $showDeleteConfirm) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    let keys = selectedKeys
+                    exitSelectMode()
+                    Task {
+                        for key in keys {
+                            await appState.deleteThread(threadKey: key)
+                        }
+                    }
+                }
+            } message: {
+                Text("This can't be undone. The selected thread\(selectedKeys.count == 1 ? "" : "s") and all of \(selectedKeys.count == 1 ? "its" : "their") messages will be gone forever.")
+            }
         }
         .task { await appState.refreshMessages() }
         .refreshable { await appState.refreshMessages() }
+    }
+
+    /// Renders a single inbox row, switching between navigation mode and
+    /// select-mode tap-to-toggle. Extracted so the ForEach above stays
+    /// readable and the row's two modes share the same ChannelRow.
+    @ViewBuilder
+    private func threadRow(_ t: MessageThread) -> some View {
+        let isSelected = selectedKeys.contains(t.key)
+        if selectMode {
+            Button {
+                if isSelected { selectedKeys.remove(t.key) }
+                else { selectedKeys.insert(t.key) }
+            } label: {
+                ChannelRow(thread: t, people: appState.people,
+                           selectMode: true, isSelected: isSelected)
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: t.key) {
+                ChannelRow(thread: t, people: appState.people,
+                           selectMode: false, isSelected: false)
+            }
+            .buttonStyle(.plain)
+            .simultaneousGesture(TapGesture().onEnded {
+                appState.markThreadRead(t.key)
+            })
+        }
+    }
+
+    private func exitSelectMode() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectMode = false
+            selectedKeys = []
+        }
     }
 }
 
@@ -211,6 +313,8 @@ private struct FilterPills: View {
 private struct ChannelRow: View {
     let thread: MessageThread
     let people: [Person]
+    var selectMode: Bool = false
+    var isSelected: Bool = false
 
     private var subtitle: String {
         thread.lastMessage.map { $0.text } ?? ""
@@ -224,11 +328,47 @@ private struct ChannelRow: View {
         return parts.joined()
     }
 
+    /// Unique participants in this thread, derived from message authorIds.
+    /// Stable order by first appearance so the avatar stack doesn't shuffle
+    /// across re-renders.
+    private var participants: [Person] {
+        var seen = Set<String>()
+        var ordered: [Person] = []
+        for m in thread.messages {
+            guard !m.authorId.isEmpty, seen.insert(m.authorId).inserted,
+                  let p = people.first(where: { $0.id == m.authorId }) else { continue }
+            ordered.append(p)
+        }
+        return ordered
+    }
+
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
+            if selectMode {
+                // The checkmark fades + slides in from the leading edge
+                // when the user enters select mode, and the rest of the
+                // row shifts right to make room — same pattern Mail uses
+                // for its multi-select behavior.
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(isSelected ? Color(hex: T.sky) : Color(hex: T.muted))
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                    .animation(.easeInOut(duration: 0.18), value: isSelected)
+            }
+
             if thread.isDM {
                 Avatar(initials: initials, size: 40, fill: avatarColor)
+            } else if !participants.isEmpty {
+                ParticipantStack(people: participants,
+                                 avatarSize: 22,
+                                 overlap: 9,
+                                 maxShown: 3)
+                    .frame(width: 40, alignment: .leading)
             } else {
+                // Fallback for a thread with no decodable participants
+                // (e.g. server returned messages whose authorIds don't
+                // match any person we know about — shouldn't normally
+                // happen, but keeps the row from rendering blank).
                 ZStack {
                     RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous)
                         .fill(Color(hex: T.surface))
@@ -583,6 +723,12 @@ struct MessageBubble: View {
     let message: Message
     let isMe: Bool
 
+    /// Timestamp is hidden by default and revealed when the user taps
+    /// the bubble. A timed Task auto-hides it again so the thread stays
+    /// uncluttered without forcing a second tap.
+    @State private var showTimestamp = false
+    @State private var hideTask: Task<Void, Never>?
+
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
             if isMe { Spacer(minLength: 40) }
@@ -608,12 +754,42 @@ struct MessageBubble: View {
                         RoundedRectangle(cornerRadius: 18)
                             .stroke(isMe ? Color.clear : Color(hex: T.border), lineWidth: 1)
                     )
-                Text(message.timestamp.shortTimestamp)
-                    .font(.system(size: 9))
-                    .foregroundColor(Color(hex: T.muted))
+                    .contentShape(RoundedRectangle(cornerRadius: 18))
+                    .onTapGesture { toggleTimestamp() }
+                    // Overlay rather than a sibling view so the timestamp
+                    // doesn't grow the VStack — otherwise the HStack's
+                    // .bottom alignment pulls the avatar (and the bubble)
+                    // downward when the stamp appears. `.move(edge: .top)`
+                    // for the inserted view slides it DOWN from behind
+                    // the bubble's bottom edge and back up on dismiss.
+                    .overlay(alignment: isMe ? .bottomTrailing : .bottomLeading) {
+                        if showTimestamp {
+                            Text(message.timestamp.messageStamp)
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(Color(hex: T.muted))
+                                .padding(.horizontal, 4)
+                                .offset(y: 18)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+                    }
             }
 
             if !isMe { Spacer(minLength: 40) }
+        }
+        .onDisappear { hideTask?.cancel() }
+    }
+
+    private func toggleTimestamp() {
+        hideTask?.cancel()
+        if showTimestamp {
+            withAnimation(.easeOut(duration: 0.22)) { showTimestamp = false }
+            return
+        }
+        withAnimation(.easeOut(duration: 0.28)) { showTimestamp = true }
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeIn(duration: 0.28)) { showTimestamp = false }
         }
     }
 }
@@ -660,10 +836,9 @@ private struct ThreadHeader: View {
 /// exist, the fourth slot becomes a "+N" indicator instead of the next avatar.
 private struct ParticipantStack: View {
     let people: [Person]
-
-    private let avatarSize: CGFloat = 28
-    private let overlap: CGFloat = 10
-    private let maxShown: Int = 3
+    var avatarSize: CGFloat = 28
+    var overlap: CGFloat = 10
+    var maxShown: Int = 3
 
     var body: some View {
         HStack(spacing: -overlap) {
@@ -910,6 +1085,30 @@ extension String {
         } else {
             df.dateStyle = .short
             df.timeStyle = .short
+        }
+        return df.string(from: date)
+    }
+
+    /// Compact stamp used on the tap-to-reveal message timestamp.
+    /// Today → "2:34 PM" · Yesterday → "Yesterday" · earlier → "May 24"
+    /// (or "May 24, 2025" if not in the current year). Different from
+    /// `shortTimestamp` (used in the thread list, which keeps date+time
+    /// so older threads still show a sortable cue at a glance).
+    var messageStamp: String {
+        guard let date = Date.fromFlexibleISO8601(self) else { return self }
+        let cal = Calendar.current
+        let df = DateFormatter()
+        if cal.isDateInToday(date) {
+            df.dateFormat = "h:mm a"
+            return df.string(from: date)
+        }
+        if cal.isDateInYesterday(date) {
+            return "Yesterday"
+        }
+        if cal.component(.year, from: date) == cal.component(.year, from: Date()) {
+            df.dateFormat = "MMM d"
+        } else {
+            df.dateFormat = "MMM d, yyyy"
         }
         return df.string(from: date)
     }
