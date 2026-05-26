@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import TRAQS from "./TRAQS.jsx";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -446,13 +446,27 @@ function DomainError({ userEmail, orgDomain, onLogout }) {
 }
 
 // ─── Team roster step ─────────────────────────────────────────────────────────
-function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdminLogin, onSwitch }) {
-  const [clockMode, setClockMode] = useState(null); // null | "clockIn" | "clockOut"
+// Labels and confirmation copy for every kiosk clock action.
+const CLOCK_MODE_META = {
+  clockIn:    { title: "Clock In",     verb: "IN",        verbColor: "#10b981", successMsg: "Clocked in successfully!" },
+  clockOut:   { title: "Clock Out",    verb: "OUT",       verbColor: "#ef4444", successMsg: "Clocked out successfully!" },
+  lunchStart: { title: "Start Lunch",  verb: "ON LUNCH",  verbColor: "#f59e0b", successMsg: "Lunch started!" },
+  lunchEnd:   { title: "Back From Lunch", verb: "OFF LUNCH", verbColor: "#10b981", successMsg: "Welcome back!" },
+  breakStart: { title: "Start Break",  verb: "ON BREAK",  verbColor: "#f59e0b", successMsg: "Break started!" },
+  breakEnd:   { title: "End Break",    verb: "OFF BREAK", verbColor: "#f59e0b", successMsg: "Break ended!" },
+};
+
+function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdminLogin, onSwitch, onRefresh }) {
+  const [clockMode, setClockMode] = useState(null); // null | "clockIn" | "clockOut" | "lunchStart" | "lunchEnd" | "breakStart" | "breakEnd"
   const [pinValue, setPinValue] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinLoading, setPinLoading] = useState(false);
   const [confirmedPerson, setConfirmedPerson] = useState(null);
   const [clockDone, setClockDone] = useState(false);
+  // Records the action actually performed after Confirm — drives the success message.
+  // For Clock Out the worker now picks between "lunchStart" (going to lunch) and "clockOut"
+  // (end of day), so the meta we show on success depends on what they chose, not on clockMode.
+  const [completedAction, setCompletedAction] = useState(null);
 
   function openClock(mode) {
     setClockMode(mode);
@@ -460,6 +474,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
     setPinError("");
     setConfirmedPerson(null);
     setClockDone(false);
+    setCompletedAction(null);
   }
 
   function closeClockModal() {
@@ -468,6 +483,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
     setPinError("");
     setConfirmedPerson(null);
     setClockDone(false);
+    setCompletedAction(null);
   }
 
   async function handlePinConfirm() {
@@ -485,7 +501,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
         setPinError("PIN not recognized. Please try again.");
         setPinValue("");
       } else {
-        setConfirmedPerson({ name: data.name, personId: data.personId });
+        setConfirmedPerson({ name: data.name, personId: data.personId, activeClockIn: data.activeClockIn || null });
       }
     } catch {
       setPinError("Connection error. Please try again.");
@@ -494,11 +510,11 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
     }
   }
 
-  async function handleClockYes() {
+  async function handleClockYes(actionOverride) {
     setPinLoading(true);
     setPinError("");
     try {
-      const action = clockMode === "clockIn" ? "clockIn" : "clockOut";
+      const action = actionOverride || clockMode;
       const body = action === "clockIn"
         ? { action, personId: confirmedPerson.personId, pin: pinValue, jobRefs: [] }
         : { action, personId: confirmedPerson.personId, pin: pinValue };
@@ -511,7 +527,10 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
       if (!res.ok || !data.ok) {
         setPinError(data.error || "Clock action failed. Please try again.");
       } else {
+        setCompletedAction(action);
         setClockDone(true);
+        // Pull a fresh roster so the status pills update right away for this kiosk.
+        if (onRefresh) onRefresh();
       }
     } catch {
       setPinError("Connection error. Please try again.");
@@ -552,7 +571,28 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               const admins = teamPeople.filter(p => p.userRole === "admin");
               const employees = teamPeople.filter(p => p.userRole !== "admin");
 
-              const PersonBtn = ({ person }) => (
+              // Derive the live status shown on each person card.
+              // online = clocked in, no open lunch/break. lunch/break = on that.
+              const getStatus = (person) => {
+                if (!person.activeClockIn) return "offline";
+                const events = person.activeClockIn.events || [];
+                const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+                if (lastLunch?.type === "lunchStart") return "lunch";
+                const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+                if (lastBreak?.type === "breakStart") return "break";
+                return "online";
+              };
+              const STATUS_STYLE = {
+                offline: { label: "Offline", dot: "#94a3b8", text: "#64748b", bg: "#f1f5f9", border: "#e2e8f0" },
+                online:  { label: "Online",  dot: "#10b981", text: "#047857", bg: "rgba(16,185,129,0.10)", border: "rgba(16,185,129,0.35)" },
+                lunch:   { label: "Lunch",   dot: "#f59e0b", text: "#b45309", bg: "rgba(245,158,11,0.10)", border: "rgba(245,158,11,0.35)" },
+                break:   { label: "Break",   dot: "#f59e0b", text: "#b45309", bg: "rgba(245,158,11,0.10)", border: "rgba(245,158,11,0.35)" },
+              };
+
+              const PersonBtn = ({ person }) => {
+                const status = getStatus(person);
+                const s = STATUS_STYLE[status];
+                return (
                 <button
                   type="button"
                   onClick={() => onSelectPerson(person)}
@@ -580,7 +620,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                   }}>
                     {getInitials(person.name)}
                   </div>
-                  <div style={{ overflow: "hidden" }}>
+                  <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {person.name}
                     </div>
@@ -588,8 +628,18 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                       {person.userRole === "admin" ? "Admin" : (person.department || "No department")}
                     </div>
                   </div>
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 6,
+                    padding: "4px 9px", borderRadius: 999,
+                    background: s.bg, border: `1px solid ${s.border}`,
+                    flexShrink: 0,
+                  }}>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: s.dot, boxShadow: `0 0 6px ${s.dot}66`, flexShrink: 0 }} />
+                    <span style={{ fontSize: 11, fontWeight: 700, color: s.text, letterSpacing: "0.02em" }}>{s.label}</span>
+                  </div>
                 </button>
-              );
+                );
+              };
 
               const SectionLabel = ({ label }) => (
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
@@ -649,43 +699,115 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
         </div>
       </div>
 
-      {clockMode && (
+      {clockMode && (() => {
+        const meta = CLOCK_MODE_META[clockMode] || CLOCK_MODE_META.clockIn;
+        const doneMeta = CLOCK_MODE_META[completedAction] || meta;
+        const isClockIn = clockMode === "clockIn";
+        const yesGradient = isClockIn
+          ? "linear-gradient(135deg, #10b981, #059669)"
+          : "linear-gradient(135deg, #ef4444, #dc2626)";
+        const yesShadow = isClockIn
+          ? "0 4px 20px rgba(16,185,129,0.33)"
+          : "0 4px 20px rgba(239,68,68,0.33)";
+        return (
         <div
           style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'DM Sans', system-ui, sans-serif" }}
           onClick={closeClockModal}
         >
           <div style={{ ...CARD, maxWidth: 360 }} onClick={e => e.stopPropagation()}>
-            <LogoHeader subtitle={clockMode === "clockIn" ? "Clock In" : "Clock Out"} />
+            <LogoHeader subtitle={meta.title} />
             <div style={CARD_BODY}>
               {clockDone ? (
                 <div style={{ textAlign: "center" }}>
-                  <div style={SUCCESS_BOX}>
-                    {clockMode === "clockIn" ? "✓ Clocked in successfully!" : "✓ Clocked out successfully!"}
-                  </div>
+                  <div style={SUCCESS_BOX}>{`✓ ${doneMeta.successMsg}`}</div>
                   <BtnPrimary type="button" onClick={closeClockModal}>Done</BtnPrimary>
                 </div>
-              ) : confirmedPerson ? (
-                <div>
-                  {pinError && <div style={ERR_BOX}>{pinError}</div>}
-                  <p style={{ fontSize: 14, color: "#64748b", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
-                    Is <strong style={{ color: "#0f172a", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong> clocking <strong style={{ color: clockMode === "clockIn" ? "#10b981" : "#ef4444" }}>{clockMode === "clockIn" ? "IN" : "OUT"}</strong> for the day?
-                  </p>
-                  <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-                    <button
-                      type="button"
-                      onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}
-                      style={{ flex: 1, padding: "13px 0", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 10, color: "#64748b", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
-                    >No</button>
-                    <BtnPrimary
-                      type="button"
-                      loading={pinLoading}
-                      loadingLabel="Saving…"
-                      onClick={handleClockYes}
-                      style={{ flex: 1, background: clockMode === "clockIn" ? "linear-gradient(135deg, #10b981, #059669)" : "linear-gradient(135deg, #ef4444, #dc2626)", boxShadow: clockMode === "clockIn" ? "0 4px 20px rgba(16,185,129,0.33)" : "0 4px 20px rgba(239,68,68,0.33)" }}
-                    >Yes</BtnPrimary>
+              ) : confirmedPerson ? (() => {
+                // Derive lunch state from the latest lunchStart/lunchEnd in active events.
+                const events = confirmedPerson.activeClockIn?.events || [];
+                const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
+                const onLunch = !!confirmedPerson.activeClockIn && lastLunch?.type === "lunchStart";
+                // Clock In + on lunch → offer "Back from lunch" instead of starting a fresh shift.
+                if (clockMode === "clockIn" && onLunch) {
+                  return (
+                    <div>
+                      {pinError && <div style={ERR_BOX}>{pinError}</div>}
+                      <p style={{ fontSize: 14, color: "#64748b", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
+                        <strong style={{ color: "#0f172a", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong> is currently on lunch.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={pinLoading}
+                        onClick={() => handleClockYes("lunchEnd")}
+                        style={{ width: "100%", padding: "14px 16px", marginTop: 16, background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 10, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 4px 16px rgba(16,185,129,0.32)", opacity: pinLoading ? 0.7 : 1 }}
+                      >
+                        <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>← Back From Lunch</div>
+                        <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Resume work for the day</div>
+                      </button>
+                      <div style={{ textAlign: "center", marginTop: 14 }}>
+                        <button type="button" style={LINK_BTN} onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}>Back</button>
+                      </div>
+                    </div>
+                  );
+                }
+                // Clock Out — choose Lunch (coming back) or End of Day.
+                if (clockMode === "clockOut") {
+                  return (
+                    <div>
+                      {pinError && <div style={ERR_BOX}>{pinError}</div>}
+                      <p style={{ fontSize: 14, color: "#64748b", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
+                        <strong style={{ color: "#0f172a", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong>, what are you clocking out for?
+                      </p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
+                        <button
+                          type="button"
+                          disabled={pinLoading}
+                          onClick={() => handleClockYes("lunchStart")}
+                          style={{ padding: "14px 16px", background: "linear-gradient(135deg, #f59e0b, #d97706)", border: "none", borderRadius: 10, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 4px 16px rgba(245,158,11,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
+                        >
+                          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>🍽  Lunch</div>
+                          <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Clock out — coming back later</div>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={pinLoading}
+                          onClick={() => handleClockYes("clockOut")}
+                          style={{ padding: "14px 16px", background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 10, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 4px 16px rgba(239,68,68,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
+                        >
+                          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>👋  End of Day</div>
+                          <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Done for the day</div>
+                        </button>
+                      </div>
+                      <div style={{ textAlign: "center", marginTop: 14 }}>
+                        <button type="button" style={LINK_BTN} onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}>Back</button>
+                      </div>
+                    </div>
+                  );
+                }
+                // Default Clock In confirmation.
+                return (
+                  <div>
+                    {pinError && <div style={ERR_BOX}>{pinError}</div>}
+                    <p style={{ fontSize: 14, color: "#64748b", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
+                      Is <strong style={{ color: "#0f172a", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong> going <strong style={{ color: meta.verbColor }}>{meta.verb}</strong>?
+                    </p>
+                    <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                      <button
+                        type="button"
+                        onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}
+                        style={{ flex: 1, padding: "13px 0", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 10, color: "#64748b", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+                      >No</button>
+                      <BtnPrimary
+                        type="button"
+                        loading={pinLoading}
+                        loadingLabel="Saving…"
+                        onClick={() => handleClockYes()}
+                        style={{ flex: 1, background: yesGradient, boxShadow: yesShadow }}
+                      >Yes</BtnPrimary>
+                    </div>
                   </div>
-                </div>
-              ) : (
+                );
+              })() : (
                 <>
                   {pinError && <div style={ERR_BOX}>{pinError}</div>}
                   <div style={{ marginBottom: 20 }}>
@@ -710,7 +832,8 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </>
   );
 }
@@ -874,6 +997,28 @@ function AuthGate() {
     setStep("team");
   }
 
+  // Pull the latest people roster — used by polling and by the kiosk clock flow to
+  // refresh the status pills the moment someone clocks in/out/lunches.
+  const refreshTeamPeople = useCallback(() => {
+    if (!orgCode) return Promise.resolve();
+    return fetchPeople(orgCode)
+      .then(people => {
+        setTeamPeople(people);
+        sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));
+      })
+      .catch(() => {});
+  }, [orgCode]);
+
+  // While the team-select kiosk is on screen, refresh every 5s so status pills (Online,
+  // Lunch, Break, Offline) reflect what's happening on other workers' devices in near real-time.
+  useEffect(() => {
+    if (isAuthenticated) return;
+    if (step !== "team") return;
+    if (!orgCode) return;
+    const iv = setInterval(() => { refreshTeamPeople(); }, 5000);
+    return () => clearInterval(iv);
+  }, [isAuthenticated, step, orgCode, refreshTeamPeople]);
+
   function handlePersonSelect(person) {
     setSelectedPerson(person);
     sessionStorage.setItem("tq_selected_person", JSON.stringify(person));
@@ -948,6 +1093,7 @@ function AuthGate() {
         onSelectPerson={handlePersonSelect}
         onAdminLogin={handleAdminLogin}
         onSwitch={handleSwitch}
+        onRefresh={refreshTeamPeople}
       />
     );
   }

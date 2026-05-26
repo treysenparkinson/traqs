@@ -3763,7 +3763,7 @@ ${jobsCtx || "No jobs found."}`;
     else { const nw = { ...withIds, id: uid() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
     closeModal();
   };
-  const views = [{ id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" }, { id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "timestamp", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time Stamp" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, label: "Clients" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
+  const views = [{ id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" }, { id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" }, { id: "timestamp", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time Clock" }, { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" }, { id: "clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, label: "Clients" }, { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" }];
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
@@ -8976,7 +8976,7 @@ ${jobsCtx || "No jobs found."}`;
   const renderTimeStamp = () => {
     if (!loggedInUser) return null;
 
-    // ── Time Stamp Settings modal ─────────────────────────────────────────────
+    // ── Time Clock Settings modal ─────────────────────────────────────────────
     const openSettings = () => {
       setTsSettingsDraft(people.map(p => ({ ...p })));
       setTsSettingsOpen(true);
@@ -9000,7 +9000,7 @@ ${jobsCtx || "No jobs found."}`;
         <div className="anim-drop" style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 999, minWidth: 640, maxWidth: "min(800px, 96vw)", maxHeight: "80vh", overflowY: "auto", background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
           {/* Header row */}
           <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>Time Stamp Settings</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>Time Clock Settings</span>
             <button onClick={closeSettings} style={{ background: "none", border: "none", color: T.textDim, fontSize: 18, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>✕</button>
           </div>
 
@@ -9206,6 +9206,49 @@ ${jobsCtx || "No jobs found."}`;
         const res = await clockInAction({ action: "clockIn", personId: loggedInUser.id, pin, jobRefs }, orgCode);
         if (res.ok) {
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: { clockIn: res.clockIn, jobRefs } } : p));
+          // Also start the per-job clock for the first selected op — there's only one active
+          // job clock at a time, so multi-select still produces one running job.
+          const firstRef = (jobRefs || [])[0];
+          const meta = firstRef ? myTodayOps.find(t => t.op.id === firstRef.opId) : null;
+          if (firstRef && meta) {
+            try {
+              const jres = await jobClockInAction({
+                personId: loggedInUser.id,
+                jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
+                jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
+              }, getToken, orgCode);
+              if (jres?.ok) {
+                setPeople(pp => pp.map(p => p.id === loggedInUser.id ? {
+                  ...p,
+                  activeJobClock: {
+                    clockIn: jres.clockIn,
+                    jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
+                    jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
+                    totalPausedMs: 0, pausedAt: null,
+                  },
+                } : p));
+                setTasks(prev => {
+                  const updated = prev.map(job => {
+                    if (job.id !== firstRef.jobId) return job;
+                    return {
+                      ...job,
+                      status: job.status === "Finished" ? job.status : "In Progress",
+                      subs: (job.subs || []).map(panel => {
+                        const hasActiveOp = (panel.subs || []).some(op => op.id === firstRef.opId);
+                        return {
+                          ...panel,
+                          status: hasActiveOp ? "In Progress" : panel.status,
+                          subs: (panel.subs || []).map(op => op.id === firstRef.opId ? { ...op, status: "In Progress" } : op),
+                        };
+                      }),
+                    };
+                  });
+                  saveTasks(updated, getToken, orgCode).catch(console.warn);
+                  return updated;
+                });
+              }
+            } catch { /* timeclock already succeeded — don't fail the whole flow if job-clock errors */ }
+          }
           closePin();
         } else {
           alert(res.error || "Clock-in failed");
@@ -9405,7 +9448,14 @@ ${jobsCtx || "No jobs found."}`;
                   {[1,2,3,4,5,6,7,8,9].map(d => <NumKey key={d} d={d} />)}
                   <div />
                   <NumKey d={0} />
-                  <button onClick={() => setPinInput(p => p.slice(0, -1))} style={{ width: 76, height: 76, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.textDim, fontSize: 22, cursor: "pointer" }}>⌫</button>
+                  <button onClick={() => setPinInput(p => p.slice(0, -1))} style={{ width: 76, height: 76, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {/* Custom backspace — smaller X inset from the arrow tip so the two glyphs don't crowd */}
+                    <svg width="26" height="22" viewBox="0 0 26 22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22.5 2H9.2 a2 2 0 0 0 -1.5 0.7 L2 11 l5.7 8.3 a2 2 0 0 0 1.5 0.7 H22.5 a2 2 0 0 0 2 -2 V4 a2 2 0 0 0 -2 -2 z"/>
+                      <line x1="14" y1="8" x2="18" y2="14"/>
+                      <line x1="18" y1="8" x2="14" y2="14"/>
+                    </svg>
+                  </button>
                 </div>
                 <button
                   onClick={submitPin}
@@ -9849,7 +9899,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
             <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, background: T.surface, flexShrink: 0 }}>
               <button onClick={closeSettings} style={{ background: "none", border: "none", color: T.text, fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0 }}>←</button>
-              <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Stamp Settings</span>
+              <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Clock Settings</span>
               <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>{tsSettingsSaving ? "Saving…" : "Save"}</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
@@ -9941,7 +9991,7 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* Header */}
           <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: T.surface }}>
-            <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Stamp</span>
+            <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Clock</span>
             {isAdmin && (
               <button onClick={openSettings} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radiusSm, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "15" : "none", cursor: "pointer", color: tsSettingsOpen ? T.accent : T.textDim, transition: "all 0.15s" }}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l-.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -10275,7 +10325,7 @@ ${jobsCtx || "No jobs found."}`;
         <div ref={tsSettingsRef} style={{ display: "flex", justifyContent: "flex-end", position: "relative" }}>
           <button onClick={openSettings} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: T.radiusSm, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "12" : T.surface, color: tsSettingsOpen ? T.accent : T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { if (!tsSettingsOpen) { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; } }} onMouseLeave={e => { if (!tsSettingsOpen) { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; } }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            Time Stamp Settings
+            Time Clock Settings
           </button>
           {renderSettingsPanel()}
         </div>
@@ -10353,7 +10403,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             )}
 
-            {/* Action buttons */}
+            {/* Action buttons — one horizontal row when clocked in: Clock Out, Lunch, Break, Start Job */}
             {isClockedIn ? (
               <div style={{ display: "flex", gap: 10 }}>
                 <button onClick={openClockOut} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
@@ -15571,7 +15621,7 @@ ${jobsCtx || "No jobs found."}`;
             <InputField label="Hours/Day Capacity" value={ed.cap} onChange={v => setEd(p => ({ ...p, cap: +v }))} type="number" />
           </div>
 
-          {isAdmin && <div style={{ marginBottom: 4 }}><div style={{ fontSize: 11, color: T.textDim, padding: "8px 12px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>PIN and pay type are managed in <span style={{ color: T.accent, fontWeight: 600 }}>Time Stamp Settings</span>.</div></div>}
+          {isAdmin && <div style={{ marginBottom: 4 }}><div style={{ fontSize: 11, color: T.textDim, padding: "8px 12px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>PIN and pay type are managed in <span style={{ color: T.accent, fontWeight: 600 }}>Time Clock Settings</span>.</div></div>}
 
 
           {/* Time Off management */}
