@@ -126,14 +126,14 @@ struct OrgCodeView: View {
                 return
             }
 
-            guard let token = auth.accessToken else {
+            guard auth.accessToken != nil else {
                 self.error = "No auth token — sign out and back in"
                 isChecking = false
                 return
             }
 
             appState.matchEmail = auth.userEmail
-            appState.configure(token: token, orgCode: upper)
+            appState.configure(auth: auth, orgCode: upper)
             await appState.loadAll()
         } catch {
             self.error = "Network error: \(error.localizedDescription)"

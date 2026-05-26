@@ -55,7 +55,7 @@ struct RootView: View {
         // launches fast and matches the web's sessionStorage behavior.
         if !appState.orgCode.isEmpty {
             appState.matchEmail = auth.userEmail
-            appState.configure(token: token, orgCode: appState.orgCode)
+            appState.configure(auth: auth, orgCode: appState.orgCode)
         }
 
         // Run the email→org lookup once per session. Even when we already have
@@ -94,9 +94,9 @@ struct RootView: View {
     }
 
     private func applyOrg(code: String) {
-        guard let token = auth.accessToken else { return }
+        guard auth.accessToken != nil else { return }
         appState.matchEmail = auth.userEmail
-        appState.configure(token: token, orgCode: code)
+        appState.configure(auth: auth, orgCode: code)
         lookupMatches = []
     }
 }

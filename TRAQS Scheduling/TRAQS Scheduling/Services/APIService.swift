@@ -11,6 +11,7 @@ enum APIError: LocalizedError {
         switch self {
         case .noToken: return "Not authenticated"
         case .noOrgCode: return "No org code set"
+        case .httpError(401): return "Error: 401 (Log out, and log back in)"
         case .httpError(let code): return "Server error \(code)"
         case .decodingError(let e): return "Decode error: \(e.localizedDescription)"
         case .unknown(let e): return e.localizedDescription
@@ -19,7 +20,7 @@ enum APIError: LocalizedError {
 }
 
 struct APIService {
-    let token: String
+    let auth: AuthManager
     let orgCode: String
     private let base = AppConfig.netlifyBase
     private let decoder: JSONDecoder = {
@@ -29,10 +30,16 @@ struct APIService {
 
     // MARK: - Request Builder
 
-    private func request(_ path: String, method: String = "GET", body: Data? = nil) throws -> URLRequest {
+    private func request(_ path: String, method: String = "GET", body: Data? = nil) async throws -> URLRequest {
         guard let url = URL(string: "\(base)/\(path)") else {
             throw URLError(.badURL)
         }
+        // Fetch a valid access token *per request*. If the cached token
+        // is expired, AuthManager refreshes it now — this is what closes
+        // the "401 until you log out and back in" gap. Refresh is
+        // deduped server-side via a shared Task, so a burst of parallel
+        // requests rotates the refresh token at most once.
+        let token = try await auth.validAccessToken()
         var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = method
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -50,28 +57,30 @@ struct APIService {
         return req
     }
 
-    private func perform(_ req: URLRequest) async throws -> Data {
+    private func perform(_ req: URLRequest, alreadyRetried: Bool = false) async throws -> Data {
         let (data, response) = try await URLSession.shared.data(for: req)
 
-        // Transparent retry on 401. The Netlify functions use
-        // `createRemoteJWKSet` which lazily fetches Auth0's JWKS on the
-        // first verification after a function cold-start. If that fetch
-        // hiccups or hasn't completed in time, `validateToken` throws
-        // and the handler returns 401 — even though the token itself is
-        // perfectly valid. By the time the user retries, the JWKS is
-        // cached in the warm container and verification succeeds. We do
-        // that retry automatically so the user doesn't see a spurious
-        // 401 every time a Netlify function spins up cold.
-        //
-        // Retry is safe: every server handler validates the token BEFORE
-        // mutating any state, so a 401 means no side effects occurred.
-        if let http = response as? HTTPURLResponse, http.statusCode == 401 {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-            let (data2, response2) = try await URLSession.shared.data(for: req)
-            if let http2 = response2 as? HTTPURLResponse, !(200...299).contains(http2.statusCode) {
-                throw APIError.httpError(http2.statusCode)
+        // On 401, force a refresh and retry once with the new token.
+        // This covers the common case (access token expired in the
+        // background while the user was in the app) and the older
+        // JWKS-cold-start case in one path: the refresh round-trip
+        // itself gives the function ~100-500ms to warm, and the retry
+        // carries a freshly-minted token. Retry is safe — every server
+        // handler validates the token BEFORE mutating state, so a 401
+        // means no side effects occurred.
+        if let http = response as? HTTPURLResponse, http.statusCode == 401, !alreadyRetried {
+            do {
+                let newToken = try await auth.refreshAccessToken()
+                var retry = req
+                retry.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+                return try await perform(retry, alreadyRetried: true)
+            } catch {
+                // Refresh failed (no refresh token, revoked, network).
+                // AuthManager has already torn down auth state and
+                // RootView will swap in LoginView; surface 401 to the
+                // caller so any in-flight UI can finish.
+                throw APIError.httpError(401)
             }
-            return data2
         }
 
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
@@ -83,28 +92,28 @@ struct APIService {
     // MARK: - Tasks (Jobs)
 
     func fetchJobs() async throws -> [Job] {
-        let req = try request("tasks")
+        let req = try await request("tasks")
         let data = try await perform(req)
         return try decoder.decode([Job].self, from: data)
     }
 
     func saveJobs(_ jobs: [Job]) async throws {
         let body = try JSONEncoder().encode(jobs)
-        let req = try request("tasks", method: "POST", body: body)
+        let req = try await request("tasks", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     // MARK: - People
 
     func fetchPeople() async throws -> [Person] {
-        let req = try request("people")
+        let req = try await request("people")
         let data = try await perform(req)
         return try decoder.decode([Person].self, from: data)
     }
 
     func savePeople(_ people: [Person]) async throws {
         let body = try JSONEncoder().encode(people)
-        let req = try request("people", method: "POST", body: body)
+        let req = try await request("people", method: "POST", body: body)
         _ = try await perform(req)
     }
 
@@ -118,70 +127,70 @@ struct APIService {
             withJSONObject: ["personId": personId, "fields": fields],
             options: []
         )
-        let req = try request("people", method: "PATCH", body: body)
+        let req = try await request("people", method: "PATCH", body: body)
         _ = try await perform(req)
     }
 
     // MARK: - Clients
 
     func fetchClients() async throws -> [Client] {
-        let req = try request("clients")
+        let req = try await request("clients")
         let data = try await perform(req)
         return try decoder.decode([Client].self, from: data)
     }
 
     func saveClients(_ clients: [Client]) async throws {
         let body = try JSONEncoder().encode(clients)
-        let req = try request("clients", method: "POST", body: body)
+        let req = try await request("clients", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     // MARK: - Messages
 
     func fetchMessages() async throws -> [Message] {
-        let req = try request("messages")
+        let req = try await request("messages")
         let data = try await perform(req)
         return try decoder.decode([Message].self, from: data)
     }
 
     func sendMessage(_ message: Message) async throws -> Message {
         let body = try JSONEncoder().encode(message)
-        let req = try request("messages", method: "POST", body: body)
+        let req = try await request("messages", method: "POST", body: body)
         let data = try await perform(req)
         return try decoder.decode(Message.self, from: data)
     }
 
     func deleteThread(threadKey: String) async throws {
         let encoded = threadKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? threadKey
-        let req = try request("messages?threadKey=\(encoded)", method: "DELETE")
+        let req = try await request("messages?threadKey=\(encoded)", method: "DELETE")
         _ = try await perform(req)
     }
 
     // MARK: - Groups
 
     func fetchGroups() async throws -> [ChatGroup] {
-        let req = try request("groups")
+        let req = try await request("groups")
         let data = try await perform(req)
         return try decoder.decode([ChatGroup].self, from: data)
     }
 
     func saveGroups(_ groups: [ChatGroup]) async throws {
         let body = try JSONEncoder().encode(groups)
-        let req = try request("groups", method: "POST", body: body)
+        let req = try await request("groups", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     // MARK: - Org Settings (GET is unauthenticated server-side; we still send auth headers harmlessly)
 
     func fetchOrgSettings() async throws -> OrgSettings {
-        let req = try request("settings")
+        let req = try await request("settings")
         let data = try await perform(req)
         return try decoder.decode(OrgSettings.self, from: data)
     }
 
     func saveOrgSettings(_ settings: OrgSettings) async throws {
         let body = try JSONEncoder().encode(settings)
-        let req = try request("settings", method: "POST", body: body)
+        let req = try await request("settings", method: "POST", body: body)
         _ = try await perform(req)
     }
 
@@ -203,7 +212,7 @@ struct APIService {
             "mimeType": mimeType,
             "data": "data:\(mimeType);base64,\(base64)",
         ])
-        let req = try request("attachment", method: "POST", body: body)
+        let req = try await request("attachment", method: "POST", body: body)
         let resp = try await perform(req)
         return try decoder.decode(AttachmentResult.self, from: resp)
     }
@@ -242,7 +251,7 @@ struct APIService {
         let body = try JSONEncoder().encode(AdminClockTimePayload(
             action: "adminClockIn", personId: personId,
             clockInTime: clockInTime, clockOutTime: nil, note: nil))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
@@ -251,7 +260,7 @@ struct APIService {
         let body = try JSONEncoder().encode(AdminClockTimePayload(
             action: "adminClockOut", personId: personId,
             clockInTime: nil, clockOutTime: clockOutTime, note: note))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
@@ -267,7 +276,7 @@ struct APIService {
     func adminEditEntry(entryId: String, clockIn: String, clockOut: String) async throws {
         let body = try JSONEncoder().encode(AdminEditEntryPayload(
             entryId: entryId, clockIn: clockIn, clockOut: clockOut))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
@@ -275,7 +284,7 @@ struct APIService {
 
     func sendNotification(_ payload: NotifyPayload) async throws {
         let body = try JSONEncoder().encode(payload)
-        let req = try request("notify", method: "POST", body: body)
+        let req = try await request("notify", method: "POST", body: body)
         _ = try await perform(req)
     }
 
@@ -329,14 +338,14 @@ struct APIService {
 
     func timeclockIdentify(pin: String) async throws -> TimeclockIdentifyResponse {
         let body = try JSONEncoder().encode(TimeclockIdentifyPayload(pin: pin))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         let data = try await perform(req)
         return try decoder.decode(TimeclockIdentifyResponse.self, from: data)
     }
 
     func timeclockClockIn(personId: String, pin: String, jobRefs: [JobRef]) async throws -> String {
         let body = try JSONEncoder().encode(TimeclockClockInPayload(personId: personId, pin: pin, jobRefs: jobRefs))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         let data = try await perform(req)
         let resp = try decoder.decode(TimeclockClockInResponse.self, from: data)
         return resp.clockIn
@@ -344,19 +353,19 @@ struct APIService {
 
     func timeclockClockOut(personId: String, pin: String) async throws {
         let body = try JSONEncoder().encode(TimeclockSimplePayload(action: "clockOut", personId: personId, pin: pin))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     func timeclockEvent(action: String, personId: String, pin: String) async throws {
         let body = try JSONEncoder().encode(TimeclockSimplePayload(action: action, personId: personId, pin: pin))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     func timeclockFinishRequest(personId: String, pin: String, jobId: String, panelId: String, opId: String) async throws {
         let body = try JSONEncoder().encode(TimeclockFinishPayload(personId: personId, pin: pin, jobId: jobId, panelId: panelId, opId: opId))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
@@ -366,7 +375,7 @@ struct APIService {
     /// — server-side filter avoids pulling the whole org's history.
     func fetchTimeclock(personId: String? = nil) async throws -> [TimeclockEntry] {
         let path = personId.map { "timeclock?personId=\($0)" } ?? "timeclock"
-        let req = try request(path)
+        let req = try await request(path)
         let data = try await perform(req)
         return try decoder.decode([TimeclockEntry].self, from: data)
     }
@@ -395,25 +404,25 @@ struct APIService {
         let body = try JSONEncoder().encode(JobClockInPayload(
             personId: personId, jobId: jobId, panelId: panelId, opId: opId,
             jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     func jobClockOut(personId: String) async throws {
         let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobClockOut", personId: personId))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     func jobPause(personId: String) async throws {
         let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobPause", personId: personId))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     func jobResume(personId: String) async throws {
         let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobResume", personId: personId))
-        let req = try request("timeclock", method: "POST", body: body)
+        let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 

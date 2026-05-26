@@ -68,9 +68,9 @@ class AppState {
 
     // MARK: - Setup
 
-    func configure(token: String, orgCode: String) {
+    func configure(auth: AuthManager, orgCode: String) {
         self.orgCode = orgCode
-        self.api = APIService(token: token, orgCode: orgCode)
+        self.api = APIService(auth: auth, orgCode: orgCode)
         KeychainHelper.save(orgCode, forKey: KeychainHelper.orgCodeKey)
         startAutoRefresh()
         Task { await loadAll() }
@@ -599,7 +599,11 @@ class AppState {
                let oi = jobs[ji].subs[pi].subs.firstIndex(where: { $0.id == opId }) {
                 jobs[ji].subs[pi].subs[oi].pendingFinish = false
             }
-            clockError = "Failed to request finish: \(error.localizedDescription)"
+            if case APIError.httpError(401) = error {
+                clockError = APIError.httpError(401).localizedDescription
+            } else {
+                clockError = "Failed to request finish: \(error.localizedDescription)"
+            }
         }
     }
 
@@ -656,6 +660,11 @@ class AppState {
             // second got 409. The STARTING… indicator should make this
             // rare, but we still treat it as success.
             await loadAll()
+        } catch APIError.httpError(401) {
+            // Use the bare 401 message rather than the "Failed to start:"
+            // prefix so the banner reads "Error: 401 (Log out, and log
+            // back in)" instead of stacking labels.
+            clockError = APIError.httpError(401).localizedDescription
         } catch {
             clockError = "Failed to start: \(error.localizedDescription)"
         }
