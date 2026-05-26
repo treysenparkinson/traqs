@@ -537,6 +537,26 @@ export const jobResumeAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+// Break is a lightweight status — the job clock keeps running. payload:
+// breakBegin { personId, durationMinutes }, breakClear { personId }.
+export const breakBeginAction = async (payload, getToken, orgCode) => {
+  const headers = await authHeaders(getToken, orgCode);
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "breakBegin", ...payload }),
+  }).then(r => r.json());
+};
+
+export const breakClearAction = async (payload, getToken, orgCode) => {
+  const headers = await authHeaders(getToken, orgCode);
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "breakClear", ...payload }),
+  }).then(r => r.json());
+};
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 // payload: { type, jobTitle, panelTitle, stepLabel, jobTeamIds, jobNumber }
 export async function callNotify(payload, getToken, orgCode) {

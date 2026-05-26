@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, jobPauseAction, jobResumeAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
@@ -8463,6 +8463,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
               {workersToday.map(({ person, todayBars, nextBar }) => {
                 const isActive = !!person.activeJobClock;
+                const onBreak = !!person.activeBreak;
                 const initials = person.name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
                 const todayBar = todayBars[0];
                 const totalHours = todayBar.task?.hpd || productiveHoursPerDay;
@@ -8480,7 +8481,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
                         <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.department || ""}</div>
                       </div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: isActive ? "#10b981" : T.textDim, flexShrink: 0, paddingTop: 2, letterSpacing: "0.03em" }}>{isActive ? "Active" : "Not Active"}</div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: onBreak ? "#f59e0b" : isActive ? "#10b981" : T.textDim, flexShrink: 0, paddingTop: 2, letterSpacing: "0.03em" }}>{onBreak ? "On break" : isActive ? "Active" : "Not Active"}</div>
                     </div>
                     <div
                       onClick={() => navToWeek(TD)}
@@ -9634,29 +9635,29 @@ ${jobsCtx || "No jobs found."}`;
       } catch { alert("Network error"); } finally { setJobClockLoading(false); }
     };
 
-    const handlePauseJob = async () => {
+    // Break is a lightweight status — the job clock keeps running. Mirrors the
+    // iOS model: breakBegin/breakClear set/clear person.activeBreak.
+    const handleStartBreak = async () => {
       setJobClockLoading(true);
+      const minutes = orgSettings.breaks?.[0]?.durationMinutes ?? 15;
       try {
-        const res = await jobPauseAction({ personId: loggedInUser.id }, getToken, orgCode);
+        const res = await breakBeginAction({ personId: loggedInUser.id, durationMinutes: minutes }, getToken, orgCode);
         if (res.ok) {
-          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { ...p.activeJobClock, pausedAt: res.pausedAt } } : p));
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeBreak: { startedAt: res.startedAt, durationMinutes: res.durationMinutes ?? minutes } } : p));
         } else {
-          alert(res.error || "Failed to pause job");
+          alert(res.error || "Failed to start break");
         }
       } catch { alert("Network error"); } finally { setJobClockLoading(false); }
     };
 
-    const handleResumeJob = async () => {
+    const handleEndBreak = async () => {
       setJobClockLoading(true);
       try {
-        const res = await jobResumeAction({ personId: loggedInUser.id }, getToken, orgCode);
+        const res = await breakClearAction({ personId: loggedInUser.id }, getToken, orgCode);
         if (res.ok) {
-          setPeople(pp => pp.map(p => p.id !== loggedInUser.id ? p : {
-            ...p,
-            activeJobClock: { ...p.activeJobClock, totalPausedMs: res.totalPausedMs, pausedAt: null },
-          }));
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeBreak: null } : p));
         } else {
-          alert(res.error || "Failed to resume job");
+          alert(res.error || "Failed to end break");
         }
       } catch { alert("Network error"); } finally { setJobClockLoading(false); }
     };
@@ -10002,13 +10003,14 @@ ${jobsCtx || "No jobs found."}`;
           {/* Job status banner */}
           {isClockedIn && (
             <div style={{ padding: "8px 16px", background: loggedInUser.activeJobClock ? "#22c55e10" : "none", borderBottom: `1px solid ${loggedInUser.activeJobClock ? "#22c55e25" : T.border}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-              <div style={{ width: 7, height: 7, borderRadius: "50%", background: loggedInUser.activeJobClock ? (loggedInUser.activeJobClock.pausedAt ? "#f59e0b" : "#22c55e") : T.textDim, boxShadow: (loggedInUser.activeJobClock && !loggedInUser.activeJobClock.pausedAt) ? "0 0 6px #22c55e" : "none", flexShrink: 0 }} />
+              <div style={{ width: 7, height: 7, borderRadius: "50%", background: loggedInUser.activeJobClock ? "#22c55e" : T.textDim, boxShadow: loggedInUser.activeJobClock ? "0 0 6px #22c55e" : "none", flexShrink: 0 }} />
               {loggedInUser.activeJobClock
-                ? <span style={{ fontSize: 13, fontWeight: 600, color: loggedInUser.activeJobClock.pausedAt ? T.text : "#22c55e" }}>
+                ? <span style={{ fontSize: 13, fontWeight: 600, color: "#22c55e" }}>
                     Active on {loggedInUser.activeJobClock.opTitle || loggedInUser.activeJobClock.jobTitle} — {tsJobElapsed || "0h 0m"}
                   </span>
                 : <span style={{ fontSize: 13, fontWeight: 500, color: T.textDim }}>Clocked in — not on a job</span>
               }
+              {loggedInUser.activeBreak && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", marginLeft: "auto" }}>· On break</span>}
             </div>
           )}
 
@@ -10035,20 +10037,21 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Active job summary — inline on time card */}
                 {loggedInUser.activeJobClock && (() => {
                   const jc = loggedInUser.activeJobClock;
-                  const isPaused = !!jc.pausedAt;
+                  const onBreak = !!loggedInUser.activeBreak;
                   return (
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Currently Working On</div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: isPaused ? "#f59e0b" : "#22c55e", boxShadow: isPaused ? "none" : "0 0 6px #22c55e", flexShrink: 0 }} />
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e", flexShrink: 0 }} />
                         <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{jc.jobTitle}</span>
                         {jc.opTitle && <span style={{ fontSize: 12, color: T.textDim }}>· {jc.opTitle}</span>}
-                        <span style={{ fontSize: 13, fontWeight: 700, color: isPaused ? T.textDim : "#22c55e", fontFamily: T.mono, marginLeft: "auto" }}>{tsJobElapsed || "0h 0m"}</span>
+                        {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 10, padding: "1px 7px" }}>On break</span>}
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, marginLeft: "auto" }}>{tsJobElapsed || "0h 0m"}</span>
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
-                        {isPaused
-                          ? <button onClick={handleResumeJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Resume</button>
-                          : <button onClick={handlePauseJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: `1.5px solid ${T.accent}60`, background: T.accent + "12", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Pause</button>
+                        {onBreak
+                          ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
+                          : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b60", background: "#f59e0b12", color: "#f59e0b", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
                         }
                         <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
                       </div>
@@ -10072,43 +10075,27 @@ ${jobsCtx || "No jobs found."}`;
                   >Start Job</button>
                 )}
 
-                {/* STATE 2: active job running */}
-                {loggedInUser.activeJobClock && !loggedInUser.activeJobClock.pausedAt && (() => {
+                {/* STATE 2: active job running — job clock keeps running even
+                    on break (break is a status, not a pause). */}
+                {loggedInUser.activeJobClock && (() => {
                   const { jobTitle, panelTitle, opTitle } = loggedInUser.activeJobClock;
+                  const onBreak = !!loggedInUser.activeBreak;
                   return (
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                         <div style={{ width: 8, height: 8, borderRadius: 4, background: "#22c55e", boxShadow: "0 0 8px #22c55e", flexShrink: 0 }} />
                         <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{jobTitle}</span>
+                        {onBreak && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 10, padding: "2px 8px" }}>On break</span>}
                       </div>
                       {(panelTitle || opTitle) && (
                         <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12, paddingLeft: 16 }}>{panelTitle}{opTitle ? ` · ${opTitle}` : ""}</div>
                       )}
                       <div style={{ fontSize: 48, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 16, textAlign: "center" }}>{tsJobElapsed || "0h 0m"}</div>
                       <div style={{ display: "flex", gap: 10 }}>
-                        <button onClick={handlePauseJob} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: `1.5px solid ${T.accent}60`, background: T.accent + "12", color: T.accent, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Pause Job</button>
-                        <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* STATE 3: active job paused */}
-                {loggedInUser.activeJobClock?.pausedAt && (() => {
-                  const { jobTitle, panelTitle, opTitle } = loggedInUser.activeJobClock;
-                  return (
-                    <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 4, background: "#f59e0b", flexShrink: 0 }} />
-                        <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{jobTitle}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 10, padding: "2px 8px" }}>Paused</span>
-                      </div>
-                      {(panelTitle || opTitle) && (
-                        <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12, paddingLeft: 16 }}>{panelTitle}{opTitle ? ` · ${opTitle}` : ""}</div>
-                      )}
-                      <div style={{ fontSize: 48, fontWeight: 700, color: T.textDim, fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 16, textAlign: "center" }}>{tsJobElapsed || "0h 0m"}</div>
-                      <div style={{ display: "flex", gap: 10 }}>
-                        <button onClick={handleResumeJob} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Resume Job</button>
+                        {onBreak
+                          ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: "#f59e0b", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
+                          : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b60", background: "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
+                        }
                         <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
                       </div>
                     </div>
@@ -10361,17 +10348,18 @@ ${jobsCtx || "No jobs found."}`;
             {/* Job card — STATE 1: active job */}
             {isClockedIn && loggedInUser.activeJobClock && (() => {
               const jc = loggedInUser.activeJobClock;
-              const isPaused = !!jc.pausedAt;
-              const accentClr = isPaused ? "#f59e0b" : "#22c55e";
+              const onBreak = !!loggedInUser.activeBreak;
+              const accentClr = "#22c55e";   // job keeps running even on break
               return (
                 <div style={{ borderRadius: T.radiusSm, border: `0.5px solid ${accentClr}`, padding: "14px 16px", background: T.card }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
-                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: accentClr, boxShadow: isPaused ? "none" : "0 0 5px #22c55e", flexShrink: 0 }} />
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: accentClr, boxShadow: "0 0 5px #22c55e", flexShrink: 0 }} />
                         <span style={{ fontSize: 14, fontWeight: 500, color: accentClr }}>
-                          {isPaused ? "Paused on" : "Active on"} {jc.opTitle || jc.jobTitle}
+                          Active on {jc.opTitle || jc.jobTitle}
                         </span>
+                        {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 9, padding: "1px 6px" }}>On break</span>}
                       </div>
                       {(jc.panelTitle || jc.jobTitle) && (
                         <div style={{ fontSize: 11, color: T.textDim, paddingLeft: 14 }}>
@@ -10379,14 +10367,14 @@ ${jobsCtx || "No jobs found."}`;
                         </div>
                       )}
                     </div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: isPaused ? T.textDim : "#22c55e", fontFamily: T.mono, letterSpacing: "-0.02em", flexShrink: 0 }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, letterSpacing: "-0.02em", flexShrink: 0 }}>
                       {tsJobElapsed || "0h 0m"}
                     </div>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                    {isPaused
-                      ? <button onClick={handleResumeJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b", background: "none", color: "#f59e0b", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Resume</button>
-                      : <button onClick={handlePauseJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b", background: "none", color: "#f59e0b", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Pause</button>
+                    {onBreak
+                      ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
+                      : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b", background: "none", color: "#f59e0b", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
                     }
                     <button onClick={openStartJobPicker} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Switch</button>
                     <button onClick={handleEndJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef4444", background: "none", color: "#ef4444", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
