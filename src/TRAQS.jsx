@@ -279,6 +279,16 @@ const CLOCK_STATUS_UI = {
   break: { color: "#f59e0b", label: "Break", glow: "0 0 8px #f59e0b" },
   out:   { color: null,      label: "Out",   glow: "none" },
 };
+// Like clockState, but overlays the lightweight `activeBreak` status (the
+// job-context break set from iOS/web) on top of the payroll-clock state, so
+// every worker-status indicator reads "Break" when that flag is live. Only
+// the status label/flag is overridden — runningMs/pausedMs stay from the
+// payroll clock so pay timers are unaffected (the worker is still paid).
+const effectiveClockState = (person, now = Date.now()) => {
+  const cs = clockState(person?.activeClockIn, now);
+  if (person?.activeBreak) return { ...cs, isClocked: true, isOnBreak: true, status: "break" };
+  return cs;
+};
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 const addWorkingDays = (ds, n, workDays = DEFAULT_WORK_DAYS) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) count++; } return toDS(d); };
 const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
@@ -10123,7 +10133,7 @@ ${jobsCtx || "No jobs found."}`;
                   {tsAdminTab === "live" && (
                     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                       {people.filter(p => p.payType !== "salary").map(p => {
-                        const cs = clockState(p.activeClockIn);
+                        const cs = effectiveClockState(p);
                         const clocked = cs.isClocked;
                         const ui = CLOCK_STATUS_UI[cs.status];
                         const pillColor = ui.color || T.textDim;
@@ -10327,7 +10337,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Header */}
             {(() => {
-              const cs = clockState(loggedInUser?.activeClockIn);
+              const cs = effectiveClockState(loggedInUser);
               const ui = CLOCK_STATUS_UI[cs.status];
               const dotColor = ui.color || T.border;
               const subtext = !cs.isClocked ? "not clocked in"
@@ -10457,7 +10467,7 @@ ${jobsCtx || "No jobs found."}`;
                     </thead>
                     <tbody>
                       {people.filter(p => p.payType !== "salary").map(p => {
-                        const cs = clockState(p.activeClockIn);
+                        const cs = effectiveClockState(p);
                         const clocked = cs.isClocked;
                         const ui = CLOCK_STATUS_UI[cs.status];
                         const pillColor = ui.color || T.textDim;
