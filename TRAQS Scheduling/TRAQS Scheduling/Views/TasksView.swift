@@ -84,14 +84,6 @@ struct TasksView: View {
                         }
                         .padding(.bottom, 12)
 
-                        // Break control — sits under the period selectors,
-                        // full-width to match the nav bar. Always instantiated
-                        // so it observes the clock state directly and shows /
-                        // hides itself the instant the worker clocks in/out
-                        // (the parent body only re-renders on `jobs` changes,
-                        // not `people`, which is why gating it here failed).
-                        BreakBar()
-
                         // Cross-faded content per segment
                         Group {
                             switch segment {
@@ -822,126 +814,6 @@ struct TaskAssignment: Identifiable {
     var endDate: Date? { (op?.end ?? panel.end).asDate }
 }
 
-// MARK: - BreakBar
-// Prominent break control. Off break: an amber "Start Break" button. On
-// break: an amber banner with a live "time left / over by" countdown and an
-// "End Break" button. The break runs until manually ended (no auto-end); the
-// job clock is untouched throughout.
-
-private struct BreakBar: View {
-    @Environment(AppState.self) private var appState
-    @State private var busy = false
-
-    // Visible once the worker is clocked into a job (or still on break).
-    // Reading `clockChangeAt` (bumped on every clock/break mutation) forces
-    // this always-mounted view to re-render the instant the state changes —
-    // the nested myActiveJobClock computed chain alone didn't reliably do it.
-    private var visible: Bool {
-        _ = appState.clockChangeAt
-        return appState.myActiveJobClock != nil || appState.isOnBreak
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            if visible {
-                content
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-                    .transition(.scale(scale: 0.92, anchor: .top).combined(with: .opacity))
-            }
-        }
-        .animation(.spring(response: 0.35, dampingFraction: 0.82), value: visible)
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if let brk = appState.myActiveBreak {
-            banner(brk)
-        } else {
-            startButton
-        }
-    }
-
-    private var startButton: some View {
-        Button {
-            guard !busy else { return }
-            busy = true
-            Task { await appState.startBreak(); busy = false }
-        } label: {
-            HStack(spacing: 8) {
-                if busy {
-                    ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.8)
-                } else {
-                    Image(systemName: "cup.and.saucer.fill")
-                }
-                Text(busy ? "STARTING…" : "START BREAK")
-                    .font(TTypo.xsBold(13)).tLabel(tracking: 0.8)
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(Capsule().fill(Color(hex: T.amber)))
-            .shadow(color: Color(hex: T.amber).opacity(T.skyShadowOpacity),
-                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
-        }
-        .buttonStyle(.plain)
-        .disabled(busy)
-    }
-
-    private func banner(_ brk: ActiveBreak) -> some View {
-        SBox(size: .md, amber: true) {
-            HStack(spacing: 12) {
-                Image(systemName: "cup.and.saucer.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Color(hex: T.amber))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("ON BREAK")
-                        .font(TTypo.xsBold(11))
-                        .foregroundStyle(Color(hex: T.amber))
-                        .tLabel(tracking: 1.0)
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        Text(countdown(brk, at: ctx.date))
-                            .font(TTypo.monoBold(14))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .tnum()
-                    }
-                }
-                Spacer(minLength: 8)
-                Button {
-                    guard !busy else { return }
-                    busy = true
-                    Task { await appState.endBreak(); busy = false }
-                } label: {
-                    HStack(spacing: 6) {
-                        if busy {
-                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
-                        } else {
-                            Image(systemName: "checkmark")
-                        }
-                        Text(busy ? "ENDING…" : "END BREAK")
-                            .font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Capsule().fill(Color(hex: T.amber)))
-                }
-                .buttonStyle(.plain)
-                .disabled(busy)
-            }
-            .padding(12)
-        }
-    }
-
-    private func countdown(_ brk: ActiveBreak, at now: Date) -> String {
-        let left = brk.secondsLeft(at: now) ?? 0
-        if left >= 0 {
-            return String(format: "%d:%02d left", left / 60, left % 60)
-        }
-        let over = -left
-        return String(format: "over by %d:%02d", over / 60, over % 60)
-    }
-}
-
 // MARK: - TaskCardV1
 // Task-prominent card. Top row carries the task's department tag + job ID +
 // status. Headline is the TASK title. Subline gives the job/customer context.
@@ -952,6 +824,9 @@ private struct TaskCardV1: View {
     @State private var showLogConfirm = false
     @State private var isStopping = false
     @State private var isStarting = false
+    @State private var isBreakBusy = false
+    @State private var showStopConfirm = false
+    @State private var showBreakConfirm = false
 
     private var isActive: Bool {
         guard let jc = appState.myActiveJobClock else { return false }
@@ -1107,63 +982,122 @@ private struct TaskCardV1: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
+        .alert("End this job?", isPresented: $showStopConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("End Job", role: .destructive) {
+                guard !isStopping else { return }
+                isStopping = true
+                Task { await appState.jobClockOut(); isStopping = false }
+            }
+        } message: {
+            Text("This stops the timer and logs your hours for this job.")
+        }
+        .alert(appState.myActiveBreak != nil ? "End your break?" : "Start a break?",
+               isPresented: $showBreakConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button(appState.myActiveBreak != nil ? "End Break" : "Start Break") {
+                guard !isBreakBusy else { return }
+                isBreakBusy = true
+                Task {
+                    if appState.myActiveBreak != nil { await appState.endBreak() }
+                    else { await appState.startBreak() }
+                    isBreakBusy = false
+                }
+            }
+        } message: {
+            Text(appState.myActiveBreak != nil
+                 ? "You'll go back to working on the job."
+                 : "Your job timer keeps running while you're on break.")
+        }
     }
 
     @ViewBuilder
     private var activeRow: some View {
         let pct = task.op.map { Double(appState.opPct($0)) }
                   ?? Double(appState.panelPct(task.panel))
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    HStack(spacing: 5) {
-                        Circle().fill(Color(hex: T.sky)).frame(width: 7, height: 7)
-                        Text("TRACKING")
-                            .font(TTypo.xsBold(11))
-                            .foregroundStyle(Color(hex: T.sky))
-                            .tLabel(tracking: 1.0)
-                    }
-                    Spacer()
-                    TimelineView(.periodic(from: .now, by: 1)) { context in
-                        Text("\(elapsedLabel(at: context.date)) · \(Int(pct))%")
-                            .font(TTypo.monoBold(13))
-                            .foregroundStyle(Color(hex: T.sky))
-                            .tnum()
+        let onBreak = appState.myActiveBreak != nil
+        VStack(spacing: 12) {
+            // Status label + live timer
+            HStack {
+                HStack(spacing: 5) {
+                    Circle().fill(Color(hex: onBreak ? T.amber : T.sky)).frame(width: 7, height: 7)
+                    Text(onBreak ? "ON BREAK" : "TRACKING")
+                        .font(TTypo.xsBold(11))
+                        .foregroundStyle(Color(hex: onBreak ? T.amber : T.sky))
+                        .tLabel(tracking: 1.0)
+                    if onBreak, let brk = appState.myActiveBreak {
+                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                            Text(breakCountdown(brk, at: ctx.date))
+                                .font(TTypo.monoBold(11))
+                                .foregroundStyle(Color(hex: T.amber))
+                                .tnum()
+                        }
                     }
                 }
-                Bar(pct: pct, height: 6, fill: Color(hex: T.sky))
+                Spacer()
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    Text("\(elapsedLabel(at: context.date)) · \(Int(pct))%")
+                        .font(TTypo.monoBold(13))
+                        .foregroundStyle(Color(hex: T.sky))
+                        .tnum()
+                }
             }
 
-            // Stop — clocks out of the job entirely.
-            Button {
-                guard !isStopping else { return }
-                isStopping = true
-                Task {
-                    await appState.jobClockOut()
-                    isStopping = false
-                }
-            } label: {
-                HStack(spacing: 6) {
-                    if isStopping {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(.white)
-                            .scaleEffect(0.7)
-                        Text("STOPPING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                    } else {
-                        Image(systemName: "stop.fill")
-                        Text("STOP").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+            // Progress
+            Bar(pct: pct, height: 6, fill: Color(hex: T.sky))
+
+            // Break + Stop, side by side under the bar. Each opens a
+            // confirmation to guard against accidental taps.
+            HStack(spacing: 8) {
+                Button { showBreakConfirm = true } label: {
+                    HStack(spacing: 6) {
+                        if isBreakBusy {
+                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
+                        } else {
+                            Image(systemName: onBreak ? "play.fill" : "pause.fill")
+                            Text(onBreak ? "END BREAK" : "BREAK").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                        }
                     }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color(hex: T.amber)))
+                    .shadow(color: Color(hex: T.amber).opacity(T.skyShadowOpacity),
+                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 12).padding(.vertical, 8)
-                .background(Capsule().fill(Color(hex: T.sky)))
-                .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                        radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                .buttonStyle(.plain)
+                .disabled(isBreakBusy || isStopping)
+
+                Button { showStopConfirm = true } label: {
+                    HStack(spacing: 6) {
+                        if isStopping {
+                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
+                            Text("STOPPING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                        } else {
+                            Image(systemName: "stop.fill")
+                            Text("STOP").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                        }
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Capsule().fill(Color(hex: T.sky)))
+                    .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
+                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                }
+                .buttonStyle(.plain)
+                .disabled(isStopping || isBreakBusy)
             }
-            .buttonStyle(.plain)
-            .disabled(isStopping)
         }
+    }
+
+    /// "MM:SS left" while under the configured break duration, "over by
+    /// MM:SS" once past it. Used by the on-break label on the active card.
+    private func breakCountdown(_ brk: ActiveBreak, at now: Date) -> String {
+        let left = brk.secondsLeft(at: now) ?? 0
+        if left >= 0 { return String(format: "%d:%02d left", left / 60, left % 60) }
+        let over = -left
+        return String(format: "over by %d:%02d", over / 60, over % 60)
     }
 
     @ViewBuilder
