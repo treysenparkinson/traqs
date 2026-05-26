@@ -6,8 +6,7 @@ struct CustomizeView: View {
 
     @State private var customAccentColor: Color = Color(hex: "#3d7fff")
 
-    private var darkPresets: [BgPreset] { ThemeSettings.bgPresets.filter { !$0.isLight } }
-    private var lightPresets: [BgPreset] { ThemeSettings.bgPresets.filter { $0.isLight } }
+    private var presets: [BgPreset] { ThemeSettings.bgPresets }
 
     var body: some View {
         ZStack {
@@ -15,9 +14,6 @@ struct CustomizeView: View {
 
             ScrollView {
                 VStack(spacing: 24) {
-
-                    // ── Preview Card ──
-                    previewCard
 
                     // ── Accent Color ──
                     VStack(alignment: .leading, spacing: 12) {
@@ -44,11 +40,11 @@ struct CustomizeView: View {
                         .padding(.horizontal, 16)
                     }
 
-                    // ── Dark Themes ──
+                    // ── Background ──
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "Dark Themes")
+                        SectionHeader(title: "Background")
                         VStack(spacing: 8) {
-                            ForEach(darkPresets) { preset in
+                            ForEach(presets) { preset in
                                 BgPresetRow(preset: preset, isSelected: theme.bgPresetId == preset.id) {
                                     theme.setBgPreset(preset.id)
                                 }
@@ -57,32 +53,26 @@ struct CustomizeView: View {
                         .padding(.horizontal, 16)
                     }
 
-                    // ── Light Themes ──
-                    VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "Light Themes")
-                        VStack(spacing: 8) {
-                            ForEach(lightPresets) { preset in
-                                BgPresetRow(preset: preset, isSelected: theme.bgPresetId == preset.id) {
-                                    theme.setBgPreset(preset.id)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                    }
-
-                    // ── Reset ──
-                    Button(role: .destructive) {
-                        theme.reset()
-                        customAccentColor = Color(hex: "#3d7fff")
+                    // ── Save ──
+                    // Accent / background changes are already persisted
+                    // live via setAccent / setBgPreset (they write to
+                    // UserDefaults the moment they're picked), so this
+                    // button's job is to commit the version bump that
+                    // forces every open screen to re-render with the new
+                    // T.* tokens and dismiss back to the previous view.
+                    Button {
+                        theme.commitChanges()
+                        dismiss()
                     } label: {
-                        Text("Reset to Defaults")
+                        Text("Save")
                             .font(.subheadline.bold())
-                            .foregroundColor(Color(hex: T.danger))
+                            .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(Color(hex: T.danger).opacity(0.1))
+                            .background(Color(hex: T.accent))
                             .cornerRadius(12)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.danger).opacity(0.3), lineWidth: 1))
+                            .shadow(color: Color(hex: T.accent).opacity(T.skyShadowOpacity),
+                                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
@@ -103,72 +93,6 @@ struct CustomizeView: View {
         }
     }
 
-    // MARK: - Preview Card
-    // Uses theme.* directly so it updates live as the user picks colors.
-
-    private var previewCard: some View {
-        let p = theme.currentBgPreset
-        return VStack(alignment: .leading, spacing: 10) {
-            Text("Preview")
-                .font(.caption.bold())
-                .foregroundColor(Color(hex: T.muted))
-                .padding(.horizontal, 16)
-
-            VStack(spacing: 0) {
-                // Fake nav bar
-                HStack {
-                    Text("Jobs")
-                        .font(.headline.bold())
-                        .foregroundColor(Color(hex: p.text))
-                    Spacer()
-                    Circle()
-                        .fill(Color(hex: theme.accent).opacity(0.15))
-                        .frame(width: 28, height: 28)
-                        .overlay(
-                            Image(systemName: "plus")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundColor(Color(hex: theme.accent))
-                        )
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(Color(hex: p.surface))
-
-                // Fake job row
-                HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color(hex: theme.accent))
-                        .frame(width: 4)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Acme Electric Panel")
-                                .font(.subheadline.bold())
-                                .foregroundColor(Color(hex: p.text))
-                            Spacer()
-                            Text("In Progress")
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(Color(hex: "#3b82f6").opacity(0.13))
-                                .foregroundColor(Color(hex: "#3b82f6"))
-                                .cornerRadius(6)
-                        }
-                        Text("Mar 6 → Mar 20")
-                            .font(.caption)
-                            .foregroundColor(Color(hex: p.muted))
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 10)
-                }
-                .background(Color(hex: p.card))
-                .cornerRadius(10)
-                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: p.border), lineWidth: 1))
-                .padding(12)
-                .background(Color(hex: p.bg))
-            }
-            .cornerRadius(14)
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(hex: p.border), lineWidth: 1))
-            .padding(.horizontal, 16)
-        }
-    }
 }
 
 // MARK: - Subviews

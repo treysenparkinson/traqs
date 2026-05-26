@@ -17,9 +17,17 @@ enum T {
 
     // ── Brand-locked tokens ────────────────────────────────────────────────
     static let paper    = "#F4F6FA"
-    static let ink      = "#0B0B0C"
-    static let hair     = "#E6E8EE"
-    static let sky      = "#3B82F6"   // selected · NOW · live · CTA
+    /// Primary text. Aliased to `T.text` so a Black/Charcoal background
+    /// flips every "ink" caller to the bg preset's light text color
+    /// instead of staying near-black and turning invisible.
+    static var ink: String { text }
+    /// Hairline borders. Aliased to `T.border` for the same reason: a
+    /// light hairline (#E6E8EE) on a black canvas reads as a glowing
+    /// outline instead of a divider.
+    static var hair: String { border }
+    /// CTA / "selected" / NOW / live indicator. Mirrors `T.accent` so the
+    /// user's chosen accent retints every button in the app.
+    static var sky: String { accent }
     static let magenta  = "#FF1FB4"   // department · Layout · canonical job color · profile avatar
     static let cyan     = "#06B6D4"   // department · Wire
     static let yellow   = "#EAB308"   // department · Cut
@@ -36,7 +44,10 @@ enum T {
     // Status / priority legacy aliases — kept so existing call sites compile.
     static let statusNotStarted = "#94A3B8"
     static let statusPending    = "#A78BFA"
-    static let statusInProgress = "#3B82F6"
+    /// "In Progress" status — the only blue in the status palette, so it
+    /// follows the user-chosen accent. The other statuses stay
+    /// semantic-fixed (lavender pending, yellow on-hold, green done).
+    static var statusInProgress: String { accent }
     static let statusOnHold     = "#EAB308"
     static let statusFinished   = "#10B981"
 

@@ -31,23 +31,21 @@ final class ThemeSettings {
         "#8b5cf6", // Violet
     ]
 
-    // Background presets — TRAQS Light is the canonical theme; the rest are kept for power-users.
+    // Background presets — neutrals only. Accent is what users customize
+    // for color; the background stays out of the way as a neutral canvas.
     static let bgPresets: [BgPreset] = [
-        // ── Canonical TRAQS Light ──
-        BgPreset(id: 100, name: "TRAQS Light",
+        BgPreset(id: 100, name: "White",
                  bg: "#F4F6FA", surface: "#FFFFFF", card: "#FFFFFF", border: "#E6E8EE",
                  text: "#0B0B0C", muted: "#6E6E73", isLight: true),
-        // ── Dark legacy ──
-        BgPreset(id: 0, name: "Midnight", bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", text: "#e6ecf8", muted: "#64748b", isLight: false),
-        BgPreset(id: 1, name: "Navy",     bg: "#060c1c", surface: "#0b1228", card: "#0f1934", border: "#182748", text: "#e6ecf8", muted: "#64748b", isLight: false),
-        BgPreset(id: 2, name: "Charcoal", bg: "#0a0a0a", surface: "#141414", card: "#1c1c1c", border: "#2a2a2a", text: "#e8e8e8", muted: "#6b7280", isLight: false),
-        BgPreset(id: 3, name: "Slate",    bg: "#0d1117", surface: "#161b22", card: "#1c2128", border: "#30363d", text: "#e6edf3", muted: "#8b949e", isLight: false),
-        BgPreset(id: 4, name: "Forest",   bg: "#070f09", surface: "#0c1a0e", card: "#111f14", border: "#1a2e1c", text: "#e6f0e8", muted: "#6b8f72", isLight: false),
-        // ── Other light presets ──
-        BgPreset(id: 5, name: "Frost",    bg: "#ffffff", surface: "#f8fafc", card: "#f1f5f9", border: "#e2e8f0", text: "#0f172a", muted: "#64748b", isLight: true),
-        BgPreset(id: 6, name: "Pearl",    bg: "#fafaf9", surface: "#f5f5f4", card: "#e7e5e4", border: "#d6d3d1", text: "#1c1917", muted: "#78716c", isLight: true),
-        BgPreset(id: 7, name: "Silver",   bg: "#f8f9fa", surface: "#f1f3f5", card: "#e9ecef", border: "#dee2e6", text: "#212529", muted: "#6c757d", isLight: true),
-        BgPreset(id: 8, name: "Linen",    bg: "#faf7f2", surface: "#f5f0e8", card: "#ede8df", border: "#d9d0c5", text: "#1a1510", muted: "#7a6e62", isLight: true),
+        BgPreset(id: 10,  name: "Grey",
+                 bg: "#E5E7EB", surface: "#F3F4F6", card: "#FFFFFF", border: "#D1D5DB",
+                 text: "#111827", muted: "#6B7280", isLight: true),
+        BgPreset(id: 11,  name: "Charcoal",
+                 bg: "#1F1F1F", surface: "#2A2A2A", card: "#333333", border: "#3F3F3F",
+                 text: "#E8E8E8", muted: "#9CA3AF", isLight: false),
+        BgPreset(id: 12,  name: "Black",
+                 bg: "#000000", surface: "#0A0A0A", card: "#141414", border: "#1F1F1F",
+                 text: "#F5F5F5", muted: "#6B7280", isLight: false),
     ]
 
     static let defaultBgPresetId: Int = 100
@@ -65,12 +63,13 @@ final class ThemeSettings {
 
     init() {
         accent = UserDefaults.standard.string(forKey: "themeAccent") ?? ThemeSettings.defaultAccent
+        // Any preset id that isn't one of the four current neutrals falls
+        // back to White. Covers existing users who were on the older
+        // tinted presets (Midnight, Navy, Slate, Forest, Frost, Pearl,
+        // Silver, Linen) before we trimmed the list.
         if let savedId = UserDefaults.standard.object(forKey: "themeBgPreset") as? Int,
            ThemeSettings.bgPresets.contains(where: { $0.id == savedId }) {
-            // One-time migration: existing users on legacy dark presets (0–4) get
-            // upgraded to the new TRAQS Light. Anything else (existing light pick or
-            // explicit TRAQS Light) is honored.
-            bgPresetId = (0...4).contains(savedId) ? ThemeSettings.defaultBgPresetId : savedId
+            bgPresetId = savedId
         } else {
             bgPresetId = ThemeSettings.defaultBgPresetId
         }
