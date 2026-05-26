@@ -362,6 +362,40 @@ struct ActiveJobClock: Codable, Equatable {
     var isPaused: Bool { pausedAt != nil }
 }
 
+// MARK: - Active Break (lightweight status, independent of the job/payroll clock)
+//
+// Set when a worker taps "Break". The job clock keeps running — this is purely
+// a status + payroll log. `durationMinutes` is a snapshot of the configured
+// break length at start time; it drives the reminder and the "time left / over
+// by" display but does NOT auto-end the break (the worker ends it manually).
+
+struct ActiveBreak: Codable, Equatable {
+    var startedAt: String        // ISO8601
+    var durationMinutes: Int
+
+    init(startedAt: String, durationMinutes: Int) {
+        self.startedAt = startedAt; self.durationMinutes = durationMinutes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        startedAt       = (try? c.decode(String.self, forKey: .startedAt)) ?? ""
+        durationMinutes = (try? c.decode(Int.self, forKey: .durationMinutes)) ?? 15
+    }
+
+    var startDate: Date? { Date.fromFlexibleISO8601(startedAt) }
+
+    /// When the configured break window elapses. Used only for the reminder
+    /// and "time left / over by" display — the break is NOT auto-ended.
+    var endsAt: Date? { startDate.map { $0.addingTimeInterval(Double(durationMinutes) * 60) } }
+
+    /// Seconds remaining (negative once over) relative to `now`.
+    func secondsLeft(at now: Date = Date()) -> Int? {
+        guard let e = endsAt else { return nil }
+        return Int(e.timeIntervalSince(now))
+    }
+}
+
 // MARK: - Person
 
 struct Person: Codable, Identifiable, Equatable, Hashable {
@@ -382,6 +416,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var pushToken: String?
     var activeClockIn: ActiveClockIn?
     var activeJobClock: ActiveJobClock?
+    var activeBreak: ActiveBreak?
 
     var isAdmin: Bool { userRole == "admin" }
 
@@ -403,6 +438,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         pushToken     = try? c.decodeIfPresent(String.self, forKey: .pushToken)
         activeClockIn = try? c.decodeIfPresent(ActiveClockIn.self, forKey: .activeClockIn)
         activeJobClock = try? c.decodeIfPresent(ActiveJobClock.self, forKey: .activeJobClock)
+        activeBreak = try? c.decodeIfPresent(ActiveBreak.self, forKey: .activeBreak)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
@@ -412,7 +448,8 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
          autoSchedule: Bool? = nil, teamNumber: Int? = nil,
          timeOff: [TimeOffEntry] = [], pushToken: String? = nil,
          activeClockIn: ActiveClockIn? = nil,
-         activeJobClock: ActiveJobClock? = nil) {
+         activeJobClock: ActiveJobClock? = nil,
+         activeBreak: ActiveBreak? = nil) {
         self.id = id; self.name = name; self.role = role; self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
@@ -420,6 +457,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         self.teamNumber = teamNumber; self.timeOff = timeOff; self.pushToken = pushToken
         self.activeClockIn = activeClockIn
         self.activeJobClock = activeJobClock
+        self.activeBreak = activeBreak
     }
 
     static func == (lhs: Person, rhs: Person) -> Bool { lhs.id == rhs.id }

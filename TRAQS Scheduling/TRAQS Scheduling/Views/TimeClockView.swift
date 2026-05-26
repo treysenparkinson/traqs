@@ -55,11 +55,7 @@ struct TimeClockView: View {
                                                  await appState.jobClockOut()
                                                  isStopping = false
                                              }
-                                         },
-                                         onPauseResume: { Task {
-                                             if active.isPaused { await appState.jobResume() }
-                                             else { await appState.jobPause() }
-                                         }})
+                                         })
                         .padding(.horizontal, 16)
                         .padding(.bottom, 4)
                     }
@@ -329,7 +325,6 @@ private struct RunningEntryCard: View {
     let now: Date
     let isStopping: Bool
     let onStop: () -> Void
-    let onPauseResume: () -> Void
 
     private var elapsedLabel: String {
         guard let s = Date.fromFlexibleISO8601(jobClock.clockIn) else { return "—" }
@@ -352,10 +347,10 @@ private struct RunningEntryCard: View {
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                     HStack(spacing: 8) {
-                        Chip(label: jobClock.isPaused ? "PAUSED" : "RUNNING",
-                             fill: Color(hex: jobClock.isPaused ? T.amber : T.sky).opacity(0.12),
-                             stroke: Color(hex: jobClock.isPaused ? T.amber : T.sky),
-                             color: Color(hex: jobClock.isPaused ? T.amber : T.sky))
+                        Chip(label: "RUNNING",
+                             fill: Color(hex: T.sky).opacity(0.12),
+                             stroke: Color(hex: T.sky),
+                             color: Color(hex: T.sky))
                         Text(elapsedLabel)
                             .font(TTypo.monoBold(13))
                             .foregroundStyle(Color(hex: T.ink))
@@ -363,15 +358,6 @@ private struct RunningEntryCard: View {
                     }
                 }
                 Spacer()
-                Button(action: onPauseResume) {
-                    Image(systemName: jobClock.isPaused ? "play.fill" : "pause.fill")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .padding(8)
-                        .background(Circle().fill(Color(hex: T.surface)))
-                        .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
                 Button(action: onStop) {
                     HStack(spacing: 5) {
                         if isStopping {

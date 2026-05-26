@@ -318,6 +318,62 @@ export async function handler(event) {
       return json(200, { ok: true, totalPausedMs });
     }
 
+    // ── Break Begin (Bearer token, no PIN) ────────────────────────────────────
+    // Lightweight status: marks the worker on break WITHOUT touching the job
+    // clock (the job keeps logging time — break time is accounted for
+    // elsewhere). `durationMinutes` is a snapshot of the configured break
+    // length, used by the app for the reminder + countdown. A breakStart row
+    // is logged to timeclock.json for payroll. Distinct from the PIN-based
+    // "breakStart"/"breakEnd" kiosk actions below.
+    if (action === "breakBegin") {
+      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+
+      const { personId: bbPId, durationMinutes: bbDur } = body;
+      if (!bbPId) return err(400, "Missing personId");
+
+      let bbPeople;
+      try { bbPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+      const bbIdx = bbPeople.findIndex(p => String(p.id) === String(bbPId));
+      if (bbIdx === -1) return err(404, "Person not found");
+      if (bbPeople[bbIdx].activeBreak) return err(409, "Already on break");
+
+      const bbStart = new Date().toISOString();
+      const bbMinutes = Number.isFinite(bbDur) ? bbDur : 15;
+      bbPeople[bbIdx] = { ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } };
+      try { await writeJson(peopleKey, bbPeople); } catch { return err(500, "Failed to save"); }
+
+      // Log to timeclock.json for payroll records.
+      const bbEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bbPId), date: bbStart.slice(0, 10), eventType: "breakStart", timestamp: bbStart };
+      let bbLog; try { bbLog = await readJson(clockKey) ?? []; } catch { bbLog = []; }
+      bbLog.push(bbEvt); try { await writeJson(clockKey, bbLog); } catch { }
+
+      return json(200, { ok: true, startedAt: bbStart, durationMinutes: bbMinutes });
+    }
+
+    // ── Break Clear (Bearer token, no PIN) — ends the lightweight break ───────
+    if (action === "breakClear") {
+      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+
+      const { personId: bcPId } = body;
+      if (!bcPId) return err(400, "Missing personId");
+
+      let bcPeople;
+      try { bcPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+      const bcIdx = bcPeople.findIndex(p => String(p.id) === String(bcPId));
+      if (bcIdx === -1) return err(404, "Person not found");
+      if (!bcPeople[bcIdx].activeBreak) return err(409, "Not on break");
+
+      const bcEnd = new Date().toISOString();
+      bcPeople[bcIdx] = { ...bcPeople[bcIdx], activeBreak: null };
+      try { await writeJson(peopleKey, bcPeople); } catch { return err(500, "Failed to save"); }
+
+      const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: bcEnd.slice(0, 10), eventType: "breakEnd", timestamp: bcEnd };
+      let bcLog; try { bcLog = await readJson(clockKey) ?? []; } catch { bcLog = []; }
+      bcLog.push(bcEvt); try { await writeJson(clockKey, bcLog); } catch { }
+
+      return json(200, { ok: true, endedAt: bcEnd });
+    }
+
     // ── PIN-authenticated actions ──────────────────────────────────────────
     const { personId, pin } = body;
     if (!pin) return err(400, "Missing pin");

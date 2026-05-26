@@ -414,14 +414,27 @@ struct APIService {
         _ = try await perform(req)
     }
 
-    func jobPause(personId: String) async throws {
-        let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobPause", personId: personId))
+    // MARK: - Break (Bearer-only, no PIN) — lightweight status, not a clock pause
+
+    private struct BreakBeginPayload: Encodable {
+        let action = "breakBegin"
+        let personId: String
+        let durationMinutes: Int
+    }
+
+    /// Mark a worker on break. The job clock keeps running; this only sets a
+    /// status + logs the break for payroll. `durationMinutes` is a snapshot
+    /// of the configured break length used for the reminder + UI countdown.
+    func breakBegin(personId: String, durationMinutes: Int) async throws {
+        let body = try JSONEncoder().encode(BreakBeginPayload(personId: personId, durationMinutes: durationMinutes))
         let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
-    func jobResume(personId: String) async throws {
-        let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobResume", personId: personId))
+    func breakEnd(personId: String) async throws {
+        // "breakClear" (not "breakEnd") so this Bearer action doesn't collide
+        // with the PIN-authenticated kiosk "breakEnd" handler.
+        let body = try JSONEncoder().encode(JobClockSimplePayload(action: "breakClear", personId: personId))
         let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }

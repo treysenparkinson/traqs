@@ -225,10 +225,11 @@ struct AdminView: View {
     private func statusFor(_ person: Person) -> WorkerStatus {
         // Lunch wins over everything — payroll-state event.
         if isOn(person, type: "lunch") { return .onLunch }
-        // Break either from a paused job clock OR a payroll breakStart
-        // event with no breakEnd yet.
-        if person.activeJobClock?.isPaused == true { return .onBreak }
-        if isOn(person, type: "break") { return .onBreak }
+        // Break is now a standalone status set by the worker tapping
+        // "Break" (the job clock keeps running). Presence-only: an
+        // overrun past the configured duration still counts as on-break
+        // until the worker ends it.
+        if person.activeBreak != nil { return .onBreak }
         if person.activeJobClock != nil { return .onJob }
         if person.activeClockIn != nil { return .idle }
         return .offline
@@ -415,11 +416,13 @@ private struct OnBreakCard: View {
                     }
                 }
                 HStack(spacing: 5) {
-                    Image(systemName: "pause.fill")
+                    Image(systemName: "cup.and.saucer.fill")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color(hex: T.orange))
+                    // "Xm on break" with a "· Nm over" tail once past the
+                    // configured duration, so dispatchers can spot overruns.
                     TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        Text("\(elapsedSince(person.activeJobClock?.pausedAt, now: ctx.date)) on break")
+                        Text(breakLabel(at: ctx.date))
                             .font(TTypo.smBold(13))
                             .foregroundStyle(Color(hex: T.orange))
                             .tnum()
@@ -431,6 +434,15 @@ private struct OnBreakCard: View {
         .padding(12)
         .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
         .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.hair), lineWidth: 1))
+    }
+
+    private func breakLabel(at now: Date) -> String {
+        let elapsed = elapsedSince(person.activeBreak?.startedAt, now: now)
+        guard let left = person.activeBreak?.secondsLeft(at: now) else { return "\(elapsed) on break" }
+        if left < 0 {
+            return "\(elapsed) on break · \(-left / 60)m over"
+        }
+        return "\(elapsed) on break"
     }
 }
 

@@ -108,10 +108,14 @@ class AppState {
 
     // MARK: - Load
 
-    /// Set every time we optimistically mutate the current user's activeJobClock,
-    /// so the next loadAll() can preserve the local value while the server's
-    /// eventual-consistency catches up.
-    private var clockChangeAt: Date? = nil
+    /// Set every time we optimistically mutate the current user's activeJobClock
+    /// or activeBreak, so the next loadAll() can preserve the local value while
+    /// the server's eventual-consistency catches up. Readable (not private) so
+    /// views can observe it as a reliable "clock/break changed" trigger — the
+    /// nested computed chain (myActiveJobClock → currentPerson → people) doesn't
+    /// always re-fire an always-mounted child view, but this stored property
+    /// does.
+    private(set) var clockChangeAt: Date? = nil
 
     func loadAll() async {
         guard let api, !isLoading else { return }
@@ -133,14 +137,15 @@ class AppState {
             // the race where the user taps START TIMER mid-fetch — by the
             // time we get the people response, the local mutation has
             // already happened and we can preserve it.
-            let snap: (personId: String, clock: ActiveJobClock?)? = {
+            let snap: (personId: String, clock: ActiveJobClock?, brk: ActiveBreak?)? = {
                 guard let last = clockChangeAt, Date().timeIntervalSince(last) < 12,
                       let p = currentPerson else { return nil }
-                return (p.id, p.activeJobClock)
+                return (p.id, p.activeJobClock, p.activeBreak)
             }()
             people = r
             if let snap, let idx = people.firstIndex(where: { $0.id == snap.personId }) {
                 people[idx].activeJobClock = snap.clock
+                people[idx].activeBreak = snap.brk
             }
         }
         if let r = try? await api.fetchClients(), !r.isEmpty || clients.isEmpty {
@@ -713,55 +718,58 @@ class AppState {
         }
     }
 
-    /// Flip the current person's job-clock pause state locally so the card
-    /// updates on the FIRST tap instead of waiting for the round-trip.
-    /// `clockChangeAt` is set so loadAll's grace window preserves this
-    /// optimistic value while the server catches up.
-    private func setLocalPause(personId: String, paused: Bool) {
-        guard let idx = people.firstIndex(where: { $0.id == personId }),
-              people[idx].activeJobClock != nil else { return }
+    // MARK: - Break (lightweight status; job clock keeps running)
+
+    var myActiveBreak: ActiveBreak? { currentPerson?.activeBreak }
+    /// Presence-only — a break stays "on" until the worker ends it manually,
+    /// even past its configured duration (overruns stay visible to admins).
+    var isOnBreak: Bool { myActiveBreak != nil }
+
+    /// Optimistically set/clear the current person's `activeBreak` so the UI
+    /// flips on the FIRST tap. `clockChangeAt` is set so loadAll's grace
+    /// window preserves the optimistic value until the server catches up.
+    private func setLocalBreak(personId: String, _ value: ActiveBreak?) {
+        guard let idx = people.firstIndex(where: { $0.id == personId }) else { return }
         var newPeople = people
-        if paused {
-            if newPeople[idx].activeJobClock?.pausedAt == nil {
-                newPeople[idx].activeJobClock?.pausedAt = ISO8601DateFormatter().string(from: Date())
-            }
-        } else {
-            newPeople[idx].activeJobClock?.pausedAt = nil
-        }
+        newPeople[idx].activeBreak = value
         people = newPeople
         clockChangeAt = Date()
     }
 
-    func jobPause() async {
+    /// Start a break using the configured break length. Job clock is left
+    /// running. Schedules the local "ending soon" reminder.
+    func startBreak() async {
         guard let api, let personId = currentPersonId else { return }
-        setLocalPause(personId: personId, paused: true)   // optimistic
+        let minutes = orgSettings.breaks.first?.durationMinutes ?? 15
+        let optimistic = ActiveBreak(startedAt: ISO8601DateFormatter().string(from: Date()),
+                                     durationMinutes: minutes)
+        setLocalBreak(personId: personId, optimistic)
+        BreakReminder.schedule(durationMinutes: minutes)
         do {
-            try await api.jobPause(personId: personId)
+            try await api.breakBegin(personId: personId, durationMinutes: minutes)
             await refreshJobsQuietly()
         } catch APIError.httpError(409) {
-            // Server says it's already paused — local already reflects
-            // that, so this is effectively success, not an error.
-            await refreshJobsQuietly()
+            await refreshJobsQuietly()   // already on break server-side — fine
         } catch {
-            setLocalPause(personId: personId, paused: false)   // revert
+            setLocalBreak(personId: personId, nil)   // revert
+            BreakReminder.cancel()
             clockError = error.localizedDescription
         }
     }
 
-    func jobResume() async {
+    /// End the break. The ONLY way a break ends — there is no auto-expiry.
+    func endBreak() async {
         guard let api, let personId = currentPersonId else { return }
-        setLocalPause(personId: personId, paused: false)   // optimistic
+        let previous = myActiveBreak
+        setLocalBreak(personId: personId, nil)
+        BreakReminder.cancel()
         do {
-            try await api.jobResume(personId: personId)
+            try await api.breakEnd(personId: personId)
             await refreshJobsQuietly()
         } catch APIError.httpError(409) {
-            // Server says it's already running — the most common cause of
-            // the old "press resume twice" bug: the first tap resumed on
-            // the server but local state still showed paused, so the
-            // second tap 409'd. Local already shows running; treat as success.
-            await refreshJobsQuietly()
+            await refreshJobsQuietly()   // already cleared server-side — fine
         } catch {
-            setLocalPause(personId: personId, paused: true)   // revert
+            setLocalBreak(personId: personId, previous)   // revert
             clockError = error.localizedDescription
         }
     }
