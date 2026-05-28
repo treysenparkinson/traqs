@@ -580,6 +580,14 @@ animStyle.textContent = `
 .anim-btn:hover  { box-shadow: 0 6px 20px rgba(0,0,0,0.2); filter: brightness(1.08); }
 .anim-btn:active { filter: brightness(0.95); transition-duration: 0.08s; }
 
+/* Icon-only buttons (filter, search, etc.) — same hover glow as ghost Btn, but no
+   overflow clipping so corner badges (filter count) stay visible. */
+.icon-btn-glow {
+  transition: box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s ease-out, background 0.18s ease-out;
+}
+.icon-btn-glow:hover  { box-shadow: 0 4px 14px rgba(0,0,0,0.22); filter: brightness(1.10); }
+.icon-btn-glow:active { filter: brightness(0.96); transition-duration: 0.08s; }
+
 .anim-card-wrap {
   transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.32s cubic-bezier(0.22, 1, 0.36, 1),
@@ -682,7 +690,10 @@ const Badge = ({ t, c, lg }) => <span style={{ display: "inline-flex", alignItem
 const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = false, style: sx = {} }) => {
   const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: T.font, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", borderRadius: T.radiusSm, border: "none", whiteSpace: "nowrap", flexShrink: 0 };
   const sizes = { sm: { padding: "7px 16px", fontSize: 13 }, md: { padding: "10px 20px", fontSize: 14 } };
-  const vars = { primary: { background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, color: T.accentText, boxShadow: 'none' }, ghost: { background: T.glass, color: T.textSec, border: `1px solid ${T.glassBorder}` }, danger: { background: "transparent", color: T.danger, border: `1px solid ${T.danger}33` }, teal: { background: "transparent", color: "#14b8a6", border: `1px solid #14b8a633` }, warn: { background: "transparent", color: "#f59e0b", border: `1px solid #f59e0b33` } };
+  // primary gets a transparent 1px border so its outer dimensions match the bordered
+  // variants (ghost/danger/teal/warn). Without this, toggling variant on the same Btn
+  // shifts the rendered height by 2px and bumps surrounding content.
+  const vars = { primary: { background: `linear-gradient(135deg, ${T.accent}, ${T.accent}cc)`, color: T.accentText, boxShadow: 'none', border: `1px solid transparent` }, ghost: { background: T.glass, color: T.textSec, border: `1px solid ${T.glassBorder}` }, danger: { background: "transparent", color: T.danger, border: `1px solid ${T.danger}33` }, teal: { background: "transparent", color: "#14b8a6", border: `1px solid #14b8a633` }, warn: { background: "transparent", color: "#f59e0b", border: `1px solid #f59e0b33` } };
   return <button className="anim-btn" onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
 };
 // Wrapper that keeps a dropdown mounted long enough to fade out cleanly after `open` toggles false.
@@ -1747,6 +1758,19 @@ Extraction rules:
   const [colSort, setColSort] = useState({ id: null, dir: "asc" }); // column header sort
   const [filterOpen, setFilterOpen] = useState(false);
   const filterRef = useRef(null);
+  // Schedule page has its OWN filter state — keeps Schedule filtering independent
+  // from the Jobs/Gantt filters so changes here never leak between pages.
+  const [scheduleFilterOpen, setScheduleFilterOpen] = useState(false);
+  const [sFStat, setSFStat] = useState("All");
+  const [sFClient, setSFClient] = useState("All");
+  const [sFJobNum, setSFJobNum] = useState("");
+  const [sFPers, setSFPers] = useState([]);
+  const [sFRole, setSFRole] = useState("All");
+  // Inline expanding job-name search next to each page's filter button.
+  const [taskSearchOpen, setTaskSearchOpen] = useState(false);
+  const [taskSearchQ, setTaskSearchQ] = useState("");
+  const [scheduleSearchOpen, setScheduleSearchOpen] = useState(false);
+  const [scheduleSearchQ, setScheduleSearchQ] = useState("");
   const [askOpen, setAskOpen] = useState(false);
   const [askQ, setAskQ] = useState("");
   const [askLoading, setAskLoading] = useState(false);
@@ -2732,7 +2756,7 @@ Extraction rules:
     setShowGanttSplit(v => !v);
   };
 
-  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
+  useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setScheduleFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { if (!soDropPanelId && !deptDropId && !depsDropId && !colorDropId) return; const h = () => { setSoDropPanelId(null); setDeptDropId(null); setDepsDropId(null); setColorDropId(null); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [!!soDropPanelId, !!deptDropId, !!depsDropId, !!colorDropId]);
   useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
@@ -2762,6 +2786,12 @@ Extraction rules:
       if (!hasHpd) return false;
     }
     if (fJobNum && !String(t.jobNumber || "").toLowerCase().includes(fJobNum.toLowerCase())) return false;
+    if (taskSearchQ) {
+      const q = taskSearchQ.toLowerCase();
+      const hitJob = (t.title || "").toLowerCase().includes(q) || String(t.jobNumber || "").toLowerCase().includes(q);
+      const hitSub = (t.subs || []).some(panel => (panel.title || "").toLowerCase().includes(q) || (panel.subs || []).some(op => (op.title || "").toLowerCase().includes(q)));
+      if (!hitJob && !hitSub) return false;
+    }
     if (fTimePeriod.length < 3) {
       const isFinished = t.status === "Finished" || (t.end && t.end < TD);
       const isFuture = !isFinished && (t.start && t.start > TD);
@@ -2782,7 +2812,7 @@ Extraction rules:
       if (!overloaded) return false;
     }
     return true;
-  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, fTimePeriod, people]);
+  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, fTimePeriod, taskSearchQ, people]);
   const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if ((op.team || []).includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, (op.team || []).length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if ((t.team || []).includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, (t.team || []).length); (t.subs || []).forEach(s => { if ((s.team || []).includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, (s.team || []).length); }); } }); return h; }, [tasks, isOff]);
@@ -2795,6 +2825,7 @@ Extraction rules:
     return [...vals].sort((a, b) => a - b);
   }, [tasks]);
   const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0);
+  const scheduleFilterCount = (sFRole !== "All" ? 1 : 0) + sFPers.length + (sFJobNum ? 1 : 0) + (sFStat !== "All" ? 1 : 0) + (sFClient !== "All" ? 1 : 0);
 
   // Check overlaps for a set of operations against a given task list
   // opsToCheck: [{ personId, start, end, opTitle, panelTitle, excludeOpId }]
@@ -4913,7 +4944,14 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
-          {can("editJobs") && !jobSelectMode && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
+          {can("editJobs") && (
+            // Slide-out wrapper — keeps "+ New Job" mounted while jobSelectMode is true so
+            // there's no instant remount-then-collapse race with the "All" slider that caused
+            // the toolbar to briefly wrap onto a second row when pressing Done.
+            <div style={{ display: "flex", alignItems: "center", overflow: "hidden", maxWidth: jobSelectMode ? 0 : 140, opacity: jobSelectMode ? 0 : 1, transform: jobSelectMode ? "translateX(8px)" : "translateX(0)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-left 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "none" : "auto", marginLeft: jobSelectMode ? -6 : 0 }}>
+              <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>
+            </div>
+          )}
         </div>
       </div>
 
@@ -5448,9 +5486,9 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
             {/* Filter */}
             <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
-              <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ height: 28, padding: "0 10px", borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", gap: 5, color: activeFilterCount > 0 ? T.accent : T.textSec, fontSize: 11, fontWeight: 600, fontFamily: T.font, transition: "all 0.15s" }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                Filter {activeFilterCount > 0 && <span style={{ background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
+              <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
@@ -5461,6 +5499,16 @@ ${jobsCtx || "No jobs found."}`;
                 {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
             </div>
+            {/* Inline expanding search — icon collapses to 28px, expands to 200px on click */}
+            <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", height: 28, width: taskSearchOpen || taskSearchQ ? 200 : 28, borderRadius: T.radiusXs, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: taskSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
+              <button onClick={() => { const next = !taskSearchOpen; setTaskSearchOpen(next); if (next) setTimeout(() => document.getElementById("taskSearchInput")?.focus(), 50); }} title="Search jobs" style={{ width: 28, height: 28, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              </button>
+              {(taskSearchOpen || taskSearchQ) && <>
+                <input id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} onBlur={() => { if (!taskSearchQ) setTaskSearchOpen(false); }} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
+                {taskSearchQ && <button onClick={() => { setTaskSearchQ(""); setTaskSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
+              </>}
+            </div>
             {/* Alignment — single cycling toggle */}
             {(() => {
               const alignOpts = [
@@ -5470,10 +5518,10 @@ ${jobsCtx || "No jobs found."}`;
               ];
               const cur = alignOpts.find(o => o.val === cellAlign) || alignOpts[0];
               const next = alignOpts[(alignOpts.findIndex(o => o.val === cellAlign) + 1) % alignOpts.length];
-              return <button onClick={() => setCellAlign(next.val)} title={`Align: ${cellAlign} (click to cycle)`}
-                style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, transition: "all 0.15s" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; }}>
+              return <button className="icon-btn-glow" onClick={() => setCellAlign(next.val)} title={`Align: ${cellAlign} (click to cycle)`}
+                style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, outline: "none" }}
+                onMouseEnter={e => { e.currentTarget.style.color = T.accent; }}
+                onMouseLeave={e => { e.currentTarget.style.color = T.textDim; }}>
                 {cur.svg}
               </button>;
             })()}
@@ -6703,13 +6751,33 @@ ${jobsCtx || "No jobs found."}`;
     // Build flat row list with subtask expansion. Person rows always get pushed (with a
     // `hidden` flag when their dept is collapsed) so we can animate their height instead of
     // popping them in/out of the DOM.
+    // Schedule-side bar filter — applied after getPersonBars returns so the bars list
+    // matches the active Schedule filter (status, client, job #). PTO and eng-chip bars
+    // are always kept since they aren't tied to a task status/client/job number.
+    const sJobNumQ = sFJobNum.trim().toLowerCase();
+    const sSearchQ = scheduleSearchQ.trim().toLowerCase();
+    const passesScheduleBarFilter = (b) => {
+      if (b.type !== "task") return true;
+      if (sFStat !== "All" && (b.status || "Not Started") !== sFStat) return false;
+      if (sFClient !== "All") {
+        const cid = b.task?.grandPid || b.task?.pid;
+        const cJob = tasks.find(t => t.id === cid);
+        if (!cJob || cJob.clientId !== sFClient) return false;
+      }
+      if (sJobNumQ && !String(b.jobNumber || "").toLowerCase().includes(sJobNumQ)) return false;
+      if (sSearchQ) {
+        const hay = `${b.title || ""} ${b.task?.jobTitle || ""} ${b.task?.panelTitle || ""} ${b.jobNumber || ""}`.toLowerCase();
+        if (!hay.includes(sSearchQ)) return false;
+      }
+      return true;
+    };
     const rowList = []; roles.forEach(role => {
-      if (fRole !== "All" && role?.toLowerCase() !== fRole.toLowerCase()) return;
+      if (sFRole !== "All" && role?.toLowerCase() !== sFRole.toLowerCase()) return;
       const isC = !!tCollapsed[role];
       rowList.push({ type: "group", role, util: grpUtil(role) });
       roleMap[role].forEach(p => {
-        if (fPers.length > 0 && !fPers.includes(String(p.id))) return;
-        const bars = isC ? [] : getPersonBars(p.id);
+        if (sFPers.length > 0 && !sFPers.includes(String(p.id))) return;
+        const bars = isC ? [] : getPersonBars(p.id).filter(passesScheduleBarFilter);
         rowList.push({ type: "person", person: p, util: getUtil(p.id), bars, hidden: isC });
       });
     });
@@ -6836,84 +6904,78 @@ ${jobsCtx || "No jobs found."}`;
       {/* Top nav */}
       <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", flexWrap: "wrap", position: "relative", minHeight: 44, justifyContent: isAdmin ? "flex-start" : "center" }}>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Btn variant="primary" size="sm" onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Member</Btn>
-          <Btn size="sm" variant={barSelectMode ? "primary" : "ghost"} style={!barSelectMode ? { background: "transparent" } : {}} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
-          {barSelectMode && <Btn size="sm" variant="ghost" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>{selBars.size > 0 ? "None" : "All"}</Btn>}
+          <Btn size="sm" variant={barSelectMode ? "primary" : "ghost"} style={{ minWidth: 78, ...(barSelectMode ? {} : { background: "transparent" }) }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
+          {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
+          <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;padding:7px 14px;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusSm}px;background:transparent;border:1px solid ${T.border};color:${T.textSec};white-space:nowrap;flex-shrink:0;outline:none!important;box-shadow:none!important;-webkit-appearance:none;appearance:none;transition:border-color 0.18s ease-out,color 0.18s ease-out;}.subtle-all-btn:hover{box-shadow:none!important;border-color:${T.accent};color:${T.accent};}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;box-shadow:none!important;}.subtle-all-btn:active{outline:none!important;box-shadow:none!important;}`}</style>
+          <div style={{ display: "flex", alignItems: "center", overflow: "hidden", maxWidth: barSelectMode ? 90 : 0, opacity: barSelectMode ? 1 : 0, transform: barSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: barSelectMode ? "auto" : "none", marginRight: barSelectMode ? 0 : -6 }}>
+            <button className="subtle-all-btn" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>
+              {(() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); return selBars.size === allIds.size && allIds.size > 0 ? "None" : "All"; })()}
+            </button>
+          </div>
           {barSelectMode && selBars.size > 0 && <><span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selBars.size} selected</span><Btn size="sm" variant="ghost" style={{ color: "#ef4444", borderColor: "#ef444444" }} onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn></>}
-        <div style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-          <Tip label="Filters">
-          <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
+        <div style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+          <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setScheduleFilterOpen(p => !p); }} title="Filter" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${scheduleFilterCount > 0 ? T.accent + "88" : T.border}`, background: scheduleFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            {scheduleFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{scheduleFilterCount}</span>}
           </button>
-          </Tip>
-          <FadeOnClose open={filterOpen}><div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Sort By</div>
-              <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
-                {[["date","Date"],["project","Job #"],["client","Client"]].map(([val,label]) => (
-                  <button key={val} onClick={() => setGSort(val)} style={{ flex: 1, padding: "5px 4px", borderRadius: T.radiusXs, border: `1px solid ${gSort === val ? T.accent : T.border}`, background: gSort === val ? T.accent + "22" : "transparent", color: gSort === val ? T.accent : T.text, fontSize: 11, fontWeight: gSort === val ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{label}</button>
-                ))}
+          <FadeOnClose open={scheduleFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
+              <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>View</div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  {["day","week","month"].map(m => <button key={m} onClick={() => {
+                    setTMode(m);
+                    if (m === "day") { setTStart(TD); setTEnd(TD); }
+                    else if (m === "week") { const d = new Date(TD + "T12:00:00"); const dow = d.getDay(); const mon = addD(TD, -(dow === 0 ? 6 : dow - 1)); setTStart(mon); setTEnd(addD(mon, 6)); }
+                    else { const d = new Date(TD + "T12:00:00"); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
+                  }} style={{ flex: 1, padding: "4px 0", borderRadius: 8, border: `1.5px solid ${tMode === m ? T.accent : T.border}`, background: tMode === m ? T.accent + "22" : "transparent", color: tMode === m ? T.accent : T.text, fontSize: 11, fontWeight: tMode === m ? 700 : 500, cursor: "pointer", fontFamily: T.font, textTransform: "capitalize" }}>{m}</button>)}
+                </div>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 11, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>)}
+              <div style={{ animation: `toolDrop 0.14s 19ms both ease-out` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setSFStat(s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${sFStat === s ? T.accent : T.border}`, background: sFStat === s ? T.accent+"22" : "transparent", color: sFStat === s ? T.accent : T.text, fontSize: 10, fontWeight: sFStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}
+                </div>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Time Period</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
+              <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
+                <select value={sFClient} onChange={e => setSFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${sFClient !== "All" ? T.accent : T.border}`, background: T.surface, color: sFClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+                  <option value="All">All Clients</option>
+                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
-                {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
+              <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {sFPers.length > 0 && <span style={{ color: T.accent }}>({sFPers.length})</span>}</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {people.map(p => { const active = sFPers.includes(String(p.id)); return <button key={p.id} onClick={() => setSFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                  {sFPers.length > 0 && <button onClick={() => setSFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
+                </div>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Task #</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
-                <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
+              <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Role / Area</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                  {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setSFRole(r)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${sFRole === r ? T.accent : T.border}`, background: sFRole === r ? T.accent : "transparent", color: sFRole === r ? T.accentText : T.text, fontSize: 10, fontWeight: sFRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{r}</button>)}
+                </div>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role / Area</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 11, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
-              </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {scheduleFilterCount > 0 && <button onClick={() => { setSFRole("All"); setSFClient("All"); setSFPers([]); setSFJobNum(""); setSFStat("All"); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div></FadeOnClose>
           </div>
-        </div>}
-        <div style={{ position: isAdmin ? "absolute" : "relative", left: isAdmin ? "50%" : "auto", transform: isAdmin ? "translateX(-50%)" : "none", display: "flex", gap: 12, alignItems: "center" }}>
-          <SlidingPill
-            options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
-            value={tMode}
-            onChange={m => {
-              setTMode(m);
-              if (m==="day") { setTStart(TD); setTEnd(TD); }
-              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setTStart(mon); setTEnd(addD(mon,6)); }
-              else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setTStart(toDS(first)); setTEnd(toDS(last)); }
-            }}
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <Btn variant="ghost" size="sm" onClick={() => {
-              if (tMode === "day") { setTStart(addD(tStart, -1)); setTEnd(addD(tEnd, -1)); }
-              else if (tMode === "week") { setTStart(addD(tStart, -7)); setTEnd(addD(tEnd, -7)); }
-              else { const d = new Date(tStart + "T12:00:00"); d.setMonth(d.getMonth() - 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
-            }}>◀</Btn>
-            <span style={{ fontSize: 15, fontWeight: 700, color: T.text, minWidth: 180, textAlign: "center" }}>{(() => {
-              const s = new Date(tStart + "T12:00:00");
-              if (tMode === "day") return s.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-              if (tMode === "week") { const e = new Date(tEnd + "T12:00:00"); return `${s.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`; }
-              return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-            })()}</span>
-            <Btn variant="ghost" size="sm" onClick={() => {
-              if (tMode === "day") { setTStart(addD(tStart, 1)); setTEnd(addD(tEnd, 1)); }
-              else if (tMode === "week") { setTStart(addD(tStart, 7)); setTEnd(addD(tEnd, 7)); }
-              else { const d = new Date(tStart + "T12:00:00"); d.setMonth(d.getMonth() + 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setTStart(toDS(first)); setTEnd(toDS(last)); }
-            }}>▶</Btn>
+          {/* Inline expanding search — sits right of the Schedule filter button */}
+          <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", height: 28, width: scheduleSearchOpen || scheduleSearchQ ? 200 : 28, borderRadius: T.radiusXs, border: `1px solid ${scheduleSearchQ ? T.accent+"88" : T.border}`, background: scheduleSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
+            <button onClick={() => { const next = !scheduleSearchOpen; setScheduleSearchOpen(next); if (next) setTimeout(() => document.getElementById("scheduleSearchInput")?.focus(), 50); }} title="Search jobs" style={{ width: 28, height: 28, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </button>
+            {(scheduleSearchOpen || scheduleSearchQ) && <>
+              <input id="scheduleSearchInput" value={scheduleSearchQ} onChange={e => setScheduleSearchQ(e.target.value)} onBlur={() => { if (!scheduleSearchQ) setScheduleSearchOpen(false); }} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
+              {scheduleSearchQ && <button onClick={() => { setScheduleSearchQ(""); setScheduleSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
+            </>}
           </div>
+          {/* Separator + Today */}
+          <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
           <Btn variant="ghost" size="sm" style={{ background: "transparent", color: T.accent, border: `1px solid ${T.accent}66` }} onClick={() => {
             if (tMode === "day") { setTStart(TD); setTEnd(TD); }
             else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
           }}>Today</Btn>
-        </div>
+        </div>}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
@@ -7094,7 +7156,8 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
-      <div ref={teamRef} onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month" && monthZoom > 1) ? "hidden" : undefined, border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+      <div ref={teamRef} className="tq-schedule-scroll" onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+        <style>{`.tq-schedule-scroll::-webkit-scrollbar{height:26px}.tq-schedule-scroll::-webkit-scrollbar-track{background:${T.bg};border-top:1px solid ${T.border}}.tq-schedule-scroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:13px;border:4px solid ${T.bg};min-width:80px}.tq-schedule-scroll::-webkit-scrollbar-thumb:hover{background:${T.accent}aa}.tq-schedule-scroll{scrollbar-width:auto;scrollbar-color:${T.border} ${T.bg}}`}</style>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
@@ -13117,66 +13180,27 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       {/* Flex spacer — pushes left cluster (logo + undo/redo) leftward while the center group floats absolutely. */}
       <div style={{ flex: 1, minWidth: 0 }} />
-      {/* CENTER: search + ask — absolutely centered to the viewport so left/right cluster widths don't shift it. */}
-      <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 1 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", pointerEvents: "auto" }}>
-        <div ref={searchRef} style={{ position: "relative", width: "min(510px, 45vw)", minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 14px", borderRadius: 22, border: `1px solid ${searchOpen ? T.accent + "66" : T.border}`, background: T.bg, transition: "all 0.2s" }}>
-            <span style={{ lineHeight: 0, color: T.textDim }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></span>
-            <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search jobs, clients, team members..." style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.font }} />
-            {searchQ && <span onClick={() => { setSearchQ(""); setSearchOpen(false); }} style={{ cursor: "pointer", fontSize: 11, color: T.textDim, padding: "1px 6px", borderRadius: 4, background: T.border + "44" }}>✕</span>}
+      {/* CENTER: Ask TRAQS — archived for now. Keep the markup intact so we can re-enable
+          or relocate it later by flipping the `false` below to `true` (or to a real flag). */}
+      {false && (
+        <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", display: "flex", flexDirection: "column", gap: 12, alignItems: "center", justifyContent: "center", pointerEvents: "none", zIndex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", pointerEvents: "auto" }}>
+            <div ref={askBarRef} style={{ position: "relative", flexShrink: 0, width: askExpanded ? 240 : 110, transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+              {!askExpanded
+                ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "4px 14px", borderRadius: 22, border: `1px solid ${T.accent}44`, background: `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.02em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}10)`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+                    Ask TRAQS
+                  </button>
+                : <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "4px 14px", borderRadius: 22, border: `1px solid ${T.accent}66`, background: T.bg, boxShadow: `0 0 0 2px ${T.accent}18` }}>
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill={T.accent} style={{ flexShrink: 0 }}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
+                    <input ref={askBarInputRef} value={askBarQ} onChange={e => setAskBarQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && askBarQ.trim()) { const q = askBarQ.trim(); setAskBarQ(""); setAskExpanded(false); setAskHistory(h => [...h, { role: "user", content: q }]); setAskOpen(true); setAskLoading(true); handleAskTraqs(q); } if (e.key === "Escape") { setAskExpanded(false); setAskBarQ(""); } }} placeholder="Ask anything…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font, minWidth: 0 }} />
+                    {askBarQ && <span onClick={() => setAskBarQ("")} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 4, background: T.border + "44", flexShrink: 0 }}>✕</span>}
+                  </div>
+              }
+            </div>
           </div>
-          {searchOpen && searchQ.length > 0 && (() => {
-            const q = searchQ.toLowerCase();
-            const jobResults = allItems.filter(t => t.title.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q));
-            const clientResults = clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q) || (c.email || "").toLowerCase().includes(q));
-            const personResults = people.filter(p => p.name.toLowerCase().includes(q) || (p.department || "").toLowerCase().includes(q));
-            const hasResults = jobResults.length > 0 || clientResults.length > 0 || personResults.length > 0;
-            return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.25)", maxHeight: 380, overflow: "auto" }}>
-              {!hasResults && <div style={{ padding: "24px 16px", textAlign: "center", color: T.textDim, fontSize: 14 }}>No results for \"{searchQ}\"</div>}
-              {personResults.length > 0 && <div>
-                <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Members</div>
-                {personResults.slice(0, 5).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
-                  <span style={{ fontWeight: 500 }}>{p.name}</span>
-                  <span style={{ fontSize: 12, color: T.textDim }}>{p.department}</span>
-                </div>)}
-              </div>}
-              {clientResults.length > 0 && <div>
-                <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", borderTop: personResults.length > 0 ? `1px solid ${T.border}` : "none" }}>Clients</div>
-                {clientResults.slice(0, 5).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("clients"); setSelClient(c.id); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <div style={{ width: 8, height: 8, borderRadius: 4, background: c.color }} />
-                  <span style={{ fontWeight: 500 }}>{c.name}</span>
-                  {c.contact && <span style={{ fontSize: 12, color: T.textDim }}>{c.contact}</span>}
-                </div>)}
-              </div>}
-              {jobResults.length > 0 && <div>
-                <div style={{ padding: "8px 16px 4px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", borderTop: (personResults.length > 0 || clientResults.length > 0) ? `1px solid ${T.border}` : "none" }}>Jobs</div>
-                {jobResults.slice(0, 8).map(t => { const owner = people.find(p => p.id === (t.team || [])[0]); return <div key={t.id} onClick={() => { setSearchQ(""); setSearchOpen(false); openDetail(t); }} style={{ padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                  <HealthIcon t={t} size={10} />
-                  <span style={{ fontWeight: 500, flex: 1 }}>{t.title}</span>
-                  {owner && <span style={{ fontSize: 12, color: T.textDim }}>{owner.name}</span>}
-                  <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
-                </div>; })}
-              </div>}
-            </div>;
-          })()}
         </div>
-        <div ref={askBarRef} style={{ position: "relative", flexShrink: 0, width: askExpanded ? 240 : 110, transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
-          {!askExpanded
-            ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "4px 14px", borderRadius: 22, border: `1px solid ${T.accent}44`, background: `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.02em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}10)`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-                Ask TRAQS
-              </button>
-            : <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "4px 14px", borderRadius: 22, border: `1px solid ${T.accent}66`, background: T.bg, boxShadow: `0 0 0 2px ${T.accent}18` }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill={T.accent} style={{ flexShrink: 0 }}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-                <input ref={askBarInputRef} value={askBarQ} onChange={e => setAskBarQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && askBarQ.trim()) { const q = askBarQ.trim(); setAskBarQ(""); setAskExpanded(false); setAskHistory(h => [...h, { role: "user", content: q }]); setAskOpen(true); setAskLoading(true); handleAskTraqs(q); } if (e.key === "Escape") { setAskExpanded(false); setAskBarQ(""); } }} placeholder="Ask anything…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font, minWidth: 0 }} />
-                {askBarQ && <span onClick={() => setAskBarQ("")} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 4, background: T.border + "44", flexShrink: 0 }}>✕</span>}
-              </div>
-          }
-        </div>
-        </div>
-      </div>
+      )}
       <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Tip label="Click to save now"><div onClick={() => doSave()} style={{ marginRight: 2, display: "flex", alignItems: "center", gap: 4, cursor: "pointer", userSelect: "none", opacity: 0.85 }}>
