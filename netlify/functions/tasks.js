@@ -1,4 +1,4 @@
-import { validateToken } from "./_utils/auth.js";
+import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 
@@ -14,8 +14,11 @@ export async function handler(event) {
   const s3Key = getOrgKey(event, "tasks.json");
   if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
 
-  // GET — read tasks from S3 (no auth required for read)
+  // GET — read tasks from S3. Requires the caller to be a member of the
+  // org named in X-Org-Code; otherwise tasks (job titles, client refs,
+  // notes) would be readable by anyone who guessed the org code.
   if (event.httpMethod === "GET") {
+    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const data = await readJson(s3Key);
       return json(200, data ?? []);
@@ -25,13 +28,11 @@ export async function handler(event) {
     }
   }
 
-  // POST — write tasks to S3 (requires auth)
+  // POST — write tasks to S3. Requires org membership: without this, an
+  // authenticated user from org A could overwrite org B's tasks.json by
+  // sending X-Org-Code: ORGB along with their valid (but unrelated) JWT.
   if (event.httpMethod === "POST") {
-    try {
-      await validateToken(event);
-    } catch (e) {
-      return err(401, e.message);
-    }
+    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const tasks = JSON.parse(event.body);
       if (!Array.isArray(tasks)) return err(400, "Invalid tasks data");

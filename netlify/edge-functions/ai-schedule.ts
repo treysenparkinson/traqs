@@ -18,40 +18,111 @@ const AUTH0_DOMAIN = Netlify.env.get("AUTH0_DOMAIN");
 const AUTH0_AUDIENCE = Netlify.env.get("AUTH0_AUDIENCE");
 const ANTHROPIC_API_KEY = Netlify.env.get("ANTHROPIC_API_KEY");
 
+// Origin allowlist. ALLOWED_ORIGIN can be a single origin or a comma-separated
+// list (e.g. "https://traqs.matrixsystems.com,https://traqs.netlify.app").
+// Default matches the rest of the stack.
+const ALLOWED_ORIGINS = (Netlify.env.get("ALLOWED_ORIGIN") || "https://traqs.matrixsystems.com")
+  .split(",").map(s => s.trim()).filter(Boolean);
+
 let JWKS: ReturnType<typeof createRemoteJWKSet> | undefined;
 function getJWKS() {
   if (!JWKS) JWKS = createRemoteJWKSet(new URL(`https://${AUTH0_DOMAIN}/.well-known/jwks.json`));
   return JWKS;
 }
 
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Org-Code",
-};
-const jsonResp = (status: number, obj: unknown) => new Response(JSON.stringify(obj), {
+// Echo a request's Origin back if it's in the allowlist, otherwise echo the
+// first allowed origin. Native apps (iOS/Android) don't send Origin and don't
+// enforce CORS — they'll just ignore whatever we return — so this only
+// affects browsers.
+function corsHeadersFor(req: Request): Record<string, string> {
+  const origin = req.headers.get("origin") || "";
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
+  return {
+    "Access-Control-Allow-Origin": allowed,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Org-Code",
+    "Vary": "Origin",
+  };
+}
+
+const jsonResp = (req: Request, status: number, obj: unknown) => new Response(JSON.stringify(obj), {
   status,
-  headers: { "Content-Type": "application/json", ...CORS_HEADERS },
+  headers: { "Content-Type": "application/json", ...corsHeadersFor(req) },
 });
 
+// Per-user rate limit. Best-effort: edge function instances are stateless
+// across cold starts and don't share memory, so a determined attacker could
+// fan out across instances — but the wide majority of cost-abuse cases hit
+// a single warm instance hard, and Anthropic's own rate limits cap the rest.
+// Keyed by JWT `sub` so a single compromised token can't drain credits even
+// at the per-instance level.
+const RATE_LIMIT_MAX = 30;          // calls
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;  // per hour
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+function checkRate(sub: string): { ok: boolean; remaining: number; resetAt: number } {
+  const now = Date.now();
+  let bucket = rateBuckets.get(sub);
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
+    rateBuckets.set(sub, bucket);
+  }
+  bucket.count++;
+  if (rateBuckets.size > 5000) {
+    // Drop expired entries when the map grows. Cheap sweep over keys.
+    for (const [k, v] of rateBuckets) if (v.resetAt <= now) rateBuckets.delete(k);
+  }
+  return {
+    ok: bucket.count <= RATE_LIMIT_MAX,
+    remaining: Math.max(0, RATE_LIMIT_MAX - bucket.count),
+    resetAt: bucket.resetAt,
+  };
+}
+
 export default async (req: Request): Promise<Response> => {
+  const CORS_HEADERS = corsHeadersFor(req);
   if (req.method === "OPTIONS") return new Response("", { status: 204, headers: CORS_HEADERS });
-  if (req.method !== "POST") return jsonResp(405, { error: "Method not allowed" });
+  if (req.method !== "POST") return jsonResp(req, 405, { error: "Method not allowed" });
 
   // ── Auth ────────────────────────────────────────────────────────────────
   const authHeader = req.headers.get("authorization") || req.headers.get("Authorization") || "";
-  if (!authHeader.startsWith("Bearer ")) return jsonResp(401, { error: "Missing or malformed Authorization header" });
+  if (!authHeader.startsWith("Bearer ")) return jsonResp(req, 401, { error: "Missing or malformed Authorization header" });
+  let payload: { sub?: string } = {};
   try {
-    await jwtVerify(authHeader.slice(7), getJWKS(), { issuer: `https://${AUTH0_DOMAIN}/`, audience: AUTH0_AUDIENCE });
+    const v = await jwtVerify(authHeader.slice(7), getJWKS(), {
+      issuer: `https://${AUTH0_DOMAIN}/`,
+      audience: AUTH0_AUDIENCE,
+      algorithms: ["RS256"],
+    });
+    payload = v.payload as { sub?: string };
   } catch (e) {
-    return jsonResp(401, { error: (e as Error).message || "Token validation failed" });
+    return jsonResp(req, 401, { error: (e as Error).message || "Token validation failed" });
+  }
+
+  // ── Rate limit ──────────────────────────────────────────────────────────
+  const sub = payload.sub || "";
+  if (!sub) return jsonResp(req, 401, { error: "Token has no subject" });
+  const rate = checkRate(sub);
+  if (!rate.ok) {
+    return new Response(JSON.stringify({
+      error: `AI rate limit exceeded — try again after ${new Date(rate.resetAt).toLocaleTimeString()}.`,
+    }), {
+      status: 429,
+      headers: {
+        ...CORS_HEADERS,
+        "Content-Type": "application/json",
+        "Retry-After": String(Math.ceil((rate.resetAt - Date.now()) / 1000)),
+        "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+        "X-RateLimit-Remaining": "0",
+        "X-RateLimit-Reset": String(Math.floor(rate.resetAt / 1000)),
+      },
+    });
   }
 
   // ── Payload ─────────────────────────────────────────────────────────────
-  let payload: any;
-  try { payload = await req.json(); } catch { return jsonResp(400, { error: "Invalid JSON body" }); }
-  const { system, messages, max_tokens, tools, tool_choice } = payload;
-  if (!messages || !Array.isArray(messages)) return jsonResp(400, { error: "messages array is required" });
+  let payload2: any;
+  try { payload2 = await req.json(); } catch { return jsonResp(req, 400, { error: "Invalid JSON body" }); }
+  const { system, messages, max_tokens, tools, tool_choice } = payload2;
+  if (!messages || !Array.isArray(messages)) return jsonResp(req, 400, { error: "messages array is required" });
 
   // Cap output tokens. With the output-128k beta header below, Sonnet 4 supports up to 128K.
   // Real-world Fast TRAQS extractions of full Excel schedules often need >8K output tokens
@@ -82,13 +153,13 @@ export default async (req: Request): Promise<Response> => {
     });
   } catch (e) {
     console.error("ai-schedule edge proxy error:", e);
-    return jsonResp(502, { error: "Failed to reach Anthropic API" });
+    return jsonResp(req, 502, { error: "Failed to reach Anthropic API" });
   }
 
   if (!upstream.ok) {
     const text = await upstream.text();
     console.error("Anthropic API error:", upstream.status, text);
-    return jsonResp(upstream.status, { error: text || "Anthropic API error" });
+    return jsonResp(req, upstream.status, { error: text || "Anthropic API error" });
   }
 
   // ── Pipe the SSE body straight back to the client ──────────────────────
@@ -99,6 +170,9 @@ export default async (req: Request): Promise<Response> => {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
       "X-Accel-Buffering": "no",
+      "X-RateLimit-Limit": String(RATE_LIMIT_MAX),
+      "X-RateLimit-Remaining": String(rate.remaining),
+      "X-RateLimit-Reset": String(Math.floor(rate.resetAt / 1000)),
     },
   });
 };

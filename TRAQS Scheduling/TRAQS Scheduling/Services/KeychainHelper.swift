@@ -7,7 +7,11 @@ struct KeychainHelper {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
-            kSecValueData as String: data
+            kSecValueData as String: data,
+            // AfterFirstUnlock so background refresh tasks can still read
+            // the token; ThisDeviceOnly to keep auth material out of
+            // iCloud Keychain sync (no token portability across devices).
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
         SecItemDelete(query as CFDictionary)
         SecItemAdd(query as CFDictionary, nil)

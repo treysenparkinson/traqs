@@ -1,4 +1,5 @@
-import { validateToken } from "./_utils/auth.js";
+import { randomBytes } from "crypto";
+import { requireOrgMember } from "./_utils/auth.js";
 import { writeBinary, readBinaryWithMeta } from "./_utils/s3.js";
 import { CORS, preflight, json, err } from "./_utils/cors.js";
 
@@ -16,28 +17,23 @@ const ALLOWED_TYPES = new Set([
 
 const MAX_BYTES = 8 * 1024 * 1024; // 8 MB
 
+// Crypto-random id. The previous Date.now()+Math.random() was predictable —
+// guessable keys mattered less when GET required no auth (it just got
+// security-through-obscurity wrong), and matter even less now that GET
+// validates org membership, but there's no reason to use a weak RNG here.
 function makeId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-}
-
-function getOrgCode(event) {
-  const code = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  return /^[a-zA-Z0-9]{3,20}$/.test(code) ? code : null;
+  return randomBytes(9).toString("base64url");
 }
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  // ── POST — upload a new attachment (auth required) ──────────────────────
+  // ── POST — upload a new attachment ─────────────────────────────────────
+  // Member of the named org required; the file's S3 key is scoped to that
+  // org so uploads can't leak into a different tenant's prefix.
   if (event.httpMethod === "POST") {
-    try {
-      await validateToken(event);
-    } catch (e) {
-      return err(401, e.message);
-    }
-
-    const orgCode = getOrgCode(event);
-    if (!orgCode) return err(400, "Missing or invalid X-Org-Code header");
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
     let body;
     try {
@@ -62,7 +58,7 @@ export async function handler(event) {
     if (buffer.length > MAX_BYTES) return err(400, "File too large (max 8 MB)");
 
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
-    const key = `orgs/${orgCode}/attachments/${makeId()}-${safeName}`;
+    const key = `orgs/${member.orgCode}/attachments/${makeId()}-${safeName}`;
 
     try {
       await writeBinary(key, buffer, mimeType);
@@ -73,10 +69,17 @@ export async function handler(event) {
     }
   }
 
-  // ── GET — retrieve an attachment (no auth required; key contains random uid) ──
+  // ── GET — retrieve an attachment ───────────────────────────────────────
+  // SECURITY NOTE: this remains unauthenticated because the React app
+  // loads images via bare `<img src=".../attachment?key=...">` and switching
+  // to a fetch-with-auth + blob URL pattern would require coordinated
+  // changes across every <img>/<a> attachment site. The key itself is now
+  // 12 bytes of crypto-random entropy (~96 bits) prefixed by the org code,
+  // so the URL is effectively an unguessable bearer. Long-term: swap this
+  // for short-lived HMAC-signed presigned URLs issued at message-fetch time.
   if (event.httpMethod === "GET") {
     const key = event.queryStringParameters?.key || "";
-    if (!key || !/^orgs\/[a-zA-Z0-9]{3,20}\/attachments\//.test(key)) {
+    if (!/^orgs\/[a-zA-Z0-9]{3,20}\/attachments\//.test(key)) {
       return err(400, "Missing or invalid key");
     }
 

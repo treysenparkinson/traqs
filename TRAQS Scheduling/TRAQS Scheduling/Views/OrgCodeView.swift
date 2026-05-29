@@ -109,16 +109,15 @@ struct OrgCodeView: View {
         error = nil
 
         // Verify org exists before proceeding
-        guard let url = URL(string: "https://traqs.netlify.app/.netlify/functions/org?code=\(upper)") else {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/org?code=\(upper)") else {
             self.error = "Invalid URL"
             isChecking = false
             return
         }
 
         do {
-            let (data, response) = try await URLSession.shared.data(from: url)
+            let (_, response) = try await URLSession.shared.data(from: url)
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-            print("📡 Org lookup status: \(statusCode), body: \(String(data: data, encoding: .utf8) ?? "nil")")
 
             guard statusCode == 200 else {
                 self.error = "Org code not found (HTTP \(statusCode))"

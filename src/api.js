@@ -17,9 +17,19 @@ function orgHeader(orgCode) {
   return orgCode ? { "X-Org-Code": orgCode } : {};
 }
 
+// Build read-only headers (no Content-Type) for GETs that now require auth.
+// Backend gates these behind org membership, so a Bearer token is mandatory.
+async function authReadHeaders(getToken, orgCode) {
+  const token = await getToken();
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(orgCode ? { "X-Org-Code": orgCode } : {}),
+  };
+}
+
 // ─── Tasks ───────────────────────────────────────────────────────────────────
-export async function fetchTasks(orgCode) {
-  const res = await fetch(`${BASE}/tasks`, { headers: orgHeader(orgCode) });
+export async function fetchTasks(getToken, orgCode) {
+  const res = await fetch(`${BASE}/tasks`, { headers: await authReadHeaders(getToken, orgCode) });
   if (!res.ok) throw new Error(`fetchTasks failed: ${res.status}`);
   return res.json(); // returns [] if empty
 }
@@ -62,8 +72,8 @@ export async function savePeople(people, getToken, orgCode) {
 }
 
 // ─── Clients ─────────────────────────────────────────────────────────────────
-export async function fetchClients(orgCode) {
-  const res = await fetch(`${BASE}/clients`, { headers: orgHeader(orgCode) });
+export async function fetchClients(getToken, orgCode) {
+  const res = await fetch(`${BASE}/clients`, { headers: await authReadHeaders(getToken, orgCode) });
   if (!res.ok) throw new Error(`fetchClients failed: ${res.status}`);
   return res.json();
 }
@@ -80,8 +90,8 @@ export async function saveClients(clients, getToken, orgCode) {
 }
 
 // ─── Org Settings ────────────────────────────────────────────────────────────
-export async function fetchOrgSettings(orgCode) {
-  const res = await fetch(`${BASE}/settings`, { headers: orgHeader(orgCode) });
+export async function fetchOrgSettings(getToken, orgCode) {
+  const res = await fetch(`${BASE}/settings`, { headers: await authReadHeaders(getToken, orgCode) });
   if (!res.ok) throw new Error(`fetchOrgSettings failed: ${res.status}`);
   return res.json(); // returns {} if not found
 }
@@ -164,8 +174,8 @@ export async function createOrg(payload) {
 }
 
 // ─── Messages (job chat) ──────────────────────────────────────────────────────
-export async function fetchMessages(orgCode) {
-  const res = await fetch(`${BASE}/messages`, { headers: orgHeader(orgCode) });
+export async function fetchMessages(getToken, orgCode) {
+  const res = await fetch(`${BASE}/messages`, { headers: await authReadHeaders(getToken, orgCode) });
   if (!res.ok) throw new Error(`fetchMessages failed: ${res.status}`);
   return res.json();
 }
@@ -192,8 +202,8 @@ export async function postMessage(message, getToken, orgCode) {
 }
 
 // ─── Groups ───────────────────────────────────────────────────────────────────
-export async function fetchGroups(orgCode) {
-  const res = await fetch(`${BASE}/groups`, { headers: orgHeader(orgCode) });
+export async function fetchGroups(getToken, orgCode) {
+  const res = await fetch(`${BASE}/groups`, { headers: await authReadHeaders(getToken, orgCode) });
   if (!res.ok) throw new Error(`fetchGroups failed: ${res.status}`);
   return res.json();
 }
@@ -291,14 +301,10 @@ export async function callAI(payload, getToken) {
   let usage = null;
   let streamError = null;
 
-  let _evtCount = 0;
-  const _evtCounters = {};
   const handleEvent = (evt) => {
     if (!evt.data) return;
     let data;
     try { data = JSON.parse(evt.data); } catch { return; }
-    _evtCount++;
-    _evtCounters[data.type] = (_evtCounters[data.type] || 0) + 1;
     switch (data.type) {
       case "content_block_start": {
         const idx = data.index;
@@ -373,20 +379,11 @@ export async function callAI(payload, getToken) {
     }
   };
 
-  const _streamStartTs = Date.now();
-  let _chunkCount = 0;
-  let _byteCount = 0;
-  let _firstByteTs = null;
-  let _lastByteTs = null;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       resetIdle();
-      _chunkCount++;
-      _byteCount += value?.length || 0;
-      if (_firstByteTs == null) _firstByteTs = Date.now();
-      _lastByteTs = Date.now();
       buffer += decoder.decode(value, { stream: true });
       flushBuffer();
     }
@@ -400,13 +397,6 @@ export async function callAI(payload, getToken) {
     if (e.name === "AbortError") throw new Error("Connection idle for 45 seconds — the AI may have stalled. Try again or simplify the input.");
     throw e;
   }
-  console.log("[callAI] stream timing", {
-    chunks: _chunkCount,
-    bytes: _byteCount,
-    msToFirstByte: _firstByteTs ? _firstByteTs - _streamStartTs : null,
-    msToLastByte: _lastByteTs ? _lastByteTs - _streamStartTs : null,
-    streamDurationMs: _firstByteTs && _lastByteTs ? _lastByteTs - _firstByteTs : null,
-  });
   clearTimeout(inactivityTimer);
 
   if (streamError) throw new Error(streamError);
@@ -419,14 +409,11 @@ export async function callAI(payload, getToken) {
     if (b && b.type === "tool_use" && (!b.input || Object.keys(b.input || {}).length === 0)) {
       const raw = partialJson[idx];
       if (raw && raw.trim()) {
-        try { b.input = JSON.parse(raw); console.warn("[callAI] recovered partial tool_use from premature stream end"); }
-        catch (e) { console.warn("[callAI] partial tool_use JSON unparseable on fallback:", e.message, "len:", raw.length); }
+        try { b.input = JSON.parse(raw); }
+        catch { /* unrecoverable — leave input empty */ }
       }
     }
   }
-
-  // Diagnostic: log event counts so we can see whether the stream was truncated.
-  console.log("[callAI] stream done — events seen:", _evtCounters, "stop_reason:", stopReason);
 
   // Return the same shape the non-streaming response had so callers don't need to change.
   return {
@@ -441,9 +428,15 @@ export async function uploadAndProcess(payload, getToken) {
   return callAI(payload, getToken);
 }
 
-// ─── Timeclock (PIN-auth, no Bearer token required) ───────────────────────────
-export const fetchTimeclock = (orgCode) =>
-  fetch(`${BASE}/timeclock`, { headers: orgCode ? { "X-Org-Code": orgCode } : {} }).then(r => r.json());
+// ─── Timeclock (PIN-auth for kiosk writes; Bearer required for reads now) ────
+// GET now requires org membership — non-admins see only their own entries,
+// admins see the full org log. The kiosk POST flows below are PIN-based
+// (no Bearer) and still work as a separate auth path.
+export const fetchTimeclock = async (getToken, orgCode) => {
+  const res = await fetch(`${BASE}/timeclock`, { headers: await authReadHeaders(getToken, orgCode) });
+  if (!res.ok) throw new Error(`fetchTimeclock failed: ${res.status}`);
+  return res.json();
+};
 
 export const clockInAction = (payload, orgCode) =>
   fetch(`${BASE}/timeclock`, {

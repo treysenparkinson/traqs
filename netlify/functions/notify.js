@@ -1,12 +1,6 @@
-import { validateToken } from "./_utils/auth.js";
+import { requireOrgMember } from "./_utils/auth.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-
-function getOrgKey(event, file) {
-  const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!orgCode || !/^[a-zA-Z0-9]{3,20}$/.test(orgCode)) return null;
-  return `orgs/${orgCode}/${file}`;
-}
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -16,14 +10,13 @@ export async function handler(event) {
   const apiKey = process.env.ONESIGNAL_API_KEY;
   if (!appId || !apiKey) return err(500, "OneSignal not configured");
 
-  // Auth check
-  const authHeader = event.headers?.authorization || event.headers?.Authorization || "";
-  const token = authHeader.replace("Bearer ", "").trim();
-  if (!token) return err(401, "Unauthorized");
-  try { await validateToken(token); } catch { return err(401, "Invalid token"); }
+  // Membership required: previously any authenticated user could send a
+  // push notification scoped to any org code, so an attacker could spam
+  // pushes into a target org's devices.
+  let member;
+  try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
-  const s3Key = getOrgKey(event, "people.json");
-  if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
+  const s3Key = `orgs/${member.orgCode}/people.json`;
 
   let body;
   try { body = JSON.parse(event.body || "{}"); } catch { return err(400, "Invalid JSON"); }

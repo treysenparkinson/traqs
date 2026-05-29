@@ -56,6 +56,14 @@ export async function handler(event) {
     return json(200, { ok: true });
   }
 
+  // Escape every interpolated org field — these come from createOrg input
+  // and could otherwise smuggle HTML/JS into the email body. The code is
+  // already constrained by the [a-zA-Z0-9]{3,20} regex, but the name is
+  // free-form, so escaping is the right baseline.
+  const esc = (s) => String(s ?? "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+
   const orgList = matches
     .map((m) => `  • ${m.name}  —  Code: ${m.code}`)
     .join("\n");
@@ -75,7 +83,7 @@ If you did not request this, you can safely ignore this email.
   const bodyHtml = `<p>Hello,</p>
 <p>You requested your TRAQS organization code. Here ${matches.length === 1 ? "it is" : "are your codes"}:</p>
 <table cellpadding="12" style="border-collapse:collapse;margin:16px 0;">
-${matches.map((m) => `<tr><td style="font-weight:600;">${m.name}</td><td style="font-family:monospace;font-size:16px;background:#f1f5f9;padding:8px 16px;border-radius:6px;">${m.code}</td></tr>`).join("")}
+${matches.map((m) => `<tr><td style="font-weight:600;">${esc(m.name)}</td><td style="font-family:monospace;font-size:16px;background:#f1f5f9;padding:8px 16px;border-radius:6px;">${esc(m.code)}</td></tr>`).join("")}
 </table>
 <p>Enter this code on the TRAQS login screen to access your organization.</p>
 <p style="color:#94a3b8;font-size:12px;">If you did not request this, you can safely ignore this email.</p>`;

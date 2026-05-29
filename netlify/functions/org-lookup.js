@@ -2,13 +2,14 @@ import { readJson, listOrgCodes } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { validateToken } from "./_utils/auth.js";
 
-// Resolve which organization(s) an email belongs to. Used by the mobile app
-// right after Auth0 login so users don't have to type an org code by hand.
+// Resolve which organization(s) the AUTHENTICATED user belongs to. Used by
+// the mobile app right after Auth0 login so users don't have to type an
+// org code by hand.
 //
-// Auth: requires a valid Auth0 bearer token. We don't read email from the
-// token (Auth0 access tokens don't carry email by default); the client passes
-// it as a query param after fetching /userinfo. The token requirement is
-// purely to keep this endpoint from being a free org-enumeration tool.
+// Auth: requires a valid Auth0 bearer token. The email is derived from the
+// token (via /userinfo since Auth0 access tokens for custom APIs don't
+// include the email claim by default). The query param is ignored — an
+// authenticated user can only look up THEIR OWN orgs, not someone else's.
 //
 // Returns: { matches: [{ code, name, domain, adminEmail }, ...] }
 //   0 matches → 200 with empty array (so mobile can show "no org" UI)
@@ -18,10 +19,27 @@ export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
   if (event.httpMethod !== "GET") return err(405, "Method not allowed");
 
-  try { await validateToken(event); } catch (e) { return err(401, e.message); }
+  let payload;
+  try { payload = await validateToken(event); } catch (e) { return err(401, e.message); }
 
-  const email = (event.queryStringParameters?.email || "").trim().toLowerCase();
-  if (!email || !email.includes("@")) return err(400, "Valid email required");
+  // Derive the email from the validated token, not from caller input.
+  // Previously this trusted the email query param, which let an
+  // authenticated user enumerate which orgs ANY email belonged to.
+  let email = (payload.email || payload["https://traqs.matrixsystems.com/email"] || "").toLowerCase().trim();
+  if (!email) {
+    const authHeader = event.headers?.authorization || event.headers?.Authorization || "";
+    const domain = process.env.AUTH0_DOMAIN;
+    if (authHeader && domain) {
+      try {
+        const res = await fetch(`https://${domain}/userinfo`, { headers: { Authorization: authHeader } });
+        if (res.ok) {
+          const body = await res.json();
+          email = String(body?.email || "").toLowerCase().trim();
+        }
+      } catch {}
+    }
+  }
+  if (!email || !email.includes("@")) return err(401, "Could not resolve user email from token");
   const emailDomain = email.split("@")[1];
 
   let codes;

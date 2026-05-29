@@ -1,4 +1,4 @@
-import { validateToken } from "./_utils/auth.js";
+import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 
@@ -14,6 +14,10 @@ export async function handler(event) {
   const s3Key = getOrgKey(event, "people.json");
   if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
 
+  // GET stays open: the kiosk team-select screen needs the roster BEFORE the
+  // user signs in with Auth0, so we can't gate it behind a Bearer token. We
+  // continue to strip PINs; everything else returned here is what an
+  // employee sees on the kiosk wall anyway (name, color, role, status).
   if (event.httpMethod === "GET") {
     try {
       const data = await readJson(s3Key);
@@ -26,41 +30,27 @@ export async function handler(event) {
   }
 
   if (event.httpMethod === "POST") {
-    let tokenPayload;
-    try {
-      tokenPayload = await validateToken(event);
-    } catch (e) {
-      return err(401, e.message);
-    }
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const incoming = JSON.parse(event.body);
       if (!Array.isArray(incoming)) return err(400, "Invalid people data");
       if (incoming.length === 0) return err(400, "Refusing to overwrite people with empty array");
 
-      // Check for userRole changes — only admins may change them
+      // Check for userRole changes — only admins may change them.
       const existing = (await readJson(s3Key)) ?? [];
       const existingMap = new Map(existing.map(p => [p.id, p]));
       const hasRoleChange = incoming.some(p => {
         const old = existingMap.get(p.id);
-        // New person being added as admin, or existing person's role changing
+        // New person being added as admin, or existing person's role changing.
         return old ? old.userRole !== p.userRole : p.userRole === "admin";
       });
 
-      if (hasRoleChange) {
-        // Identify the requester by email claim (Auth0 may include this as a standard or custom claim)
-        const requesterEmail = (
-          tokenPayload.email ||
-          tokenPayload["https://traqs.matrixsystems.com/email"] ||
-          ""
-        ).toLowerCase();
-        if (!requesterEmail) return err(403, "Cannot verify requester identity — role change denied");
-        const requesterIsAdmin = existing.some(
-          p => p.userRole === "admin" && p.email?.toLowerCase() === requesterEmail
-        );
-        if (!requesterIsAdmin) return err(403, "Only admins can change user roles");
+      if (hasRoleChange && !member.isAdmin) {
+        return err(403, "Only admins can change user roles");
       }
 
-      // Preserve existing PINs for records that don't supply a new one
+      // Preserve existing PINs for records that don't supply a new one.
       const merged = incoming.map(p => {
         const stored = existingMap.get(p.id);
         if (stored?.pin && !p.pin) return { ...p, pin: stored.pin };
@@ -80,12 +70,8 @@ export async function handler(event) {
   // people array and clobber concurrent server-side mutations like
   // jobClockIn that touch one field of one person.
   if (event.httpMethod === "PATCH") {
-    let tokenPayload;
-    try {
-      tokenPayload = await validateToken(event);
-    } catch (e) {
-      return err(401, e.message);
-    }
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const body = JSON.parse(event.body);
       const { personId, fields } = body ?? {};
@@ -102,18 +88,17 @@ export async function handler(event) {
       const idx = existing.findIndex(p => String(p.id) === String(personId));
       if (idx === -1) return err(404, "Person not found");
 
-      // userRole changes still require admin even via PATCH.
+      // Non-admins may only patch THEIR OWN row (push token, profile color,
+      // etc.). Admins can patch anyone. Without this gate, any authenticated
+      // org member could overwrite a colleague's pushToken or department.
+      const targetIsSelf = member.personId && String(member.personId) === String(personId);
+      if (!member.isAdmin && !targetIsSelf) {
+        return err(403, "Can only modify your own profile");
+      }
+
+      // Role changes still require admin even via PATCH.
       if ("userRole" in allowedFields && allowedFields.userRole !== existing[idx].userRole) {
-        const requesterEmail = (
-          tokenPayload.email ||
-          tokenPayload["https://traqs.matrixsystems.com/email"] ||
-          ""
-        ).toLowerCase();
-        if (!requesterEmail) return err(403, "Cannot verify requester identity — role change denied");
-        const requesterIsAdmin = existing.some(
-          p => p.userRole === "admin" && p.email?.toLowerCase() === requesterEmail
-        );
-        if (!requesterIsAdmin) return err(403, "Only admins can change user roles");
+        if (!member.isAdmin) return err(403, "Only admins can change user roles");
       }
 
       existing[idx] = { ...existing[idx], ...allowedFields };

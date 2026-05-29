@@ -1,4 +1,4 @@
-import { validateToken } from "./_utils/auth.js";
+import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 
@@ -14,8 +14,10 @@ export async function handler(event) {
   const s3Key = getOrgKey(event);
   if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
 
-  // GET — return all groups (no auth required)
+  // GET — return groups for the named org (membership required, since
+  // group names + member ids implicitly reveal the team structure).
   if (event.httpMethod === "GET") {
+    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       return json(200, (await readJson(s3Key)) ?? []);
     } catch (e) {
@@ -24,9 +26,9 @@ export async function handler(event) {
     }
   }
 
-  // POST — save full groups array (auth required)
+  // POST — save full groups array (member of the named org required).
   if (event.httpMethod === "POST") {
-    try { await validateToken(event); } catch (e) { return err(401, e.message); }
+    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     let body;
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
     if (!Array.isArray(body)) return err(400, "Body must be an array");

@@ -1,4 +1,4 @@
-import { validateToken } from "./_utils/auth.js";
+import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 
@@ -14,8 +14,11 @@ export async function handler(event) {
   const s3Key = getOrgKey(event);
   if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
 
-  // GET — read org settings (no auth required)
+  // GET — read org settings. Requires membership: settings include
+  // workday hours, break policy, payroll cadence — operational PII that
+  // shouldn't be readable by anyone who guesses the org code.
   if (event.httpMethod === "GET") {
+    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const data = await readJson(s3Key);
       return json(200, data ?? {});
@@ -25,15 +28,14 @@ export async function handler(event) {
     }
   }
 
-  // POST — write org settings (requires auth)
+  // POST — write org settings (member of the named org required).
   if (event.httpMethod === "POST") {
-    try {
-      await validateToken(event);
-    } catch (e) {
-      return err(401, e.message);
-    }
+    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const settings = JSON.parse(event.body);
+      if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+        return err(400, "Body must be an object");
+      }
       await writeJson(s3Key, settings);
       return json(200, { ok: true });
     } catch (e) {

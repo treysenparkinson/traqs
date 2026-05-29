@@ -13,3 +13,24 @@
   from = "/api/*"
   to = "/.netlify/functions/:splat"
   status = 200
+
+# ── Security headers ─────────────────────────────────────────────────────────
+# Applied to every response Netlify serves from the SPA build. Keep them
+# permissive enough not to break the existing toolchain (DM Sans from Google
+# Fonts, Auth0 / Anthropic / OneSignal / S3 API calls, blob: URLs for the
+# Excel exporter).
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), payment=()"
+    # CSP allows: self-hosted scripts, inline styles (React style props),
+    # Google Fonts CSS, fonts.gstatic.com fonts, blob:/data: for image
+    # previews and Excel downloads, Auth0/Anthropic/OneSignal API calls
+    # over HTTPS. 'unsafe-inline' is required for the inline style attrs
+    # the app uses heavily; we tighten further when the inline styles are
+    # extracted to a stylesheet.
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.auth0.com https://api.anthropic.com https://onesignal.com https://*.s3.amazonaws.com https://*.amazonaws.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"

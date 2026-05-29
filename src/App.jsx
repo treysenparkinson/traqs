@@ -948,11 +948,11 @@ function AuthGate() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // After Auth0 returns: validate selected person, domain, and roster
+  // After Auth0 returns: validate the selected person matches the logged-in
+  // email, then check the email domain matches the org's configured domain.
+  // These two checks need no server round-trip.
   useEffect(() => {
     if (!isAuthenticated || !user || !orgConfig) return;
-
-    // If a specific person was selected, the logged-in email must match
     const saved = selectedPerson || (() => {
       try { return JSON.parse(sessionStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
     })();
@@ -960,27 +960,59 @@ function AuthGate() {
       setStep("wrong-user");
       return;
     }
-
     const emailDomain = user.email?.split("@")[1]?.toLowerCase();
     if (emailDomain !== orgConfig.domain?.toLowerCase()) {
       setStep("domain-error");
-      return;
     }
+  }, [isAuthenticated, user, orgConfig?.domain, selectedPerson]);
 
+  // Authenticated server check: who is this user vis-à-vis this org? The
+  // /org-config endpoint requires `requireOrgMember`, so a 200 here means
+  // either we're in the roster or our email equals the org's adminEmail —
+  // the server knows; the client doesn't have to compare emails locally.
+  // Runs once per (isAuthenticated, orgCode) pair to avoid hitting the
+  // endpoint on every teamPeople poll.
+  useEffect(() => {
+    if (!isAuthenticated || !orgCode) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getAccessTokenSilently();
+        const res = await fetch(`/.netlify/functions/org-config`, {
+          headers: { Authorization: `Bearer ${token}`, "X-Org-Code": orgCode },
+        });
+        if (cancelled) return;
+        if (res.status === 403 || res.status === 404) {
+          setStep("not-in-team");
+          return;
+        }
+        if (!res.ok) return;
+        const fullConfig = await res.json();
+        setOrgConfig(prev => ({ ...(prev || {}), ...fullConfig }));
+      } catch {
+        // Network or Auth0 hiccup — leave the user where they are; downstream
+        // API calls will surface a clearer error if it's persistent.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, orgCode, getAccessTokenSilently]);
+
+  // Roster membership re-check: triggers whenever the team roster refreshes
+  // (kiosk poll, post-login fetch, admin adds someone). Uses the server-set
+  // `isAdmin` flag from /org-config — falls back to true while we wait for
+  // that fetch so we don't briefly flash "not in team" right after login.
+  useEffect(() => {
+    if (!isAuthenticated || !user || !orgConfig) return;
     const roster = teamPeople.length > 0 ? teamPeople : (() => {
       try { return JSON.parse(sessionStorage.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
     })();
-
-    const inRoster = roster.find(p => p.email?.toLowerCase() === user.email?.toLowerCase());
-    // Support single adminEmail + adminEmails array; also allow through if roster is empty (bootstrap/recovery)
-    const adminEmailList = [
-      orgConfig.adminEmail,
-      ...(orgConfig.adminEmails || []),
-    ].filter(Boolean).map(e => e.toLowerCase());
-    const isOrgAdmin = adminEmailList.includes(user.email?.toLowerCase());
+    const inRoster = roster.some(p => p.email?.toLowerCase() === user.email?.toLowerCase());
     const rosterIsEmpty = roster.length === 0;
-
-    if (!inRoster && !isOrgAdmin && !rosterIsEmpty) {
+    // `isAdmin` is set by /org-config; while it's undefined we treat the
+    // user as potentially-admin so the UI doesn't flicker.
+    const isAdminUnknownYet = !("isAdmin" in (orgConfig || {}));
+    const isAdmin = orgConfig.isAdmin === true || isAdminUnknownYet;
+    if (!inRoster && !isAdmin && !rosterIsEmpty) {
       setStep("not-in-team");
     }
   }, [isAuthenticated, user, orgConfig, teamPeople]);

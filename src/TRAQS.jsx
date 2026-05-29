@@ -1285,10 +1285,6 @@ Extraction rules:
         setUploadProcessing(false); return;
       }
 
-      // Diagnostic logging — open dev tools console to see what Claude received vs. returned.
-      console.log("[FastTRAQS] User content blocks:", userContent.map(b => b.type === "text" ? { type: "text", textLen: b.text.length, preview: b.text.slice(0, 400) } : { type: b.type, mediaType: b.source?.media_type, dataLen: b.source?.data?.length }));
-      console.log("[FastTRAQS] System prompt length:", systemPrompt.length);
-
       let aiRes;
       try {
         aiRes = await callAI({
@@ -1301,14 +1297,11 @@ Extraction rules:
           tool_choice: { type: "tool", name: "submit_extraction" },
         }, getToken);
       } catch (e) {
-        console.error("Fast TRAQS AI call failed:", e);
         setUploadResult({ success: false, message: e.message || "AI request failed. Try again or simplify the input." });
         setUploadProcessing(false); return;
       }
 
-      console.log("[FastTRAQS] AI response:", aiRes);
       const extraction = findToolUse(aiRes, "submit_extraction");
-      console.log("[FastTRAQS] Extracted:", extraction);
       if (!extraction) {
         setUploadResult({ success: false, message: "AI did not return structured data. Try simplifying or splitting the input." });
         setUploadProcessing(false); return;
@@ -1679,12 +1672,6 @@ Extraction rules:
   // after initial load (which uses _setTasks directly and bypasses the wrapped setter).
   useEffect(() => { latestTasksRef.current = tasks; }, [tasks]);
   useEffect(() => { latestPeopleRef.current = people; }, [people]);
-  useEffect(() => {
-    console.log("=== TASKS UPDATED ===", tasks.flatMap(t =>
-      [t, ...(t.subs || []).flatMap(s => [s, ...(s.subs || [])])]
-    ).filter(item => ['t22isapb4', 'ttq9o7pyl', 't76tc6gah'].includes(item.id))
-    .map(item => ({ id: item.id, start: item.start, end: item.end })));
-  }, [tasks]);
 
   // Global undo/redo history
   const undoStack = useRef([]);
@@ -2333,7 +2320,7 @@ Extraction rules:
   useEffect(() => {
     if (!isAdmin) return;
     const iv = setInterval(() => {
-      fetchTimeclock(orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
+      fetchTimeclock(getToken, orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
     }, 60000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2393,8 +2380,8 @@ Extraction rules:
 
   // Load all data from S3 on mount; fall back to seed data if S3 is empty
   useEffect(() => {
-    fetchTimeclock(orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
-    Promise.all([fetchTasks(orgCode), fetchPeople(orgCode), fetchClients(orgCode)])
+    fetchTimeclock(getToken, orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
+    Promise.all([fetchTasks(getToken, orgCode), fetchPeople(orgCode), fetchClients(getToken, orgCode)])
       .then(([t, p, c]) => {
         _setTasks(normalizeTasks(Array.isArray(t) && t.length > 0 ? t : mkTasks()));
         const resolvedPeople = normalizePeople(Array.isArray(p) && p.length > 0 ? p : mkPeople());
@@ -2406,11 +2393,6 @@ Extraction rules:
             person => person.email && person.email.toLowerCase() === auth0User.email.toLowerCase()
           );
           const resolvedUser = match || resolvedPeople[0] || null;
-          console.log("=== CLOCK STATUS LOAD ===", {
-            currentUserId: resolvedUser?.id,
-            clockData: resolvedUser?.activeClockIn,
-            isClocked: !!resolvedUser?.activeClockIn?.clockIn,
-          });
           setLoggedInUser(resolvedUser);
         } else {
           setLoggedInUser(resolvedPeople[0] || null);
@@ -2432,7 +2414,7 @@ Extraction rules:
   const skipNextOrgSave = useRef(false);
   useEffect(() => {
     if (!orgCode) return;
-    fetchOrgSettings(orgCode)
+    fetchOrgSettings(getToken, orgCode)
       .then(server => {
         if (!server || Object.keys(server).length === 0) return;
         skipNextOrgSave.current = true;
@@ -2510,13 +2492,13 @@ Extraction rules:
   // Load messages + groups on mount
   useEffect(() => {
     if (!orgCode) return;
-    fetchMessages(orgCode).then(setMessages).catch(() => {});
-    fetchGroups(orgCode).then(setGroups).catch(() => {});
+    fetchMessages(getToken, orgCode).then(setMessages).catch(() => {});
+    fetchGroups(getToken, orgCode).then(setGroups).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (view !== "messages" || !orgCode) return;
-    const id = setInterval(() => fetchMessages(orgCode).then(setMessages).catch(() => {}), 15000);
+    const id = setInterval(() => fetchMessages(getToken, orgCode).then(setMessages).catch(() => {}), 15000);
     return () => clearInterval(id);
   }, [view, orgCode]);
 
@@ -2528,9 +2510,9 @@ Extraction rules:
       if (saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved") return;
       try {
         const [newTasks, newPeople, newClients] = await Promise.all([
-          fetchTasks(orgCode),
+          fetchTasks(getToken, orgCode),
           fetchPeople(orgCode),
-          fetchClients(orgCode),
+          fetchClients(getToken, orgCode),
         ]);
         pollUpdateRef.current = true;
         setTasks(prev => {
@@ -9641,7 +9623,7 @@ ${jobsCtx || "No jobs found."}`;
                       const hrs = computeHours(e.clockIn, e.clockOut);
                       return (
                         <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, flexWrap: "wrap" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0, flexWrap: "wrap", gap: 8 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
                             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                               <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>In</span>
                               <input
@@ -11381,8 +11363,11 @@ ${jobsCtx || "No jobs found."}`;
                 setOrgCodeError("");
                 try {
                   const config = await fetchOrgConfig(newCode);
-                  localStorage.setItem("tq_org_code", newCode);
-                  localStorage.setItem("tq_org_config", JSON.stringify(config));
+                  // sessionStorage to match App.jsx — see LS_CODE/LS_CONFIG
+                  // there. Writing to localStorage left stale data behind
+                  // that App.jsx never read.
+                  sessionStorage.setItem("tq_org_code", newCode);
+                  sessionStorage.setItem("tq_org_config", JSON.stringify(config));
                   window.location.reload();
                 } catch (e) {
                   setOrgCodeError(e.message || "Org code not found");
@@ -12882,7 +12867,6 @@ ${jobsCtx || "No jobs found."}`;
                       updated.start=earliestStart;
                       updated.end=latestEnd;
                       updated.scheduledLater=false;
-                      console.log("=== BC JOB SCHEDULED ===", { id: updated.id, scheduledLater: updated.scheduledLater, start: updated.start, end: updated.end });
                       return updated;
                     });
                     setAiSuggestion(null);
@@ -13515,7 +13499,7 @@ ${jobsCtx || "No jobs found."}`;
                 {orgNameError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgNameError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                  <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(localStorage.getItem("tq_org_config") || "null") || {}; localStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
+                  <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {}; sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
                 </div>
               </div>}
             </div>
@@ -13534,7 +13518,7 @@ ${jobsCtx || "No jobs found."}`;
                 {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgCodeError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                  <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); localStorage.setItem("tq_org_code", newCode); localStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
+                  <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
                 </div>
               </div>}
             </div>
@@ -15433,7 +15417,6 @@ ${jobsCtx || "No jobs found."}`;
       {/* Delete */}
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => {
-        console.log("=== DELETE FIRED ===", { taskId: it.id, title: it.title, source: ctxMenu.source, level: it.level, isSub: it.isSub, pid: it.pid, grandPid: it.grandPid });
         setCtxMenu(null);
         let deleteTarget = { id: it.id, title: it.title, pid: null };
         if (ctxMenu.source === "team") {
@@ -15446,7 +15429,6 @@ ${jobsCtx || "No jobs found."}`;
         } else {
           deleteTarget.pid = it.isSub ? it.pid : null;
         }
-        console.log("=== DELETE TARGET RESOLVED ===", deleteTarget);
         setConfirmDelete(deleteTarget);
       }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: `toolDrop 0.14s ${ci() * 38}ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
@@ -16249,7 +16231,6 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Edit Job modal — simple field update, no wizard */}
     <FadeOnClose open={!!editJobModal} duration={220}>{editJobModal && (() => {
-      console.log("=== EDIT JOB MODAL STATE ===", editJobModal);
       const ej = editJobModal;
       const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
       const saveEditJob = () => {

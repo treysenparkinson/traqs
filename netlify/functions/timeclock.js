@@ -1,4 +1,4 @@
-import { validateToken } from "./_utils/auth.js";
+import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 
@@ -49,14 +49,23 @@ export async function handler(event) {
   const tasksKey = `orgs/${orgCode}/tasks.json`;
 
   // ── GET ──────────────────────────────────────────────────────────────────
+  // Payroll-grade PII. Membership required, AND non-admins can only see
+  // their own entries — admins see the whole org's history. Without this,
+  // anyone guessing the org code could pull every employee's full
+  // clock-in/out log.
   if (event.httpMethod === "GET") {
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const data = await readJson(clockKey);
       const entries = Array.isArray(data) ? data : [];
       const { personId } = Object.fromEntries(
         (event.queryStringParameters ? Object.entries(event.queryStringParameters) : [])
       );
-      const filtered = personId ? entries.filter(e => e.personId === personId) : entries;
+      // Admin: optional personId filter. Non-admin: force-filter to self,
+      // regardless of what `personId` they asked for.
+      const scopeId = member.isAdmin ? personId : member.personId;
+      const filtered = scopeId ? entries.filter(e => String(e.personId) === String(scopeId)) : entries;
       return json(200, filtered);
     } catch (e) {
       console.error("timeclock GET error:", e);
@@ -74,7 +83,9 @@ export async function handler(event) {
 
     // ── Admin actions (Bearer token, no PIN) ──────────────────────────────
     if (action === "adminClockOut" || action === "adminClockIn" || action === "adminEditEntry") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      let _m;
+      try { _m = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      if (!_m.isAdmin) return err(403, "Admin only");
 
       // ── Admin Clock In ─────────────────────────────────────────────────
       if (action === "adminClockIn") {
@@ -177,7 +188,9 @@ export async function handler(event) {
 
     // ── Admin Lunch/Break Events (Bearer token, no PIN) ──────────────────────
     if (action === "adminLunchStart" || action === "adminLunchEnd" || action === "adminBreakStart" || action === "adminBreakEnd") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      let _ml;
+      try { _ml = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      if (!_ml.isAdmin) return err(403, "Admin only");
       const { personId: albPersonId, ts: albTs } = body;
       if (!albPersonId) return err(400, "Missing personId");
 
@@ -220,10 +233,13 @@ export async function handler(event) {
 
     // ── Job Clock In (Bearer token, no PIN) ──────────────────────────────────
     if (action === "jobClockIn") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      let _jc;
+      try { _jc = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
       const { personId: jciPersonId, jobId, panelId, opId, jobTitle, panelTitle, opTitle } = body;
       if (!jciPersonId || !jobId) return err(400, "Missing personId or jobId");
+      // Non-admins can only clock themselves into jobs; admins can clock anyone.
+      if (!_jc.isAdmin && String(_jc.personId) !== String(jciPersonId)) return err(403, "Can only clock yourself in");
 
       let jciPeople;
       try { jciPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -264,10 +280,12 @@ export async function handler(event) {
 
     // ── Job Clock Out (Bearer token, no PIN) ──────────────────────────────────
     if (action === "jobClockOut") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      let _jco;
+      try { _jco = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
       const { personId: jcoPId } = body;
       if (!jcoPId) return err(400, "Missing personId");
+      if (!_jco.isAdmin && String(_jco.personId) !== String(jcoPId)) return err(403, "Can only clock yourself out");
 
       let jcoPeople;
       try { jcoPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -313,10 +331,12 @@ export async function handler(event) {
 
     // ── Job Pause (Bearer token, no PIN) ──────────────────────────────────────
     if (action === "jobPause") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      let _jp;
+      try { _jp = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
       const { personId: jpPId } = body;
       if (!jpPId) return err(400, "Missing personId");
+      if (!_jp.isAdmin && String(_jp.personId) !== String(jpPId)) return err(403, "Can only pause your own clock");
 
       let jpPeople;
       try { jpPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -337,10 +357,12 @@ export async function handler(event) {
 
     // ── Job Resume (Bearer token, no PIN) ─────────────────────────────────────
     if (action === "jobResume") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      let _jr;
+      try { _jr = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
       const { personId: jrPId } = body;
       if (!jrPId) return err(400, "Missing personId");
+      if (!_jr.isAdmin && String(_jr.personId) !== String(jrPId)) return err(403, "Can only resume your own clock");
 
       let jrPeople;
       try { jrPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -369,10 +391,12 @@ export async function handler(event) {
     // is logged to timeclock.json for payroll. Distinct from the PIN-based
     // "breakStart"/"breakEnd" kiosk actions below.
     if (action === "breakBegin") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      let _bb;
+      try { _bb = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
       const { personId: bbPId, durationMinutes: bbDur } = body;
       if (!bbPId) return err(400, "Missing personId");
+      if (!_bb.isAdmin && String(_bb.personId) !== String(bbPId)) return err(403, "Can only start your own break");
 
       let bbPeople;
       try { bbPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -395,10 +419,12 @@ export async function handler(event) {
 
     // ── Break Clear (Bearer token, no PIN) — ends the lightweight break ───────
     if (action === "breakClear") {
-      try { await validateToken(event); } catch (e) { return err(401, e.message); }
+      let _bc;
+      try { _bc = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
       const { personId: bcPId } = body;
       if (!bcPId) return err(400, "Missing personId");
+      if (!_bc.isAdmin && String(_bc.personId) !== String(bcPId)) return err(403, "Can only end your own break");
 
       let bcPeople;
       try { bcPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }

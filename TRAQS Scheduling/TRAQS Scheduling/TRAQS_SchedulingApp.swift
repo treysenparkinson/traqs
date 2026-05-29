@@ -11,8 +11,9 @@ struct TRAQS_SchedulingApp: App {
 
     init() {
         OneSignal.initialize("41fd1ecb-1bcb-432f-8e0b-2192801d96f4", withLaunchOptions: nil)
-        OneSignal.Notifications.requestPermission({ accepted in
-            print("OneSignal permission: \(accepted)")
+        OneSignal.Notifications.requestPermission({ _ in
+            // No-op — the system permission UI is the user-facing signal;
+            // we don't need to log the boolean outcome.
         }, fallbackToSettings: false)
     }
 
