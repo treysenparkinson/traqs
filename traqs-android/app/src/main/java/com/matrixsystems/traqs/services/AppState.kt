@@ -3,18 +3,22 @@ package com.matrixsystems.traqs.services
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.matrixsystems.traqs.models.ActiveBreak
+import com.matrixsystems.traqs.models.ActiveJobClock
 import com.matrixsystems.traqs.models.Client
 import com.matrixsystems.traqs.models.ChatGroup
 import com.matrixsystems.traqs.models.EngStep
 import com.matrixsystems.traqs.models.Engineering
 import com.matrixsystems.traqs.models.EngineeringSignOff
 import com.matrixsystems.traqs.models.Message
+import com.matrixsystems.traqs.models.OrgSettings
 import com.matrixsystems.traqs.models.Panel
 import com.matrixsystems.traqs.models.Person
 import com.matrixsystems.traqs.models.NotifyPayload
 import com.matrixsystems.traqs.models.TRAQSJob
 import com.google.gson.Gson
 import com.matrixsystems.traqs.models.ClockEntry
+import com.matrixsystems.traqs.models.TimeclockEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -39,6 +43,35 @@ sealed class SaveStatus {
     data class Error(val message: String) : SaveStatus()
 }
 
+// Parse a wide variety of ISO8601 timestamps the server emits:
+//   2024-01-15T08:30:00Z
+//   2024-01-15T08:30:00.123Z
+//   2024-01-15T08:30:00      (assume UTC)
+//   2024-01-15T08:30:00-05:00
+// Returns epoch millis (UTC), or null if unparseable.
+fun parseFlexibleISO(s: String?): Long? {
+    if (s.isNullOrEmpty()) return null
+    val patterns = listOf(
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+        "yyyy-MM-dd'T'HH:mm:ssXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS",
+        "yyyy-MM-dd'T'HH:mm:ss",
+    )
+    for (p in patterns) {
+        try {
+            val f = SimpleDateFormat(p, Locale.US)
+            // Patterns ending with literal 'Z' or no zone → treat as UTC.
+            if (p.endsWith("'Z'") || !p.contains("XXX")) {
+                f.timeZone = TimeZone.getTimeZone("UTC")
+            }
+            return f.parse(s)?.time
+        } catch (_: Exception) { /* try next */ }
+    }
+    return null
+}
+
 class AppState(private val context: Context) : ViewModel() {
 
     // MARK: - Core Data
@@ -59,6 +92,25 @@ class AppState(private val context: Context) : ViewModel() {
 
     private val _timeclock = MutableStateFlow<List<ClockEntry>>(emptyList())
     val timeclock: StateFlow<List<ClockEntry>> = _timeclock.asStateFlow()
+
+    // Org-level settings (hpd, workDays, pay period, breaks). Synced from
+    // the web; defaults until first fetch.
+    private val _orgSettings = MutableStateFlow(OrgSettings.DEFAULT)
+    val orgSettings: StateFlow<OrgSettings> = _orgSettings.asStateFlow()
+
+    // Historical timeclock entries (per-person, lifetime). Loaded on demand —
+    // potentially large, so views call refreshTimeclock() when they need it.
+    private val _timeclockEntries = MutableStateFlow<List<TimeclockEntry>>(emptyList())
+    val timeclockEntries: StateFlow<List<TimeclockEntry>> = _timeclockEntries.asStateFlow()
+
+    // Surfaced clock-related error (job clock failures, etc.).
+    private val _clockError = MutableStateFlow<String?>(null)
+    val clockError: StateFlow<String?> = _clockError.asStateFlow()
+
+    // Timestamp of the last optimistic activeJobClock/activeBreak mutation.
+    // loadAll() uses this to preserve the local value while the server's
+    // eventual-consistency catches up (mirrors iOS clockChangeAt grace window).
+    private var clockChangeAt: Long = 0L
 
     // MARK: - Unread messages
     private val msgPrefs = context.getSharedPreferences("traqs_msg_prefs", Context.MODE_PRIVATE)
@@ -132,17 +184,55 @@ class AppState(private val context: Context) : ViewModel() {
                 val c = async { currentApi.fetchClients() }
                 val m = async { currentApi.fetchMessages() }
                 val g = async { currentApi.fetchGroups() }
+                val s = async { runCatching { currentApi.fetchOrgSettings() }.getOrNull() }
                 _jobs.value = j.await()
-                _people.value = p.await()
+                // Capture optimistic clock state BEFORE overwriting people so a
+                // fresh fetch can't blank out a clock change the user just made.
+                // 12s grace window matches iOS clockChangeAt.
+                val snap: Triple<Int, ActiveJobClock?, ActiveBreak?>? = run {
+                    val pid = currentPersonId ?: return@run null
+                    if (System.currentTimeMillis() - clockChangeAt >= 12_000) return@run null
+                    val cur = _people.value.firstOrNull { it.id == pid } ?: return@run null
+                    Triple(pid, cur.activeJobClock, cur.activeBreak)
+                }
+                val freshPeople = p.await()
+                _people.value = if (snap != null) {
+                    freshPeople.map { person ->
+                        if (person.id == snap.first) person.copy(
+                            activeJobClock = snap.second,
+                            activeBreak = snap.third
+                        ) else person
+                    }
+                } else freshPeople
                 _clients.value = c.await()
                 _messages.value = m.await()
                 _unreadCount.value = maxOf(0, _messages.value.size - msgPrefs.getInt("last_seen_msg_count", 0))
                 _groups.value = g.await()
+                s.await()?.let { _orgSettings.value = it }
                 autoMatchPerson()
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
             _isLoading.value = false
+        }
+    }
+
+    suspend fun refreshOrgSettings() {
+        runCatching { api?.fetchOrgSettings() }.getOrNull()?.let { _orgSettings.value = it }
+    }
+
+    /// Refresh JUST the jobs list — used after a job clock mutation so we
+    /// don't clobber the optimistic activeJobClock on the current person.
+    private suspend fun refreshJobsQuietly() {
+        val fresh = runCatching { api?.fetchJobs() }.getOrNull() ?: return
+        if (fresh.isNotEmpty() || _jobs.value.isEmpty()) _jobs.value = fresh
+    }
+
+    fun refreshTimeclock(personId: Int? = null) {
+        viewModelScope.launch {
+            runCatching { api?.fetchTimeclock(personId) }.getOrNull()?.let {
+                _timeclockEntries.value = it
+            }
         }
     }
 
@@ -386,6 +476,186 @@ class AppState(private val context: Context) : ViewModel() {
                 _timeclock.value = entries
             } catch (_: Exception) {}
         }
+    }
+
+    // MARK: - Job Clock (Bearer-only, no PIN; uses currentPersonId)
+
+    val myActiveJobClock: ActiveJobClock? get() = currentPerson?.activeJobClock
+    val myActiveBreak: ActiveBreak? get() = currentPerson?.activeBreak
+    val isOnBreak: Boolean get() = myActiveBreak != null
+
+    private fun setLocalPersonMutation(personId: Int, mutate: (Person) -> Person) {
+        val list = _people.value
+        val idx = list.indexOfFirst { it.id == personId }
+        if (idx < 0) return
+        val updated = list.toMutableList()
+        updated[idx] = mutate(list[idx])
+        _people.value = updated
+        clockChangeAt = System.currentTimeMillis()
+    }
+
+    fun jobClockIn(
+        jobId: String, panelId: String? = null, opId: String? = null,
+        jobTitle: String? = null, panelTitle: String? = null, opTitle: String? = null
+    ) {
+        val currentApi = api ?: return
+        val personId = currentPersonId ?: return
+        viewModelScope.launch {
+            try {
+                currentApi.jobClockIn(personId, jobId, panelId, opId, jobTitle, panelTitle, opTitle)
+                val optimistic = ActiveJobClock(
+                    clockIn = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+                        .apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date()),
+                    jobId = jobId, panelId = panelId, opId = opId,
+                    jobTitle = jobTitle, panelTitle = panelTitle, opTitle = opTitle
+                )
+                setLocalPersonMutation(personId) { it.copy(activeJobClock = optimistic) }
+                refreshJobsQuietly()
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (msg.contains("409")) {
+                    loadAll()  // already clocked in server-side — sync
+                } else {
+                    _clockError.value = "Failed to start: $msg"
+                }
+            }
+        }
+    }
+
+    /// Synchronous local clear — flips the UI from STOP back to LOG TIME
+    /// instantly while the network call is in flight.
+    fun markJobClockedOutLocally() {
+        val personId = currentPersonId ?: return
+        setLocalPersonMutation(personId) { it.copy(activeJobClock = null) }
+    }
+
+    fun jobClockOut() {
+        val currentApi = api ?: return
+        val personId = currentPersonId ?: return
+        viewModelScope.launch {
+            try {
+                currentApi.jobClockOut(personId)
+                markJobClockedOutLocally()
+                refreshJobsQuietly()
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (msg.contains("409")) {
+                    markJobClockedOutLocally()  // server says already out — align
+                    refreshJobsQuietly()
+                } else {
+                    _clockError.value = msg
+                }
+            }
+        }
+    }
+
+    fun clearClockError() { _clockError.value = null }
+
+    // MARK: - Break (lightweight status; job clock keeps running)
+
+    fun startBreak(onScheduleReminder: (Int) -> Unit = {}) {
+        val currentApi = api ?: return
+        val personId = currentPersonId ?: return
+        val minutes = _orgSettings.value.breaks.firstOrNull()?.durationMinutes ?: 15
+        val optimistic = ActiveBreak(
+            startedAt = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+                .apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date()),
+            durationMinutes = minutes
+        )
+        setLocalPersonMutation(personId) { it.copy(activeBreak = optimistic) }
+        onScheduleReminder(minutes)
+        viewModelScope.launch {
+            try {
+                currentApi.breakBegin(personId, minutes)
+                refreshJobsQuietly()
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (!msg.contains("409")) {
+                    setLocalPersonMutation(personId) { it.copy(activeBreak = null) }
+                    _clockError.value = msg
+                } else {
+                    refreshJobsQuietly()  // already on break server-side
+                }
+            }
+        }
+    }
+
+    fun endBreak(onCancelReminder: () -> Unit = {}) {
+        val currentApi = api ?: return
+        val personId = currentPersonId ?: return
+        val previous = myActiveBreak
+        setLocalPersonMutation(personId) { it.copy(activeBreak = null) }
+        onCancelReminder()
+        viewModelScope.launch {
+            try {
+                currentApi.breakEnd(personId)
+                refreshJobsQuietly()
+            } catch (e: Exception) {
+                val msg = e.message ?: ""
+                if (!msg.contains("409")) {
+                    setLocalPersonMutation(personId) { it.copy(activeBreak = previous) }
+                    _clockError.value = msg
+                } else {
+                    refreshJobsQuietly()  // already cleared server-side
+                }
+            }
+        }
+    }
+
+    // MARK: - Hours-weighted progress (mirrors iOS opHoursPair / opPct / panelPct / jobPct)
+
+    /// (logged, est) for a single op. Logged is capped at est so an op can't
+    /// push aggregate progress past 100%. Adds live elapsed time for whoever
+    /// is currently clocked into the op so the bar creeps between polls.
+    fun opHoursPair(op: com.matrixsystems.traqs.models.Operation): Pair<Double, Double> {
+        val est = maxOf(0.0001, if (op.hpd > 0) op.hpd else _orgSettings.value.hpd)
+        if (op.status == com.matrixsystems.traqs.models.JobStatus.FINISHED) return est to est
+        if (op.pendingFinish == true) return (est * 0.99) to est
+        val base = op.loggedHours ?: 0.0
+        var live = 0.0
+        val activeP = _people.value.firstOrNull {
+            it.activeJobClock?.opId == op.id && !it.activeJobClock?.clockIn.isNullOrEmpty()
+        }
+        val jc = activeP?.activeJobClock
+        if (jc != null) {
+            val started = parseFlexibleISO(jc.clockIn)
+            if (started != null) {
+                val elapsedH = (System.currentTimeMillis() - started) / 3_600_000.0
+                val pausedH = (jc.totalPausedMs ?: 0.0) / 3_600_000.0
+                live = maxOf(0.0, elapsedH - pausedH)
+            }
+        }
+        return minOf(est, base + live) to est
+    }
+
+    fun opPct(op: com.matrixsystems.traqs.models.Operation): Int {
+        if (op.status == com.matrixsystems.traqs.models.JobStatus.FINISHED) return 100
+        if (op.pendingFinish == true) return 99
+        val (logged, est) = opHoursPair(op)
+        if (logged == 0.0) return when (op.status) {
+            com.matrixsystems.traqs.models.JobStatus.IN_PROGRESS -> 5
+            com.matrixsystems.traqs.models.JobStatus.ON_HOLD -> 2
+            else -> 0
+        }
+        return minOf(98, ((logged / est) * 100).toInt())
+    }
+
+    fun panelPct(panel: Panel): Int {
+        val ops = panel.subs
+        if (ops.isEmpty()) return if (panel.status == com.matrixsystems.traqs.models.JobStatus.FINISHED) 100 else 0
+        var logged = 0.0; var est = 0.0
+        ops.forEach { val (l, e) = opHoursPair(it); logged += l; est += e }
+        if (est == 0.0) return 0
+        return minOf(100, ((logged / est) * 100).toInt())
+    }
+
+    fun jobPct(job: TRAQSJob): Int {
+        val ops = job.subs.flatMap { it.subs }
+        if (ops.isEmpty()) return if (job.status == com.matrixsystems.traqs.models.JobStatus.FINISHED) 100 else 0
+        var logged = 0.0; var est = 0.0
+        ops.forEach { val (l, e) = opHoursPair(it); logged += l; est += e }
+        if (est == 0.0) return 0
+        return minOf(100, ((logged / est) * 100).toInt())
     }
 
     suspend fun timeclockPost(body: Map<String, Any>): Map<String, Any> {

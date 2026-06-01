@@ -77,7 +77,9 @@ data class Operation(
     val deps: List<String> = emptyList(),
     val locked: Boolean? = null,
     val moveLog: List<MoveLogEntry>? = null,
-    val pid: String? = null
+    val pid: String? = null,
+    val pendingFinish: Boolean? = null,
+    val loggedHours: Double? = null
 )
 
 // MARK: - Panel (Level 1)
@@ -117,7 +119,9 @@ data class TRAQSJob(
     val deps: List<String> = emptyList(),
     val subs: List<Panel> = emptyList(),
     val moveLog: List<MoveLogEntry>? = null,
-    val jobType: String? = null
+    val jobType: String? = null,
+    val loggedHours: Double? = null,
+    val projectManagerId: String? = null
 ) {
     val displayNumber: String get() = jobNumber?.let { "#$it" } ?: ""
 }
@@ -133,6 +137,45 @@ data class JobRef(
 data class ActiveClockIn(
     val clockIn: String = "",
     val jobRefs: List<JobRef> = emptyList()
+)
+
+// Single in-progress job per person — separate from the payroll clock.
+// Set by the job-card "Log Time" / "Stop" buttons; bearer-auth, no PIN.
+data class ActiveJobClock(
+    val clockIn: String = "",
+    val jobId: String = "",
+    val panelId: String? = null,
+    val opId: String? = null,
+    val jobTitle: String? = null,
+    val panelTitle: String? = null,
+    val opTitle: String? = null,
+    val pausedAt: String? = null,
+    val totalPausedMs: Double? = null
+) {
+    val isPaused: Boolean get() = pausedAt != null
+}
+
+// Lightweight on-break status. Job clock keeps running.
+// durationMinutes is a snapshot of the configured break length used for
+// the reminder and "time left" display — the break does NOT auto-end.
+data class ActiveBreak(
+    val startedAt: String = "",
+    val durationMinutes: Int = 15
+)
+
+// Historical timeclock entry — read from timeclock.json. Some rows are
+// punch-in/out pairs; others (with eventType set) are lunch/break markers.
+data class TimeclockEntry(
+    val id: String = "",
+    val personId: String = "",
+    val date: String? = null,
+    val clockIn: String? = null,
+    val clockOut: String? = null,
+    val hours: Double? = null,
+    val jobRefs: List<JobRef>? = null,
+    val note: String? = null,
+    val eventType: String? = null,
+    val timestamp: String? = null
 )
 
 data class ClockEntry(
@@ -186,6 +229,8 @@ data class Person(
     val timeOff: List<TimeOffEntry> = emptyList(),
     val pushToken: String? = null,
     val activeClockIn: ActiveClockIn? = null,
+    val activeJobClock: ActiveJobClock? = null,
+    val activeBreak: ActiveBreak? = null,
     val pin: String? = null
 ) {
     val isAdmin: Boolean get() = userRole == "admin"
@@ -250,6 +295,39 @@ data class NotifyPayload(
     val newTeamIds: List<Int> = emptyList(),
     val clientName: String? = null
 )
+
+// MARK: - Org Settings
+// Mirrors the web's orgSettings shape (orgs/{code}/settings.json).
+
+data class OrgBreak(
+    val time: String = "12:00",
+    val durationMinutes: Int = 30
+)
+
+data class OrgSettings(
+    val hpd: Double = 8.0,
+    val workStart: String = "07:00",
+    val workEnd: String = "15:00",
+    val workDays: List<Int> = listOf(1, 2, 3, 4, 5),
+    val holidays: List<String> = emptyList(),
+    val roles: List<String> = emptyList(),
+    val approvalQueueLabel: String = "Approval Queue",
+    val approvalSteps: List<String> = listOf("Review", "Approve", "Release"),
+    val approverLabel: String = "Approver",
+    val payDates: List<Int> = listOf(5, 20),
+    val payMode: String = "setdate",
+    val payAnchor: String? = null,
+    val trackLunch: Boolean = false,
+    val trackBreaks: Boolean = false,
+    val payPeriodType: String = "biweekly",
+    val payPeriodStart: String? = null,
+    val breaks: List<OrgBreak> = listOf(OrgBreak("10:00", 15)),
+    val lunch: OrgBreak = OrgBreak("12:00", 30)
+) {
+    companion object {
+        val DEFAULT = OrgSettings()
+    }
+}
 
 // MARK: - Org Info
 

@@ -40,6 +40,9 @@ interface TRAQSApi {
     @POST("people")
     suspend fun savePeople(@Body people: List<Person>)
 
+    @PATCH("people")
+    suspend fun patchPerson(@Body body: Map<String, @JvmSuppressWildcards Any>)
+
     @GET("clients")
     suspend fun fetchClients(): List<Client>
 
@@ -66,6 +69,18 @@ interface TRAQSApi {
 
     @POST("ai-schedule")
     suspend fun askAI(@Body request: AIRequest): AIResponse
+
+    @GET("settings")
+    suspend fun fetchOrgSettings(): OrgSettings
+
+    @POST("settings")
+    suspend fun saveOrgSettings(@Body settings: OrgSettings)
+
+    @GET("timeclock")
+    suspend fun fetchTimeclock(@Query("personId") personId: String? = null): List<TimeclockEntry>
+
+    @POST("timeclock")
+    suspend fun timeclockAction(@Body body: Map<String, @JvmSuppressWildcards Any>)
 }
 
 class ApiService(private val token: String, private val orgCode: String) {
@@ -113,6 +128,55 @@ class ApiService(private val token: String, private val orgCode: String) {
         )
         val response = api.askAI(request)
         return response.content.mapNotNull { it.text }.joinToString("")
+    }
+
+    // MARK: - Org Settings
+    suspend fun fetchOrgSettings(): OrgSettings = api.fetchOrgSettings()
+
+    // MARK: - Timeclock history
+    suspend fun fetchTimeclock(personId: Int? = null): List<TimeclockEntry> =
+        api.fetchTimeclock(personId?.toString())
+
+    // MARK: - Person PATCH (granular field updates — avoids savePeople race)
+    suspend fun patchPerson(personId: Int, fields: Map<String, Any>) {
+        api.patchPerson(mapOf("personId" to personId, "fields" to fields))
+    }
+
+    // MARK: - Job Clock (Bearer-only, no PIN — uses currentPersonId)
+    suspend fun jobClockIn(
+        personId: Int, jobId: String,
+        panelId: String? = null, opId: String? = null,
+        jobTitle: String? = null, panelTitle: String? = null, opTitle: String? = null
+    ) {
+        val body = linkedMapOf<String, Any>(
+            "action" to "jobClockIn",
+            "personId" to personId,
+            "jobId" to jobId
+        )
+        panelId?.let { body["panelId"] = it }
+        opId?.let { body["opId"] = it }
+        jobTitle?.let { body["jobTitle"] = it }
+        panelTitle?.let { body["panelTitle"] = it }
+        opTitle?.let { body["opTitle"] = it }
+        api.timeclockAction(body)
+    }
+
+    suspend fun jobClockOut(personId: Int) {
+        api.timeclockAction(mapOf("action" to "jobClockOut", "personId" to personId))
+    }
+
+    // MARK: - Break (Bearer-only, lightweight status — job clock keeps running)
+    suspend fun breakBegin(personId: Int, durationMinutes: Int) {
+        api.timeclockAction(mapOf(
+            "action" to "breakBegin",
+            "personId" to personId,
+            "durationMinutes" to durationMinutes
+        ))
+    }
+
+    suspend fun breakEnd(personId: Int) {
+        // Server action is "breakClear" — distinct from the PIN-kiosk "breakEnd".
+        api.timeclockAction(mapOf("action" to "breakClear", "personId" to personId))
     }
 
     companion object {

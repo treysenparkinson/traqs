@@ -1,15 +1,20 @@
 package com.matrixsystems.traqs.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,6 +33,10 @@ import com.matrixsystems.traqs.ui.theme.parseColor
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
 
+enum class ChatFilter(val label: String) {
+    ALL("All"), UNREAD("Unread"), DMS("DMs"), GROUPS("Groups"), MENTIONS("Mentions")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MessagesScreen(
@@ -38,11 +47,15 @@ fun MessagesScreen(
     val c = traQSColors
     val messages by appState.messages.collectAsState()
     val jobs by appState.jobs.collectAsState()
+    val people by appState.people.collectAsState()
+    val groups by appState.groups.collectAsState()
     val isLoading by appState.isLoading.collectAsState()
+    val currentPersonId = appState.currentPersonId
     var isManualRefreshing by remember { mutableStateOf(false) }
     LaunchedEffect(isLoading) { if (!isLoading) isManualRefreshing = false }
     var selectedThreadKey by remember { mutableStateOf<String?>(null) }
     var showDeleteFor by remember { mutableStateOf<String?>(null) }
+    var filter by remember { mutableStateOf(ChatFilter.ALL) }
 
     // Mark read when thread list is shown
     LaunchedEffect(selectedThreadKey) {
@@ -50,10 +63,35 @@ fun MessagesScreen(
     }
 
     // Group messages by threadKey
-    val threads = remember(messages) {
-        messages.groupBy { it.threadKey }
+    val threads = remember(messages, filter) {
+        val all = messages.groupBy { it.threadKey }
             .entries
             .sortedByDescending { it.value.maxOf { m -> m.timestamp } }
+        when (filter) {
+            ChatFilter.ALL -> all
+            ChatFilter.UNREAD -> all  // No per-thread read state yet — pass-through
+            ChatFilter.DMS -> all.filter { it.key.startsWith("dm:") }
+            ChatFilter.GROUPS -> all.filter { it.key.startsWith("group:") }
+            ChatFilter.MENTIONS -> emptyList()  // No mention metadata yet
+        }
+    }
+
+    fun displayTitle(key: String, lastMsg: Message?): String {
+        return when {
+            key.startsWith("dm:") -> {
+                val ids = key.removePrefix("dm:").split("_").mapNotNull { it.toIntOrNull() }
+                val otherId = ids.firstOrNull { it != currentPersonId } ?: ids.firstOrNull()
+                people.firstOrNull { it.id == otherId }?.name ?: "Direct Message"
+            }
+            key.startsWith("group:") -> {
+                val ref = key.removePrefix("group:")
+                groups.firstOrNull { it.name == ref || it.id == ref }?.name ?: ref
+            }
+            key.startsWith("job:") -> jobs.firstOrNull { it.id == lastMsg?.jobId }?.title ?: "Job: ${key.removePrefix("job:")}"
+            key.startsWith("panel:") -> "Panel: ${key.removePrefix("panel:")}"
+            key.startsWith("op:") -> "Op: ${key.removePrefix("op:")}"
+            else -> key
+        }
     }
 
     showDeleteFor?.let { threadKey ->
@@ -92,7 +130,12 @@ fun MessagesScreen(
     } else {
         Scaffold(
             containerColor = c.bg,
-            topBar = { TRAQSHeader() }
+            topBar = {
+                TRAQSHeader {
+                    TRAQSIconBtn(icon = Icons.Default.Search, contentDescription = "Search") { /* search inline below */ }
+                    TRAQSIconBtn(icon = Icons.Default.Add, contentDescription = "New conversation", iconColor = c.accent) { /* TODO: new DM/group */ }
+                }
+            }
         ) { padding ->
             PullToRefreshBox(
                 isRefreshing = isManualRefreshing,
@@ -100,26 +143,22 @@ fun MessagesScreen(
                 modifier = Modifier.fillMaxSize().padding(padding)
             ) {
             if (threads.isEmpty()) {
-                Column(Modifier.fillMaxSize()) {
-                    PageActionBar(title = "Messages", onAskTRAQS = onAskTRAQS)
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("No messages yet", color = c.muted)
-                    }
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No messages yet", color = c.muted)
                 }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize().background(c.bg),
-                    contentPadding = PaddingValues(bottom = 16.dp),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    item { PageActionBar(title = "Messages", onAskTRAQS = onAskTRAQS) }
+                    item { ChatFilterPills(selected = filter, onSelect = { filter = it }) }
                     items(threads, key = { it.key }) { (threadKey, msgs) ->
                         val lastMsg = msgs.maxByOrNull { it.timestamp }
-                        val jobTitle = jobs.firstOrNull { it.id == lastMsg?.jobId }?.title
                         ThreadRow(
                             threadKey = threadKey,
+                            displayTitle = displayTitle(threadKey, lastMsg),
                             lastMessage = lastMsg,
-                            jobTitle = jobTitle,
                             unreadCount = msgs.size,
                             onClick = { selectedThreadKey = threadKey },
                             onLongClick = { showDeleteFor = threadKey }
@@ -132,12 +171,42 @@ fun MessagesScreen(
     }
 }
 
+@Composable
+private fun ChatFilterPills(selected: ChatFilter, onSelect: (ChatFilter) -> Unit) {
+    val c = traQSColors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        ChatFilter.entries.forEach { f ->
+            val on = selected == f
+            Surface(
+                onClick = { onSelect(f) },
+                shape = RoundedCornerShape(20.dp),
+                color = if (on) c.accent else c.surface,
+                border = BorderStroke(1.dp, if (on) c.accent else c.border)
+            ) {
+                Text(
+                    f.label,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (on) Color.White else c.text,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                )
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ThreadRow(
     threadKey: String,
+    displayTitle: String,
     lastMessage: Message?,
-    jobTitle: String?,
     unreadCount: Int,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
@@ -146,29 +215,36 @@ fun ThreadRow(
     val authorColor = lastMessage?.authorColor?.let { try { parseColor(it) } catch (_: Exception) { c.accent } } ?: c.accent
 
     Card(
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = c.card),
-        border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+        border = BorderStroke(1.dp, c.border)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Avatar — initials of the resolved title for DMs, # tile for groups, hash for job/panel/op
+            val initials = displayTitle.split(" ").take(2)
+                .map { it.firstOrNull()?.uppercaseChar()?.toString() ?: "" }
+                .joinToString("")
             Box(
                 modifier = Modifier.size(40.dp).clip(CircleShape).background(authorColor),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    (lastMessage?.authorName?.take(1) ?: "?").uppercase(),
-                    fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp
+                    initials.ifEmpty { "#" },
+                    fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    jobTitle ?: threadKey,
-                    fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = c.text, maxLines = 1
+                    displayTitle,
+                    fontWeight = FontWeight.Bold, fontSize = 14.sp, color = c.text, maxLines = 1
                 )
                 lastMessage?.let {
                     Text(
@@ -178,8 +254,17 @@ fun ThreadRow(
                     )
                 }
             }
-            Text("$unreadCount", fontSize = 11.sp, color = c.accent,
-                modifier = Modifier.background(c.accent.copy(alpha = 0.15f), CircleShape).padding(horizontal = 8.dp, vertical = 4.dp))
+            if (unreadCount > 0) {
+                Text(
+                    "$unreadCount",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    modifier = Modifier
+                        .background(c.accent, CircleShape)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
         }
     }
 }

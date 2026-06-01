@@ -34,6 +34,8 @@ sealed class Screen(val route: String) {
     object Team : Screen("team")
     object Gantt : Screen("gantt")
     object Clients : Screen("clients")
+    object Settings : Screen("settings")
+    object Admin : Screen("admin")
 }
 
 @Composable
@@ -179,6 +181,20 @@ fun TRAQSNavGraph(
                 navController = navController,
                 onAskTRAQS = { navController.navigate(Screen.AskTRAQS.route) }
             )
+        }
+
+        composable(Screen.Settings.route) {
+            SettingsScreen(
+                appState = appState,
+                authManager = authManager,
+                navController = navController,
+                activity = activity,
+                onDismiss = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Admin.route) {
+            AdminScreen(appState = appState, onBack = { navController.popBackStack() })
         }
     }
 }

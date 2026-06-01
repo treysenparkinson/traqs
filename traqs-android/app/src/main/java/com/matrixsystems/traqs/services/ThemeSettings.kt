@@ -6,6 +6,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+// MARK: - Background Presets
+// Mirrors iOS ThemeSettings.swift exactly: 4 neutral backgrounds, default
+// is preset 100 ("White") — LIGHT canonical theme matching the wireframes.
+
 data class BgPreset(
     val id: Int,
     val name: String,
@@ -21,22 +25,29 @@ data class BgPreset(
 class ThemeSettings(private val context: Context) : ViewModel() {
 
     companion object {
+        // Accent presets — same order/colors as iOS ThemeSettings.accentPresets.
         val ACCENT_PRESETS = listOf(
-            "#3d7fff", "#7c3aed", "#10b981", "#f59e0b",
-            "#f43f5e", "#ec4899", "#06b6d4", "#8b5cf6"
+            "#3B82F6", // Sky (default) — TRAQS Light
+            "#7c3aed", // Purple
+            "#10b981", // Green
+            "#f59e0b", // Amber
+            "#f43f5e", // Red
+            "#FF1FB4", // Magenta
+            "#06b6d4", // Cyan
+            "#8b5cf6", // Violet
         )
 
+        // Background presets — exactly 4 neutrals, same IDs as iOS so any
+        // saved server-side accent/bg setting interoperates.
         val BG_PRESETS = listOf(
-            BgPreset(0, "Midnight", "#080d18", "#0d1424", "#111c30", "#1a2a45", "#e6ecf8", "#64748b", false),
-            BgPreset(1, "Navy",     "#060c1c", "#0b1228", "#0f1934", "#182748", "#e6ecf8", "#64748b", false),
-            BgPreset(2, "Charcoal", "#0a0a0a", "#141414", "#1c1c1c", "#2a2a2a", "#e8e8e8", "#6b7280", false),
-            BgPreset(3, "Slate",    "#0d1117", "#161b22", "#1c2128", "#30363d", "#e6edf3", "#8b949e", false),
-            BgPreset(4, "Forest",   "#070f09", "#0c1a0e", "#111f14", "#1a2e1c", "#e6f0e8", "#6b8f72", false),
-            BgPreset(5, "Frost",    "#ffffff", "#f8fafc", "#f1f5f9", "#e2e8f0", "#0f172a", "#64748b", true),
-            BgPreset(6, "Pearl",    "#fafaf9", "#f5f5f4", "#e7e5e4", "#d6d3d1", "#1c1917", "#78716c", true),
-            BgPreset(7, "Silver",   "#f8f9fa", "#f1f3f5", "#e9ecef", "#dee2e6", "#212529", "#6c757d", true),
-            BgPreset(8, "Linen",    "#faf7f2", "#f5f0e8", "#ede8df", "#d9d0c5", "#1a1510", "#7a6e62", true),
+            BgPreset(100, "White",    "#F4F6FA", "#FFFFFF", "#FFFFFF", "#E6E8EE", "#0B0B0C", "#6E6E73", true),
+            BgPreset(10,  "Grey",     "#E5E7EB", "#F3F4F6", "#FFFFFF", "#D1D5DB", "#111827", "#6B7280", true),
+            BgPreset(11,  "Charcoal", "#1F1F1F", "#2A2A2A", "#333333", "#3F3F3F", "#E8E8E8", "#9CA3AF", false),
+            BgPreset(12,  "Black",    "#000000", "#0A0A0A", "#141414", "#1F1F1F", "#F5F5F5", "#6B7280", false),
         )
+
+        const val DEFAULT_BG_PRESET_ID = 100
+        const val DEFAULT_ACCENT = "#3B82F6"
 
         private const val PREFS_NAME = "traqs_theme_prefs"
         private const val KEY_ACCENT = "accent"
@@ -45,10 +56,16 @@ class ThemeSettings(private val context: Context) : ViewModel() {
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private val _accent = MutableStateFlow(prefs.getString(KEY_ACCENT, "#3d7fff") ?: "#3d7fff")
+    private val _accent = MutableStateFlow(prefs.getString(KEY_ACCENT, DEFAULT_ACCENT) ?: DEFAULT_ACCENT)
     val accent: StateFlow<String> = _accent.asStateFlow()
 
-    private val _bgPresetId = MutableStateFlow(prefs.getInt(KEY_BG_PRESET, 0))
+    // If a saved id isn't one of the 4 current presets, fall back to White.
+    // Mirrors iOS migration of older preset ids.
+    private val _bgPresetId = MutableStateFlow(
+        prefs.getInt(KEY_BG_PRESET, DEFAULT_BG_PRESET_ID).let { saved ->
+            if (BG_PRESETS.any { it.id == saved }) saved else DEFAULT_BG_PRESET_ID
+        }
+    )
     val bgPresetId: StateFlow<Int> = _bgPresetId.asStateFlow()
 
     val currentBgPreset: BgPreset get() = BG_PRESETS.firstOrNull { it.id == _bgPresetId.value } ?: BG_PRESETS[0]
@@ -66,7 +83,7 @@ class ThemeSettings(private val context: Context) : ViewModel() {
     }
 
     fun reset() {
-        setAccent("#3d7fff")
-        setBgPreset(0)
+        setAccent(DEFAULT_ACCENT)
+        setBgPreset(DEFAULT_BG_PRESET_ID)
     }
 }

@@ -1,6 +1,5 @@
 package com.matrixsystems.traqs.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.Color
@@ -12,6 +11,7 @@ import com.matrixsystems.traqs.R
 import com.matrixsystems.traqs.services.BgPreset
 import com.matrixsystems.traqs.services.ThemeSettings
 
+// DM Sans typography — matches iOS TFontName entries (Regular/Medium/SemiBold/Bold/ExtraBold).
 private val fontProvider = GoogleFont.Provider(
     providerAuthority = "com.google.android.gms.fonts",
     providerPackage = "com.google.android.gms",
@@ -46,7 +46,8 @@ private val dmSansTypography = Typography(
     labelSmall = TextStyle(fontFamily = dmSansFamily, fontWeight = FontWeight.Normal),
 )
 
-// Colors derived at runtime from ThemeSettings — similar to T.* in iOS
+// Mirrors iOS T color tokens (TRAQSTheme.swift). Brand-locked tokens stay constant;
+// surface tokens are theme-driven by ThemeSettings.
 data class TRAQSColors(
     val bg: Color,
     val surface: Color,
@@ -55,28 +56,39 @@ data class TRAQSColors(
     val text: Color,
     val muted: Color,
     val accent: Color,
-    val isLight: Boolean = false,
-    val danger: Color = Color(0xFFF43F5E),
-    val eng: Color = Color(0xFF7C3AED),
+    val isLight: Boolean = true,
+    // Brand-locked semantic colors — match iOS T.* values exactly.
+    val danger: Color = Color(0xFFEF4444),           // T.red / T.danger
+    val eng: Color = Color(0xFFA78BFA),              // T.eng (lavender)
+    val magenta: Color = Color(0xFFFF1FB4),          // T.magenta
+    val cyan: Color = Color(0xFF06B6D4),             // T.cyan
+    val yellow: Color = Color(0xFFEAB308),           // T.yellow
+    val lavender: Color = Color(0xFFA78BFA),         // T.lavender
+    val amber: Color = Color(0xFFF59E0B),            // T.amber
+    val green: Color = Color(0xFF10B981),            // T.green
+    val orange: Color = Color(0xFFF97316),           // T.orange
+    val red: Color = Color(0xFFEF4444),              // T.red
     val statusNotStarted: Color = Color(0xFF94A3B8),
     val statusPending: Color = Color(0xFFA78BFA),
-    val statusInProgress: Color = Color(0xFF3B82F6),
-    val statusOnHold: Color = Color(0xFFF59E0B),
+    val statusInProgress: Color = Color(0xFF3B82F6), // mirrors accent
+    val statusOnHold: Color = Color(0xFFEAB308),
     val statusFinished: Color = Color(0xFF10B981),
     val priLow: Color = Color(0xFF10B981),
-    val priMedium: Color = Color(0xFFF59E0B),
-    val priHigh: Color = Color(0xFFF43F5E)
+    val priMedium: Color = Color(0xFFEAB308),
+    val priHigh: Color = Color(0xFFEF4444),
 )
 
+// Default = iOS "White" preset (LIGHT canonical theme).
 val LocalTRAQSColors = staticCompositionLocalOf {
     TRAQSColors(
-        bg = Color(0xFF080D18),
-        surface = Color(0xFF0D1424),
-        card = Color(0xFF111C30),
-        border = Color(0xFF1A2A45),
-        text = Color(0xFFE6ECF8),
-        muted = Color(0xFF64748B),
-        accent = Color(0xFF3D7FFF)
+        bg = Color(0xFFF4F6FA),
+        surface = Color(0xFFFFFFFF),
+        card = Color(0xFFFFFFFF),
+        border = Color(0xFFE6E8EE),
+        text = Color(0xFF0B0B0C),
+        muted = Color(0xFF6E6E73),
+        accent = Color(0xFF3B82F6),
+        isLight = true,
     )
 }
 
@@ -92,16 +104,21 @@ fun parseColor(hex: String): Color {
     } catch (_: Exception) { Color.Gray }
 }
 
-fun BgPreset.toTRAQSColors(accent: String) = TRAQSColors(
-    bg = parseColor(bg),
-    surface = parseColor(surface),
-    card = parseColor(card),
-    border = parseColor(border),
-    text = parseColor(text),
-    muted = parseColor(muted),
-    accent = parseColor(accent),
-    isLight = isLight
-)
+fun BgPreset.toTRAQSColors(accent: String): TRAQSColors {
+    // statusInProgress should mirror the accent (matches iOS T.statusInProgress).
+    val accentColor = parseColor(accent)
+    return TRAQSColors(
+        bg = parseColor(bg),
+        surface = parseColor(surface),
+        card = parseColor(card),
+        border = parseColor(border),
+        text = parseColor(text),
+        muted = parseColor(muted),
+        accent = accentColor,
+        isLight = isLight,
+        statusInProgress = accentColor,
+    )
+}
 
 @Composable
 fun TRAQSTheme(
@@ -114,10 +131,9 @@ fun TRAQSTheme(
     val preset = ThemeSettings.BG_PRESETS.firstOrNull { it.id == bgPresetId } ?: ThemeSettings.BG_PRESETS[0]
     val traQSColors = preset.toTRAQSColors(accentHex)
 
-    val accentColor = traQSColors.accent
     val colorScheme = if (preset.isLight) {
         lightColorScheme(
-            primary = accentColor,
+            primary = traQSColors.accent,
             background = traQSColors.bg,
             surface = traQSColors.surface,
             onBackground = traQSColors.text,
@@ -125,7 +141,7 @@ fun TRAQSTheme(
         )
     } else {
         darkColorScheme(
-            primary = accentColor,
+            primary = traQSColors.accent,
             background = traQSColors.bg,
             surface = traQSColors.surface,
             onBackground = traQSColors.text,

@@ -3,12 +3,14 @@ package com.matrixsystems.traqs.ui.screens
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -40,32 +42,34 @@ fun LoginScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(Modifier.weight(1f))
 
-            // Logo centered at the top half
+            // Logo + tagline
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                TRAQSLogo(height = 160.dp)
+                TRAQSLogo(height = 80.dp)
                 Text(
                     text = "Scheduling & Production Management",
-                    fontSize = 16.sp,
+                    fontSize = 13.sp,
                     color = c.muted,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 0.8.sp
                 )
             }
 
             Spacer(Modifier.weight(1f))
 
-            // Sign in button
+            // Sign in button (capsule, sky accent — matches iOS LoginView)
             Column(
                 modifier = Modifier
                     .navigationBarsPadding()
-                    .padding(bottom = 32.dp),
+                    .padding(bottom = 48.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -77,13 +81,15 @@ fun LoginScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = RoundedCornerShape(28.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = c.accent)
                     ) {
+                        Icon(Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(10.dp))
                         Text(
-                            text = "Sign In",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 16.sp,
+                            text = "Sign in with Auth0",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
                             color = Color.White
                         )
                     }

@@ -8,7 +8,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -165,25 +167,75 @@ fun TRAQSLogoText(fontSize: Int = 24) {
     )
 }
 
-// Logo-only header — no buttons, no actions
+// Provided at the root by MainScreen so any header in the tree can toggle the drawer.
+val LocalDrawerToggle = staticCompositionLocalOf<() -> Unit> { {} }
+
+// iOS-style sticky header: hamburger + wordmark on the left, trailing actions on the right.
+// Mirrors TRAQSNavHeader from iOS — no center title; the tab tells the user where they are.
 @Composable
-fun TRAQSHeader() {
+fun TRAQSHeader(actions: @Composable RowScope.() -> Unit = {}) {
     val c = traQSColors
+    val toggle = LocalDrawerToggle.current
     Surface(
         color = c.bg,
         shadowElevation = 0.dp,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
     ) {
-        val logoRes = if (c.isLight) R.drawable.traqs_logo else R.drawable.traqs_logo_white
-        Image(
-            painter = painterResource(logoRes),
-            contentDescription = "TRAQS",
-            contentScale = ContentScale.Fit,
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(62.dp)
-                .padding(top = 28.dp, bottom = 12.dp, start = 120.dp, end = 120.dp)
-        )
+                .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Hamburger
+            IconButton(onClick = toggle, modifier = Modifier.size(44.dp)) {
+                Icon(Icons.Default.Menu, "Menu", tint = c.text, modifier = Modifier.size(26.dp))
+            }
+            // Wordmark — directly right of hamburger, NOT centered
+            val logoRes = if (c.isLight) R.drawable.traqs_logo else R.drawable.traqs_logo_white
+            Image(
+                painter = painterResource(logoRes),
+                contentDescription = "TRAQS",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.height(58.dp)
+            )
+            Spacer(Modifier.weight(1f))
+            // Trailing actions
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) { actions() }
+        }
+    }
+}
+
+// iOS-style header icon button: circle, surface fill, hairline border, raised shadow.
+// Mirrors `IconBtn` in Primitives.swift (white-surface circular button with shadow).
+@Composable
+fun TRAQSIconBtn(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String? = null,
+    iconColor: Color? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val c = traQSColors
+    val tint = iconColor ?: if (enabled) c.text else c.muted
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = CircleShape,
+        color = c.surface,
+        border = BorderStroke(1.dp, c.border),
+        shadowElevation = 1.dp,
+        modifier = Modifier.size(36.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(18.dp))
+        }
     }
 }
 

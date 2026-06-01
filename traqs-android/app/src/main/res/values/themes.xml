@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.TRAQSScheduling" parent="android:style/Theme.DeviceDefault.NoActionBar">
+    <!-- Light-by-default; matches iOS TRAQS Light canonical theme. -->
+    <style name="Theme.TRAQSScheduling" parent="android:style/Theme.DeviceDefault.Light.NoActionBar">
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowBackground">@android:color/black</item>
+        <!-- Pre-Compose window flash uses the paper background (#F4F6FA). -->
+        <item name="android:windowBackground">@color/traqs_bg</item>
+        <!-- Status bar icons need dark glyphs on the light background. -->
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>
