@@ -601,35 +601,12 @@ private fun ScheduleSegmentedControl(
     selected: ScheduleSegment,
     onSelect: (ScheduleSegment) -> Unit,
 ) {
-    val c = traQSColors
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(20.dp))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ScheduleSegment.entries.forEach { seg ->
-            val on = seg == selected
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(if (on) c.accent else Color.Transparent)
-                    .clickable { onSelect(seg) }
-                    .padding(horizontal = 22.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    seg.label,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (on) Color.White else c.text
-                )
-            }
-        }
-    }
+    SlidingPillSegmented(
+        options = ScheduleSegment.entries,
+        selected = selected,
+        label = { it.label },
+        onSelect = onSelect,
+    )
 }
 
 // MARK: - Week header bar (range label + TODAY pill)

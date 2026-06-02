@@ -13,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -25,39 +27,17 @@ import java.util.*
 
 enum class JobsSegment(val label: String) { TODAY("Today"), WEEK("Week"), MONTH("Month"), YEAR("Year") }
 
-// Content-sized segmented control. Each segment uses padded text so the
-// whole control is only as wide as the labels require.
+// Content-sized segmented control with iOS-style sliding pill.
+// Each segment captures its measured bounds; a single capsule slides to
+// the selected segment via animateDpAsState (spring).
 @Composable
 fun JobsSegmentedControl(selected: JobsSegment, onSelect: (JobsSegment) -> Unit) {
-    val c = traQSColors
-    Row(
-        modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(20.dp))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        JobsSegment.entries.forEach { seg ->
-            val on = seg == selected
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(if (on) c.accent else Color.Transparent)
-                    .clickable { onSelect(seg) }
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    seg.label,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (on) Color.White else c.text
-                )
-            }
-        }
-    }
+    SlidingPillSegmented(
+        options = JobsSegment.entries,
+        selected = selected,
+        label = { it.label },
+        onSelect = onSelect,
+    )
 }
 
 // MARK: - Week strip
@@ -340,6 +320,91 @@ private fun MonthMiniGrid(
                 }
                 // Pad row to 7 columns
                 repeat(7 - row.size) { Box(modifier = Modifier.weight(1f).aspectRatio(1f)) }
+            }
+        }
+    }
+}
+
+// MARK: - Sliding-pill segmented control (iOS Primitives.Segmented parity)
+// Generic so Schedule (Day/Week) and Jobs (Today/Week/Month/Year) can both use it.
+@Composable
+fun <T : Any> SlidingPillSegmented(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+) {
+    val c = traQSColors
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val bounds = remember { mutableStateMapOf<T, androidx.compose.ui.geometry.Rect>() }
+    val sel = bounds[selected]
+
+    // Spring tuned to feel like iOS .spring(response: 0.18, dampingFraction: 1.0)
+    val animSpec = androidx.compose.animation.core.spring<androidx.compose.ui.unit.Dp>(
+        stiffness = 800f,
+        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+    )
+
+    val pillX by androidx.compose.animation.core.animateDpAsState(
+        targetValue = sel?.let { with(density) { it.left.toDp() } } ?: 0.dp,
+        animationSpec = animSpec,
+        label = "pillX",
+    )
+    val pillY by androidx.compose.animation.core.animateDpAsState(
+        targetValue = sel?.let { with(density) { it.top.toDp() } } ?: 0.dp,
+        animationSpec = animSpec,
+        label = "pillY",
+    )
+    val pillW by androidx.compose.animation.core.animateDpAsState(
+        targetValue = sel?.let { with(density) { it.width.toDp() } } ?: 0.dp,
+        animationSpec = animSpec,
+        label = "pillW",
+    )
+    val pillH by androidx.compose.animation.core.animateDpAsState(
+        targetValue = sel?.let { with(density) { it.height.toDp() } } ?: 0.dp,
+        animationSpec = animSpec,
+        label = "pillH",
+    )
+
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(c.surface)
+            .border(1.dp, c.border, RoundedCornerShape(20.dp))
+            .padding(3.dp)
+    ) {
+        // Sliding pill — drawn behind the labels
+        if (sel != null) {
+            Box(
+                modifier = Modifier
+                    .offset(x = pillX, y = pillY)
+                    .width(pillW)
+                    .height(pillH)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(c.accent)
+            )
+        }
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            options.forEach { opt ->
+                val on = opt == selected
+                Box(
+                    modifier = Modifier
+                        .onGloballyPositioned { coords ->
+                            bounds[opt] = coords.boundsInParent()
+                        }
+                        .clip(RoundedCornerShape(18.dp))
+                        .clickable { onSelect(opt) }
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        label(opt),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (on) Color.White else c.text
+                    )
+                }
             }
         }
     }
