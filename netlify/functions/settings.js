@@ -36,6 +36,15 @@ export async function handler(event) {
       if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
         return err(400, "Body must be an object");
       }
+      // Refuse to overwrite a populated settings object with an empty one ({}).
+      // See tasks.js for the incident this guards against.
+      const force = event.queryStringParameters?.force === "1";
+      if (Object.keys(settings).length === 0 && !force) {
+        const existing = await readJson(s3Key);
+        if (existing && typeof existing === "object" && !Array.isArray(existing) && Object.keys(existing).length > 0) {
+          return err(409, "Refusing to overwrite non-empty settings with empty object");
+        }
+      }
       await writeJson(s3Key, settings);
       return json(200, { ok: true });
     } catch (e) {

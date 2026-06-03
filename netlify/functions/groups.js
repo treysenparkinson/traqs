@@ -33,6 +33,15 @@ export async function handler(event) {
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
     if (!Array.isArray(body)) return err(400, "Body must be an array");
     try {
+      // Refuse to overwrite a non-empty groups.json with an empty array.
+      // See tasks.js for the incident this guards against.
+      const force = event.queryStringParameters?.force === "1";
+      if (body.length === 0 && !force) {
+        const existing = await readJson(s3Key);
+        if (Array.isArray(existing) && existing.length > 0) {
+          return err(409, "Refusing to overwrite non-empty groups with empty array");
+        }
+      }
       await writeJson(s3Key, body);
       return json(200, { ok: true });
     } catch (e) {

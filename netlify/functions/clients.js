@@ -30,6 +30,17 @@ export async function handler(event) {
     try {
       const clients = JSON.parse(event.body);
       if (!Array.isArray(clients)) return err(400, "Body must be an array");
+
+      // Refuse to overwrite a non-empty clients.json with an empty array.
+      // See tasks.js for the incident this guards against.
+      const force = event.queryStringParameters?.force === "1";
+      if (clients.length === 0 && !force) {
+        const existing = await readJson(s3Key);
+        if (Array.isArray(existing) && existing.length > 0) {
+          return err(409, "Refusing to overwrite non-empty clients with empty array");
+        }
+      }
+
       await writeJson(s3Key, clients);
       return json(200, { ok: true });
     } catch (e) {

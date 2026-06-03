@@ -2226,6 +2226,11 @@ Extraction rules:
   const [clients, setClients] = useState([]);
   const [timeclock, setTimeclock] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  // Gates the autosave: doSave refuses to fire until the initial S3 load
+  // resolves successfully. Without this, the initial useState([]) values
+  // can be persisted over real data if the first fetch fails.
+  const dataLoadedRef = useRef(false);
 
   // ─── Time Stamp / Kiosk state ─────────────────────────────────────────────
   const [pinInput, setPinInput] = useState("");
@@ -2378,15 +2383,24 @@ Extraction rules:
     });
   };
 
-  // Load all data from S3 on mount; fall back to seed data if S3 is empty
+  // Load all data from S3 on mount.
+  //
+  // Critical: doSave is gated on dataLoadedRef.current. Until the initial
+  // fetch resolves successfully, autosave refuses to fire — so a token/timing
+  // failure on first paint cannot overwrite real S3 data with the initial
+  // useState([]) values. (Incident 2026-06-03: empty `[]` was POSTed over
+  // tasks.json after a load race; doSave gating prevents the recurrence.)
   useEffect(() => {
     fetchTimeclock(getToken, orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
     Promise.all([fetchTasks(getToken, orgCode), fetchPeople(orgCode), fetchClients(getToken, orgCode)])
       .then(([t, p, c]) => {
-        _setTasks(normalizeTasks(Array.isArray(t) && t.length > 0 ? t : mkTasks()));
-        const resolvedPeople = normalizePeople(Array.isArray(p) && p.length > 0 ? p : mkPeople());
+        const safeT = Array.isArray(t) ? t : [];
+        const safeP = Array.isArray(p) ? p : [];
+        const safeC = Array.isArray(c) ? c : [];
+        _setTasks(normalizeTasks(safeT));
+        const resolvedPeople = normalizePeople(safeP);
         setPeople(resolvedPeople);
-        setClients(Array.isArray(c) && c.length > 0 ? c : mkClients());
+        setClients(safeC);
         // Match Auth0 user to a people record by email
         if (auth0User?.email) {
           const match = resolvedPeople.find(
@@ -2397,14 +2411,16 @@ Extraction rules:
         } else {
           setLoggedInUser(resolvedPeople[0] || null);
         }
+        // Only flip the gate AFTER state has been hydrated from S3.
+        dataLoadedRef.current = true;
       })
       .catch(e => {
+        // Do NOT reset state to seeds — that would let autosave persist an
+        // empty array over real S3 data on the next user interaction. Leave
+        // dataLoadedRef false so doSave keeps refusing to fire, and surface
+        // the error so the user knows to reload.
         console.error("Failed to load data from S3:", e);
-        _setTasks(normalizeTasks(mkTasks()));
-        const fallbackPeople = normalizePeople(mkPeople());
-        setPeople(fallbackPeople);
-        setClients(mkClients());
-        setLoggedInUser(fallbackPeople[0] || null);
+        setLoadError(e?.message || "Failed to load data — please refresh");
       })
       .finally(() => setDataLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2578,6 +2594,15 @@ Extraction rules:
 
   const doSave = useCallback(async () => {
     try {
+      // Hard gate: if the initial S3 load has not resolved successfully,
+      // refuse to save. Otherwise the initial useState([]) values (or any
+      // transient empty state after a failed fetch) can be persisted over
+      // real data. See the load useEffect above for the matching flip.
+      if (!dataLoadedRef.current) {
+        console.warn("doSave blocked — initial S3 load has not succeeded yet");
+        setSaveStatus("unsaved");
+        return;
+      }
       setSaveStatus("saving");
       const tasks = latestTasksRef.current;
       const people = latestPeopleRef.current;
@@ -13136,6 +13161,20 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   // ═══════════════════ LOADING / AUTH GATE ═══════════════════
+  // If initial load failed, show an error screen instead of an infinite
+  // spinner. Without this, the user would never know that fetches errored
+  // and might assume their data was deleted.
+  if (loadError && !dataLoading) {
+    return (
+      <div className={`traqs-${themeMode}`} style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ textAlign: "center", maxWidth: 480, padding: "0 20px" }}>
+          <div style={{ fontSize: 18, color: T.text, fontWeight: 600, marginBottom: 12 }}>Couldn't load your data</div>
+          <div style={{ fontSize: 14, color: T.textDim, marginBottom: 24 }}>{loadError}</div>
+          <button onClick={() => window.location.reload()} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontWeight: 600, cursor: "pointer", fontFamily: T.font, fontSize: 14 }}>Reload</button>
+        </div>
+      </div>
+    );
+  }
   if (dataLoading || !loggedInUser) {
     return (
       <div className={`traqs-${themeMode}`} style={{ minHeight: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center" }}>

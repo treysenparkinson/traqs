@@ -36,6 +36,20 @@ export async function handler(event) {
     try {
       const tasks = JSON.parse(event.body);
       if (!Array.isArray(tasks)) return err(400, "Invalid tasks data");
+
+      // Refuse to overwrite a non-empty tasks.json with an empty array.
+      // Why: a client bug (failed initial fetch → React resets state → autosave fires)
+      // wiped MTX2026TRAQS/tasks.json on 2026-06-03. This guard makes that race fatal
+      // on the server instead of silently destroying data. To intentionally clear all
+      // tasks, delete the S3 object directly or pass ?force=1.
+      const force = event.queryStringParameters?.force === "1";
+      if (tasks.length === 0 && !force) {
+        const existing = await readJson(s3Key);
+        if (Array.isArray(existing) && existing.length > 0) {
+          return err(409, "Refusing to overwrite non-empty tasks with empty array");
+        }
+      }
+
       await writeJson(s3Key, tasks);
       return json(200, { ok: true });
     } catch (e) {
