@@ -2533,12 +2533,28 @@ Extraction rules:
           fetchPeople(orgCode),
           fetchClients(getToken, orgCode),
         ]);
-        pollUpdateRef.current = true;
+        // Re-check status AFTER the fetch returns. The async fetch can take
+      // hundreds of milliseconds, during which the user can make edits.
+      // If the user's edit fired between our status check (at top of refetch)
+      // and the fetch completing, saveStatusRef is now "unsaved" — meaning
+      // the data we just pulled is stale relative to local state, and a
+      // doSave is queued. Applying it now would replace the user's edit
+      // and seed the queued doSave with stale data.
+      if (saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved") {
+        console.warn("[poll] aborting state update — user edited during refetch");
+        return;
+      }
+      pollUpdateRef.current = true;
         setTasks(prev => {
           if (JSON.stringify(prev) === JSON.stringify(newTasks)) return prev;
           const _findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
           const missingProtected = [...protectedJobIds.current].some(id => !_findId(id, newTasks));
           if (missingProtected) return prev;
+          // Diagnostic: when poll replaces state, log a fingerprint of what's coming in
+          // vs what's going out so we can spot a poll-clobber of an unsaved edit.
+          const _prevFp = prev.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
+          const _newFp = newTasks.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
+          console.warn(`[poll] state REPLACED. prev: ${_prevFp}  new: ${_newFp}`);
           return normalizeTasks(newTasks);
         });
         pollUpdateRef.current = true;
@@ -2619,6 +2635,13 @@ Extraction rules:
       // (and so a single failure doesn't mask success of the others). The
       // errors array carries through to the banner UI below.
       const dedupedTasks = tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i);
+      // Diagnostic: log a fingerprint of what's being POSTed so we can tell
+      // whether a "Saved" status is being followed by a stale data POST.
+      // Sample = first 3 jobs' (id, title, start, end) + count of ops with moveLog.
+      const _fingerprint = dedupedTasks.slice(0, 3).map(t => `${t.id}/${t.title}/${t.start}->${t.end}`).join(" | ");
+      const _moveLogCount = dedupedTasks.reduce((sum, j) =>
+        sum + (j.subs || []).reduce((s, p) => s + (p.subs || []).filter(o => (o.moveLog || []).length > 0).length, 0), 0);
+      console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`);
       const results = await Promise.allSettled([
         saveTasks(dedupedTasks, getTokenRef.current, orgCode),
         savePeople(people, getTokenRef.current, orgCode),
