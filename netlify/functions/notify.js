@@ -8,7 +8,10 @@ export async function handler(event) {
 
   const appId  = process.env.ONESIGNAL_APP_ID;
   const apiKey = process.env.ONESIGNAL_API_KEY;
-  if (!appId || !apiKey) return err(500, "OneSignal not configured");
+  // Graceful no-op when push isn't configured (e.g. local dev). Returning 500
+  // here floods the browser console even though callNotify catches it; making
+  // it a 200 with sent:0 keeps the console clean without changing behavior.
+  if (!appId || !apiKey) return json(200, { sent: 0, message: "OneSignal not configured" });
 
   // Membership required: previously any authenticated user could send a
   // push notification scoped to any org code, so an attacker could spam
