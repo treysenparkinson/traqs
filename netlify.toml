@@ -14,6 +14,14 @@
   to = "/.netlify/functions/:splat"
   status = 200
 
+# ── Scheduled functions ──────────────────────────────────────────────────────
+# Daily backup of every org's S3 data to backups/{YYYY-MM-DD}/. Combined with
+# bucket versioning, gives point-in-time recovery for the last 30 days even
+# against bugs that pass the live overwrite guards. 5am UTC = midnight EST
+# (off-hours for US users).
+[functions."backup-daily"]
+  schedule = "0 5 * * *"
+
 # ── Security headers ─────────────────────────────────────────────────────────
 # Applied to every response Netlify serves from the SPA build. Keep them
 # permissive enough not to break the existing toolchain (DM Sans from Google
