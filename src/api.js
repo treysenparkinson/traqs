@@ -27,6 +27,22 @@ async function authReadHeaders(getToken, orgCode) {
   };
 }
 
+// Build a descriptive Error from a failed save response so callers see the
+// actual server error (e.g. "Refusing to overwrite ...", "Failed to save tasks")
+// instead of an opaque status code. Includes status, endpoint, and response body.
+async function saveError(endpoint, status, res) {
+  let body = "";
+  try { body = await res.text(); } catch {}
+  let serverMsg = "";
+  try { serverMsg = JSON.parse(body)?.error || ""; } catch {}
+  const detail = serverMsg || body.slice(0, 200) || "(no response body)";
+  const e = new Error(`${endpoint} failed (${status}): ${detail}`);
+  e.endpoint = endpoint;
+  e.status = status;
+  e.serverMessage = detail;
+  return e;
+}
+
 // ─── Tasks ───────────────────────────────────────────────────────────────────
 export async function fetchTasks(getToken, orgCode) {
   const res = await fetch(`${BASE}/tasks`, { headers: await authReadHeaders(getToken, orgCode) });
@@ -45,7 +61,7 @@ export async function saveTasks(tasks, getToken, orgCode) {
     headers,
     body: JSON.stringify(tasks),
   });
-  if (!res.ok) throw new Error(`saveTasks failed: ${res.status}`);
+  if (!res.ok) throw await saveError("saveTasks", res.status, res);
   return res.json();
 }
 
@@ -67,7 +83,7 @@ export async function savePeople(people, getToken, orgCode) {
     headers,
     body: JSON.stringify(people),
   });
-  if (!res.ok) throw new Error(`savePeople failed: ${res.status}`);
+  if (!res.ok) throw await saveError("savePeople", res.status, res);
   return res.json();
 }
 
@@ -85,7 +101,7 @@ export async function saveClients(clients, getToken, orgCode) {
     headers,
     body: JSON.stringify(clients),
   });
-  if (!res.ok) throw new Error(`saveClients failed: ${res.status}`);
+  if (!res.ok) throw await saveError("saveClients", res.status, res);
   return res.json();
 }
 

@@ -1656,6 +1656,9 @@ Extraction rules:
   const [tasks, _setTasks] = useState([]);
   const [people, _setPeople] = useState([]);
   const [saveStatus, setSaveStatus] = useState("saved");
+  // When a save fails, capture the actual server error here. UI shows a sticky
+  // red banner so failures aren't lost in the console. Cleared on a successful save.
+  const [saveError, setSaveError] = useState(null); // { endpoint, status, message, at }
   const lastSaveTime = useRef(Date.now());
   const saveTimerRef = useRef(null);
   const dataRef = useRef({ tasks: null, people: null, clients: null });
@@ -2612,16 +2615,43 @@ Extraction rules:
       // otherwise the 30s poll fetches stale S3 data and resurrects the deleted items.
       if (!tasks) { console.warn("doSave blocked — tasks ref not initialized"); setSaveStatus("unsaved"); return; }
       if (!people) { console.warn("doSave blocked — people ref not initialized"); setSaveStatus("unsaved"); return; }
-      await Promise.all([
-        saveTasks(tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i), getTokenRef.current, orgCode),
+      // Run each save independently so we know exactly which one failed
+      // (and so a single failure doesn't mask success of the others). The
+      // errors array carries through to the banner UI below.
+      const dedupedTasks = tasks.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i);
+      const results = await Promise.allSettled([
+        saveTasks(dedupedTasks, getTokenRef.current, orgCode),
         savePeople(people, getTokenRef.current, orgCode),
         saveClients(clients, getTokenRef.current, orgCode),
       ]);
+      const failures = results
+        .map((r, i) => r.status === "rejected" ? { endpoint: ["saveTasks","savePeople","saveClients"][i], error: r.reason } : null)
+        .filter(Boolean);
+      if (failures.length > 0) {
+        const f = failures[0]; // surface the first failure prominently
+        console.error("Auto-save failed:", failures);
+        setSaveError({
+          endpoint: f.endpoint,
+          status: f.error?.status || 0,
+          message: f.error?.serverMessage || f.error?.message || String(f.error),
+          allEndpoints: failures.map(x => x.endpoint),
+          at: Date.now(),
+        });
+        setSaveStatus("unsaved");
+        return;
+      }
       lastSaveTime.current = Date.now();
       protectedJobIds.current.clear();
+      setSaveError(null);
       setTimeout(() => setSaveStatus("saved"), 600);
     } catch (e) {
       console.error("Auto-save failed:", e);
+      setSaveError({
+        endpoint: e?.endpoint || "unknown",
+        status: e?.status || 0,
+        message: e?.serverMessage || e?.message || String(e),
+        at: Date.now(),
+      });
       setSaveStatus("unsaved");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -13191,6 +13221,18 @@ ${jobsCtx || "No jobs found."}`;
   const shopPeople = people.filter(p => p.userRole === "user");
 
   return <TooltipCtx.Provider value={tipCtx}><div className={`traqs-${themeMode}`} style={{ height: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    {/* ── Sticky save-failure banner ─ shows the actual server error so the user (and us) know what's wrong ── */}
+    {saveError && <div style={{ flexShrink: 0, background: "#dc2626", color: "#fff", padding: "10px 20px", display: "flex", alignItems: "center", gap: 14, fontSize: 13, fontFamily: T.font, fontWeight: 500, zIndex: 200 }}>
+      <span style={{ fontSize: 18 }}>⚠</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, marginBottom: 2 }}>Save failed — your last changes weren't written to the server.</div>
+        <div style={{ fontFamily: T.mono, fontSize: 12, opacity: 0.95, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {saveError.endpoint} returned {saveError.status || "?"}: {saveError.message}
+        </div>
+      </div>
+      <button onClick={() => doSaveRef.current()} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #fff", background: "transparent", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Retry</button>
+      <button onClick={() => setSaveError(null)} style={{ width: 28, height: 28, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
+    </div>}
     {/* ── Brand strip — logo + undo/redo + search/ask + save/bell/settings ── */}
     {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: T.surface, position: "relative", zIndex: 101 }}>
       <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)", flexShrink: 0, marginLeft: 45 }} />
