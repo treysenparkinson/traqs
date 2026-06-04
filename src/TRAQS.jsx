@@ -7415,6 +7415,32 @@ ${jobsCtx || "No jobs found."}`;
                       });
                     }
                   });
+                  // Multi-select drag ghosts — same rendering as groupSnaps but slightly more
+                  // prominent (full-color dashed border + brighter fill) since these aren't
+                  // dependent siblings but explicit user selections being moved as a batch.
+                  (teamDragInfo.multiDragSnaps || []).forEach(ms => {
+                    if (!(ms.personIds || []).includes(p.id)) return;
+                    const _msDropHour = ms.dropHour ?? workStartH;
+                    const _msOffH = Math.max(0, _msDropHour - workStartH);
+                    const _msOneDayW = 1 / nDays * 100;
+                    const _msHourOffW = (_msOffH / totalWorkH) * _msOneDayW;
+                    const _msHpd = ms.barHpd || 0;
+                    const _msWBudget = _msHpd > 0 ? Math.max(0.03 / nDays * 100, (_msHpd / productiveHoursPerDay) / nDays * 100) : (Math.max(diffD(ms.snapStart, ms.snapEnd) + 1, 1) / nDays * 100);
+                    const _msSegs = weekdaySegments(ms.snapStart, ms.snapEnd, tStart, tEnd, orgSettings.workDays);
+                    let _msWRemaining = _msWBudget;
+                    _msSegs.forEach((seg, gi) => {
+                      const isFirst = gi === 0;
+                      const isLast = gi === _msSegs.length - 1;
+                      const _segIdx = days.indexOf(seg.start);
+                      const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _msHourOffW : 0);
+                      const _segEndIdx = days.indexOf(seg.end);
+                      const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
+                      const _segAvailW = _segRightPct - segLeft;
+                      const segW = isLast ? Math.max(0, _msWRemaining) : Math.max(0.5, Math.min(_msWRemaining, _segAvailW));
+                      _msWRemaining = Math.max(0, _msWRemaining - segW);
+                      ghosts.push(<div key={`ghost-multi-${ms.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "1a", boxShadow: `0 0 14px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                    });
+                  });
                   return ghosts.length ? <>{ghosts}</> : null;
                 })()}
                 {/* Dep-group snap connector — thin accent line shown only when ghost is snapped flush to a sibling */}
@@ -7620,8 +7646,8 @@ ${jobsCtx || "No jobs found."}`;
                           let found = false;
                           for (const panel of (job.subs || [])) {
                             const op = (panel.subs || []).find(o => o.id === bid);
-                            if (op) { members.push({ id: bid, origStart: op.start, origEnd: op.end, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [], origPerson: (op.team || [])[0] ?? origPerson }); found = true; break; }
-                            if (panel.id === bid) { members.push({ id: bid, origStart: panel.start, origEnd: panel.end, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [], origPerson: (panel.team || [])[0] ?? origPerson }); found = true; break; }
+                            if (op) { members.push({ id: bid, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [], origPerson: (op.team || [])[0] ?? origPerson }); found = true; break; }
+                            if (panel.id === bid) { members.push({ id: bid, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [], origPerson: (panel.team || [])[0] ?? origPerson }); found = true; break; }
                           }
                           if (found) break;
                         }
@@ -7809,6 +7835,26 @@ ${jobsCtx || "No jobs found."}`;
                         else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
                         return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
                       });
+                      // Multi-select drag — each member follows the same snap rules as the
+                      // dragged bar (business-day stepping, weekend-skipping, 30-min hour
+                      // snap, hour-overflow → next workday). Mirrors groupSnaps shape so
+                      // the ghost-rendering loop can reuse the same drawing logic.
+                      const multiDragSnaps = isMultiDrag ? multiDragMembers.map(m => {
+                        const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
+                        let mSnap = addBD(snapS, _mOffset, barBDOpts);
+                        let mHour = (m.origStartHour ?? workStartH) + _hourDelta;
+                        while (mHour >= workEndH) { mHour -= totalWorkH; mSnap = addBD(mSnap, 1, barBDOpts); }
+                        while (mHour < workStartH) { mHour += totalWorkH; mSnap = addBD(mSnap, -1, barBDOpts); }
+                        const mDropHour = Math.round(mHour * 2) / 2;
+                        const _mTeamSz = Math.max(1, (m.personIds || []).length);
+                        const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
+                        const _mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
+                        const _mFirstAvailH = workEndH - mDropHour;
+                        let _mVDays;
+                        if (_mTotalClockH <= _mFirstAvailH) _mVDays = 1;
+                        else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
+                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
+                      }) : [];
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
                       // FREE DRAG — ghost follows cursor; turns red over conflicts; drop rejected if red.
@@ -7908,7 +7954,7 @@ ${jobsCtx || "No jobs found."}`;
                       const _movingBarIds = new Set();
                       if (isMultiDrag) multiDragMembers.forEach(m => _movingBarIds.add(m.id));
                       if (isGroupDrag && depsMode === "locked") groupMembers.forEach(m => _movingBarIds.add(m.id));
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
@@ -8057,13 +8103,14 @@ ${jobsCtx || "No jobs found."}`;
                         const _mWdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
                         const osH = bar.task.startHour ?? workStartH;
                         const _hourDelta = finalHour - osH;
-                        const groupMonthMoves = (isGroupDrag && depsMode === "locked") ? groupMembers.map(m => {
+                        const _computeMonthMove = (m) => {
                           let mStartDay = addBD(m.origStart, _mWdDelta);
-                          let mStartH = m.origStartHour + _hourDelta;
+                          let mStartH = (m.origStartHour ?? workStartH) + _hourDelta;
                           while (mStartH >= workEndH) { mStartH -= totalWorkH; mStartDay = addBD(mStartDay, 1); }
                           while (mStartH < workStartH) { mStartH += totalWorkH; mStartDay = addBD(mStartDay, -1); }
                           const mStartHour = Math.round(mStartH * 2) / 2;
-                          const mTotalClockH = productiveHoursPerDay > 0 ? ((m.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
+                          const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / Math.max(1, (m.personIds || []).length) : productiveHoursPerDay;
+                          const mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
                           const mFirstAvailH = workEndH - mStartHour;
                           let mNewEnd = mStartDay;
                           if (mTotalClockH > mFirstAvailH) {
@@ -8077,7 +8124,13 @@ ${jobsCtx || "No jobs found."}`;
                           else { let rem = mTotalClockH - mFirstAvailH; while (rem > totalWorkH) rem -= totalWorkH; mRawEndH = workStartH + rem; }
                           const mEndHour = Math.round(mRawEndH * 2) / 2;
                           return { id: m.id, newStart: mStartDay, newEnd: mNewEnd, newStartHour: mStartHour, newEndHour: mEndHour };
-                        }) : [];
+                        };
+                        const groupMonthMoves = (isGroupDrag && depsMode === "locked") ? groupMembers.map(_computeMonthMove) : [];
+                        // Multi-select members also need their hour/end snaps applied in month
+                        // mode — without this they were silently skipped on release in month
+                        // view, so the bars never actually moved despite the ghosts showing
+                        // their landing positions.
+                        const multiDragMonthMoves = multiDragMembers.map(_computeMonthMove);
                         setTasks(prev => {
                           const next = prev.map(job => ({
                             ...job,
@@ -8089,6 +8142,8 @@ ${jobsCtx || "No jobs found."}`;
                                 }
                                 const gm = groupMonthMoves.find(m => m.id === op.id);
                                 if (gm) return { ...op, start: gm.newStart, end: gm.newEnd, startHour: gm.newStartHour, endHour: gm.newEndHour };
+                                const md = multiDragMonthMoves.find(m => m.id === op.id);
+                                if (md) return { ...op, start: md.newStart, end: md.newEnd, startHour: md.newStartHour, endHour: md.newEndHour };
                                 return op;
                               })
                             }))
@@ -8454,7 +8509,14 @@ ${jobsCtx || "No jobs found."}`;
                   const dragTy = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateY || 0) : 0;
                   const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
                   const _isDragActive = (isDraggingThis || isMultiDragging) && (Math.abs(teamDragInfo?.translateX || 0) > 4 || Math.abs(teamDragInfo?.translateY || 0) > 4);
-                  const barOpacity = _isDragActive ? 0 : barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2;
+                  // Both the dragged bar AND multi-drag members fade to 0 during active drag.
+                  // A dashed ghost is rendered for the dragged bar at the cursor (continuous
+                  // pixel position) and for each multi-drag member at its column-snapped
+                  // landing position with hour offset — same "law of moving" as the dragged
+                  // bar (business-day stepping, weekend-skipping, 30-min hour snap).
+                  const barOpacity = _isDragActive
+                    ? 0
+                    : (barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2);
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   const barKey = bar.id + "_0_" + bar.start;
@@ -8470,7 +8532,7 @@ ${jobsCtx || "No jobs found."}`;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.2s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, ${bc}33, ${bc}33 4px, ${bc}18 4px, ${bc}18 8px)` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${isPto ? bc + "55" : bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
                       const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
