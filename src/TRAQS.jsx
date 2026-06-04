@@ -2544,12 +2544,18 @@ Extraction rules:
         console.warn("[poll] aborting state update — user edited during refetch");
         return;
       }
+      // CRITICAL: pollUpdateRef must be reset to false whenever setTasks
+      // returns prev (no-op), otherwise the ref leaks: it stays true forever
+      // until the NEXT state change, which the unsaved effect then mistakes
+      // for a poll update and skips the save — silently dropping a user edit.
+      // Was the root cause of "jobs disappearing after reschedule": save
+      // never fired, then the next poll wrote stale S3 over the user's edit.
       pollUpdateRef.current = true;
         setTasks(prev => {
-          if (JSON.stringify(prev) === JSON.stringify(newTasks)) return prev;
+          if (JSON.stringify(prev) === JSON.stringify(newTasks)) { pollUpdateRef.current = false; return prev; }
           const _findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
           const missingProtected = [...protectedJobIds.current].some(id => !_findId(id, newTasks));
-          if (missingProtected) return prev;
+          if (missingProtected) { pollUpdateRef.current = false; return prev; }
           // Diagnostic: when poll replaces state, log a fingerprint of what's coming in
           // vs what's going out so we can spot a poll-clobber of an unsaved edit.
           const _prevFp = prev.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
@@ -2558,9 +2564,15 @@ Extraction rules:
           return normalizeTasks(newTasks);
         });
         pollUpdateRef.current = true;
-        setPeople(prev => JSON.stringify(prev) === JSON.stringify(newPeople) ? prev : normalizePeople(newPeople));
+        setPeople(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(newPeople)) { pollUpdateRef.current = false; return prev; }
+          return normalizePeople(newPeople);
+        });
         pollUpdateRef.current = true;
-        setClients(prev => JSON.stringify(prev) === JSON.stringify(newClients) ? prev : newClients);
+        setClients(prev => {
+          if (JSON.stringify(prev) === JSON.stringify(newClients)) { pollUpdateRef.current = false; return prev; }
+          return newClients;
+        });
       } catch (e) {
         console.warn("Poll re-fetch failed:", e);
       }
