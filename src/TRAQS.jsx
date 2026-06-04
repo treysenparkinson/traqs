@@ -11977,12 +11977,27 @@ ${jobsCtx || "No jobs found."}`;
             ops.forEach(op => visit(op));
             return result;
           };
+          // Department inference: explicit field → parent panel's field →
+          // case-insensitive match on op title against orgSettings.roles.
+          // Fast TRAQS imports leave requiredDepartment empty even though op
+          // titles ("Wire", "Cut", "Layout", "Labels") match department names
+          // exactly. Without inference the scheduler ignores departments
+          // entirely on a first reschedule and assigns by jobCount only.
+          const _roleSet = (orgSettings.roles || []);
+          const _inferDept = (op, panel) => {
+            if (op?.requiredDepartment) return op.requiredDepartment;
+            if (panel?.requiredDepartment) return panel.requiredDepartment;
+            const t = (op?.title || "").trim().toLowerCase();
+            if (!t) return "";
+            const match = _roleSet.find(r => String(r).trim().toLowerCase() === t);
+            return match || "";
+          };
           const rawOps = (ed.subs || []).flatMap(panel => {
             if ((panel.subs || []).length > 0) {
               return topoSort((panel.subs || []).filter(o => o.title?.trim()))
-                .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd, requiredDepartment: o.requiredDepartment || "" }));
+                .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd, requiredDepartment: _inferDept(o, panel) }));
             }
-            return panel.title?.trim() ? [{ title: panel.title, durationBD: opDurBD(panel), hpd: panel.hpd || orgSettings.hpd, requiredDepartment: panel.requiredDepartment || "" }] : [];
+            return panel.title?.trim() ? [{ title: panel.title, durationBD: opDurBD(panel), hpd: panel.hpd || orgSettings.hpd, requiredDepartment: _inferDept(panel, null) }] : [];
           });
           if (rawOps.length === 0) {
             setAiSuggestion({ noSubtasks: true, slots: [] });
@@ -12789,6 +12804,21 @@ ${jobsCtx || "No jobs found."}`;
                         }
                         return true;
                       };
+                      // Department inference: explicit op field → parent panel's field
+                      // → case-insensitive match on op title against orgSettings.roles.
+                      // Fast TRAQS imports leave requiredDepartment empty even though op
+                      // titles ("Wire", "Cut", "Layout", "Labels") match department names
+                      // exactly; without this, the first reschedule routes ops to whoever
+                      // has the lowest jobCount regardless of department.
+                      const _roleSet2 = (orgSettings.roles || []);
+                      const _inferDept2 = (op, panel) => {
+                        if (op?.requiredDepartment) return op.requiredDepartment;
+                        if (panel?.requiredDepartment) return panel.requiredDepartment;
+                        const t = (op?.title || "").trim().toLowerCase();
+                        if (!t) return "";
+                        const match = _roleSet2.find(r => String(r).trim().toLowerCase() === t);
+                        return match || "";
+                      };
                       const panelsForScheduling = p.isReschedule
                         ? (p.subs||[]).map(panel => !rescheduleSelection.includes(panel.id) ? panel : { ...panel, team: [], subs: (panel.subs||[]).map(sub => ({ ...sub, team: [] })) })
                         : (p.subs||[]);
@@ -12804,10 +12834,14 @@ ${jobsCtx || "No jobs found."}`;
                             id:i===0?op.id:uid(),
                             title:qty>1?`${baseTitle}-${String(i+1).padStart(3,"0")}`:op.title,
                             depsMode:op.depsMode,
+                            // Enrich the panel-level requiredDepartment so a sub-op
+                            // without its own can fall back to it (or to a title match).
+                            requiredDepartment: _inferDept2(op, null),
                             subs:(rest.subs||[]).map(sub => ({
                               ...sub,
                               id:idMap[sub.id],
                               deps:(sub.deps||[]).filter(d=>d!=='__pending__').map(d=>idMap[d]||d),
+                              requiredDepartment: _inferDept2(sub, op),
                             })),
                           };
                         });
@@ -12831,9 +12865,16 @@ ${jobsCtx || "No jobs found."}`;
                       const pickTeam=(op,minStart=null) => {
                         const totalHours=(typeof op==="object" && op?.hpd)?op.hpd:productiveHoursPerDay;
                         const reqDept=typeof op==="object"?(op.requiredDepartment||""):"";
+                        // Filter by dept first; if dept is set but no crew matches (e.g. an
+                        // inferred dept that nobody has yet), fall back to all crew so the
+                        // op still gets scheduled instead of going unassigned.
+                        const deptCrew = !reqDept ? allCrew : (() => {
+                          const m = allCrew.filter(pp => pp.department === reqDept);
+                          return m.length > 0 ? m : allCrew;
+                        })();
                         const eligible = ed.isReschedule && (op.team||[]).length>0
                           ? allCrew.filter(pp => (op.team||[]).includes(pp.id))
-                          : allCrew.filter(pp => !reqDept||pp.department===reqDept).sort((a,b) => { const diff=jobCount(a.id)-jobCount(b.id); if(diff!==0) return diff; return a.name.localeCompare(b.name); });
+                          : deptCrew.slice().sort((a,b) => { const diff=jobCount(a.id)-jobCount(b.id); if(diff!==0) return diff; return a.name.localeCompare(b.name); });
                         if(eligible.length===0) { const fallback=minStart||slot.start; return {team:[],start:fallback,end:fallback}; }
                         const singleDur=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
                         if(scheduleTeamMode==="one") {
