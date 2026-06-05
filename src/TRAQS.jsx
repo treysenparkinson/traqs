@@ -6466,11 +6466,6 @@ ${jobsCtx || "No jobs found."}`;
 
   // ═══════════════════ CLIENTS ═══════════════════
   const renderClients = () => {
-    const sel = selClient ? clients.find(c => c.id === selClient) : null;
-    const selTasks = selClient ? tasks.filter(t => t.clientId === selClient) : [];
-    const completed = selTasks.filter(t => t.status === "Finished").length;
-    const inProg = selTasks.filter(t => t.status === "In Progress").length;
-    const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0) * (diffD(t.start, t.end) + 1), 0);
     const filteredClients = clients.filter(c => !clientSearch || c.name.toLowerCase().includes(clientSearch.toLowerCase()) || (c.contact || "").toLowerCase().includes(clientSearch.toLowerCase()));
 
     return <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: 16 }}>
@@ -6547,28 +6542,43 @@ ${jobsCtx || "No jobs found."}`;
         )}
       </div>
 
-      {/* Client detail slide-in panel */}
-      {sel && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} onClick={() => setSelClient(null)}>
-        <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: "60px 32px 32px", maxWidth: 1000, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => setSelClient(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
-          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24, paddingRight: 32 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{ width: 48, height: 48, borderRadius: 14, background: sel.color + "22", border: `2px solid ${sel.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 700, color: sel.color }}>{sel.name.charAt(0)}</div>
-              <div>
-                <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text }}>{sel.name}</h2>
-                <div style={{ fontSize: 13, color: T.textSec, marginTop: 4, display: "flex", gap: 12, flexWrap: "wrap" }}>
-                  {sel.contact && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>{sel.contact}</span>}
-                  {sel.email && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>{sel.email}</span>}
-                  {sel.phone && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.55a16 16 0 0 0 6.06 6.06l.91-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>{sel.phone}</span>}
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {can("manageClients") && <Btn size="sm" onClick={() => setClientModal({ ...sel })}>Edit</Btn>}
-              {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); setSelClient(null); }}>Delete</Btn>}
+    </div>;
+  };
+
+  // Client detail modal — rendered at top-level of App (not inside renderClients)
+  // so position:fixed escapes the AnimatedView containing block. See call site
+  // near the other top-level modals.
+  const renderClientDetailModal = () => {
+    const sel = selClient ? clients.find(c => c.id === selClient) : null;
+    if (!sel && !selClient) {
+      return <FadeOnClose open={false} duration={220}>{null}</FadeOnClose>;
+    }
+    const selTasks = sel ? tasks.filter(t => t.clientId === sel.id) : [];
+    const completed = selTasks.filter(t => t.status === "Finished").length;
+    const inProg = selTasks.filter(t => t.status === "In Progress").length;
+    const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0) * (diffD(t.start, t.end) + 1), 0);
+    return <FadeOnClose open={!!sel} duration={220}>{sel && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 10005, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 8 : "32px 40px", fontFamily: T.font }} onClick={() => setSelClient(null)}>
+      <div className="anim-modal-box" style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", maxWidth: 1100, height: "90vh", maxHeight: "90vh", background: T.card, borderRadius: isMobile ? 14 : 16, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+        {/* Sticky header bar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 24px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, borderTopLeftRadius: isMobile ? 14 : 16, borderTopRightRadius: isMobile ? 14 : 16 }}>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: sel.color + "22", border: `2px solid ${sel.color}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, color: sel.color, flexShrink: 0 }}>{sel.name.charAt(0)}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.name}</h2>
+            <div style={{ fontSize: 13, color: T.textSec, marginTop: 3, display: "flex", gap: 14, flexWrap: "wrap" }}>
+              {sel.contact && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>{sel.contact}</span>}
+              {sel.email && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>{sel.email}</span>}
+              {sel.phone && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.32 2 2 0 0 1 3.6 1h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.55a16 16 0 0 0 6.06 6.06l.91-.9a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>{sel.phone}</span>}
             </div>
           </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+            {can("manageClients") && <Btn size="sm" onClick={() => { setClientModal({ ...sel }); setSelClient(null); }}>Edit</Btn>}
+            {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); setSelClient(null); }}>Delete</Btn>}
+            <button onClick={() => setSelClient(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1, marginLeft: 4 }}>✕</button>
+          </div>
+        </div>
 
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
           {sel.notes && <div style={{ fontSize: 14, color: T.textSec, padding: 14, background: T.surface, borderRadius: T.radiusSm, marginBottom: 20, lineHeight: 1.6, border: `1px solid ${T.border}` }}>{sel.notes}</div>}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
@@ -6593,7 +6603,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
                     <HealthIcon t={t} />
-                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => openDetail(t)}>{t.title}</span>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => { setSelClient(null); openDetail(t); }}>{t.title}</span>
                     {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
                   </div>
                   <Badge t={t.status} c={STA_C[t.status]} />
@@ -6608,21 +6618,19 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{(t.team || []).slice(0, 4).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{(t.team || []).length > 4 && <Badge t={`+${(t.team || []).length - 4}`} c={T.textDim} />}</div>
-                  {can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => openEdit(t)}>Edit</Btn>}
+                  {can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => { setSelClient(null); openEdit(t); }}>Edit</Btn>}
                 </div>
               </div>;
             };
             return <>
-              {/* Active Jobs */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Active Jobs ({activeJobs.length})</h4>
-                {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setModal(m); }}>+ Add Job</Btn>}
+                {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setSelClient(null); setModal(m); }}>+ Add Job</Btn>}
               </div>
               {activeJobs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: T.textDim, fontSize: 13, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>No active jobs for this client.</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
                 {activeJobs.map(renderJobCard)}
               </div>
-              {/* Completed Jobs Folder */}
               {completedJobs.length > 0 && <div style={{ border: `1px solid #10b98133`, borderRadius: T.radiusSm, overflow: "hidden" }}>
                 <div onClick={() => setClientCompletedExpanded(p => !p)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: "#10b98110", cursor: "pointer", userSelect: "none" }}>
                   <span style={{ fontSize: 16 }}>{clientCompletedExpanded ? "📂" : "📁"}</span>
@@ -6634,7 +6642,7 @@ ${jobsCtx || "No jobs found."}`;
                   {completedJobs.map(t => <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "12px 14px", border: `1px solid #10b98122`, borderLeft: `4px solid #10b981` }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 13 }}>✅</span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} onClick={() => openDetail(t)}>{t.title}</span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} onClick={() => { setSelClient(null); openDetail(t); }}>{t.title}</span>
                       {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: "#10b981", background: "#10b98115", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
                     </div>
                     <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.textDim }}>
@@ -6648,8 +6656,8 @@ ${jobsCtx || "No jobs found."}`;
             </>;
           })()}
         </div>
-      </div>}
-    </div>;
+      </div>
+    </div>}</FadeOnClose>;
   };
 
   // ═══════════════════ TEAM (Resource Planner) ═══════════════════
@@ -14387,6 +14395,9 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>);
     })()}</FadeOnClose>
+
+    {/* ── Client Detail Modal (top-level so position:fixed isn't trapped by AnimatedView's transform) ── */}
+    {renderClientDetailModal()}
 
     {/* ── Admin Clock-In/Out Time-Picker Confirm Modal ── */}
     <FadeOnClose open={!!clockTimeModal} duration={220}>{clockTimeModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClockTimeModal(null)}>
