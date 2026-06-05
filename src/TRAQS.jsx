@@ -2889,6 +2889,15 @@ Extraction rules:
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if ((op.team || []).includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, (op.team || []).length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if ((t.team || []).includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, (t.team || []).length); (t.subs || []).forEach(s => { if ((s.team || []).includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, (s.team || []).length); }); } }); return h; }, [tasks, isOff]);
 
+  // Returns "primary" | "secondary" | false — secondary means the person can cover
+  // the job as a backup (their secondaryDepartment matches) but should sort below primary.
+  const personDeptMatch = (p, reqDept) => {
+    if (!reqDept) return "primary";
+    if ((p.department || "") === reqDept) return "primary";
+    if ((p.secondaryDepartment || "") === reqDept) return "secondary";
+    return false;
+  };
+
   // Unique roles and hpd values for filter panel
   const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.department).filter(Boolean))].sort(), [people]);
   const uniqueHpd = useMemo(() => {
@@ -3639,7 +3648,8 @@ Extraction rules:
     const peopleCtx = people.map(p => {
       const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished" && t.end >= todayStr);
       const todayH = bookedHrs(p.id, todayStr);
-      return `${p.name} [person_id:${p.id}] (${p.department || "—"}, ${p.cap || orgSettings.hpd}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
+      const _backupStr = p.secondaryDepartment ? `, backup: ${p.secondaryDepartment}` : "";
+      return `${p.name} [person_id:${p.id}] (${p.department || "—"}${_backupStr}, ${p.cap || orgSettings.hpd}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
     }).join("\n");
     const jobsCtx = tasks.map(t => {
       const team = (t.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
@@ -12095,9 +12105,12 @@ ${jobsCtx || "No jobs found."}`;
           const crewForOp = (rawOp) => {
             const reqDept = rawOp.requiredDepartment || "";
             if (!reqDept) return allCrew;
-            const matched = allCrew.filter(p => p.department === reqDept);
-            // Fallback: if nobody in the org matches the required department, fall back to ALL crew
-            // so the scheduler can still place the work somewhere instead of bailing with "no windows".
+            // Primary-dept matches first, then secondary-dept (backup) matches.
+            const matched = allCrew.filter(p => personDeptMatch(p, reqDept))
+              .sort((a, b) => (personDeptMatch(a, reqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, reqDept) === "primary" ? 0 : 1));
+            // Fallback: if nobody in the org matches the required department (primary or backup),
+            // fall back to ALL crew so the scheduler can still place the work somewhere instead
+            // of bailing with "no windows".
             return matched.length > 0 ? matched : allCrew;
           };
           const crew = allCrew;
@@ -12270,7 +12283,14 @@ ${jobsCtx || "No jobs found."}`;
           const pickTeamLocal = (op, minStart = null) => {
             const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : productiveHoursPerDay;
             const reqDept = typeof op === "object" ? (op.requiredDepartment || "") : "";
-            const eligible = allCrew.filter(pp => !reqDept || pp.department === reqDept).sort((a, b) => { const diff = jobCountLocal(a.id) - jobCountLocal(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name); });
+            const eligible = allCrew.filter(pp => personDeptMatch(pp, reqDept)).sort((a, b) => {
+              // Primary-dept candidates always come before secondary (backup) candidates,
+              // regardless of job count — primary is preferred when available.
+              const ap = personDeptMatch(a, reqDept) === "primary" ? 0 : 1;
+              const bp = personDeptMatch(b, reqDept) === "primary" ? 0 : 1;
+              if (ap !== bp) return ap - bp;
+              const diff = jobCountLocal(a.id) - jobCountLocal(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name);
+            });
             if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
             const singleDur = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
             if (scheduleTeamMode === "one") {
@@ -12952,7 +12972,9 @@ ${jobsCtx || "No jobs found."}`;
                         // inferred dept that nobody has yet), fall back to all crew so the
                         // op still gets scheduled instead of going unassigned.
                         const deptCrew = !reqDept ? allCrew : (() => {
-                          const m = allCrew.filter(pp => pp.department === reqDept);
+                          // Primary-dept matches first, then secondary-dept (backup) matches.
+                          const m = allCrew.filter(pp => personDeptMatch(pp, reqDept))
+                            .sort((a, b) => (personDeptMatch(a, reqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, reqDept) === "primary" ? 0 : 1));
                           return m.length > 0 ? m : allCrew;
                         })();
                         const eligible = ed.isReschedule && (op.team||[]).length>0
@@ -15685,7 +15707,10 @@ ${jobsCtx || "No jobs found."}`;
       const liveTeam = (() => { for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id === it.id) return op.team; } } } return it.team || []; })();
       const currentPerson = liveTeam[0];
       const reqDept = it.requiredDepartment || "";
-      const shopCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && (!reqDept || (p.department || "") === reqDept));
+      const shopCrew = people
+        .filter(p => (p.userRole === "user" || p.userRole === "admin") && personDeptMatch(p, reqDept))
+        // Primary-dept members appear first; backup (secondary-dept) members sort to the bottom.
+        .sort((a, b) => (personDeptMatch(a, reqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, reqDept) === "primary" ? 0 : 1));
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10005, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setReassignModal(null)}>
         <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(400px, calc(100vw - 32px))", padding: "24px 24px 20px", animation: "slideUp 0.22s ease-out" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -15706,7 +15731,10 @@ ${jobsCtx || "No jobs found."}`;
               return <button key={p.id} onClick={() => { if (busy) return; setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs||[]).map(panel => ({ ...panel, subs: (panel.subs||[]).map(op => op.id === it.id ? { ...op, team: sel ? [] : [p.id] } : op) })) }))); setReassignModal(null); }} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : T.surface, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.45 : 1, transition: "all 0.12s", textAlign: "left" }} onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = T.accent; }} onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = sel ? T.accent : T.border; }}>
                 <div style={{ width: 32, height: 32, borderRadius: 9, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.text }}>{p.name}{sel && " (current)"}</div>
+                  <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.text, display: "flex", alignItems: "center", gap: 6 }}>
+                    <span>{p.name}{sel && " (current)"}</span>
+                    {personDeptMatch(p, reqDept) === "secondary" && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 4, padding: "1px 5px", letterSpacing: "0.04em" }}>BACKUP</span>}
+                  </div>
                   <div style={{ fontSize: 11, color: T.textDim }}>{busy ? "Busy during this period" : p.department || "Team member"}</div>
                 </div>
                 {sel && <span style={{ fontSize: 11, color: T.accent, fontWeight: 700 }}>✓</span>}
@@ -15813,17 +15841,22 @@ ${jobsCtx || "No jobs found."}`;
               const _qaReqDept = quickAddSub.type === "op"
                 ? (() => { for (const job of tasks) { const p = (job.subs||[]).find(s => s.id === quickAddSub.parentId); if (p) return p.requiredDepartment || ""; } return ""; })()
                 : "";
-              return people.filter(p => (p.userRole === "user" || p.userRole === "admin") && (!_qaReqDept || (p.department || "") === _qaReqDept));
-            })().map(p => {
-              const sel = (quickAddSub.team || []).includes(p.id);
-              return <button key={p.id} onClick={() => setQuickAddSub(prev => ({
-                ...prev,
-                team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id]
-              }))} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? T.accent : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                <span style={{ width: 16, height: 16, borderRadius: 5, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</span>
-                {p.name}
-              </button>;
-            })}
+              const list = people
+                .filter(p => (p.userRole === "user" || p.userRole === "admin") && personDeptMatch(p, _qaReqDept))
+                .sort((a, b) => (personDeptMatch(a, _qaReqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, _qaReqDept) === "primary" ? 0 : 1));
+              return list.map(p => {
+                const sel = (quickAddSub.team || []).includes(p.id);
+                const isBackup = personDeptMatch(p, _qaReqDept) === "secondary";
+                return <button key={p.id} onClick={() => setQuickAddSub(prev => ({
+                  ...prev,
+                  team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id]
+                }))} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? T.accent : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                  <span style={{ width: 16, height: 16, borderRadius: 5, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</span>
+                  {p.name}
+                  {isBackup && <span style={{ fontSize: 8, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 3, padding: "0 4px", letterSpacing: "0.04em", marginLeft: 2 }}>BACKUP</span>}
+                </button>;
+              });
+            })()}
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -15924,16 +15957,31 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ marginBottom: 4 }}>
               <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Department</label>
               {orgSettings.roles.length > 0 ? (
-                <CustomDrop value={ed.department || ""} onChange={v => setEd(p => ({ ...p, department: v }))} options={orgSettings.roles} placeholder="Select a department…" />
+                <CustomDrop value={ed.department || ""} onChange={v => setEd(p => ({ ...p, department: v, secondaryDepartment: p.secondaryDepartment === v ? "" : p.secondaryDepartment }))} options={orgSettings.roles} placeholder="Select a department…" />
               ) : (
                 <input value={ed.department || ""} onChange={e => setEd(p => ({ ...p, department: e.target.value }))} placeholder="e.g. Shop, Engineering…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
               )}
             </div>
+            <div style={{ marginBottom: 4 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>
+                Secondary Department
+                <span style={{ fontSize: 11, color: T.textDim, fontWeight: 400 }}>(optional)</span>
+              </label>
+              {orgSettings.roles.length > 0 ? (
+                <CustomDrop
+                  value={ed.secondaryDepartment || ""}
+                  onChange={v => setEd(p => ({ ...p, secondaryDepartment: v === "None" ? "" : v }))}
+                  options={["None", ...orgSettings.roles.filter(r => r !== ed.department)]}
+                  placeholder="None"
+                />
+              ) : (
+                <input value={ed.secondaryDepartment || ""} onChange={e => setEd(p => ({ ...p, secondaryDepartment: e.target.value }))} placeholder="Optional backup dept" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+              )}
+            </div>
+          </div>
+          <div style={{ marginBottom: 16 }}>
             <InputField label="Hours/Day Capacity" value={ed.cap} onChange={v => setEd(p => ({ ...p, cap: +v }))} type="number" />
           </div>
-
-          {isAdmin && <div style={{ marginBottom: 4 }}><div style={{ fontSize: 11, color: T.textDim, padding: "8px 12px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>PIN and pay type are managed in <span style={{ color: T.accent, fontWeight: 600 }}>Time Clock Settings</span>.</div></div>}
-
 
           {/* Time Off management */}
           <div style={{ marginBottom: 20 }}>
