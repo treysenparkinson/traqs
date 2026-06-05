@@ -8,6 +8,6 @@ import SwiftUI
 @Observable
 @MainActor
 final class AppNav {
-    var selected: TTab = .schedule
+    var selected: TTab = .jobs
     var isMenuOpen: Bool = false
 }

@@ -110,11 +110,9 @@ struct TasksView: View {
     // ── Today: original card stack ─────────────────────────────────────────
 
     private var todayView: some View {
-        VStack(spacing: 0) {
-            daySummaryLine(tasks: tasks(for: cal.startOfDay(for: Date())))
-                .padding(.horizontal, 16).padding(.bottom, 8)
-
-            taskList(for: cal.startOfDay(for: Date()))
+        let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
+        return VStack(spacing: 0) {
+            rangeContent(activeRange, label: df.string(from: Date()))
 
             EndOfDayPlaceholder()
                 .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 24)
@@ -141,16 +139,19 @@ struct TasksView: View {
             )
             .padding(.horizontal, 16).padding(.bottom, 14)
 
-            // Show tasks for the SELECTED day only — not the whole week.
-            // Previously we rendered a day-grouped list of every populated
-            // day in the week, which made the week view feel like an
-            // information dump. Picking a pill now filters the list to
-            // just that day, like a calendar app.
-            daySummaryLine(tasks: tasks(for: selectedDate))
-                .padding(.horizontal, 16).padding(.bottom, 8)
-            taskList(for: selectedDate)
+            // Show every job scheduled across the WHOLE week — the strip above
+            // is for navigation/at-a-glance counts, but the list is bounded to
+            // the full week span, not a single picked day.
+            rangeContent(activeRange, label: weekLabel)
                 .padding(.bottom, 24)
         }
+    }
+
+    private var weekLabel: String {
+        let days = weekDates(around: selectedDate).filter(isWorkDay)
+        let f = DateFormatter(); f.dateFormat = "MMM d"
+        guard let first = days.first, let last = days.last else { return "" }
+        return "\(f.string(from: first)) – \(f.string(from: last))"
     }
 
     // ── Month: calendar grid + every TASK this month, placed under start day ─
@@ -166,13 +167,15 @@ struct TasksView: View {
             )
             .padding(.horizontal, 16).padding(.bottom, 14)
 
-            // Same pattern as the Week view: show tasks for the SELECTED
-            // day only. Tapping a calendar cell filters the list below.
-            daySummaryLine(tasks: tasks(for: selectedDate))
-                .padding(.horizontal, 16).padding(.bottom, 8)
-            taskList(for: selectedDate)
+            // Show every job scheduled across the WHOLE month.
+            rangeContent(activeRange, label: monthLabel)
                 .padding(.bottom, 24)
         }
+    }
+
+    private var monthLabel: String {
+        let f = DateFormatter(); f.dateFormat = "MMMM yyyy"
+        return f.string(from: selectedDate)
     }
 
     // ── Year: heatmap + upcoming list ──────────────────────────────────────
@@ -186,38 +189,67 @@ struct TasksView: View {
             )
             .padding(.horizontal, 16).padding(.bottom, 14)
 
-            HStack {
-                Text("UPCOMING")
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.4)
-                Spacer()
-            }
-            .padding(.horizontal, 16).padding(.bottom, 8)
-
-            VStack(spacing: 12) {
-                ForEach(upcomingTasks) { task in
-                    NavigationLink(value: task.job) {
-                        TaskCardV1(task: task)
-                    }
-                    .buttonStyle(.plain)
-                }
-                if upcomingTasks.isEmpty {
-                    NoJobsPlaceholder(text: "No upcoming tasks")
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 24)
+            // Every job scheduled anywhere in the selected year.
+            rangeContent(activeRange, label: yearLabel)
+                .padding(.bottom, 24)
         }
+    }
+
+    private var yearLabel: String {
+        let f = DateFormatter(); f.dateFormat = "yyyy"
+        return f.string(from: selectedDate)
     }
 
     // ── Shared row pieces ─────────────────────────────────────────────────
 
-    private func daySummaryLine(tasks: [TaskAssignment]) -> some View {
-        let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
+    /// Centered, black section divider — flanked by hairlines so YOUR TASKS and
+    /// ALL JOBS read as two clearly separated groups.
+    private func sectionHeader(_ title: String) -> some View {
+        HStack(spacing: 12) {
+            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
+            Text(title)
+                .font(TTypo.xsBold(12))
+                .foregroundStyle(Color(hex: T.ink))
+                .tLabel(tracking: 1.6)
+                .fixedSize()
+            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
+        }
+    }
+
+    /// The body shared by every segment: the user's own scheduled work
+    /// (YOUR TASKS) followed by every other job scheduled in the same span
+    /// (ALL JOBS) as collapsible parent cards. The list is bounded to `range` —
+    /// the active day/week/month/year window. Section headers only appear when
+    /// there are other jobs, so a fully-personal view keeps its old look.
+    @ViewBuilder
+    private func rangeContent(_ range: Range<Date>, label: String) -> some View {
+        let mine = tasks(in: range)
+        let others = otherJobs(in: range)
+
+        if !others.isEmpty {
+            sectionHeader("YOUR TASKS")
+                .padding(.horizontal, 16).padding(.bottom, 12)
+        }
+        spanSummaryLine(tasks: mine, label: label)
+            .padding(.horizontal, 16).padding(.bottom, 8)
+        taskList(mine)
+
+        if !others.isEmpty {
+            sectionHeader("ALL JOBS")
+                .padding(.horizontal, 16).padding(.top, 28).padding(.bottom, 12)
+            VStack(spacing: 12) {
+                ForEach(others) { job in
+                    AllJobsCard(job: job, panels: panelsInWindow(job, in: range))
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    private func spanSummaryLine(tasks: [TaskAssignment], label: String) -> some View {
         let totalHours = tasks.reduce(0.0) { $0 + max($1.hpd, 0) }
         return HStack(alignment: .firstTextBaseline) {
-            Text("\(df.string(from: selectedDate)) · \(tasks.count) task\(tasks.count == 1 ? "" : "s")")
+            Text("\(label) · \(tasks.count) task\(tasks.count == 1 ? "" : "s")")
                 .font(TTypo.xsBold(11))
                 .foregroundStyle(Color(hex: T.muted))
                 .tLabel(tracking: 1.4)
@@ -230,9 +262,8 @@ struct TasksView: View {
     }
 
     @ViewBuilder
-    private func taskList(for day: Date) -> some View {
-        let dayTasks = tasks(for: day)
-        if dayTasks.isEmpty {
+    private func taskList(_ tasks: [TaskAssignment]) -> some View {
+        if tasks.isEmpty {
             VStack(spacing: 6) {
                 NoJobsPlaceholder(text: "No jobs scheduled")
                 diagnosticLine
@@ -240,7 +271,7 @@ struct TasksView: View {
             .padding(.horizontal, 16).padding(.top, 8)
         } else {
             VStack(spacing: 12) {
-                ForEach(dayTasks) { task in
+                ForEach(tasks) { task in
                     NavigationLink(value: task.job) {
                         TaskCardV1(task: task)
                     }
@@ -302,6 +333,98 @@ struct TasksView: View {
         return out
     }
 
+    /// True if the current user is scheduled to this job anywhere — on the job's
+    /// team, any panel's team, or any op's team. A job that is "mine" by this
+    /// test lives in YOUR TASKS and is excluded from the ALL JOBS section so it
+    /// never appears twice.
+    private func isMineJob(_ job: Job) -> Bool {
+        guard let me = appState.currentPersonId else { return false }
+        return job.team.contains(me)
+            || job.subs.contains { p in p.team.contains(me) || p.subs.contains { $0.team.contains(me) } }
+    }
+
+    /// The visible date window for the current segment. Day = just today;
+    /// Week = the work-week around the selected date; Month / Year = the
+    /// calendar month or year containing it. The whole list (YOUR TASKS +
+    /// ALL JOBS) is bounded to this half-open [start, end) span.
+    private var activeRange: Range<Date> {
+        let s: Date
+        let e: Date
+        switch segment {
+        case .today:
+            s = cal.startOfDay(for: Date())
+            e = cal.date(byAdding: .day, value: 1, to: s) ?? s
+        case .week:
+            let days = weekDates(around: selectedDate)
+            let first = cal.startOfDay(for: days.first ?? selectedDate)
+            let last = cal.startOfDay(for: days.last ?? selectedDate)
+            s = first
+            e = cal.date(byAdding: .day, value: 1, to: last) ?? last
+        case .month:
+            s = cal.date(from: cal.dateComponents([.year, .month], from: selectedDate))
+                ?? cal.startOfDay(for: selectedDate)
+            e = cal.date(byAdding: .month, value: 1, to: s) ?? s
+        case .year:
+            s = cal.date(from: cal.dateComponents([.year], from: selectedDate))
+                ?? cal.startOfDay(for: selectedDate)
+            e = cal.date(byAdding: .year, value: 1, to: s) ?? s
+        }
+        return s..<e
+    }
+
+    /// Does a panel's [start, end] overlap the half-open `range`?
+    private func overlaps(_ panel: Panel, _ range: Range<Date>) -> Bool {
+        guard let s = panel.start.asDate, let e = panel.end.asDate else { return false }
+        return s < range.upperBound && e >= range.lowerBound
+    }
+
+    /// My assignments whose date range overlaps `range`, sorted by start.
+    private func tasks(in range: Range<Date>) -> [TaskAssignment] {
+        myTasks.filter {
+            guard let s = $0.startDate, let e = $0.endDate else { return false }
+            return s < range.upperBound && e >= range.lowerBound
+        }
+        .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
+    }
+
+    /// Parent jobs the user is NOT assigned to that have at least one panel
+    /// overlapping `range`. The day/week/month/year filter bounds this set — only
+    /// jobs scheduled in the span appear. Search (title + jobNumber) applies.
+    private func otherJobs(in range: Range<Date>) -> [Job] {
+        let q = searchText.lowercased()
+        return appState.jobs.filter { job in
+            if isMineJob(job) { return false }
+            if !q.isEmpty {
+                let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
+                if !hay.contains(q) { return false }
+            }
+            return job.subs.contains { overlaps($0, range) }
+        }
+        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// Panels of `job` overlapping `range` — the rows revealed when an ALL JOBS
+    /// card is expanded. Each is a panel-level (op == nil), not-mine assignment
+    /// so the existing TaskCardV1 / LOG TIME flow logs time at panel level.
+    private func panelsInWindow(_ job: Job, in range: Range<Date>) -> [TaskAssignment] {
+        job.subs
+            .filter { overlaps($0, range) }
+            .map { TaskAssignment(job: job, panel: $0, op: nil, isMine: false) }
+    }
+
+    /// Merged universe used only by the COUNTS (pills/heatmap) and the Year
+    /// UPCOMING list: every "mine" assignment plus one panel-level entry per
+    /// panel of every not-mine job. Date bounding happens in the consumers.
+    private var allTasks: [TaskAssignment] {
+        var out = myTasks
+        for job in appState.jobs where !isMineJob(job) {
+            for panel in job.subs {
+                out.append(TaskAssignment(job: job, panel: panel, op: nil, isMine: false))
+            }
+        }
+        return out
+    }
+
     /// Mirrors the desktop's `isWorkDay`: a date is a work day iff its weekday
     /// (0=Sun … 6=Sat) is in `orgSettings.workDays`. Calendar reports weekday
     /// 1=Sun … 7=Sat, so subtract 1 to align with the JS convention the org
@@ -317,7 +440,7 @@ struct TasksView: View {
     /// clipped to `orgSettings.workDays`.
     private var dayCountMap: [Date: Int] {
         var map: [Date: Int] = [:]
-        for task in myTasks {
+        for task in allTasks {
             guard let s = task.startDate, let e = task.endDate, e >= s else { continue }
             var day = cal.startOfDay(for: s)
             let end = cal.startOfDay(for: e)
@@ -330,30 +453,6 @@ struct TasksView: View {
             }
         }
         return map
-    }
-
-    /// Tasks whose date range includes `day`. Returns empty on non-work days
-    /// so the Today view never lists work for a Saturday/Sunday when the org
-    /// isn't scheduled to operate then.
-    private func tasks(for day: Date) -> [TaskAssignment] {
-        guard isWorkDay(day) else { return [] }
-        let dayStart = cal.startOfDay(for: day)
-        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
-        return myTasks.filter {
-            guard let s = $0.startDate, let e = $0.endDate else { return false }
-            return s < dayEnd && e >= dayStart
-        }
-        .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
-    }
-
-    /// Upcoming tasks (today and beyond), flat sorted list — Year tab.
-    private var upcomingTasks: [TaskAssignment] {
-        let today = cal.startOfDay(for: Date())
-        return myTasks
-            .filter { ($0.endDate ?? .distantPast) >= today }
-            .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
-            .prefix(30)
-            .map { $0 }
     }
 
     /// Place every TaskAssignment under its start-day within the window.
@@ -804,6 +903,10 @@ struct TaskAssignment: Identifiable {
     let job: Job
     let panel: Panel
     let op: Operation?
+    /// Whether the current user is actually scheduled to this work. Defaults to
+    /// true so existing "my tasks" call sites are unchanged; the ALL JOBS section
+    /// passes `false` for jobs the user isn't assigned to.
+    var isMine: Bool = true
 
     var id: String { "\(job.id)/\(panel.id)/\(op?.id ?? "panel")" }
 
@@ -832,6 +935,30 @@ private struct TaskCardV1: View {
         guard let jc = appState.myActiveJobClock else { return false }
         if let opId = task.op?.id { return jc.opId == opId }
         return jc.opId == nil && jc.panelId == task.panel.id
+    }
+
+    /// Another person (not me) currently clocked into this same work. For an
+    /// op-level card we match the exact op; for a panel-level card we match
+    /// anyone working anywhere in the panel (any op or the panel itself).
+    private var busyBy: Person? {
+        appState.people.first { p in
+            guard p.id != appState.currentPersonId,
+                  let jc = p.activeJobClock,
+                  jc.jobId == task.job.id else { return false }
+            if let opId = task.op?.id { return jc.opId == opId }
+            return jc.panelId == task.panel.id
+        }
+    }
+
+    /// True when someone else is on this task and I'm not — the task is "in
+    /// progress" by another worker, so logging time is blocked.
+    private var busyByOther: Bool { !isActive && busyBy != nil }
+
+    /// First name (or full name) of whoever currently has this task, for the
+    /// greyed in-progress chip. Falls back to "IN USE" if unknown.
+    private var busyByFirstName: String {
+        guard let n = busyBy?.name, !n.isEmpty else { return "IN USE" }
+        return n.split(separator: " ").first.map(String.init) ?? n
     }
 
 
@@ -902,8 +1029,19 @@ private struct TaskCardV1: View {
                             .foregroundStyle(Color(hex: T.muted))
                             .tnum()
                     }
+                    if !task.isMine {
+                        Text("NOT ASSIGNED")
+                            .font(TTypo.xsBold(8))
+                            .foregroundStyle(Color(hex: T.muted))
+                            .tLabel(tracking: 0.5)
+                            .lineLimit(1)
+                            .fixedSize()
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(Capsule().fill(Color(hex: T.ink).opacity(0.05)))
+                            .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                    }
                     Spacer()
-                    StatusBadge(status: task.status)
+                    StatusBadge(status: busyByOther ? .inProgress : task.status)
                 }
 
                 // Headline: TASK title — what the user is actually doing
@@ -1113,10 +1251,11 @@ private struct TaskCardV1: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     HStack(spacing: 5) {
-                        TIconView(icon: .pin, size: 11, color: Color(hex: T.muted))
-                        Text(isStarting ? "STARTING…" : "PROGRESS")
+                        TIconView(icon: .pin, size: 11,
+                                  color: Color(hex: busyByOther ? T.statusInProgress : T.muted))
+                        Text(busyByOther ? "IN PROGRESS" : (isStarting ? "STARTING…" : "PROGRESS"))
                             .font(TTypo.xsBold(11))
-                            .foregroundStyle(Color(hex: T.muted))
+                            .foregroundStyle(Color(hex: busyByOther ? T.statusInProgress : T.muted))
                             .tLabel(tracking: 1.0)
                     }
                     Spacer()
@@ -1125,37 +1264,137 @@ private struct TaskCardV1: View {
                         .foregroundStyle(Color(hex: T.muted))
                         .tnum()
                 }
-                Bar(pct: pct, height: 6, fill: dept.color)
+                Bar(pct: pct, height: 6, fill: busyByOther ? Color(hex: T.statusInProgress) : dept.color)
             }
-            Button {
-                guard !isStarting else { return }
-                showLogConfirm = true
-            } label: {
+            if busyByOther {
+                // Someone else is clocked into this work — block logging and
+                // show who has it, greyed out so it clearly can't be tapped.
                 HStack(spacing: 6) {
-                    if isStarting {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .tint(Color(hex: T.ink))
-                            .scaleEffect(0.7)
-                        Text("STARTING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                    } else {
-                        Image(systemName: "play.fill")
-                        Text("LOG TIME").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                    }
+                    Image(systemName: "person.fill.checkmark")
+                    Text(busyByFirstName).font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
                 }
-                .foregroundStyle(Color(hex: T.ink))
+                .foregroundStyle(Color(hex: T.muted))
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(Capsule().fill(Color(hex: T.surface)))
                 .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
-                        radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
+                .opacity(0.55)
+            } else {
+                Button {
+                    guard !isStarting else { return }
+                    showLogConfirm = true
+                } label: {
+                    HStack(spacing: 6) {
+                        if isStarting {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .tint(Color(hex: T.ink))
+                                .scaleEffect(0.7)
+                            Text("STARTING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                        } else {
+                            Image(systemName: "play.fill")
+                            Text("LOG TIME").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                        }
+                    }
+                    .foregroundStyle(Color(hex: T.ink))
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Capsule().fill(Color(hex: T.surface)))
+                    .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                    .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
+                            radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
+                }
+                .buttonStyle(.plain)
+                .disabled(isStarting)
             }
-            .buttonStyle(.plain)
-            .disabled(isStarting)
         }
     }
 }
 
+
+// MARK: - AllJobsCard (collapsible parent job — ALL JOBS section)
+// A job the current user is NOT assigned to. Collapsed, it shows the job
+// summary; tapping it drops down to reveal the job's panels (those scheduled
+// in the active window) as standard task cards, so the user can LOG TIME
+// against any of them. Modeled on the expandable panel card in JobDetailView.
+
+private struct AllJobsCard: View {
+    @Environment(AppState.self) private var appState
+    let job: Job
+    let panels: [TaskAssignment]
+    @State private var isExpanded = false
+
+    private var clientName: String? {
+        guard let cid = job.clientId else { return nil }
+        let n = appState.clients.first(where: { $0.id == cid })?.name
+        return (n?.isEmpty == false) ? n : nil
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            // Collapsed, tappable job header — kept deliberately THIN so the
+            // ALL JOBS section reads as a compact browseable list, not a wall
+            // of full-size cards. The full-size cards are reserved for work the
+            // user is actually assigned to (YOUR TASKS) and for the panels
+            // revealed on expand (which carry the LOG TIME action).
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                SBox(size: .md) {
+                    HStack(spacing: 10) {
+                        Circle().fill(Color(hex: job.color)).frame(width: 7, height: 7)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(job.title)
+                                .font(TTypo.smBold(14))
+                                .foregroundStyle(Color(hex: T.ink))
+                                .lineLimit(1)
+
+                            HStack(spacing: 6) {
+                                if let n = job.jobNumber, !n.isEmpty {
+                                    Text("#\(n)")
+                                        .font(TTypo.mono(10))
+                                        .foregroundStyle(Color(hex: T.muted))
+                                        .tnum()
+                                }
+                                if let c = clientName {
+                                    Text(c)
+                                        .font(TTypo.xs(11))
+                                        .foregroundStyle(Color(hex: T.muted))
+                                        .lineLimit(1)
+                                }
+                                Text("· \(panels.count) panel\(panels.count == 1 ? "" : "s")")
+                                    .font(TTypo.xs(11))
+                                    .foregroundStyle(Color(hex: T.muted))
+                            }
+                        }
+
+                        Spacer()
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Color(hex: T.muted))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 11)
+                }
+            }
+            .buttonStyle(.plain)
+
+            // Expanded: each panel as a full task card with its own LOG TIME.
+            if isExpanded {
+                if panels.isEmpty {
+                    NoJobsPlaceholder(text: "No panels scheduled")
+                } else {
+                    ForEach(panels) { task in
+                        NavigationLink(value: task.job) {
+                            TaskCardV1(task: task)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: isExpanded)
+    }
+}
 
 // MARK: - End-of-day placeholder (dashed)
 
