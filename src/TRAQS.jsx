@@ -7663,18 +7663,31 @@ ${jobsCtx || "No jobs found."}`;
                     const gridAreaEl = e.currentTarget?.parentElement;
                     const liveCW = gridAreaEl ? gridAreaEl.getBoundingClientRect().width / days.length : cW;
                     // ── Edge auto-scroll during drag ──────────────────────────
+                    // Triggered by the GHOST bar's edges hitting the schedule's timeline edges,
+                    // not by the cursor. _grabPx = offset within the bar where the cursor grabbed;
+                    // _barWidthPx = the dragged bar's width. Ghost moves with the cursor so its
+                    // left edge in screen coords is (lastCX - _grabPx) and right edge is that
+                    // plus _barWidthPx.
+                    const _barWidthPx = _barClientRect ? _barClientRect.width : 0;
                     let autoScrollAccum = 0, autoScrollRaf = null;
                     let lastCX = e.clientX, lastCY = e.clientY;
                     const autoScrollStep = () => {
                       const containerEl = teamRef.current;
                       if (!containerEl) { autoScrollRaf = null; return; }
                       const rect = containerEl.getBoundingClientRect();
-                      const THRESHOLD = 80, MIN_SPD = 3, MAX_SPD = 12;
-                      const distL = lastCX - rect.left;
-                      const distR = rect.right - lastCX;
+                      const THRESHOLD = 60, MIN_SPD = 4, MAX_SPD = 22;
+                      const ghostL = lastCX - _grabPx;
+                      const ghostR = ghostL + _barWidthPx;
+                      // Timeline area = container minus the sticky label column on the left
+                      const timelineLeft = rect.left + lW;
+                      const timelineRight = rect.right;
+                      const distL = ghostL - timelineLeft;
+                      const distR = timelineRight - ghostR;
                       let speed = 0, dir = 0;
-                      if (distL >= 0 && distL < THRESHOLD) { dir = -1; speed = MIN_SPD + (MAX_SPD - MIN_SPD) * (1 - distL / THRESHOLD); }
-                      else if (distR >= 0 && distR < THRESHOLD) { dir = 1; speed = MIN_SPD + (MAX_SPD - MIN_SPD) * (1 - distR / THRESHOLD); }
+                      // Trigger when the ghost's left/right edge is within THRESHOLD of the
+                      // timeline edge, or past it (distance clamped to 0 → caps at MAX_SPD).
+                      if (distL < THRESHOLD && distL < distR) { dir = -1; const d = Math.max(0, distL); speed = MIN_SPD + (MAX_SPD - MIN_SPD) * (1 - d / THRESHOLD); }
+                      else if (distR < THRESHOLD) { dir = 1; const d = Math.max(0, distR); speed = MIN_SPD + (MAX_SPD - MIN_SPD) * (1 - d / THRESHOLD); }
                       if (speed > 0) {
                         autoScrollAccum += speed * dir;
                         const wholeDays = Math.trunc(autoScrollAccum / liveCW);
