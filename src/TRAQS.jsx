@@ -972,7 +972,7 @@ function StatusDrop({ value, onChange, size = "sm" }) {
     </div></FadeOnClose>
   </div>;
 }
-function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected" }) {
+function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected", noneLabel = "None" }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const ref = useRef(null);
@@ -993,7 +993,7 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
         <div onClick={() => { onChange(null); setOpen(false); setQ(""); }}
           style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: !value ? T.accent : T.textSec, fontWeight: !value ? 600 : 400, background: !value ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
           onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = !value ? T.accent + "10" : "transparent"}>
-          <div style={{ width: 10, height: 10, borderRadius: 5, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />None
+          <div style={{ width: 10, height: 10, borderRadius: 5, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />{noneLabel}
         </div>
         {filtered.length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No clients match "{q}"</div>}
         {filtered.map((o, oi) => <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); setQ(""); }}
@@ -1899,6 +1899,7 @@ Extraction rules:
   const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
+  const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
@@ -2717,6 +2718,8 @@ Extraction rules:
 
   const [clientModal, setClientModal] = useState(null);
   const [fClient, setFClient] = useState("All");
+  // Custom-column filters — maps "_cc_<id>" → array of selected options (select cols) or substring string (text/number/date cols)
+  const [fCustom, setFCustom] = useState({});
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
@@ -2883,8 +2886,27 @@ Extraction rules:
       })));
       if (!overloaded) return false;
     }
+    // Custom-column filters — applies to user-created columns (no fieldKey). Matches the job
+    // or any of its panels/ops, mirroring how the People filter descends into subs.
+    for (const c of customCols) {
+      if (c.fieldKey) continue;
+      const key = "_cc_" + c.id;
+      const fv = fCustom[key];
+      if (c.type === "select" && (c.options || []).length > 0) {
+        if (Array.isArray(fv) && fv.length > 0) {
+          const m = v => fv.includes(String(v ?? ""));
+          const hit = m(t[key]) || (t.subs || []).some(p => m(p[key]) || (p.subs || []).some(op => m(op[key])));
+          if (!hit) return false;
+        }
+      } else if (typeof fv === "string" && fv.trim()) {
+        const q = fv.trim().toLowerCase();
+        const m = v => String(v ?? "").toLowerCase().includes(q);
+        const hit = m(t[key]) || (t.subs || []).some(p => m(p[key]) || (p.subs || []).some(op => m(op[key])));
+        if (!hit) return false;
+      }
+    }
     return true;
-  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, fTimePeriod, taskSearchQ, people]);
+  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, fTimePeriod, taskSearchQ, people, fCustom, customCols]);
   const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if ((op.team || []).includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, (op.team || []).length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if ((t.team || []).includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, (t.team || []).length); (t.subs || []).forEach(s => { if ((s.team || []).includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, (s.team || []).length); }); } }); return h; }, [tasks, isOff]);
@@ -2905,7 +2927,39 @@ Extraction rules:
     tasks.forEach(t => { if (t.hpd) vals.add(t.hpd); (t.subs || []).forEach(p => { if (p.hpd) vals.add(p.hpd); (p.subs || []).forEach(op => { if (op.hpd) vals.add(op.hpd); }); }); });
     return [...vals].sort((a, b) => a - b);
   }, [tasks]);
-  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0);
+  const customFilterCount = customCols.reduce((n, c) => {
+    if (c.fieldKey) return n;
+    const fv = fCustom["_cc_" + c.id];
+    return n + (((Array.isArray(fv) && fv.length > 0) || (typeof fv === "string" && fv.trim())) ? 1 : 0);
+  }, 0);
+  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount;
+  // Filter-panel section for user-created custom columns — auto-appears for each column added via the "+" picker.
+  // Select columns render as multi-select chips; text/number/date columns render as a contains-input.
+  const renderCustomColFilters = () => {
+    const cols = customCols.filter(c => !c.fieldKey);
+    if (cols.length === 0) return null;
+    return cols.map(col => {
+      const key = "_cc_" + col.id;
+      const isSelect = col.type === "select" && (col.options || []).length > 0;
+      return (
+        <div key={col.id} style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{col.label}</div>
+          {isSelect ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+              {col.options.filter(o => o && o !== "—").map(o => {
+                const sel = (fCustom[key] || []).includes(o);
+                return <button key={o} onClick={() => setFCustom(prev => { const cur = prev[key] || []; const next = cur.includes(o) ? cur.filter(x => x !== o) : [...cur, o]; const c2 = { ...prev }; if (next.length) c2[key] = next; else delete c2[key]; return c2; })}
+                  style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "22" : "transparent", color: sel ? T.accent : T.text, fontSize: 11, fontWeight: sel ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{o}</button>;
+              })}
+            </div>
+          ) : (
+            <input type={col.type === "date" ? "date" : col.type === "number" ? "number" : "text"} value={fCustom[key] || ""} placeholder={`Filter ${col.label}…`} onClick={e => e.stopPropagation()} onChange={e => setFCustom(prev => { const v = e.target.value; const c2 = { ...prev }; if (v) c2[key] = v; else delete c2[key]; return c2; })}
+              style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fCustom[key] ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none", boxSizing: "border-box" }} />
+          )}
+        </div>
+      );
+    });
+  };
   const scheduleFilterCount = (sFRole !== "All" ? 1 : 0) + sFPers.length + (sFJobNum ? 1 : 0) + (sFStat !== "All" ? 1 : 0) + (sFClient !== "All" ? 1 : 0);
 
   // Check overlaps for a set of operations against a given task list
@@ -4986,10 +5040,7 @@ ${jobsCtx || "No jobs found."}`;
                 {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Client</div>
-              <select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer", marginBottom: 14 }}>
-                <option value="All">All Clients</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <div style={{ marginBottom: 14 }}><SearchSelect compact value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
@@ -5004,6 +5055,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 11, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
               </div>
+              {renderCustomColFilters()}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Overloaded Only</span>
                 <button onClick={() => setFOverloaded(p => !p)} style={{ width: 36, height: 20, borderRadius: 10, background: fOverloaded ? T.accent : T.border, border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s", flexShrink: 0 }}>
@@ -5014,7 +5066,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
                 <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
               </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div></FadeOnClose>
           </div>
         </div>
@@ -5575,10 +5627,11 @@ ${jobsCtx || "No jobs found."}`;
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
-                <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}><option value="All">All Clients</option>{clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><SearchSelect compact value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
                 <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
-                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
+                {renderCustomColFilters()}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
             </div>
             {/* Inline expanding search — icon collapses to 28px, expands to 200px on click */}
@@ -5779,10 +5832,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
-                  <select value={fClient} onChange={e => setFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fClient !== "All" ? T.accent : T.border}`, background: T.surface, color: fClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                    <option value="All">All Clients</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <SearchSelect compact value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" />
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
@@ -5798,7 +5848,8 @@ ${jobsCtx || "No jobs found."}`;
                     {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
                   </div>
                 </div>
-                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+                {renderCustomColFilters()}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
               </div>}</FadeOnClose>
             </div>
           </div>
@@ -5993,7 +6044,7 @@ ${jobsCtx || "No jobs found."}`;
         const customWidths = colWidths.slice(12, colWidths.length - 1);
         const COL = [...orderedStdCols.map(c => colWidths[1 + c.i] + "px"), ...customWidths.map(w => w + "px"), "36px"].join(" ");
         const cellAlignJc = cellAlign === "right" ? "flex-end" : cellAlign === "center" ? "center" : "flex-start";
-        const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
+        const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
         const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "8px 10px", background: T.surface };
         const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: job.id, pid: null, title: job.title, jobNumber: job.jobNumber || null }); } else { updTask(job.id, { status: next }); } };
         const cyclePri = (job) => { const opts = ["Low","Medium","High"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
@@ -6227,11 +6278,14 @@ ${jobsCtx || "No jobs found."}`;
                 if (col.type === "select" && (col.options || []).length > 0) {
                   const selVal = val && val !== "—" ? val : "";
                   const selColor = selVal ? STA_C[selVal] || T.accent : T.textDim;
+                  // Styled picker (matches the Status column) instead of a native <select>, whose
+                  // option list renders in the OS system font rather than the app font.
                   return (
-                    <div key={col.id} style={{ ...cellBase, justifyContent: "center", ...ccCond }}>
-                      <select value={selVal} onChange={e => { e.stopPropagation(); commitEdit(item.id, key, e.target.value, pid); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: selVal ? selColor : T.textDim, fontSize: 11, fontWeight: selVal ? 700 : 400, fontFamily: T.font, cursor: "pointer", textAlign: "center" }}>
-                        {(col.options || []).map(o => <option key={o} value={o === "—" ? "" : o}>{o}</option>)}
-                      </select>
+                    <div key={col.id} style={{ ...cellBase, justifyContent: "center", cursor: "pointer", ...ccCond }}
+                      onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setCcSelectPopover({ itemId: item.id, pid: pid || null, key, current: selVal, options: col.options || [], x: r.left, y: r.bottom + 4 }); }}>
+                      {selVal
+                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: selColor + "20", border: `1px solid ${selColor}44`, fontSize: 11, fontWeight: 700, color: selColor, whiteSpace: "nowrap", userSelect: "none" }}>{selVal}</span>
+                        : <span style={{ fontSize: 11, color: T.textDim }}>—</span>}
                     </div>
                   );
                 }
@@ -14332,6 +14386,28 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 13, color: sc, flexShrink: 0 }}>{STA_ICON[s]}</span>
               <span style={{ fontSize: 13, fontWeight: isCurrent ? 600 : 400, color: isCurrent ? sc : T.text, flex: 1 }}>{s}</span>
               {isCurrent && <svg width="12" height="12" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={sc} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </div>
+          );
+        })}
+      </div>
+    </div>}</FadeOnClose>
+
+    {/* ── Custom select-column Popover (styled picker for Dropdown-type custom columns) ── */}
+    <FadeOnClose open={!!ccSelectPopover}>{ccSelectPopover && <div>
+      <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setCcSelectPopover(null)} />
+      <div style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: 320, overflowY: "auto", fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+        {ccSelectPopover.options.map((o, oi) => {
+          const optVal = o === "—" ? "" : o;
+          const isCurrent = optVal === ccSelectPopover.current;
+          const oc = optVal ? (STA_C[optVal] || T.accent) : T.textDim;
+          return (
+            <div key={o} onClick={() => { updTask(ccSelectPopover.itemId, { [ccSelectPopover.key]: optVal }, ccSelectPopover.pid || null); setCcSelectPopover(null); }}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", userSelect: "none", animation: `toolDrop 0.14s ${oi * 38}ms both ease-out`, background: isCurrent ? oc + "12" : "transparent" }}
+              onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = oc + "18"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? oc + "12" : "transparent"; }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: optVal ? oc : T.border, flexShrink: 0 }} />
+              <span style={{ fontSize: 13, fontWeight: isCurrent ? 600 : 400, color: isCurrent ? oc : T.text, flex: 1 }}>{o === "—" ? "— (none)" : o}</span>
+              {isCurrent && <svg width="12" height="12" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={oc} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </div>
           );
         })}
