@@ -972,20 +972,41 @@ function StatusDrop({ value, onChange, size = "sm" }) {
     </div></FadeOnClose>
   </div>;
 }
-function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected", noneLabel = "None" }) {
+function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected", noneLabel = "None", portal = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
-  const ref = useRef(null);
-  useEffect(() => { if (!open) return; const hm = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setQ(""); } }; const hk = e => { if (e.key === "Escape") { setOpen(false); setQ(""); } }; document.addEventListener("mousedown", hm); document.addEventListener("keydown", hk); return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); }; }, [open]);
+  const [coords, setCoords] = useState(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const hm = e => {
+      const tr = triggerRef.current, po = popupRef.current;
+      if ((tr && tr.contains(e.target)) || (po && po.contains(e.target))) return;
+      setOpen(false); setQ("");
+    };
+    const hk = e => { if (e.key === "Escape") { setOpen(false); setQ(""); } };
+    document.addEventListener("mousedown", hm);
+    document.addEventListener("keydown", hk);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
+  }, [open]);
+  useLayoutEffect(() => {
+    if (!open || !portal) return;
+    const update = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (r) setCoords({ left: r.left, top: r.bottom + 4, width: r.width });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => { window.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
+  }, [open, portal]);
   const filtered = options.filter(o => o.label.toLowerCase().includes(q.toLowerCase()));
   const selected = options.find(o => o.value === value);
-  return <div ref={ref} style={{ position: "relative", marginBottom: compact ? 0 : 16 }}>
-    {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500, fontFamily: T.font }}>{label}</label>}
-    <div onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
-      {selected ? <><div style={{ width: compact ? 7 : 10, height: compact ? 7 : 10, borderRadius: compact ? 4 : 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>}
-      <span style={{ fontSize: compact ? 8 : 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
-    </div>
-    <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out" }}>
+  const popupStyle = portal
+    ? { position: "fixed", left: coords?.left ?? -9999, top: coords?.top ?? -9999, width: coords?.width, zIndex: 100000, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out", fontFamily: T.font, color: T.text }
+    : { position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out" };
+  const popup = <FadeOnClose open={open}><div ref={popupRef} className="anim-drop" style={popupStyle}>
       <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} autoFocus style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
       </div>
@@ -1004,7 +1025,14 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
           {o.sub && <span style={{ fontSize: 12, color: T.textDim }}>{o.sub}</span>}
         </div>)}
       </div>
-    </div></FadeOnClose>
+    </div></FadeOnClose>;
+  return <div style={{ position: "relative", marginBottom: compact ? 0 : 16 }}>
+    {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500, fontFamily: T.font }}>{label}</label>}
+    <div ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
+      {selected ? <><div style={{ width: compact ? 7 : 10, height: compact ? 7 : 10, borderRadius: compact ? 4 : 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>}
+      <span style={{ fontSize: compact ? 8 : 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
+    </div>
+    {portal ? createPortal(popup, document.body) : popup}
   </div>;
 }
 function AnimatedView({ viewKey, children, style }) {
@@ -5040,7 +5068,7 @@ ${jobsCtx || "No jobs found."}`;
                 {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Client</div>
-              <div style={{ marginBottom: 14 }}><SearchSelect compact value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
+              <div style={{ marginBottom: 14 }}><SearchSelect compact portal value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
@@ -5540,7 +5568,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* ── Column picker (anchored to the "+" cell in column headers) ── */}
       {(colPickerOpen || colPickerExiting) && createPortal(<>
         {colPickerOpen && <div onMouseDown={() => setColPickerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />}
-        <div className={colPickerExiting ? undefined : "anim-drop"} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} style={{ position: "fixed", top: colPickerAnchor?.top ?? 100, right: colPickerAnchor?.right ?? 100, width: 300, maxHeight: colPickerAnchor?.maxHeight ?? "70vh", overflowY: "auto", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 9999, animation: colPickerExiting ? "fadeOutDrop 0.2s ease-out both" : undefined, pointerEvents: colPickerExiting ? "none" : "auto" }}>
+        <div className={colPickerExiting ? undefined : "anim-drop"} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} style={{ position: "fixed", top: colPickerAnchor?.top ?? 100, right: colPickerAnchor?.right ?? 100, width: 300, maxHeight: colPickerAnchor?.maxHeight ?? "70vh", overflowY: "auto", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 9999, animation: colPickerExiting ? "fadeOutDrop 0.2s ease-out both" : undefined, pointerEvents: colPickerExiting ? "none" : "auto", fontFamily: T.font, color: T.text }}>
         {/* Section: Link to Job Field */}
         <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Link to Job Field</div>
@@ -5627,7 +5655,7 @@ ${jobsCtx || "No jobs found."}`;
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
-                <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><SearchSelect compact value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
+                <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><SearchSelect compact portal value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
                 <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 {renderCustomColFilters()}
@@ -5686,8 +5714,9 @@ ${jobsCtx || "No jobs found."}`;
         const userDept = (loggedInUser?.department || "").toLowerCase();
         if (!isAdmin && userDept !== tmpl.name.toLowerCase()) return null;
         const sKey = tmpl.id;
-        const isCollapsed = !!collapsedSections[sKey];
-        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: !p[sKey] }));
+        // Default collapsed — `collapsedSections[sKey]` undefined means collapsed; explicit false means open.
+        const isCollapsed = collapsedSections[sKey] !== false;
+        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: p[sKey] === false ? true : false }));
         return <div key={tmpl.id} style={{ marginBottom: 20 }}>
           <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
@@ -5746,8 +5775,9 @@ ${jobsCtx || "No jobs found."}`;
         const userDept = (loggedInUser?.department || "").toLowerCase();
         if (!isAdmin && userDept !== queueLabel.toLowerCase()) return null;
         const sKey = "__legacy_eng__";
-        const isCollapsed = !!collapsedSections[sKey];
-        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: !p[sKey] }));
+        // Default collapsed — `collapsedSections[sKey]` undefined means collapsed; explicit false means open.
+        const isCollapsed = collapsedSections[sKey] !== false;
+        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: p[sKey] === false ? true : false }));
         return <div style={{ marginBottom: 20 }}>
           <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
@@ -5832,7 +5862,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
-                  <SearchSelect compact value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" />
+                  <SearchSelect compact portal value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" />
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
@@ -7082,10 +7112,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
-                <select value={sFClient} onChange={e => setSFClient(e.target.value)} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${sFClient !== "All" ? T.accent : T.border}`, background: T.surface, color: sFClient !== "All" ? T.accent : T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                  <option value="All">All Clients</option>
-                  {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <SearchSelect compact portal value={sFClient === "All" ? null : sFClient} onChange={v => setSFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients..." emptyLabel="All Clients" noneLabel="All Clients" />
               </div>
               <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {sFPers.length > 0 && <span style={{ color: T.accent }}>({sFPers.length})</span>}</div>
