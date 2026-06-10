@@ -2312,6 +2312,14 @@ Extraction rules:
   const [pickerExpandedJobs, setPickerExpandedJobs] = useState(new Set());
   const [pickerExpandedPanels, setPickerExpandedPanels] = useState(new Set());
   const [tsAdminTab, setTsAdminTab] = useState("live");
+  // Admin live-status page state (mirrors the iOS/Android AdminScreen)
+  const [adminFilter, setAdminFilter] = useState("live"); // "live" | "dept" | "today"
+  const [adminNow, setAdminNow] = useState(Date.now());
+  useEffect(() => {
+    if (view !== "admin") return;
+    const id = setInterval(() => setAdminNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [view]);
   const [tsPeriodDays, setTsPeriodDays] = useState(0);
   const [tsSettingsOpen, setTsSettingsOpen] = useState(false);
   const [tsSettingsDraft, setTsSettingsDraft] = useState(null); // local people copy for editing
@@ -4332,6 +4340,9 @@ ${jobsCtx || "No jobs found."}`;
 
   // Engineering sign-off
   const canApprove = loggedInUser && (loggedInUser.userRole === "admin" || loggedInUser.canSignOff === true || loggedInUser.isEngineer === true);
+  // Approval Queue page visibility: tighter than canApprove — only admins or users with the
+  // Permissions → Sign-off access toggle on. Engineers without sign-off don't see the page.
+  const canSeeApprovalQueue = loggedInUser && (loggedInUser.userRole === "admin" || loggedInUser.canSignOff === true);
   const signOffEngineering = (jobId, panelId, step) => {
     if (!canApprove) return;
     const record = { by: loggedInUser.id, byName: loggedInUser.name, at: new Date().toISOString() };
@@ -5593,6 +5604,242 @@ ${jobsCtx || "No jobs found."}`;
     });
     return { template: tmpl, pending, finished };
   });
+
+  // Admin live-status page — mirrors the iOS/Android AdminScreen.
+  // Lists everyone with their current status (On Job / On Break / On Lunch / Idle / Offline),
+  // grouped by status (Live), department (By dept), or just clock-in time (Today).
+  const renderAdmin = () => {
+    const now = adminNow;
+    const C = {
+      job:     "#10b981",
+      brk:     "#f59e0b",
+      lunch:   "#eab308",
+      idle:    T.accent,
+      offline: T.textDim,
+    };
+    const statusFor = (p) => {
+      // Match clockState's lunch detection: look for an open lunchStart with no matching lunchEnd.
+      const evts = p?.activeClockIn?.events || [];
+      let lunchOpen = null;
+      for (const ev of evts) {
+        if (ev.type === "lunchStart") lunchOpen = ev;
+        else if (ev.type === "lunchEnd") lunchOpen = null;
+      }
+      if (lunchOpen) return "lunch";
+      if (p?.activeBreak) return "break";
+      if (p?.activeJobClock) return "job";
+      if (p?.activeClockIn) return "idle";
+      return "offline";
+    };
+    const startTsFor = (p, status) => {
+      if (status === "job")     return p.activeJobClock?.clockIn;
+      if (status === "break")   return p.activeBreak?.startedAt;
+      if (status === "lunch") {
+        const evts = p?.activeClockIn?.events || [];
+        let last = null;
+        for (const ev of evts) {
+          if (ev.type === "lunchStart") last = ev.ts;
+          else if (ev.type === "lunchEnd") last = null;
+        }
+        return last;
+      }
+      if (status === "idle")    return p.activeClockIn?.clockIn;
+      return null;
+    };
+    const elapsed = (iso) => {
+      if (!iso) return "";
+      const t = new Date(iso).getTime();
+      if (isNaN(t)) return "";
+      const s = Math.max(0, Math.floor((now - t) / 1000));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+      if (m > 0) return `${m}m ${String(sec).padStart(2, "0")}s`;
+      return `${sec}s`;
+    };
+    const timeLabel = (iso) => {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return "";
+      return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    };
+    const initials = (name) => (name || "").split(" ").slice(0, 2).map(w => w[0] || "").join("").toUpperCase();
+    const jobTitleById = (id) => tasks.find(t => t.id === id)?.title || "";
+
+    // Filter out people who shouldn't appear on the board: deleted/hidden/system users.
+    const team = people
+      .filter(p => p.userRole === "user" || p.userRole === "admin")
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const buckets = { job: [], break: [], lunch: [], idle: [], offline: [] };
+    team.forEach(p => { buckets[statusFor(p)].push(p); });
+
+    const Avatar = ({ p, dotColor }) => (
+      <div style={{ position: "relative", flexShrink: 0 }}>
+        <div style={{ width: 38, height: 38, borderRadius: "50%", background: p.color || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: isLight(p.color || T.accent) ? "#000" : "#fff" }}>
+          {initials(p.name)}
+        </div>
+        {dotColor && <div style={{ position: "absolute", right: -2, bottom: -2, width: 12, height: 12, borderRadius: "50%", background: dotColor, border: `2px solid ${T.bg}` }} />}
+      </div>
+    );
+
+    const cardBase = { display: "flex", flexDirection: "column", gap: 10, background: T.card, border: `1.25px solid ${T.border}`, borderRadius: T.radius, padding: "12px 14px" };
+
+    const OnJobCard = (p) => {
+      const job = p.activeJobClock?.jobId ? jobTitleById(p.activeJobClock.jobId) : "";
+      const op  = p.activeJobClock?.opTitle || "";
+      const jobLine = [job, op].filter(Boolean).join(" · ");
+      return (
+        <div key={p.id} style={cardBase}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Avatar p={p} dotColor={C.job} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+              {p.department && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department}</div>}
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.job, boxShadow: `0 0 6px ${C.job}` }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.job, fontFamily: T.mono }}>{elapsed(p.activeJobClock?.clockIn)}</span>
+            <span style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: T.textDim }}>since {timeLabel(p.activeJobClock?.clockIn)}</span>
+          </div>
+          {jobLine && <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{jobLine}</div>}
+        </div>
+      );
+    };
+
+    const SecondaryCard = (p, status, sublabel) => {
+      const color = status === "break" ? C.brk : status === "lunch" ? C.lunch : status === "idle" ? C.idle : C.offline;
+      const startedTs = startTsFor(p, status);
+      return (
+        <div key={p.id} style={{ ...cardBase, padding: "10px 14px", flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <Avatar p={p} dotColor={status === "offline" ? null : color} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+            <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {sublabel}
+              {startedTs && <> · since {timeLabel(startedTs)}</>}
+            </div>
+          </div>
+          {startedTs && status !== "offline" && (
+            <span style={{ fontSize: 13, fontWeight: 700, color, fontFamily: T.mono, flexShrink: 0 }}>{elapsed(startedTs)}</span>
+          )}
+        </div>
+      );
+    };
+
+    const SectionHeader = ({ title, count }) => (
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginTop: 18, marginBottom: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>{title}</h3>
+        <span style={{ fontSize: 13, fontWeight: 700, color: T.textDim, fontFamily: T.mono }}>{count}</span>
+      </div>
+    );
+
+    const StatTile = ({ label, count, color }) => (
+      <div style={{ flex: 1, background: T.card, border: `1.25px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 6px", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+        <span style={{ fontSize: 24, fontWeight: 800, color, fontFamily: T.mono }}>{count}</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "0.07em" }}>{label}</span>
+      </div>
+    );
+
+    const FilterPill = ({ id, label }) => {
+      const on = adminFilter === id;
+      return (
+        <button onClick={() => setAdminFilter(id)}
+          style={{ padding: "7px 16px", borderRadius: 20, border: `1.25px solid ${on ? "transparent" : T.border}`, background: on ? T.accent : T.surface, color: on ? T.accentText : T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>
+          {label}
+        </button>
+      );
+    };
+
+    const headerLine = `${new Date(now).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })} · ${new Date(now).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · auto-refresh`;
+
+    return <div style={{ display: "flex", flexDirection: "column", paddingTop: 6, gap: 0 }}>
+      {/* Title */}
+      <div style={{ marginBottom: 14 }}>
+        <h2 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>Live status</h2>
+        <div style={{ fontSize: 12, color: T.textDim, marginTop: 4 }}>{headerLine}</div>
+      </div>
+      {/* Stat tiles */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <StatTile label="ON JOB"  count={buckets.job.length}     color={C.job} />
+        <StatTile label="BREAK"   count={buckets.break.length}   color={C.brk} />
+        <StatTile label="LUNCH"   count={buckets.lunch.length}   color={C.lunch} />
+        <StatTile label="IDLE"    count={buckets.idle.length}    color={C.idle} />
+        <StatTile label="OFFLINE" count={buckets.offline.length} color={C.offline} />
+      </div>
+      {/* Filter pills */}
+      <div style={{ display: "flex", justifyContent: "center", gap: 8, marginBottom: 12 }}>
+        <FilterPill id="live"  label="Live" />
+        <FilterPill id="dept"  label="By dept" />
+      </div>
+
+      {adminFilter === "live" && <>
+        {buckets.job.length > 0 && <>
+          <SectionHeader title="On a job" count={buckets.job.length} />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+            {buckets.job.map(p => OnJobCard(p))}
+          </div>
+        </>}
+        {buckets.break.length > 0 && <>
+          <SectionHeader title="On break" count={buckets.break.length} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {buckets.break.map(p => SecondaryCard(p, "break", "On break"))}
+          </div>
+        </>}
+        {buckets.lunch.length > 0 && <>
+          <SectionHeader title="On lunch" count={buckets.lunch.length} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {buckets.lunch.map(p => SecondaryCard(p, "lunch", "On lunch"))}
+          </div>
+        </>}
+        {buckets.idle.length > 0 && <>
+          <SectionHeader title="Idle" count={buckets.idle.length} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {buckets.idle.map(p => SecondaryCard(p, "idle", "Logged in, no active job"))}
+          </div>
+        </>}
+        {buckets.offline.length > 0 && <>
+          <SectionHeader title="Offline" count={buckets.offline.length} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {buckets.offline.map(p => SecondaryCard(p, "offline", "Not clocked in"))}
+          </div>
+        </>}
+      </>}
+
+      {adminFilter === "dept" && (() => {
+        const grouped = {};
+        team.forEach(p => {
+          const dept = (p.department || "").trim() || "Unassigned";
+          (grouped[dept] = grouped[dept] || []).push(p);
+        });
+        const deptKeys = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+        const labelByStatus = (p) => {
+          const s = statusFor(p);
+          if (s === "job")     return "On a job";
+          if (s === "break")   return "On break";
+          if (s === "lunch")   return "On lunch";
+          if (s === "idle")    return "Logged in";
+          return "Offline";
+        };
+        return <>{deptKeys.map(d => (
+          <div key={d}>
+            <SectionHeader title={d} count={grouped[d].length} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {grouped[d].map(p => SecondaryCard(p, statusFor(p), labelByStatus(p)))}
+            </div>
+          </div>
+        ))}</>;
+      })()}
+
+      {team.length === 0 && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
+        <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
+        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: T.text }}>No team members yet</h3>
+      </div>}
+    </div>;
+  };
 
   // Standalone Approval Queue page — list-view-style grid: jobs at level 0, drop down
   // (gridRowIn/gridRowOut animations) to panel-workflow rows where each approval step
@@ -13732,8 +13979,8 @@ ${jobsCtx || "No jobs found."}`;
         })}
         {/* ─── Divider above the Approval Queue + Settings group ─── */}
         <div aria-hidden={!sidebarExpanded} style={{ height: 1, background: T.border + "55", margin: sidebarExpanded ? "12px 12px 8px" : "10px 12px", opacity: sidebarExpanded ? 1 : 0.5, transition: "margin 0.2s ease, opacity 0.2s ease" }} />
-        {/* Approval Queue — standalone page */}
-        {(() => {
+        {/* Approval Queue — standalone page (admins or users with sign-off access) */}
+        {canSeeApprovalQueue && (() => {
           const active = view === "approvals";
           return (
             <button onClick={() => switchView("approvals")}
@@ -13746,6 +13993,23 @@ ${jobsCtx || "No jobs found."}`;
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </span>
               <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
+            </button>
+          );
+        })()}
+        {/* Admin — live worker-status board (admins only) */}
+        {isAdmin && (() => {
+          const active = view === "admin";
+          return (
+            <button onClick={() => switchView("admin")}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show("Admin", e.clientX, e.clientY); }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+              onMouseDown={() => tipCtx.hide()}
+              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              {active && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: T.accent }} />}
+              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              </span>
+              <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Admin</span>
             </button>
           );
         })()}
@@ -13847,7 +14111,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </aside>}
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", background: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
-      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "approvals" && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
+      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "admin" && isAdmin && <div style={{ flex: 1 }}>{renderAdmin()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     </div>
     {/* ── BuilderTrend Modal ── */}
@@ -15305,12 +15569,12 @@ ${jobsCtx || "No jobs found."}`;
                         </div>;
                       })}
                     </div>}
-                    {/* Sign-Off Access toggle */}
+                    {/* Approval Queue Access toggle */}
                     <div onClick={() => isAdmin && updPerson(person.id, { canSignOff: !person.canSignOff })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canSignOff ? T.accent + "44" : T.border}`, background: person.canSignOff ? T.accent + "08" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
                       <span style={{ lineHeight: 0, color: person.canSignOff ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Sign-Off Access</div>
-                        <div style={{ fontSize: 11, color: T.textDim }}>Can sign off steps for assigned sign-off templates</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Approval Queue Access</div>
+                        <div style={{ fontSize: 11, color: T.textDim }}>Can view the Approval Queue page and sign off steps for assigned sign-off templates</div>
                       </div>
                       <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                         <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
