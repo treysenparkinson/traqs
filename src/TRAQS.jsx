@@ -5683,46 +5683,42 @@ ${jobsCtx || "No jobs found."}`;
 
     const cardBase = { display: "flex", flexDirection: "column", gap: 10, background: T.card, border: `1.25px solid ${T.border}`, borderRadius: T.radius, padding: "12px 14px" };
 
-    const OnJobCard = (p) => {
-      const job = p.activeJobClock?.jobId ? jobTitleById(p.activeJobClock.jobId) : "";
-      const op  = p.activeJobClock?.opTitle || "";
-      const jobLine = [job, op].filter(Boolean).join(" · ");
+    // One unified card per person. status drives color + label + which extra info shows.
+    const STATUS_LABELS = { job: "On a job", break: "On break", lunch: "On lunch", idle: "Idle", offline: "Offline" };
+    const StatusCard = (p, status) => {
+      const color = status === "job" ? C.job : status === "break" ? C.brk : status === "lunch" ? C.lunch : status === "idle" ? C.idle : C.offline;
+      const startedTs = startTsFor(p, status);
+      const label = STATUS_LABELS[status];
+      const jobName = status === "job" && p.activeJobClock?.jobId ? jobTitleById(p.activeJobClock.jobId) : "";
+      const opName  = status === "job" ? (p.activeJobClock?.opTitle || "") : "";
+      const jobLine = [jobName, opName].filter(Boolean).join(" · ");
+      const subLine = status === "job"     ? jobLine
+                   : status === "idle"    ? "Logged in, no active job"
+                   : status === "offline" ? "Not clocked in"
+                   : label;
+      const offline = status === "offline";
       return (
         <div key={p.id} style={cardBase}>
+          {/* Top row: avatar + name + status pill */}
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Avatar p={p} dotColor={C.job} />
+            <Avatar p={p} dotColor={offline ? null : color} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
               {p.department && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department}</div>}
             </div>
+            <span style={{ fontSize: 10, fontWeight: 800, color, background: offline ? "transparent" : color + "22", border: offline ? `1px solid ${T.border}` : "none", borderRadius: 10, padding: "2px 8px", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap", flexShrink: 0 }}>
+              {label}
+            </span>
           </div>
+          {/* Middle row: status dot + elapsed timer + "since HH:MM" */}
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: C.job, boxShadow: `0 0 6px ${C.job}` }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: C.job, fontFamily: T.mono }}>{elapsed(p.activeJobClock?.clockIn)}</span>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: offline ? "none" : `0 0 6px ${color}` }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color, fontFamily: T.mono }}>{startedTs ? elapsed(startedTs) : "—"}</span>
             <span style={{ flex: 1 }} />
-            <span style={{ fontSize: 11, color: T.textDim }}>since {timeLabel(p.activeJobClock?.clockIn)}</span>
+            {startedTs && <span style={{ fontSize: 11, color: T.textDim }}>since {timeLabel(startedTs)}</span>}
           </div>
-          {jobLine && <div style={{ fontSize: 12, fontWeight: 700, color: T.text, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{jobLine}</div>}
-        </div>
-      );
-    };
-
-    const SecondaryCard = (p, status, sublabel) => {
-      const color = status === "break" ? C.brk : status === "lunch" ? C.lunch : status === "idle" ? C.idle : C.offline;
-      const startedTs = startTsFor(p, status);
-      return (
-        <div key={p.id} style={{ ...cardBase, padding: "10px 14px", flexDirection: "row", alignItems: "center", gap: 12 }}>
-          <Avatar p={p} dotColor={status === "offline" ? null : color} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-            <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {sublabel}
-              {startedTs && <> · since {timeLabel(startedTs)}</>}
-            </div>
-          </div>
-          {startedTs && status !== "offline" && (
-            <span style={{ fontSize: 13, fontWeight: 700, color, fontFamily: T.mono, flexShrink: 0 }}>{elapsed(startedTs)}</span>
-          )}
+          {/* Bottom: job/op line (for "On a job"), otherwise sublabel */}
+          {subLine && <div style={{ fontSize: 12, fontWeight: status === "job" ? 700 : 500, color: status === "job" ? T.text : T.textSec, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{subLine}</div>}
         </div>
       );
     };
@@ -5774,36 +5770,20 @@ ${jobsCtx || "No jobs found."}`;
       </div>
 
       {adminFilter === "live" && <>
-        {buckets.job.length > 0 && <>
-          <SectionHeader title="On a job" count={buckets.job.length} />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
-            {buckets.job.map(p => OnJobCard(p))}
-          </div>
-        </>}
-        {buckets.break.length > 0 && <>
-          <SectionHeader title="On break" count={buckets.break.length} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {buckets.break.map(p => SecondaryCard(p, "break", "On break"))}
-          </div>
-        </>}
-        {buckets.lunch.length > 0 && <>
-          <SectionHeader title="On lunch" count={buckets.lunch.length} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {buckets.lunch.map(p => SecondaryCard(p, "lunch", "On lunch"))}
-          </div>
-        </>}
-        {buckets.idle.length > 0 && <>
-          <SectionHeader title="Idle" count={buckets.idle.length} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {buckets.idle.map(p => SecondaryCard(p, "idle", "Logged in, no active job"))}
-          </div>
-        </>}
-        {buckets.offline.length > 0 && <>
-          <SectionHeader title="Offline" count={buckets.offline.length} />
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {buckets.offline.map(p => SecondaryCard(p, "offline", "Not clocked in"))}
-          </div>
-        </>}
+        {[
+          { key: "job",     title: "On a job" },
+          { key: "break",   title: "On break" },
+          { key: "lunch",   title: "On lunch" },
+          { key: "idle",    title: "Idle" },
+          { key: "offline", title: "Offline" },
+        ].map(({ key, title }) => buckets[key].length === 0 ? null : (
+          <Fragment key={key}>
+            <SectionHeader title={title} count={buckets[key].length} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+              {buckets[key].map(p => StatusCard(p, key))}
+            </div>
+          </Fragment>
+        ))}
       </>}
 
       {adminFilter === "dept" && (() => {
@@ -5813,19 +5793,11 @@ ${jobsCtx || "No jobs found."}`;
           (grouped[dept] = grouped[dept] || []).push(p);
         });
         const deptKeys = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
-        const labelByStatus = (p) => {
-          const s = statusFor(p);
-          if (s === "job")     return "On a job";
-          if (s === "break")   return "On break";
-          if (s === "lunch")   return "On lunch";
-          if (s === "idle")    return "Logged in";
-          return "Offline";
-        };
         return <>{deptKeys.map(d => (
           <div key={d}>
             <SectionHeader title={d} count={grouped[d].length} />
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {grouped[d].map(p => SecondaryCard(p, statusFor(p), labelByStatus(p)))}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10 }}>
+              {grouped[d].map(p => StatusCard(p, statusFor(p)))}
             </div>
           </div>
         ))}</>;
@@ -5844,10 +5816,14 @@ ${jobsCtx || "No jobs found."}`;
   // collapse animation matches the Jobs grid exactly.
   const renderApprovalQueue = () => {
     const userDept = (loggedInUser?.department || "").toLowerCase();
-    // Build one entry per job that has at least one panel-workflow we should surface.
-    const jobsList = [];
+    // Build one section per sign-off template (+ a "Legacy Engineering" section for panels
+    // still using panel.engineering). Each section's job entry has only the workflows tied
+    // to that section's template. Jobs with no sign-off / engineering data don't appear.
+    const sectionsMap = {};
+    const ensureSection = (key, title) => sectionsMap[key] || (sectionsMap[key] = { key, title, jobs: [] });
+    const totalJobsSet = new Set();
     tasks.forEach(job => {
-      const panelWorkflows = [];
+      const byTemplate = {};
       (job.subs || []).forEach(panel => {
         // Sign-off template workflows
         signOffTemplates.forEach(t => {
@@ -5861,7 +5837,7 @@ ${jobsCtx || "No jobs found."}`;
           });
           const activeStepIdx = t.steps.findIndex((_, i) => !so[String(i)]);
           const totalCount = t.steps.length;
-          panelWorkflows.push({
+          (byTemplate[t.id] = byTemplate[t.id] || []).push({
             key: panel.id + ":so:" + t.id, panel, kind: "signoff", template: t,
             steps: t.steps.map((label, i) => ({ key: i, label, rec: so[String(i)] })),
             activeStepIdx, doneCount, totalCount,
@@ -5878,7 +5854,7 @@ ${jobsCtx || "No jobs found."}`;
           });
           const activeKey = !e.designed ? "designed" : !e.verified ? "verified" : !e.sentToPerforex ? "sentToPerforex" : null;
           const activeStepIdx = approvalSteps.findIndex(s => s.key === activeKey);
-          panelWorkflows.push({
+          (byTemplate["__eng__"] = byTemplate["__eng__"] || []).push({
             key: panel.id + ":eng", panel, kind: "eng",
             steps: approvalSteps.map(s => ({ key: s.key, label: s.label, rec: e[s.key] })),
             activeStepIdx, doneCount, totalCount: approvalSteps.length,
@@ -5887,20 +5863,42 @@ ${jobsCtx || "No jobs found."}`;
           });
         }
       });
-      if (panelWorkflows.length === 0) return;
-      const totalSteps = panelWorkflows.reduce((s, w) => s + w.totalCount, 0);
-      const doneSteps = panelWorkflows.reduce((s, w) => s + w.doneCount, 0);
-      const allDone   = panelWorkflows.every(w => w.isDone);
-      const mostRecent = panelWorkflows.reduce((m, w) => (w.lastAt > (m?.lastAt || 0) ? w : m), null);
-      const lastAt    = mostRecent?.lastAt    || 0;
-      const lastBy    = mostRecent?.lastBy    || "";
-      const lastLabel = mostRecent?.lastLabel || "";
-      jobsList.push({ job, panelWorkflows, totalSteps, doneSteps, allDone, lastAt, lastBy, lastLabel });
+      // Push this job into each section it has workflows for.
+      Object.entries(byTemplate).forEach(([tid, wfs]) => {
+        const title = tid === "__eng__"
+          ? queueLabel
+          : (signOffTemplates.find(t => t.id === tid)?.name || "—");
+        const section = ensureSection(tid, title);
+        const totalSteps = wfs.reduce((s, w) => s + w.totalCount, 0);
+        const doneSteps  = wfs.reduce((s, w) => s + w.doneCount, 0);
+        const allDone    = wfs.every(w => w.isDone);
+        const mostRecent = wfs.reduce((m, w) => (w.lastAt > (m?.lastAt || 0) ? w : m), null);
+        section.jobs.push({
+          job,
+          panelWorkflows: wfs,
+          totalSteps, doneSteps, allDone,
+          lastAt:    mostRecent?.lastAt    || 0,
+          lastBy:    mostRecent?.lastBy    || "",
+          lastLabel: mostRecent?.lastLabel || "",
+        });
+        totalJobsSet.add(job.id);
+      });
     });
-    // Preserve the order jobs already appear in (signing off a step shouldn't reshuffle the list).
-    // Array.prototype.sort is stable, so equal-status items keep their natural `tasks` order.
-    jobsList.sort((a, b) => (a.allDone !== b.allDone) ? (a.allDone ? 1 : -1) : 0);
-    const empty = jobsList.length === 0;
+    // Section order: sign-off templates first (in orgSettings order), legacy engineering last.
+    const sections = Object.values(sectionsMap).sort((a, b) => {
+      if (a.key === "__eng__") return 1;
+      if (b.key === "__eng__") return -1;
+      const ai = signOffTemplates.findIndex(t => t.id === a.key);
+      const bi = signOffTemplates.findIndex(t => t.id === b.key);
+      return ai - bi;
+    });
+    // Within each section: pending jobs first, done last; insertion order preserved otherwise
+    // (Array.prototype.sort is stable) — so signing off a step doesn't reshuffle the row.
+    sections.forEach(sec => {
+      sec.jobs.sort((a, b) => (a.allDone !== b.allDone) ? (a.allDone ? 1 : -1) : 0);
+    });
+    const totalJobs = totalJobsSet.size;
+    const empty = sections.length === 0 || sections.every(s => s.jobs.length === 0);
     const COLS = "minmax(220px,1fr) 90px 130px minmax(300px,2.4fr) 190px";
     const cellBase = { padding: "8px 12px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1.25px solid ${T.border}`, display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" };
     const hdrCell  = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "10px 12px", background: T.surface };
@@ -5910,7 +5908,7 @@ ${jobsCtx || "No jobs found."}`;
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         </span>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Approval Queue</h2>
-        {!empty && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px", marginLeft: 4 }}>{jobsList.length} {jobsList.length === 1 ? "job" : "jobs"}</span>}
+        {!empty && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px", marginLeft: 4 }}>{totalJobs} {totalJobs === 1 ? "job" : "jobs"}</span>}
         {isAdmin && <button onClick={() => { setSignOffSettingsOpen(true); setSignOffTemplateEditing({ name: "", steps: [] }); }}
           style={{ marginLeft: "auto", padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44`, transition: "filter 0.15s" }}
           onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.08)"; }}
@@ -5923,28 +5921,37 @@ ${jobsCtx || "No jobs found."}`;
         <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: T.text }}>Nothing waiting for approval</h3>
         <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 320, lineHeight: 1.65 }}>Pending sign-offs and finished items will appear here.</p>
       </div>}
-      {!empty && <div style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto", overflowY: "visible" }}>
-        <div style={{ minWidth: 900 }}>
-          {/* Header */}
-          <div style={{ display: "grid", gridTemplateColumns: COLS, position: "sticky", top: 0, zIndex: 2, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
-            <div style={hdrCell}>Job</div>
-            <div style={hdrCell}>Job #</div>
-            <div style={hdrCell}>Client</div>
-            <div style={hdrCell}>Approval</div>
-            <div style={{ ...hdrCell, borderRight: "none" }}>Last Activity</div>
+      {!empty && <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        {sections.map(section => section.jobs.length === 0 ? null : (
+        <div key={section.key}>
+          {/* Section header */}
+          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>{section.title}</h3>
+            <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{section.jobs.length} {section.jobs.length === 1 ? "job" : "jobs"}</span>
           </div>
-          {jobsList.map(({ job, panelWorkflows, totalSteps, doneSteps, allDone, lastAt, lastBy, lastLabel }) => {
-            const isExpanded = expandedJobs.has(job.id);
-            const isClosing  = closingJobs.has(job.id);
+          <div style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto", overflowY: "visible" }}>
+            <div style={{ minWidth: 900 }}>
+              {/* Header */}
+              <div style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
+                <div style={hdrCell}>Job</div>
+                <div style={hdrCell}>Job #</div>
+                <div style={hdrCell}>Client</div>
+                <div style={hdrCell}>Approval</div>
+                <div style={{ ...hdrCell, borderRight: "none" }}>Last Activity</div>
+              </div>
+              {section.jobs.map(({ job, panelWorkflows, totalSteps, doneSteps, allDone, lastAt, lastBy, lastLabel }) => {
+            const isExpanded = expandedJobs.has(section.key + ":" + job.id);
+            const isClosing  = closingJobs.has(section.key + ":" + job.id);
             const showSubs   = isExpanded || isClosing;
             const client     = job.clientId ? clients.find(c => c.id === job.clientId) : null;
             const jobBar     = allDone ? "#10b981" : T.accent;
             const dateStr    = lastAt > 0 ? new Date(lastAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
             const timeStr    = lastAt > 0 ? new Date(lastAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
             const pct        = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+            const expandKey  = section.key + ":" + job.id;
             return (
-              <Fragment key={job.id}>
-                <div onClick={() => toggleJobExpand(job.id)}
+              <Fragment key={section.key + ":" + job.id}>
+                <div onClick={() => toggleJobExpand(expandKey)}
                   style={{ display: "grid", gridTemplateColumns: COLS, cursor: "pointer", borderBottom: `1.25px solid ${T.border}`, background: isExpanded ? T.accent + "08" : "transparent", transition: "background 0.15s" }}
                   onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = T.accent + "08"; }}
                   onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = "transparent"; }}>
@@ -6042,7 +6049,10 @@ ${jobsCtx || "No jobs found."}`;
               </Fragment>
             );
           })}
+            </div>
+          </div>
         </div>
+        ))}
       </div>}
     </div>;
   };
