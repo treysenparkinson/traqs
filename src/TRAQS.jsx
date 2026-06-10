@@ -1686,9 +1686,6 @@ Extraction rules:
   const [designModalOpen, setDesignModalOpen] = useState(false);
   const [orgSettingsModalOpen, setOrgSettingsModalOpen] = useState(false);
   // Admin tool — quick PIN reset surfaced inside the Organization Settings panel.
-  const [pinResetUserId, setPinResetUserId] = useState("");
-  const [pinResetValue, setPinResetValue] = useState("");
-  const [pinResetToast, setPinResetToast] = useState("");
   const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
   const [collapsedSections, setCollapsedSections] = useState({});
   const [tasks, _setTasks] = useState([]);
@@ -5914,6 +5911,12 @@ ${jobsCtx || "No jobs found."}`;
         </span>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Approval Queue</h2>
         {!empty && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px", marginLeft: 4 }}>{jobsList.length} {jobsList.length === 1 ? "job" : "jobs"}</span>}
+        {isAdmin && <button onClick={() => { setSignOffSettingsOpen(true); setSignOffTemplateEditing({ name: "", steps: [] }); }}
+          style={{ marginLeft: "auto", padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44`, transition: "filter 0.15s" }}
+          onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.08)"; }}
+          onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
+          + New Approval Template
+        </button>}
       </div>
       {empty && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
         <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
@@ -14272,22 +14275,6 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>}
             </div>
-            {/* Reset user PIN */}
-            <div style={{ background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, padding: "10px 12px" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Reset User PIN</div>
-              <div style={{ marginBottom: 8 }}>
-                <SearchSelect value={pinResetUserId} onChange={v => setPinResetUserId(v || "")} options={people.map(p => ({ value: p.id, label: p.name, color: p.color, sub: p.department || "" }))} placeholder="Search…" compact emptyLabel="No one selected" />
-              </div>
-              <input type="password" value={pinResetValue} onChange={e => setPinResetValue(e.target.value.replace(/\D/g, ""))} placeholder="New PIN (4–6 digits)" maxLength={6} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.mono, letterSpacing: "0.2em", outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
-              <button disabled={!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4} onClick={() => {
-                const v = pinResetValue.trim();
-                setPeople(prev => prev.map(p => String(p.id) === String(pinResetUserId) ? { ...p, pin: v } : p));
-                setPinResetUserId(""); setPinResetValue("");
-                setPinResetToast("PIN updated");
-                setTimeout(() => setPinResetToast(""), 1600);
-              }} style={{ width: "100%", padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? T.border : T.accent, color: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!pinResetUserId || !pinResetValue.trim() || pinResetValue.trim().length < 4) ? "not-allowed" : "pointer", fontFamily: T.font }}>Reset PIN</button>
-              {pinResetToast && <div style={{ fontSize: 11, color: "#10b981", marginTop: 6, textAlign: "center", fontWeight: 700 }}>✓ {pinResetToast}</div>}
-            </div>
             {/* Launchers for legacy preferences screens */}
             <button onClick={() => { setOrgSettingsModalOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Scheduling preferences</button>
             <button onClick={() => { setOrgSettingsModalOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Sign-Off templates</button>
@@ -15181,27 +15168,6 @@ ${jobsCtx || "No jobs found."}`;
                 </div>;
               })}
             </div>
-          </div>
-          {/* Sign Off Templates */}
-          <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase" }}>Sign Off Templates</div>
-              <button onClick={() => setSignOffSettingsOpen(true)} style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Manage</button>
-            </div>
-            {(orgSettings.signOffTemplates || []).length === 0
-              ? <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0", textAlign: "center" }}>No sign-off templates — <span onClick={() => setSignOffSettingsOpen(true)} style={{ color: T.accent, cursor: "pointer", fontWeight: 600 }}>create one</span></div>
-              : <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {(orgSettings.signOffTemplates || []).map(tmpl => (
-                    <div key={tmpl.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
-                        <div style={{ fontSize: 11, color: T.textDim }}>{tmpl.steps.length} step{tmpl.steps.length !== 1 ? "s" : ""}: {tmpl.steps.slice(0, 3).join(", ")}{tmpl.steps.length > 3 ? "…" : ""}</div>
-                      </div>
-                      <button onClick={() => { setSignOffSettingsOpen(true); setSignOffTemplateEditing({ ...tmpl }); }} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 13, padding: "0 4px" }}>✎</button>
-                    </div>
-                  ))}
-                </div>
-            }
           </div>
         </div>
         <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: T.card, display: "flex", justifyContent: "flex-end", flexShrink: 0, borderBottomLeftRadius: T.radiusSm, borderBottomRightRadius: T.radiusSm }}>
