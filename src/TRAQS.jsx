@@ -482,6 +482,16 @@ animStyle.textContent = `
   15%  { opacity: 1; transform: translateY(0);    max-height: 140px;                                                                                  overflow: hidden; }
   100% { opacity: 0; transform: translateY(-7px); max-height: 0;    border-width: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; overflow: hidden; }
 }
+@keyframes gridRowIn {
+  0%   { opacity: 0; transform: translateY(-7px); max-height: 0;     border-bottom-width: 0; overflow: hidden; }
+  90%  { opacity: 1; transform: translateY(0);    max-height: 80px;  border-bottom-width: 1.25px; overflow: hidden; }
+  100% { opacity: 1; transform: translateY(0);    max-height: 1000px; border-bottom-width: 1.25px; overflow: visible; }
+}
+@keyframes gridRowOut {
+  0%   { opacity: 1; transform: translateY(0);    max-height: 1000px; border-bottom-width: 1.25px; overflow: hidden; }
+  10%  { opacity: 1; transform: translateY(0);    max-height: 80px;   border-bottom-width: 1.25px; overflow: hidden; }
+  100% { opacity: 0; transform: translateY(-7px); max-height: 0;      border-bottom-width: 0;   overflow: hidden; }
+}
 @keyframes fadeScale {
   0%   { opacity: 0; transform: scale(0.97); }
   100% { opacity: 1; transform: scale(1);    }
@@ -5584,6 +5594,209 @@ ${jobsCtx || "No jobs found."}`;
     return { template: tmpl, pending, finished };
   });
 
+  // Standalone Approval Queue page — list-view-style grid: jobs at level 0, drop down
+  // (gridRowIn/gridRowOut animations) to panel-workflow rows where each approval step
+  // renders inline. Reuses the existing expandedJobs/closingJobs + toggleJobExpand so the
+  // collapse animation matches the Jobs grid exactly.
+  const renderApprovalQueue = () => {
+    const userDept = (loggedInUser?.department || "").toLowerCase();
+    // Build one entry per job that has at least one panel-workflow we should surface.
+    const jobsList = [];
+    tasks.forEach(job => {
+      const panelWorkflows = [];
+      (job.subs || []).forEach(panel => {
+        // Sign-off template workflows
+        signOffTemplates.forEach(t => {
+          if (!isAdmin && userDept !== t.name.toLowerCase()) return;
+          const so = (panel.signOffs || {})[t.id];
+          if (so === undefined || so === null) return;
+          let doneCount = 0, lastAt = 0, lastBy = "", lastLabel = "";
+          t.steps.forEach((label, i) => {
+            const rec = so[String(i)];
+            if (rec) { doneCount++; const at = new Date(rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = rec.byName || ""; lastLabel = label; } }
+          });
+          const activeStepIdx = t.steps.findIndex((_, i) => !so[String(i)]);
+          const totalCount = t.steps.length;
+          panelWorkflows.push({
+            key: panel.id + ":so:" + t.id, panel, kind: "signoff", template: t,
+            steps: t.steps.map((label, i) => ({ key: i, label, rec: so[String(i)] })),
+            activeStepIdx, doneCount, totalCount,
+            isDone: totalCount > 0 && doneCount === totalCount,
+            lastAt, lastBy, lastLabel,
+          });
+        });
+        // Engineering workflow (legacy)
+        if (panel.engineering !== undefined && (isAdmin || userDept === queueLabel.toLowerCase())) {
+          const e = panel.engineering || {};
+          let doneCount = 0, lastAt = 0, lastBy = "", lastLabel = "";
+          approvalSteps.forEach(s => {
+            if (e[s.key]) { doneCount++; const at = new Date(e[s.key].at).getTime(); if (at > lastAt) { lastAt = at; lastBy = e[s.key].byName || ""; lastLabel = s.label; } }
+          });
+          const activeKey = !e.designed ? "designed" : !e.verified ? "verified" : !e.sentToPerforex ? "sentToPerforex" : null;
+          const activeStepIdx = approvalSteps.findIndex(s => s.key === activeKey);
+          panelWorkflows.push({
+            key: panel.id + ":eng", panel, kind: "eng",
+            steps: approvalSteps.map(s => ({ key: s.key, label: s.label, rec: e[s.key] })),
+            activeStepIdx, doneCount, totalCount: approvalSteps.length,
+            isDone: doneCount === approvalSteps.length,
+            lastAt, lastBy, lastLabel,
+          });
+        }
+      });
+      if (panelWorkflows.length === 0) return;
+      const totalSteps = panelWorkflows.reduce((s, w) => s + w.totalCount, 0);
+      const doneSteps = panelWorkflows.reduce((s, w) => s + w.doneCount, 0);
+      const allDone   = panelWorkflows.every(w => w.isDone);
+      const mostRecent = panelWorkflows.reduce((m, w) => (w.lastAt > (m?.lastAt || 0) ? w : m), null);
+      const lastAt    = mostRecent?.lastAt    || 0;
+      const lastBy    = mostRecent?.lastBy    || "";
+      const lastLabel = mostRecent?.lastLabel || "";
+      jobsList.push({ job, panelWorkflows, totalSteps, doneSteps, allDone, lastAt, lastBy, lastLabel });
+    });
+    // Preserve the order jobs already appear in (signing off a step shouldn't reshuffle the list).
+    // Array.prototype.sort is stable, so equal-status items keep their natural `tasks` order.
+    jobsList.sort((a, b) => (a.allDone !== b.allDone) ? (a.allDone ? 1 : -1) : 0);
+    const empty = jobsList.length === 0;
+    const COLS = "minmax(220px,1fr) 90px 130px minmax(300px,2.4fr) 190px";
+    const cellBase = { padding: "8px 12px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1.25px solid ${T.border}`, display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" };
+    const hdrCell  = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "10px 12px", background: T.surface };
+    return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+        <span style={{ lineHeight: 0, color: T.accent }}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </span>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Approval Queue</h2>
+        {!empty && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px", marginLeft: 4 }}>{jobsList.length} {jobsList.length === 1 ? "job" : "jobs"}</span>}
+      </div>
+      {empty && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
+        <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: T.text }}>Nothing waiting for approval</h3>
+        <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 320, lineHeight: 1.65 }}>Pending sign-offs and finished items will appear here.</p>
+      </div>}
+      {!empty && <div style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto", overflowY: "visible" }}>
+        <div style={{ minWidth: 900 }}>
+          {/* Header */}
+          <div style={{ display: "grid", gridTemplateColumns: COLS, position: "sticky", top: 0, zIndex: 2, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
+            <div style={hdrCell}>Job</div>
+            <div style={hdrCell}>Job #</div>
+            <div style={hdrCell}>Client</div>
+            <div style={hdrCell}>Approval</div>
+            <div style={{ ...hdrCell, borderRight: "none" }}>Last Activity</div>
+          </div>
+          {jobsList.map(({ job, panelWorkflows, totalSteps, doneSteps, allDone, lastAt, lastBy, lastLabel }) => {
+            const isExpanded = expandedJobs.has(job.id);
+            const isClosing  = closingJobs.has(job.id);
+            const showSubs   = isExpanded || isClosing;
+            const client     = job.clientId ? clients.find(c => c.id === job.clientId) : null;
+            const jobBar     = allDone ? "#10b981" : T.accent;
+            const dateStr    = lastAt > 0 ? new Date(lastAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+            const timeStr    = lastAt > 0 ? new Date(lastAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+            const pct        = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
+            return (
+              <Fragment key={job.id}>
+                <div onClick={() => toggleJobExpand(job.id)}
+                  style={{ display: "grid", gridTemplateColumns: COLS, cursor: "pointer", borderBottom: `1.25px solid ${T.border}`, background: isExpanded ? T.accent + "08" : "transparent", transition: "background 0.15s" }}
+                  onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = T.accent + "08"; }}
+                  onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = "transparent"; }}>
+                  <div style={{ ...cellBase, gap: 8, paddingLeft: 12, position: "relative" }}>
+                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobBar }} />
+                    <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.18s", color: T.textDim, flexShrink: 0 }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.title}</span>
+                    {allDone && <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98118", borderRadius: 8, padding: "1px 7px", flexShrink: 0 }}>✓ Done</span>}
+                  </div>
+                  <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 11 }}>
+                    {job.jobNumber ? <span style={{ color: T.accent, fontWeight: 700 }}>#{job.jobNumber}</span> : <span style={{ color: T.textDim }}>—</span>}
+                  </div>
+                  <div style={cellBase}>
+                    {client
+                      ? <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: client.color, fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: client.color, flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span>
+                      : <span style={{ fontSize: 12, color: T.textDim }}>—</span>}
+                  </div>
+                  <div style={cellBase}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
+                      <div style={{ flex: 1, height: 6, borderRadius: 3, background: T.border, overflow: "hidden", minWidth: 40 }}>
+                        <div style={{ height: "100%", width: pct + "%", background: jobBar, borderRadius: 3, transition: "width 0.3s" }} />
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: jobBar, fontFamily: T.mono, flexShrink: 0 }}>{doneSteps}/{totalSteps}</span>
+                      <span style={{ fontSize: 11, color: T.textDim, flexShrink: 0 }}>{panelWorkflows.length} workflow{panelWorkflows.length !== 1 ? "s" : ""}</span>
+                    </div>
+                  </div>
+                  <div style={{ ...cellBase, borderRight: "none", fontSize: 11, color: T.textSec, fontFamily: T.mono, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 2 }}>
+                    {lastAt > 0 ? <>
+                      <span style={{ fontFamily: T.font, fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
+                        {lastBy || "—"}{lastLabel && <span style={{ fontWeight: 400, color: T.textDim }}> · {lastLabel}</span>}
+                      </span>
+                      <span style={{ fontSize: 10, color: T.textDim }}>{dateStr} · {timeStr}</span>
+                    </> : <span style={{ color: T.textDim }}>—</span>}
+                  </div>
+                </div>
+                {showSubs && panelWorkflows.map((wf, wIdx) => {
+                  const wfColor = wf.isDone ? "#10b981" : T.accent;
+                  const wfLabel = wf.kind === "signoff" ? wf.template.name : queueLabel;
+                  const wfDate  = wf.lastAt > 0 ? new Date(wf.lastAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
+                  const wfTime  = wf.lastAt > 0 ? new Date(wf.lastAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
+                  return (
+                    <div key={wf.key} style={{
+                      display: "grid", gridTemplateColumns: COLS,
+                      borderBottom: `1.25px solid ${T.border}`,
+                      background: T.surface + "aa",
+                      animation: isClosing
+                        ? `gridRowOut 0.18s ${wIdx * 18}ms both ease-in`
+                        : `gridRowIn 0.14s ${wIdx * 22}ms both ease-out`,
+                      overflow: "hidden",
+                    }}>
+                      <div style={{ ...cellBase, gap: 7, paddingLeft: 36 }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: wfColor, background: wfColor + "18", borderRadius: 4, padding: "1px 6px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>{wfLabel}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{wf.panel.title}</span>
+                      </div>
+                      <div style={cellBase} />
+                      <div style={cellBase} />
+                      <div style={{ ...cellBase, gap: 5, flexWrap: "wrap" }}>
+                        {wf.steps.map((s, sIdx) => {
+                          const isStepDone = !!s.rec;
+                          const isStepActive = !wf.isDone && sIdx === wf.activeStepIdx;
+                          if (isStepDone) return (
+                            <Tip key={s.key} label={`${s.rec.byName} · ${new Date(s.rec.at).toLocaleDateString()} — click to undo`}>
+                              <button onClick={() => { if (wf.kind === "signoff") revertStep(job.id, wf.panel.id, wf.template.id, sIdx); else revertEngineering(job.id, wf.panel.id, s.key); }}
+                                style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, background: "#10b98112", border: "1px solid #10b98140", fontSize: 11, fontWeight: 700, color: "#10b981", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
+                                onMouseEnter={e => { e.currentTarget.style.background = T.danger + "12"; e.currentTarget.style.borderColor = T.danger + "55"; e.currentTarget.style.color = T.danger; }}
+                                onMouseLeave={e => { e.currentTarget.style.background = "#10b98112"; e.currentTarget.style.borderColor = "#10b98140"; e.currentTarget.style.color = "#10b981"; }}>
+                                <span>✓</span>{s.label}
+                              </button>
+                            </Tip>
+                          );
+                          if (isStepActive) return (
+                            <button key={s.key} onClick={() => { if (wf.kind === "signoff") signOffStep(job.id, wf.panel.id, wf.template.id, sIdx); else signOffEngineering(job.id, wf.panel.id, s.key); }}
+                              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>
+                              → {s.label}
+                            </button>
+                          );
+                          return (
+                            <span key={s.key} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>
+                              ○ {s.label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                      <div style={{ ...cellBase, borderRight: "none", fontSize: 11, color: T.textSec, fontFamily: T.mono, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 2 }}>
+                        {wf.lastAt > 0 ? <>
+                          <span style={{ fontFamily: T.font, fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
+                            {wf.lastBy || "—"}{wf.lastLabel && <span style={{ fontWeight: 400, color: T.textDim }}> · {wf.lastLabel}</span>}
+                          </span>
+                          <span style={{ fontSize: 10, color: T.textDim }}>{wfDate} · {wfTime}</span>
+                        </> : <span style={{ color: T.textDim }}>—</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </Fragment>
+            );
+          })}
+        </div>
+      </div>}
+    </div>;
+  };
+
   const renderTasks = () => {
     const sel = selTask ? (filtered.find(t => t.id === selTask) || tasks.find(t => t.id === selTask)) : null;
     const fresh = sel ? (allItems.find(x => x.id === sel.id) || sel) : null;
@@ -5735,130 +5948,6 @@ ${jobsCtx || "No jobs found."}`;
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
-      {/* ── Sign-Off Queue — always renders as cards in both views, one section per template ── */}
-      {canApprove && signOffQueueByTemplate.map(({ template: tmpl, pending }) => {
-        if (pending.length === 0) return null;
-        const userDept = (loggedInUser?.department || "").toLowerCase();
-        if (!isAdmin && userDept !== tmpl.name.toLowerCase()) return null;
-        const sKey = tmpl.id;
-        // Default collapsed — `collapsedSections[sKey]` undefined means collapsed; explicit false means open.
-        const isCollapsed = collapsedSections[sKey] !== false;
-        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: p[sKey] === false ? true : false }));
-        return <div key={tmpl.id} style={{ marginBottom: 20 }}>
-          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-            <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.accent }}>{tmpl.name}</h3>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{pending.length}</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
-          <div style={{ overflow: "hidden", minHeight: 0 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
-            {pending.map(x => ({ ...x, done: false })).map(({ job, panel, done }) => {
-              const so = (panel.signOffs || {})[tmpl.id] || {};
-              const activeIdx = tmpl.steps.findIndex((_, i) => !so[String(i)]);
-              const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-              return <div key={panel.id + tmpl.id} style={{ background: T.card, border: `2px solid ${done ? "#10b98133" : T.accent + "33"}`, borderRadius: T.radius, padding: "12px 14px", boxShadow: `0 2px 8px ${done ? "#10b98108" : T.accent + "0f"}` }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2, display: "flex", gap: 5, alignItems: "center" }}>
-                  {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
-                  {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2, lineHeight: 1.3 }}>{job.title}</div>
-                <div style={{ fontSize: 11, color: T.textSec, marginBottom: 8, fontFamily: T.mono }}>{panel.title}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {tmpl.steps.map((stepLabel, i) => {
-                    const rec = so[String(i)];
-                    const isDone = !!rec;
-                    const isActive = !done && i === activeIdx;
-                    if (isDone) return <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
-                      <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
-                      <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{stepLabel}</span>
-                      <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
-                      <Tip label="Misclick? Undo this sign-off">
-                        <button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "3px 9px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0, display: "flex", alignItems: "center", gap: 3, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.borderColor = T.danger + "55"; e.currentTarget.style.background = T.danger + "10"; }} onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}>
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                          Back
-                        </button>
-                      </Tip>
-                    </div>;
-                    if (isActive) return <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <button onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ flex: 1, padding: "5px 12px", borderRadius: 10, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {stepLabel}</button>
-                    </div>;
-                    return <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, opacity: 0.4 }}>
-                      <span style={{ fontSize: 12, color: T.textDim }}>○</span>
-                      <span style={{ fontSize: 12, color: T.textDim }}>{stepLabel}</span>
-                    </div>;
-                  })}
-                </div>
-              </div>;
-            })}
-          </div>
-          </div>
-          </div>
-        </div>;
-      })}
-      {/* ── Legacy Engineering Queue — always renders as cards ── */}
-      {canApprove && engQueueItems.length > 0 && (() => {
-        const userDept = (loggedInUser?.department || "").toLowerCase();
-        if (!isAdmin && userDept !== queueLabel.toLowerCase()) return null;
-        const sKey = "__legacy_eng__";
-        // Default collapsed — `collapsedSections[sKey]` undefined means collapsed; explicit false means open.
-        const isCollapsed = collapsedSections[sKey] !== false;
-        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: p[sKey] === false ? true : false }));
-        return <div style={{ marginBottom: 20 }}>
-          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-            <span style={{ lineHeight: 0, color: T.accent }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.accent }}>{queueLabel}</h3>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
-          <div style={{ overflow: "hidden", minHeight: 0 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
-            {engQueueItems.map(x => ({ ...x, done: false })).map(({ job, panel, done }) => {
-              const e = panel.engineering || {};
-              const activeStep = !e.designed ? "designed" : !e.verified ? "verified" : "sentToPerforex";
-              const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-              return <div key={panel.id} style={{ background: T.card, border: `2px solid ${done ? "#10b98133" : T.accent + "33"}`, borderRadius: T.radius, padding: "12px 14px" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2, display: "flex", gap: 5, alignItems: "center" }}>
-                  {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
-                  {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
-                </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2, lineHeight: 1.3 }}>{job.title}</div>
-                <div style={{ fontSize: 11, color: T.textSec, marginBottom: 8, fontFamily: T.mono }}>{panel.title}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {approvalSteps.map(step => {
-                    const rec = e[step.key];
-                    const isDone = !!rec;
-                    const isActive = !done && step.key === activeStep;
-                    if (isDone) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
-                      <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
-                      <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{step.label}</span>
-                      <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{rec.byName} · {new Date(rec.at).toLocaleDateString()}</span>
-                      <Tip label="Misclick? Undo this sign-off">
-                        <button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ padding: "3px 9px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0, display: "flex", alignItems: "center", gap: 3, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.borderColor = T.danger + "55"; e.currentTarget.style.background = T.danger + "10"; }} onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}>
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                          Back
-                        </button>
-                      </Tip>
-                    </div>;
-                    if (isActive) return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <button onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ flex: 1, padding: "5px 12px", borderRadius: 10, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>→ Sign Off: {step.label}</button>
-                    </div>;
-                    return <div key={step.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, opacity: 0.4 }}>
-                      <span style={{ fontSize: 12, color: T.textDim }}>○</span>
-                      <span style={{ fontSize: 12, color: T.textDim }}>{step.label}</span>
-                    </div>;
-                  })}
-                </div>
-              </div>;
-            })}
-          </div>
-          </div>
-          </div>
-        </div>;
-      })()}
-
       {/* ── Cards View ── */}
       {taskSubView === "cards" && <div style={{ display: "flex", gap: 24, flex: 1, minHeight: 0 }}>
         {/* Job list sidebar */}
@@ -6592,70 +6681,6 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* ── Gantt View ── */}
       {taskSubView === "gantt" && renderGantt()}
-
-      {/* ── Approval Queue — Finished (collapsible, default collapsed) ── */}
-      {canApprove && (() => {
-        const userDept = (loggedInUser?.department || "").toLowerCase();
-        const signOffFinished = signOffQueueByTemplate.flatMap(({ template, finished }) => {
-          if (!isAdmin && userDept !== template.name.toLowerCase()) return [];
-          return finished.map(f => ({ ...f, kind: "signoff", template }));
-        });
-        const engFinishedFiltered = (!isAdmin && userDept !== queueLabel.toLowerCase()) ? [] : engFinishedItems.map(f => ({ ...f, kind: "eng" }));
-        const allFinished = [...signOffFinished, ...engFinishedFiltered];
-        if (allFinished.length === 0) return null;
-        const sKey = "__approvals_finished__";
-        // Default collapsed — `collapsedSections[sKey]` undefined means collapsed; explicit false means open.
-        const isCollapsed = collapsedSections[sKey] !== false;
-        const toggleSection = () => setCollapsedSections(p => ({ ...p, [sKey]: p[sKey] === false ? true : false }));
-        return <div style={{ marginTop: 24, marginBottom: 20 }}>
-          <div onClick={toggleSection} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: isCollapsed ? 0 : 10, cursor: "pointer", userSelect: "none", transition: "margin-bottom 0.18s cubic-bezier(0.4,0,0.2,1)" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isCollapsed ? "rotate(-90deg)" : "none", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
-            <span style={{ lineHeight: 0, color: "#10b981" }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-            </span>
-            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#10b981" }}>Finished</h3>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>{allFinished.length}</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
-            <div style={{ overflow: "hidden", minHeight: 0 }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
-                {allFinished.map(item => {
-                  const { job, panel } = item;
-                  const jobClient = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-                  const headerLabel = item.kind === "signoff" ? item.template.name : queueLabel;
-                  const steps = item.kind === "signoff"
-                    ? item.template.steps.map((label, i) => ({ key: `s${i}`, label, rec: ((panel.signOffs || {})[item.template.id] || {})[String(i)], onBack: () => revertStep(job.id, panel.id, item.template.id, i) }))
-                    : approvalSteps.map(step => ({ key: step.key, label: step.label, rec: (panel.engineering || {})[step.key], onBack: () => revertEngineering(job.id, panel.id, step.key) }));
-                  return <div key={item.kind + "-" + panel.id + "-" + (item.template?.id || "eng")} style={{ background: T.card, border: `2px solid #10b98133`, borderRadius: T.radius, padding: "12px 14px", boxShadow: "0 2px 8px #10b98108" }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ color: "#10b981", background: "#10b98115", borderRadius: 4, padding: "1px 5px" }}>{headerLabel}</span>
-                      {job.jobNumber && <span style={{ color: T.accent, background: `${T.accent}15`, borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{job.jobNumber}</span>}
-                      {jobClient && <span style={{ color: jobClient.color }}>{jobClient.name}</span>}
-                    </div>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: T.text, marginBottom: 2, lineHeight: 1.3 }}>{job.title}</div>
-                    <div style={{ fontSize: 11, color: T.textSec, marginBottom: 8, fontFamily: T.mono }}>{panel.title}</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                      {steps.map(s => (
-                        <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 8px", borderRadius: T.radiusSm, background: "#10b98110", border: "1px solid #10b98130" }}>
-                          <span style={{ fontSize: 12, color: "#10b981", fontWeight: 700 }}>✓</span>
-                          <span style={{ fontSize: 12, color: "#10b981", fontWeight: 600, flex: 1 }}>{s.label}</span>
-                          {s.rec && <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{s.rec.byName} · {new Date(s.rec.at).toLocaleDateString()}</span>}
-                          <Tip label="Misclick? Undo this sign-off">
-                            <button onClick={s.onBack} style={{ padding: "3px 9px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 10, fontWeight: 700, color: T.textDim, cursor: "pointer", fontFamily: T.font, flexShrink: 0, display: "flex", alignItems: "center", gap: 3, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.borderColor = T.danger + "55"; e.currentTarget.style.background = T.danger + "10"; }} onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "transparent"; }}>
-                              <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
-                              Back
-                            </button>
-                          </Tip>
-                        </div>
-                      ))}
-                    </div>
-                  </div>;
-                })}
-              </div>
-            </div>
-          </div>
-        </div>;
-      })()}
     </div>;
   };
 
@@ -13705,8 +13730,25 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           );
         })}
-        {/* ─── Settings tree (in-sidebar) — collapsible parent + 4 sub-items ─── */}
+        {/* ─── Divider above the Approval Queue + Settings group ─── */}
         <div aria-hidden={!sidebarExpanded} style={{ height: 1, background: T.border + "55", margin: sidebarExpanded ? "12px 12px 8px" : "10px 12px", opacity: sidebarExpanded ? 1 : 0.5, transition: "margin 0.2s ease, opacity 0.2s ease" }} />
+        {/* Approval Queue — standalone page */}
+        {(() => {
+          const active = view === "approvals";
+          return (
+            <button onClick={() => switchView("approvals")}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show("Approval Queue", e.clientX, e.clientY); }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+              onMouseDown={() => tipCtx.hide()}
+              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              {active && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: T.accent }} />}
+              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              </span>
+              <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
+            </button>
+          );
+        })()}
         {/* Settings parent — collapsible */}
         <button onClick={() => { if (sidebarMode === "button" && !sidebarExpanded) { setSidebarExpanded(true); setSidebarSettingsOpen(true); } else { setSidebarSettingsOpen(o => !o); } }}
           onMouseEnter={e => { if (!sidebarExpanded) tipCtx.show("Settings", e.clientX, e.clientY); e.currentTarget.style.background = T.accent + "0c"; }}
@@ -13805,7 +13847,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </aside>}
     <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", background: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
-      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
+      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "approvals" && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     </div>
     {/* ── BuilderTrend Modal ── */}
