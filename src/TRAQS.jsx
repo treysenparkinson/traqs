@@ -1767,6 +1767,7 @@ Extraction rules:
 
   const [fStat, setFStat] = useState("All");
   const [fPers, setFPers] = useState([]);      // multi-select person IDs (strings); empty = All
+  const [fGroup, setFGroup] = useState([]);    // Cards-view grouping: when non-empty, jobs list groups into one section per selected person
   const [fJobNum, setFJobNum] = useState("");
   const [fRole, setFRole] = useState("All");  // filter by assigned person's role
   const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
@@ -1874,6 +1875,25 @@ Extraction rules:
   const [selTask, setSelTask] = useState(null);
   const [gridCell, setGridCell] = useState(null); // { id, col }
   const [expandedJobs, setExpandedJobs] = useState(new Set());
+  // In Grouping mode rows default to expanded — these sets track per-person collapse state.
+  // Keys are `<personId>:<itemId>` so two people sharing a panel/job don't collapse together.
+  const [groupCollapsed, setGroupCollapsed] = useState(new Set());
+  const [groupClosing, setGroupClosing]   = useState(new Set());
+  const toggleGroupCollapse = (key) => {
+    setGroupCollapsed(prev => {
+      if (prev.has(key)) {
+        // Currently collapsed → expanding: drop immediately so the gridRowIn animation plays.
+        const n = new Set(prev); n.delete(key); return n;
+      }
+      // Currently expanded → collapsing: mark as closing so children animate out, then commit.
+      setGroupClosing(c => new Set(c).add(key));
+      setTimeout(() => {
+        setGroupCollapsed(p => new Set(p).add(key));
+        setGroupClosing(p => { const n = new Set(p); n.delete(key); return n; });
+      }, 320);
+      return prev;
+    });
+  };
   const [closingJobs, setClosingJobs] = useState(new Set());
   const toggleJobExpand = useCallback((id) => {
     setExpandedJobs(prev => {
@@ -2868,6 +2888,13 @@ Extraction rules:
   const allItems = useMemo(() => { let r = []; tasks.forEach(t => { const jc = t.color || "#94a3b8"; r.push({ ...t, color: jc, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { const pc = s.color || jc; r.push({ ...s, color: pc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: op.color || pc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
   const taskColor = useCallback(t => t.color || T.accent, []);
   const taskOwner = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.name.split(" ")[0] : null; }, [people]);
+  // True when `personId` appears on task's job-level team, or on any nested panel.subs[].op.team.
+  const personOnTask = useCallback((personId, t) => {
+    const idStr = String(personId);
+    const hit = (idList) => (idList || []).some(id => String(id) === idStr);
+    if (hit(t.team)) return true;
+    return (t.subs || []).some(panel => (panel.subs || []).some(op => hit(op.team)));
+  }, []);
   const filtered = useMemo(() => tasks.filter(t => {
     // Non-admins only see jobs where they are the project manager
     if (!isAdmin && loggedInUser && t.projectManagerId !== loggedInUser.id) return false;
@@ -2960,7 +2987,7 @@ Extraction rules:
     const fv = fCustom["_cc_" + c.id];
     return n + (((Array.isArray(fv) && fv.length > 0) || (typeof fv === "string" && fv.trim())) ? 1 : 0);
   }, 0);
-  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount;
+  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount + (fGroup.length > 0 ? 1 : 0);
   // Filter-panel section for user-created custom columns — auto-appears for each column added via the "+" picker.
   // Select columns render as multi-select chips; text/number/date columns render as a contains-input.
   const renderCustomColFilters = () => {
@@ -5094,7 +5121,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
                 <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
               </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFGroup([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div></FadeOnClose>
           </div>
         </div>
@@ -5656,10 +5683,10 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><SearchSelect compact portal value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
-                <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
+                <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Grouping {fGroup.length > 0 && <span style={{ color: T.accent }}>({fGroup.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fGroup.includes(String(p.id)); return <button key={p.id} onClick={() => setFGroup(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fGroup.length > 0 && <button onClick={() => setFGroup([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFGroup([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
             </div>
             {/* Inline expanding search — icon collapses to 28px, expands to 200px on click */}
@@ -5879,7 +5906,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFGroup([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
               </div>}</FadeOnClose>
             </div>
           </div>
@@ -6096,7 +6123,7 @@ ${jobsCtx || "No jobs found."}`;
         const jobPct = _jobPct;
         const pctColor = (pct) => pct >= 80 ? "#10b981" : pct >= 40 ? "#f59e0b" : "#94a3b8";
 
-        const renderStdCell = (colId, item, level, pid, jobId, panelId, jobColor) => {
+        const renderStdCell = (colId, item, level, pid, jobId, panelId, jobColor, alwaysExpand = false, groupPrefix = "") => {
           const client = level === 0 && item.clientId ? clients.find(c => c.id === item.clientId) : null;
           const assignee = level > 0 ? (item.team || [])[0] : null;
           const assigneePerson = assignee ? people.find(p => p.id === assignee) : null;
@@ -6116,13 +6143,14 @@ ${jobsCtx || "No jobs found."}`;
           const isScheduledLater = level === 0 ? !!item.scheduledLater : !!(tasks.find(t => t.id === jobId)?.scheduledLater);
           const safeDate = ds => { if (!ds) return "—"; const d = new Date(ds + "T12:00:00"); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
           const nameHasSubs = (item.subs || []).length > 0;
-          const nameIsExpanded = expandedJobs.has(item.id);
+          const groupExpKey = groupPrefix ? `${groupPrefix}:${item.id}` : item.id;
+          const nameIsExpanded = alwaysExpand ? !groupCollapsed.has(groupExpKey) : expandedJobs.has(item.id);
           switch (colId) {
             case "name": return (
               <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: (level === 0 ? 14 : 12) + indent, position: "relative" }}
                 onDoubleClick={e => { if (!jobSelectMode) startEdit(e, item.id, "title"); }}>
                 {level === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobColor || item.color }} />}
-                <svg width="10" height="10" viewBox="0 0 10 10" onClick={e => { if (!nameHasSubs) return; e.stopPropagation(); toggleJobExpand(item.id); }} style={{ transform: nameIsExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, flexShrink: 0, visibility: nameHasSubs ? "visible" : "hidden", cursor: nameHasSubs ? "pointer" : "default" }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                <svg width="10" height="10" viewBox="0 0 10 10" onClick={e => { if (!nameHasSubs) return; e.stopPropagation(); if (alwaysExpand) toggleGroupCollapse(groupExpKey); else toggleJobExpand(item.id); }} style={{ transform: nameIsExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, flexShrink: 0, visibility: nameHasSubs ? "visible" : "hidden", cursor: nameHasSubs ? "pointer" : "default" }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 {level === 0 && !jobSelectMode && <div style={{ opacity: 0.22, cursor: "grab", color: T.textDim, fontSize: 13, lineHeight: 1, userSelect: "none", flexShrink: 0 }}>⠿</div>}
                 {level === 0 && jobSelectMode && <div style={{ width: 15, height: 15, borderRadius: "50%", border: `2px solid ${selJobs.has(item.id) ? T.accent : T.border}`, background: selJobs.has(item.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{selJobs.has(item.id) && <svg width="7" height="7" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
                 {level === 0 && !jobSelectMode && (() => {
@@ -6239,8 +6267,24 @@ ${jobsCtx || "No jobs found."}`;
           }
         };
 
-        const GridRow = ({ item, level = 0, jobId, panelId, jobColor, isFinished, idx = 0 }) => {
-          const isExpanded = expandedJobs.has(item.id);
+        // For grouping: return a shallow-trimmed copy of t containing only panels with at least one op
+        // belonging to `personId`, and within each kept panel only those ops.
+        const trimTaskToPerson = (t, personId) => {
+          const idStr = String(personId);
+          const hit = (idList) => (idList || []).some(id => String(id) === idStr);
+          const keptPanels = (t.subs || []).map(panel => {
+            const keptOps = (panel.subs || []).filter(op => hit(op.team));
+            if (keptOps.length === 0) return null;
+            return { ...panel, subs: keptOps };
+          }).filter(Boolean);
+          return { ...t, subs: keptPanels };
+        };
+
+        const GridRow = ({ item, level = 0, jobId, panelId, jobColor, isFinished, idx = 0, alwaysExpand = false, groupPrefix = "", ancestorClosing = false }) => {
+          const groupExpKey = groupPrefix ? `${groupPrefix}:${item.id}` : item.id;
+          const isExpanded = alwaysExpand ? !groupCollapsed.has(groupExpKey) : expandedJobs.has(item.id);
+          // True if THIS row is mid-collapse — used so descendants inherit the closing state.
+          const selfClosing = alwaysExpand ? groupClosing.has(groupExpKey) : closingJobs.has(item.id);
           const hasSubs = (item.subs || []).length > 0;
           const rowBg = level === 0 ? (selTask === item.id ? T.accent + "12" : "transparent") : level === 1 ? T.surface + "cc" : T.bg + "cc";
           const allConds = orgSettings.conditions || [];
@@ -6262,7 +6306,11 @@ ${jobsCtx || "No jobs found."}`;
           const pid = level === 2 ? panelId : level === 1 ? jobId : null;
           const isDragTarget = level === 0 && rowDragOverId === item.id && rowDragRef.current && rowDragRef.current !== item.id;
           const parentId = level === 1 ? jobId : level === 2 ? panelId : null;
-          const parentClosing = parentId != null && closingJobs.has(parentId);
+          const parentCloseKey = groupPrefix && parentId != null ? `${groupPrefix}:${parentId}` : parentId;
+          const immediateParentClosing = parentId != null && (alwaysExpand ? groupClosing.has(parentCloseKey) : closingJobs.has(parentId));
+          // Any ancestor closing → this row plays the exit animation too (prevents a panel
+          // sliding out while its ops are still mid-enter, which read as a glitch).
+          const parentClosing = immediateParentClosing || ancestorClosing;
 
           return <Fragment key={item.id}>
             <div
@@ -6274,13 +6322,13 @@ ${jobsCtx || "No jobs found."}`;
               style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, background: condBg || rowBg, opacity: isFinished && level === 0 ? 0.6 : 1, cursor: hasSubs ? "pointer" : "default", transition: "background 0.15s", borderTop: isDragTarget ? `2px solid ${T.accent}` : undefined, ...(condStrike ? { textDecoration: "line-through", opacity: (isFinished && level === 0 ? 0.6 : 1) * 0.7 } : {}), ...(level > 0 ? { animation: parentClosing ? `gridRowOut 0.18s ${idx * 18}ms both ease-in` : `gridRowIn 0.14s ${idx * 22}ms both ease-out` } : {}) }}
               onMouseEnter={e => { e.currentTarget.style.background = condBg || T.accent + "0d"; }}
               onMouseLeave={e => { e.currentTarget.style.background = condBg || rowBg; }}
-              onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { toggleJobExpand(item.id); } }}
+              onClick={() => { if (level === 0 && jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(item.id) ? n.delete(item.id) : n.add(item.id); return n; }); } else if (hasSubs) { if (alwaysExpand) toggleGroupCollapse(groupExpKey); else toggleJobExpand(item.id); } }}
               onContextMenu={level === 0 ? e => handleCtx(e, { ...item, level: 0 }, "job-detail") : e => handleCtx(e, { ...item, isSub: true, pid: pid, grandPid: level === 2 ? jobId : null, level, panelTitle: level === 2 ? (tasks.flatMap(j => j.subs || []).find(p => p.id === panelId)?.title || "") : "" }, "job-detail")}
             >
               {/* Dynamic standard columns */}
               {orderedStdCols.map(col => {
                 const cs = getCellCondStyle(col.id);
-                const cell = renderStdCell(col.id, item, level, pid, jobId, panelId, jobColor);
+                const cell = renderStdCell(col.id, item, level, pid, jobId, panelId, jobColor, alwaysExpand, groupPrefix);
                 return cloneElement(cell, { key: col.id, ...(Object.keys(cs).length ? { style: { ...cell.props.style, ...cs } } : {}) });
               })}
 
@@ -6333,7 +6381,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
 
             {/* Sub-rows */}
-            {isExpanded && (item.subs || []).map((sub, sidx) => GridRow({ item: sub, level: level + 1, jobId: level === 0 ? item.id : jobId, panelId: level === 1 ? item.id : panelId, jobColor: level === 0 ? (sub.color || "#94a3b8") : jobColor, isFinished, idx: sidx }))}
+            {isExpanded && (item.subs || []).map((sub, sidx) => GridRow({ item: sub, level: level + 1, jobId: level === 0 ? item.id : jobId, panelId: level === 1 ? item.id : panelId, jobColor: level === 0 ? (sub.color || "#94a3b8") : jobColor, isFinished, idx: sidx, alwaysExpand, groupPrefix, ancestorClosing: parentClosing || selfClosing }))}
           </Fragment>;
         };
 
@@ -6410,6 +6458,59 @@ ${jobsCtx || "No jobs found."}`;
             const orderedActive = taskOrder.length
               ? taskOrder.map(id => activeTasks.find(t => t.id === id)).filter(Boolean).concat(activeTasks.filter(t => !taskOrder.includes(t.id)))
               : activeTasks;
+
+            // Grouping mode: one section per selected person (jobs they're on at any level).
+            // Duplicates allowed — a job appears under every selected person on its team.
+            if (fGroup.length > 0) {
+              return <>
+                {fGroup.map(pid => {
+                  const person = people.find(p => String(p.id) === pid);
+                  if (!person) return null;
+                  const pActive = orderedActive.filter(t => personOnTask(person.id, t));
+                  const pFinished = finishedTasks.filter(t => personOnTask(person.id, t));
+                  const sKey = `__group__${pid}`;
+                  const isCollapsed = !!pmSectionsCollapsed[sKey];
+                  const personColor = person.color || T.textDim;
+                  return <div key={pid} style={{ marginBottom: 20 }}>
+                    {/* Section header */}
+                    <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [sKey]: !p[sKey] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
+                      <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                      <div style={{ width: 22, height: 22, borderRadius: 6, background: personColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: isLight(personColor) ? "#000" : "#fff", flexShrink: 0 }}>{person.name[0]}</div>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{person.name}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: personColor, background: personColor + "22", borderRadius: 10, padding: "1px 8px" }}>{pActive.length}</span>
+                    </div>
+                    {/* Body — grid-template-rows animates retract */}
+                    <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
+                      <div style={{ overflow: "hidden", minHeight: 0 }}>
+                        {pActive.length === 0 && pFinished.length === 0
+                          ? <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: T.radius, background: T.card }}>(no jobs)</div>
+                          : <>
+                            {pActive.length > 0 && <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                              <div style={{ minWidth: minW }}>
+                                <ColHeaders />
+                                {pActive.map(job => GridRow({ item: trimTaskToPerson(job, person.id), level: 0, jobColor: "#94a3b8", isFinished: false, alwaysExpand: true, groupPrefix: String(person.id) }))}
+                              </div>
+                            </div>}
+                            {pFinished.length > 0 && <div style={{ marginTop: 10 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px" }}>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>{pFinished.length}</span>
+                              </div>
+                              <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                                <div style={{ minWidth: minW }}>
+                                  <ColHeaders />
+                                  {pFinished.map(job => GridRow({ item: trimTaskToPerson(job, person.id), level: 0, jobColor: "#10b981", isFinished: true, alwaysExpand: true, groupPrefix: String(person.id) }))}
+                                </div>
+                              </div>
+                            </div>}
+                          </>}
+                      </div>
+                    </div>
+                  </div>;
+                })}
+              </>;
+            }
+
             const pmIds = [];
             orderedActive.forEach(t => { const pmId = t.projectManagerId != null ? String(t.projectManagerId) : "__none__"; if (!pmIds.includes(pmId)) pmIds.push(pmId); });
 
