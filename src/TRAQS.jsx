@@ -99,6 +99,10 @@ const STD_COL_DEFS = [
   { id: "progress", label: "Progress", align: "left",   i: 9 },
   { id: "team",     label: "Team",     align: "left",   i: 10 },
 ];
+// Std columns offered in the Jobs "Grouping" dropdown (Columns section). Excludes
+// name (one section per job), progress/team (don't bucket well), and client (the
+// dropdown's dedicated Clients section already covers per-client grouping).
+const GROUPABLE_STD = ["status", "pri", "due", "start", "end", "jobNum", "hrs"];
 const ADMIN_PERMS = [
   { key: "editJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>, label: "Create, edit & delete jobs" },
   { key: "moveJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>, label: "Move & resize jobs on Gantt and team view" },
@@ -1034,6 +1038,116 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
     </div></FadeOnClose>
   </div>;
 }
+// Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
+// `value` is an array of { type, id } tokens; clicking a row toggles it and keeps the popup open.
+function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [coords, setCoords] = useState(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+  // Close on outside click / Escape (mirrors SearchSelect).
+  useEffect(() => {
+    if (!open) return;
+    const hm = e => {
+      const tr = triggerRef.current, po = popupRef.current;
+      if ((tr && tr.contains(e.target)) || (po && po.contains(e.target))) return;
+      setOpen(false); setQ("");
+    };
+    const hk = e => { if (e.key === "Escape") { setOpen(false); setQ(""); } };
+    document.addEventListener("mousedown", hm);
+    document.addEventListener("keydown", hk);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
+  }, [open]);
+  // Track trigger position for the fixed/portaled popup.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (r) setCoords({ left: r.left, top: r.bottom + 4, width: r.width });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => { window.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
+  }, [open]);
+  // The popup is portaled to <body>, so its clicks bubble straight to window — where a
+  // global handler closes the enclosing filter panel. Stop propagation natively so the
+  // panel (and this multi-select popup) stay open while toggling tokens.
+  useEffect(() => {
+    if (!open) return;
+    const el = popupRef.current;
+    if (!el) return;
+    const stop = e => e.stopPropagation();
+    el.addEventListener("click", stop);
+    el.addEventListener("mousedown", stop);
+    return () => { el.removeEventListener("click", stop); el.removeEventListener("mousedown", stop); };
+  }, [open]);
+  const [openSec, setOpenSec] = useState({});
+  const toggleSec = (k) => setOpenSec(p => ({ ...p, [k]: !p[k] }));
+  const isSel = (type, id) => value.some(g => g.type === type && g.id === id);
+  const ql = q.toLowerCase();
+  const fW = workers.filter(o => o.label.toLowerCase().includes(ql));
+  const fC = clientOpts.filter(o => o.label.toLowerCase().includes(ql));
+  const fK = columnOpts.filter(o => o.label.toLowerCase().includes(ql));
+  const noneMatch = fW.length === 0 && fC.length === 0 && fK.length === 0;
+  const Row = (type, o, i) => {
+    const sel = isSel(type, o.id);
+    const dot = type === "column" ? T.accent : (o.color || T.accent);
+    return <div key={type + ":" + o.id} onClick={() => onToggle({ type, id: o.id })}
+      style={{ padding: "8px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: sel ? dot : T.text, fontWeight: sel ? 600 : 400, background: sel ? dot + "12" : "transparent", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
+      onMouseEnter={e => e.currentTarget.style.background = dot + "18"} onMouseLeave={e => e.currentTarget.style.background = sel ? dot + "12" : "transparent"}>
+      <div style={{ width: 9, height: 9, borderRadius: type === "column" ? 2 : 5, background: dot, flexShrink: 0 }} />
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+      {sel && <span style={{ color: dot, fontSize: 13, fontWeight: 800 }}>✓</span>}
+    </div>;
+  };
+  // Each group renders as its own collapsible sub-dropdown (accordion). A search
+  // query force-opens every section that has matches so results stay visible.
+  const renderSection = (id, title, type, items) => {
+    if (items.length === 0) return null;
+    const selCount = items.filter(o => isSel(type, o.id)).length;
+    const isOpen = q ? true : !!openSec[id];
+    return <div key={id}>
+      <div onClick={() => { if (!q) toggleSec(id); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", cursor: q ? "default" : "pointer", userSelect: "none", borderTop: `1px solid ${T.border}` }}>
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
+        <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.06em" }}>{title}</span>
+        {selCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "1e", borderRadius: 8, padding: "1px 7px" }}>{selCount}</span>}
+        <span style={{ fontSize: 11, color: T.textDim }}>{items.length}</span>
+      </div>
+      {/* grid-template-rows 0fr↔1fr animates the height; inner overflow hidden clips during the transition */}
+      <div style={{ display: "grid", gridTemplateRows: isOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.15s ease", opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? "auto" : "none" }}>
+        <div style={{ overflow: "hidden", minHeight: 0 }}>
+          {items.map((o, i) => Row(type, o, i))}
+        </div>
+      </div>
+    </div>;
+  };
+  const popupStyle = { position: "fixed", left: coords?.left ?? -9999, top: coords?.top ?? -9999, width: Math.max(coords?.width || 0, 230), zIndex: 100000, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out", fontFamily: T.font, color: T.text };
+  const popup = <FadeOnClose open={open}><div ref={popupRef} className="anim-drop" style={popupStyle}>
+    <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" autoFocus style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+    </div>
+    <div style={{ maxHeight: 300, overflow: "auto" }}>
+      {noneMatch && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No matches for "{q}"</div>}
+      {renderSection("workers", "Workers", "person", fW)}
+      {renderSection("clients", "Clients", "client", fC)}
+      {renderSection("columns", "Columns", "column", fK)}
+    </div>
+    {value.length > 0 && <div style={{ borderTop: `1px solid ${T.border}`, padding: 8 }}>
+      <button onClick={() => onClear()} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, background: "transparent", border: `1px solid ${T.border}`, color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear grouping</button>
+    </div>}
+  </div></FadeOnClose>;
+  return <div style={{ position: "relative" }}>
+    <div ref={triggerRef} onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
+      {value.length > 0
+        ? <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.accent, fontWeight: 700 }}>{value.length} selected</span>
+        : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>Group by…</span>}
+      <span style={{ fontSize: compact ? 8 : 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
+    </div>
+    {createPortal(popup, document.body)}
+  </div>;
+}
 // Assignee picker dropdown — cascading animation matching SearchSelect/CustomDrop, sized for inline preview rows.
 function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, compact = false }) {
   const [open, setOpen] = useState(false);
@@ -1722,7 +1836,14 @@ Extraction rules:
 
   const [fStat, setFStat] = useState("All");
   const [fPers, setFPers] = useState([]);      // multi-select person IDs (strings); empty = All
-  const [fGroup, setFGroup] = useState([]);    // Cards-view grouping: when non-empty, jobs list groups into one section per selected person
+  // Jobs List-view grouping. Array of tokens { type: 'person'|'client'|'column', id }.
+  // When non-empty, the jobs list renders one section per token (a column token
+  // expands to one section per distinct value). Multi-select; duplicates allowed.
+  const [grouping, setGrouping] = useState([]);
+  const toggleGrouping = (tok) => setGrouping(prev => {
+    const i = prev.findIndex(g => g.type === tok.type && g.id === tok.id);
+    return i >= 0 ? prev.filter((_, j) => j !== i) : [...prev, tok];
+  });
   const [fJobNum, setFJobNum] = useState("");
   const [fRole, setFRole] = useState("All");  // filter by assigned person's role
   const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
@@ -1993,6 +2114,16 @@ Extraction rules:
     catch { return STD_COL_DEFS.map(c => c.id); }
   });
   useEffect(() => { localStorage.setItem("tq_col_order", JSON.stringify(colOrder)); }, [colOrder]);
+  // Per-column "use for grouping" overrides, keyed by std col id or "_cc_"+customId.
+  // Absent key → default: GROUPABLE_STD for std columns, true for custom columns.
+  const [groupColPref, setGroupColPref] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("tq_group_cols") || "{}") || {}; }
+    catch { return {}; }
+  });
+  useEffect(() => { localStorage.setItem("tq_group_cols", JSON.stringify(groupColPref)); }, [groupColPref]);
+  const colGroupDefault = (key) => key.startsWith("_cc_") ? true : GROUPABLE_STD.includes(key);
+  const isColGroupable = (key) => (key in groupColPref ? !!groupColPref[key] : colGroupDefault(key));
+  const toggleColGroupable = (key) => setGroupColPref(prev => ({ ...prev, [key]: !(key in prev ? prev[key] : colGroupDefault(key)) }));
   const [colCtxMenu, setColCtxMenu] = useState(null); // { x, y, colId, isCustom }
   const [taskOrder, setTaskOrder] = useState([]); // manual job ID sort order
   const colDragRef = useRef(null); // colId being dragged
@@ -2930,7 +3061,7 @@ Extraction rules:
     const fv = fCustom["_cc_" + c.id];
     return n + (((Array.isArray(fv) && fv.length > 0) || (typeof fv === "string" && fv.trim())) ? 1 : 0);
   }, 0);
-  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount + (fGroup.length > 0 ? 1 : 0);
+  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount + (grouping.length > 0 ? 1 : 0);
   // Filter-panel section for user-created custom columns — auto-appears for each column added via the "+" picker.
   // Select columns render as multi-select chips; text/number/date columns render as a contains-input.
   const renderCustomColFilters = () => {
@@ -5067,7 +5198,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
                 <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
               </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setFGroup([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setGrouping([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div></FadeOnClose>
           </div>
         </div>
@@ -6083,11 +6214,16 @@ ${jobsCtx || "No jobs found."}`;
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
-                <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div><SearchSelect compact portal value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
-                <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Grouping {fGroup.length > 0 && <span style={{ color: T.accent }}>({fGroup.length})</span>}</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{people.map(p => { const active = fGroup.includes(String(p.id)); return <button key={p.id} onClick={() => setFGroup(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: p.color || T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}{fGroup.length > 0 && <button onClick={() => setFGroup([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}</div></div>
+                <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Grouping {grouping.length > 0 && <span style={{ color: T.accent }}>({grouping.length})</span>}</div>
+                  <GroupingSelect compact value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
+                    workers={people.map(p => ({ id: String(p.id), label: p.name, color: p.color || T.accent }))}
+                    clientOpts={clients.map(c => ({ id: c.id, label: c.name, color: c.color }))}
+                    columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]} />
+                </div>
                 <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFGroup([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setGrouping([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
             </div>
             {/* Inline expanding search — icon collapses to 28px, expands to 200px on click */}
@@ -6183,7 +6319,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setFGroup([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setGrouping([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
               </div>}</FadeOnClose>
             </div>
           </div>
@@ -6736,56 +6872,137 @@ ${jobsCtx || "No jobs found."}`;
               ? taskOrder.map(id => activeTasks.find(t => t.id === id)).filter(Boolean).concat(activeTasks.filter(t => !taskOrder.includes(t.id)))
               : activeTasks;
 
-            // Grouping mode: one section per selected person (jobs they're on at any level).
-            // Duplicates allowed — a job appears under every selected person on its team.
-            if (fGroup.length > 0) {
-              return <>
-                {fGroup.map(pid => {
-                  const person = people.find(p => String(p.id) === pid);
-                  if (!person) return null;
-                  const pActive = orderedActive.filter(t => personOnTask(person.id, t));
-                  const pFinished = finishedTasks.filter(t => personOnTask(person.id, t));
-                  const sKey = `__group__${pid}`;
-                  const isCollapsed = !!pmSectionsCollapsed[sKey];
-                  const personColor = person.color || T.textDim;
-                  return <div key={pid} style={{ marginBottom: 20 }}>
-                    {/* Section header */}
-                    <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [sKey]: !p[sKey] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
-                      <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                      <div style={{ width: 22, height: 22, borderRadius: 6, background: personColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: isLight(personColor) ? "#000" : "#fff", flexShrink: 0 }}>{person.name[0]}</div>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{person.name}</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: personColor, background: personColor + "22", borderRadius: 10, padding: "1px 8px" }}>{pActive.length}</span>
-                    </div>
-                    {/* Body — grid-template-rows animates retract */}
-                    <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
-                      <div style={{ overflow: "hidden", minHeight: 0 }}>
-                        {pActive.length === 0 && pFinished.length === 0
-                          ? <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: T.radius, background: T.card }}>(no jobs)</div>
-                          : <>
-                            {pActive.length > 0 && <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
-                              <div style={{ minWidth: minW }}>
-                                <ColHeaders />
-                                {pActive.map(job => GridRow({ item: trimTaskToPerson(job, person.id), level: 0, jobColor: "#94a3b8", isFinished: false, alwaysExpand: true, groupPrefix: String(person.id) }))}
-                              </div>
-                            </div>}
-                            {pFinished.length > 0 && <div style={{ marginTop: 10 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px" }}>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
-                                <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>{pFinished.length}</span>
-                              </div>
-                              <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
-                                <div style={{ minWidth: minW }}>
-                                  <ColHeaders />
-                                  {pFinished.map(job => GridRow({ item: trimTaskToPerson(job, person.id), level: 0, jobColor: "#10b981", isFinished: true, alwaysExpand: true, groupPrefix: String(person.id) }))}
-                                </div>
-                              </div>
-                            </div>}
-                          </>}
-                      </div>
-                    </div>
-                  </div>;
-                })}
-              </>;
+            // Grouping mode: one section per selected token (worker / client / column value).
+            // Duplicates allowed — a job appears under every section it belongs to.
+            // A column token expands to one section per distinct value of that column.
+            const renderGroupSection = ({ key, sKey, headerNode, countColor, activeJobs, finishedJobs, trimFn, groupPrefix }) => {
+              const isCollapsed = !!pmSectionsCollapsed[sKey];
+              const trim = trimFn || (j => j);
+              return <div key={key} style={{ marginBottom: 20 }}>
+                {/* Section header */}
+                <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [sKey]: !p[sKey] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
+                  <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  {headerNode}
+                  <span style={{ fontSize: 11, fontWeight: 700, color: countColor, background: countColor + "22", borderRadius: 10, padding: "1px 8px" }}>{activeJobs.length}</span>
+                </div>
+                {/* Body — grid-template-rows animates retract */}
+                <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
+                  <div style={{ overflow: "hidden", minHeight: 0 }}>
+                    {activeJobs.length === 0 && finishedJobs.length === 0
+                      ? <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: T.radius, background: T.card }}>(no jobs)</div>
+                      : <>
+                        {activeJobs.length > 0 && <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                          <div style={{ minWidth: minW }}>
+                            <ColHeaders />
+                            {activeJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#94a3b8", isFinished: false, alwaysExpand: false, groupPrefix }))}
+                          </div>
+                        </div>}
+                        {finishedJobs.length > 0 && <div style={{ marginTop: 10 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px" }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>{finishedJobs.length}</span>
+                          </div>
+                          <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                            <div style={{ minWidth: minW }}>
+                              <ColHeaders />
+                              {finishedJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#10b981", isFinished: true, alwaysExpand: false, groupPrefix }))}
+                            </div>
+                          </div>
+                        </div>}
+                      </>}
+                  </div>
+                </div>
+              </div>;
+            };
+            // Maps a column key → (job) => { key, label } for bucketing jobs by that column's value.
+            const valueForGrouping = (colKey) => {
+              if (colKey.startsWith("_cc_")) {
+                const cc = customCols.find(c => "_cc_" + c.id === colKey);
+                const field = cc?.fieldKey;
+                return (job) => {
+                  const raw = cc ? (field ? job[field] : job["_cc_" + cc.id]) : undefined;
+                  const s = (raw == null || raw === "") ? "" : String(raw);
+                  return s ? { key: s, label: s } : { key: "__empty__", label: "—" };
+                };
+              }
+              const std = {
+                status: j => j.status || "Not Started",
+                pri: j => j.pri || "Medium",
+                due: j => j.dueDate || "",
+                start: j => j.start || "",
+                end: j => j.end || "",
+                jobNum: j => (j.jobNumber != null && j.jobNumber !== "") ? String(j.jobNumber) : "",
+                hrs: j => { const h = _jobHrs(j); return h > 0 ? String(h) : ""; },
+              };
+              const get = std[colKey] || (j => { const v = j[colKey]; return (v == null || v === "") ? "" : String(v); });
+              const label = (k) => colKey === "jobNum" ? "#" + k : colKey === "hrs" ? k + "h" : k;
+              return (job) => { const k = get(job); return k ? { key: k, label: label(k) } : { key: "__empty__", label: "—" }; };
+            };
+            const sortBuckets = (colKey, entries) => {
+              const empties = entries.filter(([k]) => k === "__empty__");
+              const rest = entries.filter(([k]) => k !== "__empty__");
+              if (colKey === "status") { const o = STATUSES; rest.sort((a, b) => o.indexOf(a[0]) - o.indexOf(b[0])); }
+              else if (colKey === "pri") { const o = ["High", "Medium", "Low"]; rest.sort((a, b) => o.indexOf(a[0]) - o.indexOf(b[0])); }
+              else if (colKey === "jobNum" || colKey === "hrs") { rest.sort((a, b) => (parseFloat(a[0]) || 0) - (parseFloat(b[0]) || 0)); }
+              else if (colKey === "due" || colKey === "start" || colKey === "end") { rest.sort((a, b) => String(a[0]).localeCompare(String(b[0]))); }
+              else { rest.sort((a, b) => String(a[1].label).localeCompare(String(b[1].label))); }
+              return [...rest, ...empties];
+            };
+            if (grouping.length > 0) {
+              const sections = [];
+              grouping.forEach((tok, ti) => {
+                if (tok.type === "person") {
+                  const person = people.find(p => String(p.id) === tok.id);
+                  if (!person) return;
+                  const color = person.color || T.textDim;
+                  const header = <>
+                    <div style={{ width: 22, height: 22, borderRadius: 6, background: color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: isLight(color) ? "#000" : "#fff", flexShrink: 0 }}>{person.name[0]}</div>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{person.name}</span>
+                  </>;
+                  sections.push(renderGroupSection({
+                    key: `p_${tok.id}`, sKey: `__g_person__${tok.id}`, headerNode: header, countColor: color,
+                    activeJobs: orderedActive.filter(t => personOnTask(person.id, t)),
+                    finishedJobs: finishedTasks.filter(t => personOnTask(person.id, t)),
+                    trimFn: j => trimTaskToPerson(j, person.id), groupPrefix: `p_${person.id}`,
+                  }));
+                } else if (tok.type === "client") {
+                  const client = clients.find(c => c.id === tok.id);
+                  if (!client) return;
+                  const color = client.color || T.textDim;
+                  const header = <>
+                    <div style={{ width: 14, height: 14, borderRadius: 4, background: color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{client.name}</span>
+                  </>;
+                  sections.push(renderGroupSection({
+                    key: `c_${tok.id}`, sKey: `__g_client__${tok.id}`, headerNode: header, countColor: color,
+                    activeJobs: orderedActive.filter(t => t.clientId === tok.id),
+                    finishedJobs: finishedTasks.filter(t => t.clientId === tok.id),
+                    groupPrefix: `c_${tok.id}`,
+                  }));
+                } else if (tok.type === "column") {
+                  const getVal = valueForGrouping(tok.id);
+                  const buckets = new Map();
+                  const add = (job, isFin) => {
+                    const { key, label } = getVal(job);
+                    if (!buckets.has(key)) buckets.set(key, { label, active: [], finished: [] });
+                    buckets.get(key)[isFin ? "finished" : "active"].push(job);
+                  };
+                  orderedActive.forEach(j => add(j, false));
+                  finishedTasks.forEach(j => add(j, true));
+                  sortBuckets(tok.id, [...buckets.entries()]).forEach(([rawKey, b]) => {
+                    const vk = encodeURIComponent(rawKey);
+                    const header = <>
+                      <div style={{ width: 10, height: 10, borderRadius: 2, background: T.accent, flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{b.label}</span>
+                    </>;
+                    sections.push(renderGroupSection({
+                      key: `col_${tok.id}_${vk}_${ti}`, sKey: `__g_col__${tok.id}__${vk}`, headerNode: header, countColor: T.accent,
+                      activeJobs: b.active, finishedJobs: b.finished, groupPrefix: `col_${tok.id}_${vk}`,
+                    }));
+                  });
+                }
+              });
+              return <>{sections}</>;
             }
 
             const pmIds = [];
@@ -14707,6 +14924,16 @@ ${jobsCtx || "No jobs found."}`;
             })()}
           </div>
         ))}
+        {(() => {
+          const gKey = colCtxMenu.isCustom ? "_cc_" + colCtxMenu.colId : colCtxMenu.colId;
+          const on = isColGroupable(gKey);
+          return <button onClick={() => toggleColGroupable(gKey)} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <span style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${on ? T.accent : T.border}`, background: on ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+              {on && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+            </span>
+            Use for grouping
+          </button>;
+        })()}
         <button onClick={() => {
           if (colCtxMenu.isCustom) { removeCustomCol(colCtxMenu.colId); }
           else { setColOrder(prev => prev.filter(id => id !== colCtxMenu.colId)); }
@@ -14715,12 +14942,6 @@ ${jobsCtx || "No jobs found."}`;
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           Delete Column
         </button>
-        {!colCtxMenu.isCustom && <button onClick={() => {
-          setColOrder(STD_COL_DEFS.map(c => c.id));
-          setColCtxMenu(null);
-        }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.textSec, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-          Reset Column Order
-        </button>}
       </div>
     </div>}</FadeOnClose>
 
