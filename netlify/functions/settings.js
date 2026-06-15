@@ -1,17 +1,12 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-
-function getOrgKey(event) {
-  const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!orgCode || !/^[a-zA-Z0-9]{3,20}$/.test(orgCode)) return null;
-  return `orgs/${orgCode}/settings.json`;
-}
+import { orgKey } from "./_utils/org.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const s3Key = getOrgKey(event);
+  const s3Key = orgKey(event, "settings.json");
   if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
 
   // GET — read org settings. Requires membership: settings include
@@ -28,9 +23,13 @@ export async function handler(event) {
     }
   }
 
-  // POST — write org settings (member of the named org required).
+  // POST — write org settings. Admin only: settings include workday hours,
+  // break policy and payroll cadence, so a non-admin member must not be able
+  // to alter them (matches the role-change gate in people.js).
   if (event.httpMethod === "POST") {
-    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    if (!member.isAdmin) return err(403, "Only admins can change org settings");
     try {
       const settings = JSON.parse(event.body);
       if (!settings || typeof settings !== "object" || Array.isArray(settings)) {

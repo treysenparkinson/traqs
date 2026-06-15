@@ -1,27 +1,32 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-
-function getOrgKey(event, file) {
-  const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!orgCode || !/^[a-zA-Z0-9]{3,20}$/.test(orgCode)) return null;
-  return `orgs/${orgCode}/${file}`;
-}
+import { orgKey } from "./_utils/org.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const s3Key = getOrgKey(event, "people.json");
+  const s3Key = orgKey(event, "people.json");
   if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
 
-  // GET stays open: the kiosk team-select screen needs the roster BEFORE the
-  // user signs in with Auth0, so we can't gate it behind a Bearer token. We
-  // continue to strip PINs; everything else returned here is what an
-  // employee sees on the kiosk wall anyway (name, color, role, status).
+  // GET stays open so the kiosk team-select screen can load the roster BEFORE
+  // the user signs in with Auth0. But the response is tiered:
+  //   • Authenticated org member  → full record (minus PIN) — the app needs
+  //     timeOff (scheduling) and other fields.
+  //   • Unauthenticated kiosk      → reduced projection: PIN, pushToken and
+  //     timeOff are dropped, so anyone who merely knows the org code can't
+  //     harvest push tokens or employees' time-off PII. The kiosk only needs
+  //     name/color/role/department/status/email, which remain.
   if (event.httpMethod === "GET") {
+    let isMember = false;
+    try { await requireOrgMember(event); isMember = true; } catch { /* unauthenticated kiosk */ }
     try {
-      const data = await readJson(s3Key);
-      const safe = (data ?? []).map(({ pin: _pin, ...rest }) => rest);
+      const data = (await readJson(s3Key)) ?? [];
+      const safe = data.map(({ pin: _pin, ...rest }) => {
+        if (isMember) return rest;
+        const { pushToken: _pt, timeOff: _to, ...pub } = rest;
+        return pub;
+      });
       return json(200, safe);
     } catch (e) {
       console.error("people GET error:", e);

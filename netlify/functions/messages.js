@@ -1,16 +1,7 @@
 import { validateToken } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-
-function orgCodeOf(event) {
-  return event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-}
-
-function orgKey(event, file) {
-  const code = orgCodeOf(event);
-  if (!code || !/^[a-zA-Z0-9]{3,20}$/.test(code)) return null;
-  return `orgs/${code}/${file}`;
-}
+import { orgKey } from "./_utils/org.js";
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -198,6 +189,9 @@ export async function handler(event) {
 
     const { threadKey, scope, jobId, panelId, opId, text, authorId, authorName, authorColor, participantIds, attachments, type, finishRequestId } = body ?? {};
     if (!threadKey || (!text?.trim() && !attachments?.length) || !authorId) return err(400, "Missing required fields");
+    // Bound user-supplied sizes so a member can't bloat the org's messages.json.
+    if (typeof text === "string" && text.length > 10000) return err(400, "Message too long");
+    if (Array.isArray(participantIds) && participantIds.length > 500) return err(400, "Too many participants");
 
     try {
       const [existing, people, jobs, groups] = await Promise.all([

@@ -1,8 +1,8 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, finishRequestAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
-import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
+import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { HexColorPicker } from "react-colorful";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -291,7 +291,6 @@ const effectiveClockState = (person, now = Date.now()) => {
 };
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 const addWorkingDays = (ds, n, workDays = DEFAULT_WORK_DAYS) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) count++; } return toDS(d); };
-const isWeekend = ds => { const d = new Date(ds + "T12:00:00").getDay(); return d === 0 || d === 6; };
 const isWorkDay = (ds, workDays = DEFAULT_WORK_DAYS) => workDays.includes(new Date(ds + "T12:00:00").getDay());
 const weekdaySegments = (start, end, clampStart, clampEnd, workDays = DEFAULT_WORK_DAYS, noClampStart = false) => {
   const s = (!noClampStart && start < clampStart) ? clampStart : start;
@@ -351,33 +350,6 @@ const OP_COLORS = { Wire: "#3b82f6", Cut: "#f97316", Layout: "#8b5cf6" };
 const HEALTH_COLOR = { ontime: "#10b981", behind: "#f59e0b", critical: "#ef4444", done: "#10b981" };
 
 
-
-const mkPeople = () => [
-  { id: 99, name: "Trey", department: "Admin", cap: 8, color: "#6366f1", timeOff: [], userRole: "admin", email: "" },
-  { id: 100, name: "Max", department: "Admin", cap: 8, color: "#f43f5e", timeOff: [], userRole: "admin", email: "" },
-];
-const mkTasks = () => [];
-
-const mkClients = () => [
-  { id: "c1", name: "Beaver Equipment", contact: "", email: "", phone: "", color: "#2563eb", notes: "" },
-  { id: "c2", name: "Biofire Diagnositcs", contact: "", email: "", phone: "", color: "#dc2626", notes: "" },
-  { id: "c3", name: "Clearstream", contact: "", email: "", phone: "", color: "#16a34a", notes: "" },
-  { id: "c4", name: "Codale", contact: "", email: "", phone: "", color: "#d97706", notes: "" },
-  { id: "c5", name: "Delta Valve", contact: "", email: "", phone: "", color: "#7c3aed", notes: "" },
-  { id: "c6", name: "FLS", contact: "", email: "", phone: "", color: "#0891b2", notes: "" },
-  { id: "c7", name: "Industrial Power Technologies", contact: "", email: "", phone: "", color: "#c026d3", notes: "" },
-  { id: "c8", name: "JMC", contact: "", email: "", phone: "", color: "#e11d48", notes: "" },
-  { id: "c9", name: "Lehi City Power", contact: "", email: "", phone: "", color: "#059669", notes: "" },
-  { id: "c10", name: "National Welding Corp", contact: "", email: "", phone: "", color: "#9333ea", notes: "" },
-  { id: "c11", name: "Nueman Machinery", contact: "", email: "", phone: "", color: "#ea580c", notes: "" },
-  { id: "c12", name: "OTC", contact: "", email: "", phone: "", color: "#0284c7", notes: "" },
-  { id: "c13", name: "OVO", contact: "", email: "", phone: "", color: "#4f46e5", notes: "" },
-  { id: "c14", name: "Rebuild-It", contact: "", email: "", phone: "", color: "#b91c1c", notes: "" },
-  { id: "c15", name: "Royal", contact: "", email: "", phone: "", color: "#15803d", notes: "" },
-  { id: "c16", name: "Tigua Enterprises", contact: "", email: "", phone: "", color: "#a21caf", notes: "" },
-  { id: "c17", name: "Wheeler CAT", contact: "", email: "", phone: "", color: "#ca8a04", notes: "" },
-  { id: "c18", name: "WTR Engineering", contact: "", email: "", phone: "", color: "#0e7490", notes: "" },
-];
 
 const fontLink = document.createElement("link"); fontLink.rel = "stylesheet";
 fontLink.href = "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap";
@@ -822,9 +794,7 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
   onMouseLeave={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.glassBorder}`; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = "none"; } : undefined}
   style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.glassBorder}`, padding: 24, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
-const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input id={id} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;
-const SelectField = ({ label, value, onChange, options }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><select value={value} onChange={e => onChange(e.target.value)} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }}>{options.map(o => <option key={o} value={o}>{o}</option>)}</select></div>;
-// ── Tooltip system ──────────────────────────────────────────────────────────
+const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input id={id} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;// ── Tooltip system ──────────────────────────────────────────────────────────
 const TooltipCtx = createContext(null);
 const Tip = ({ label, children }) => {
   const ctx = useContext(TooltipCtx);
@@ -963,25 +933,6 @@ function MobileNav({ tabs, activeId, onChange }) {
   );
 }
 const HealthIcon = ({ t, size = 14 }) => { const h = getHealth(t); const c = HEALTH_DOT[h]; return <span title={h === "ontime" ? "On time" : h === "behind" ? "Slightly behind" : h === "critical" ? "Behind schedule" : "Done"} style={{ width: size, height: size, borderRadius: "50%", background: c, flexShrink: 0, display: "inline-block", boxShadow: "0 0 " + (size) + "px " + c + "55" }} />; };
-function StatusDrop({ value, onChange, size = "sm" }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => { if (!open) return; const hm = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; const hk = e => { if (e.key === "Escape") setOpen(false); }; document.addEventListener("mousedown", hm); document.addEventListener("keydown", hk); return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); }; }, [open]);
-  const c = STA_C[value] || T.textDim;
-  const sz = size === "sm" ? { fontSize: 12, padding: "3px 10px" } : { fontSize: 13, padding: "5px 12px" };
-  return <div ref={ref} style={{ position: "relative", display: "inline-flex" }}>
-    <span onClick={e => { e.stopPropagation(); setOpen(!open); }} style={{ ...sz, borderRadius: 14, fontWeight: 600, fontFamily: T.font, background: c + "18", color: c, border: `1px solid ${c}33`, cursor: "pointer", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4, userSelect: "none" }}>
-      {value} <span style={{ fontSize: 9, opacity: 0.6 }}>▼</span>
-    </span>
-    <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "100%", left: 0, marginTop: 4, zIndex: 999, background: T.glass, border: `1px solid ${T.glassBorder}`, borderRadius: T.radiusSm, padding: "4px 0", boxShadow: "0 12px 40px rgba(0,0,0,0.4)", minWidth: 140 }}>
-      {STATUSES.map(s => <div key={s} onClick={e => { e.stopPropagation(); onChange(s); setOpen(false); }}
-        style={{ padding: "8px 14px", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", gap: 8, color: value === s ? STA_C[s] : T.text, fontWeight: value === s ? 600 : 400, background: value === s ? STA_C[s] + "12" : "transparent" }}
-        onMouseEnter={e => e.currentTarget.style.background = STA_C[s] + "18"} onMouseLeave={e => e.currentTarget.style.background = value === s ? STA_C[s] + "12" : "transparent"}>
-        <div style={{ width: 8, height: 8, borderRadius: 4, background: STA_C[s] }} />{s}
-      </div>)}
-    </div></FadeOnClose>
-  </div>;
-}
 function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected", noneLabel = "None", portal = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -1232,10 +1183,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       : `.traqs-custom input[type="date"]::-webkit-calendar-picker-indicator{filter:none;cursor:pointer}.traqs-custom input[type="date"]{color-scheme:light}`;
   }, [themeMode, customTheme.bg]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState("mytasks");
   const [loggedInUser, setLoggedInUser] = useState(null);
-  const [loginStep] = useState("user"); // kept for any remaining refs
   const handleLogin = () => {};
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } });
   const switchView = (v) => {
@@ -1687,7 +1636,6 @@ Extraction rules:
   const [orgSettingsModalOpen, setOrgSettingsModalOpen] = useState(false);
   // Admin tool — quick PIN reset surfaced inside the Organization Settings panel.
   const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
-  const [collapsedSections, setCollapsedSections] = useState({});
   const [tasks, _setTasks] = useState([]);
   const [people, _setPeople] = useState([]);
   const [saveStatus, setSaveStatus] = useState("saved");
@@ -1811,7 +1759,6 @@ Extraction rules:
   const tsSettingsRef = useRef(null);
   const [modal, setModal] = useState(null);
   const [engBlockError, setEngBlockError] = useState(null);
-  const [engQueueOpen, setEngQueueOpen] = useState(true);
   const [personModal, setPersonModal] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsScrollable, setSettingsScrollable] = useState(false);
@@ -1819,7 +1766,6 @@ Extraction rules:
   const [clientsSettingsOpen, setClientsSettingsOpen] = useState(false);
   const [usersOpen, setUsersOpen] = useState(false);
   const [settingsUser, setSettingsUser] = useState(null);
-  const [tagInputs, setTagInputs] = useState({}); // keyed by person.id
   const [pinDrafts, setPinDrafts] = useState({}); // keyed by person.id — PIN edits in User Permissions modal
   const [pinSaving, setPinSaving] = useState({}); // keyed by person.id
   const [saveTemplateModal, setSaveTemplateModal] = useState(false);
@@ -1838,7 +1784,6 @@ Extraction rules:
   // Fast TRAQS preview state — populated after AI extraction; user can edit/uncheck before commit.
   // Shape: { jobs: [{ _checked, _id, title, jobNumber, start, end, dueDate, clientName, assigneeName, panels: [{ _checked, _id, title, start, end, assigneeName, ops: [{ _checked, _id, title, assigneeName, start, end, hpd }] }], poNumber, notes, hpd }], updates: [{ _checked, jobNumber, patch, _existingJobTitle }], newPeople: [{ _checked, name }], newClients: [{ _checked, name }] }
   const [previewData, setPreviewData] = useState(null);
-  const settingsRef = useRef(null);
   const navPillRef  = useRef(null);
   const navBtnRefs  = useRef({});
   const navPillTransitioned = useRef(false);
@@ -1868,9 +1813,7 @@ Extraction rules:
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [gMode, setGMode] = useState("month"); // day, week, month
   const [gSort, setGSort] = useState("date"); // date, project, client
-  const [ganttViewMode, setGanttViewMode] = useState("linear"); // linear | calendar
   const [exp, setExp] = useState({});
-  const [selBarId, setSelBarId] = useState(null);
   const [ctxMenu, setCtxMenu] = useState(null);
   const [reassignModal, setReassignModal] = useState(null); // { item }
   const [depsModal, setDepsModal] = useState(null); // { item, panelSubs, panelId, jobId, panelTitle }
@@ -1917,13 +1860,9 @@ Extraction rules:
   }, []);
   const [colWidths, setColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 70, 130, 140, 36]);
   const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
-  const [engQueueExpanded, setEngQueueExpanded] = useState(true);
-  const [expandedEngRows, setExpandedEngRows] = useState(new Set());
   const [toolbarExpanded, setToolbarExpanded] = useState(false);
   const [cellAlign, setCellAlign] = useState("left");
-  const [jobsCollapsed, setJobsCollapsed] = useState(false);
   const [customCols, setCustomCols] = useState([]);
-  const [addColForm, setAddColForm] = useState(null); // null=closed, { label, type }="open"
   const [colPickerOpen, setColPickerOpen] = useState(false);
   const [colPickerAnchor, setColPickerAnchor] = useState(null);
   const [colPickerExiting, setColPickerExiting] = useState(false);
@@ -2057,7 +1996,6 @@ Extraction rules:
   const [colCtxMenu, setColCtxMenu] = useState(null); // { x, y, colId, isCustom }
   const [taskOrder, setTaskOrder] = useState([]); // manual job ID sort order
   const colDragRef = useRef(null); // colId being dragged
-  const colDropIdxRef = useRef(null);
   const [colDropIdx, setColDropIdx] = useState(null);
   const rowDragRef = useRef(null); // job id being dragged
   const [rowDragOverId, setRowDragOverId] = useState(null);
@@ -2298,12 +2236,10 @@ Extraction rules:
   const [pinError, setPinError] = useState(false);
   const [pinSelectedOps, setPinSelectedOps] = useState([]);
   const [pinLoading, setPinLoading] = useState(false);
-  const [pinSummary, setPinSummary] = useState(null);
   const [tsElapsed, setTsElapsed] = useState("");
   const [tsJobElapsed, setTsJobElapsed] = useState("");
   const [clockTick, setClockTick] = useState(0); // increments every 60s when any worker is actively clocked in — triggers re-renders for live progress display
   const [jobClockLoading, setJobClockLoading] = useState(false);
-  const [jobOpSelections, setJobOpSelections] = useState({}); // { [jobId]: opId }
   const [startJobPickerOpen, setStartJobPickerOpen] = useState(false);
   const [startJobSearch, setStartJobSearch] = useState("");
   const [pickerExpandedJobs, setPickerExpandedJobs] = useState(new Set());
@@ -2323,10 +2259,8 @@ Extraction rules:
   const [showPinIds, setShowPinIds] = useState(new Set()); // person IDs with PIN visible as plaintext
   const [tsSettingsSaving, setTsSettingsSaving] = useState(false);
   const [tsEditEntry, setTsEditEntry] = useState(null); // { id, clockIn, clockOut, personId } | null
-  const [tsCtxMenu, setTsCtxMenu] = useState(null); // { x, y, person } | null
   const [tsPersonEditModal, setTsPersonEditModal] = useState(null); // { person, draftEntries } | null
   const [tsExpandedPersons, setTsExpandedPersons] = useState({}); // { [personId]: bool }
-  const [tsPayDateInput, setTsPayDateInput] = useState("");
   const _pinKbRef = useRef(null); // holds { submitPin, closePin } — set each render inside renderTimeStamp
 
   // PIN keyboard handler — must live at component level (hooks rules)
@@ -2459,7 +2393,7 @@ Extraction rules:
   // tasks.json after a load race; doSave gating prevents the recurrence.)
   useEffect(() => {
     fetchTimeclock(getToken, orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
-    Promise.all([fetchTasks(getToken, orgCode), fetchPeople(orgCode), fetchClients(getToken, orgCode)])
+    Promise.all([fetchTasks(getToken, orgCode), fetchPeople(getToken, orgCode), fetchClients(getToken, orgCode)])
       .then(([t, p, c]) => {
         const safeT = Array.isArray(t) ? t : [];
         const safeP = Array.isArray(p) ? p : [];
@@ -2594,7 +2528,7 @@ Extraction rules:
       try {
         const [newTasks, newPeople, newClients] = await Promise.all([
           fetchTasks(getToken, orgCode),
-          fetchPeople(orgCode),
+          fetchPeople(getToken, orgCode),
           fetchClients(getToken, orgCode),
         ]);
         // Re-check status AFTER the fetch returns. The async fetch can take
@@ -2901,7 +2835,6 @@ Extraction rules:
 
 
   const allItems = useMemo(() => { let r = []; tasks.forEach(t => { const jc = t.color || "#94a3b8"; r.push({ ...t, color: jc, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { const pc = s.color || jc; r.push({ ...s, color: pc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: op.color || pc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
-  const taskColor = useCallback(t => t.color || T.accent, []);
   const taskOwner = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.name.split(" ")[0] : null; }, [people]);
   // True when `personId` appears on task's job-level team, or on any nested panel.subs[].op.team.
   const personOnTask = useCallback((personId, t) => {
@@ -2992,11 +2925,6 @@ Extraction rules:
 
   // Unique roles and hpd values for filter panel
   const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.department).filter(Boolean))].sort(), [people]);
-  const uniqueHpd = useMemo(() => {
-    const vals = new Set();
-    tasks.forEach(t => { if (t.hpd) vals.add(t.hpd); (t.subs || []).forEach(p => { if (p.hpd) vals.add(p.hpd); (p.subs || []).forEach(op => { if (op.hpd) vals.add(op.hpd); }); }); });
-    return [...vals].sort((a, b) => a - b);
-  }, [tasks]);
   const customFilterCount = customCols.reduce((n, c) => {
     if (c.fieldKey) return n;
     const fv = fCustom["_cc_" + c.id];
@@ -7146,7 +7074,6 @@ ${jobsCtx || "No jobs found."}`;
   const [tMode, setTMode] = useState("month");
   const [scheduleHighlightId, setScheduleHighlightId] = useState(null);
   const [tCollapsed, setTCollapsed] = useState({});
-  const [tExpanded, setTExpanded] = useState({});
   const teamRef = useRef(null);
   const teamContainerRef = useRef(null);
   const [teamWidth, setTeamWidth] = useState(1200);
@@ -13748,7 +13675,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>}
           {/* Actions */}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {can("editJobs") && <Btn onClick={() => { console.log("=== EDIT JOB BUTTON CLICKED ==="); console.log("=== FRESH OBJECT ===", JSON.stringify({ id: fresh?.id, title: fresh?.title, level: fresh?.level })); console.log("=== PARENT PANEL ===", parentPanel); console.log("=== PARENT JOB ===", parentJob); closeModal(); if (parentJob) openEdit(parentJob, null); }}>Edit Job</Btn>}
+            {can("editJobs") && <Btn onClick={() => { closeModal(); if (parentJob) openEdit(parentJob, null); }}>Edit Job</Btn>}
             {can("lockJobs") && parentPanel && <Btn variant={isOpLocked ? "warn" : "ghost"} onClick={() => { toggleLock(opData.id, parentPanel.id); closeModal(); }}>{isOpLocked ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>Unlock</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Lock</>}</Btn>}
             {parentJob && <Btn variant="ghost" onClick={() => { closeModal(); openDetail(parentJob); }}>View Full Job</Btn>}
           </div>
@@ -13822,7 +13749,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>;
           })}
         </div>}
-        {can("editJobs") && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><Btn onClick={() => { console.log("=== EDIT JOB BUTTON CLICKED ==="); console.log("=== FRESH OBJECT ===", JSON.stringify({ id: fresh?.id, title: fresh?.title, level: fresh?.level })); openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn></div>}
+        {can("editJobs") && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><Btn onClick={() => { openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn></div>}
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(false), position: "relative" }} onClick={e => e.stopPropagation()}>{cls}
@@ -14445,7 +14372,7 @@ ${jobsCtx || "No jobs found."}`;
         return { headers, rows };
       })();
       const csvContent = () => { const all = [flatRows.headers, ...flatRows.rows]; return all.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n"); };
-      const wordContent = () => { const hdr = flatRows.headers.map(c => `<th style="border:1px solid #ccc;padding:6px 10px;background:#f3f4f6;font-size:11px;font-family:'DM Sans',sans-serif">${c}</th>`).join(""); const bdy = flatRows.rows.map(row => `<tr>${row.map(v => `<td style="border:1px solid #ccc;padding:6px 10px;font-size:11px;font-family:'DM Sans',sans-serif">${v||"—"}</td>`).join("")}</tr>`).join(""); return `<html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/></head><body style="font-family:'DM Sans',sans-serif"><h2 style="font-family:'DM Sans',sans-serif">TRAQS Job Export</h2><table style="border-collapse:collapse"><thead><tr>${hdr}</tr></thead><tbody>${bdy}</tbody></table></body></html>`; };
+      const wordContent = () => { const esc = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); const hdr = flatRows.headers.map(c => `<th style="border:1px solid #ccc;padding:6px 10px;background:#f3f4f6;font-size:11px;font-family:'DM Sans',sans-serif">${esc(c)}</th>`).join(""); const bdy = flatRows.rows.map(row => `<tr>${row.map(v => `<td style="border:1px solid #ccc;padding:6px 10px;font-size:11px;font-family:'DM Sans',sans-serif">${esc(v) || "—"}</td>`).join("")}</tr>`).join(""); return `<html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/></head><body style="font-family:'DM Sans',sans-serif"><h2 style="font-family:'DM Sans',sans-serif">TRAQS Job Export</h2><table style="border-collapse:collapse"><thead><tr>${hdr}</tr></thead><tbody>${bdy}</tbody></table></body></html>`; };
       const doCSV = () => setExportPreview({ html: null, filename: "jobs_export.csv", mime: "text/csv", kind: "csv", content: csvContent() });
       const doWord = () => setExportPreview({ html: wordContent(), filename: "jobs_export.doc", mime: "application/msword", kind: "word" });
       // PDF — TRAQS-branded printable layout with logo, date/time, and full job → panel → op hierarchy.
@@ -14698,7 +14625,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ flex: 1, overflow: "auto", background: "#525659", padding: 24, display: "flex", justifyContent: "center" }}>
             {ep.kind === "csv"
               ? <pre style={{ width: "100%", maxWidth: 1000, padding: 24, background: "#fff", color: "#0f172a", fontFamily: T.mono, fontSize: 12, lineHeight: 1.5, borderRadius: 6, boxShadow: "0 10px 32px rgba(0,0,0,0.4)", whiteSpace: "pre", overflow: "auto" }}>{ep.content}</pre>
-              : <iframe ref={el => { previewIframeRef.current = el; }} srcDoc={ep.html} title="Export preview" style={{ width: "100%", maxWidth: 920, height: "100%", border: "none", background: "#fff", borderRadius: 6, boxShadow: "0 10px 32px rgba(0,0,0,0.4)" }} />
+              : <iframe ref={el => { previewIframeRef.current = el; }} srcDoc={ep.html} title="Export preview" sandbox="" style={{ width: "100%", maxWidth: 920, height: "100%", border: "none", background: "#fff", borderRadius: 6, boxShadow: "0 10px 32px rgba(0,0,0,0.4)" }} />
             }
           </div>
         </div>
@@ -16135,7 +16062,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-              {can("editJobs") && <Tip label="Edit"><button onClick={() => { console.log("=== EDIT FIRED ===", { itemId: it.id, title: it.title, level: it.level, isSub: it.isSub, pid: it.pid, grandPid: it.grandPid, source: ctxMenu.source }); setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } console.log("=== EDIT isOp parentJob ===", parentJob?.id, parentJob?.title); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); console.log("=== EDIT isPanel parentJob ===", parentJob?.id, parentJob?.title); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { console.log("=== EDIT isJob direct ===", it.id, it.title); openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
               {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button

@@ -1,13 +1,33 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
+import { orgCodeFromHeader } from "./_utils/org.js";
 
 const failedAttempts = new Map(); // ip -> { count, firstAttempt }
 
-function getOrgCode(event) {
-  const code = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!code || !/^[a-zA-Z0-9]{3,20}$/.test(code)) return null;
-  return code;
+// Use Netlify's trusted client IP for rate limiting. `x-forwarded-for` is
+// client-supplied and was trivially spoofable (set a new value per request to
+// get a fresh bucket), which defeated the limiter. `x-nf-client-connection-ip`
+// is set by Netlify's edge and cannot be forged by the caller.
+function clientIp(event) {
+  const h = event.headers || {};
+  return (
+    h["x-nf-client-connection-ip"] ||
+    h["client-ip"] ||
+    h["x-forwarded-for"]?.split(",")[0]?.trim() ||
+    "unknown"
+  );
+}
+
+// Reject a client-supplied timestamp that isn't a parseable date in a sane
+// window. Without this, `new Date("garbage")` yields NaN and corrupts payroll
+// records (hours = NaN, date = "Invalid…".slice(0,10)).
+function validTs(s) {
+  if (typeof s !== "string") return false;
+  const t = new Date(s).getTime();
+  if (Number.isNaN(t)) return false;
+  const y = new Date(t).getUTCFullYear();
+  return y >= 2000 && y <= 2100;
 }
 
 function hoursElapsed(isoStart, isoEnd) {
@@ -41,7 +61,7 @@ function hoursElapsedMinusPauses(isoStart, isoEnd, events) {
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const orgCode = getOrgCode(event);
+  const orgCode = orgCodeFromHeader(event);
   if (!orgCode) return err(400, "Missing or invalid X-Org-Code header");
 
   const peopleKey = `orgs/${orgCode}/people.json`;
@@ -91,6 +111,7 @@ export async function handler(event) {
       if (action === "adminClockIn") {
         const { personId, clockInTime } = body;
         if (!personId) return err(400, "Missing personId");
+        if (clockInTime != null && !validTs(clockInTime)) return err(400, "Invalid clockInTime");
 
         let people;
         try { people = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -112,6 +133,7 @@ export async function handler(event) {
       if (action === "adminClockOut") {
         const { personId, clockOutTime } = body;
         if (!personId) return err(400, "Missing personId");
+        if (clockOutTime != null && !validTs(clockOutTime)) return err(400, "Invalid clockOutTime");
 
         let people;
         try { people = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -166,6 +188,7 @@ export async function handler(event) {
       if (action === "adminEditEntry") {
         const { entryId, clockIn, clockOut } = body;
         if (!entryId || !clockIn || !clockOut) return err(400, "Missing entryId, clockIn, or clockOut");
+        if (!validTs(clockIn) || !validTs(clockOut)) return err(400, "Invalid clockIn or clockOut");
 
         let log;
         try { log = await readJson(clockKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
@@ -193,6 +216,7 @@ export async function handler(event) {
       if (!_ml.isAdmin) return err(403, "Admin only");
       const { personId: albPersonId, ts: albTs } = body;
       if (!albPersonId) return err(400, "Missing personId");
+      if (albTs != null && !validTs(albTs)) return err(400, "Invalid ts");
 
       let albPeople;
       try { albPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -452,7 +476,7 @@ export async function handler(event) {
 
     // ── Identify (PIN lookup by scanning all people — no personId needed) ───
     if (action === "identify") {
-      const ip = event.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "unknown";
+      const ip = clientIp(event);
       const attempts = failedAttempts.get(ip) || { count: 0, firstAttempt: Date.now() };
       if (Date.now() - attempts.firstAttempt > 15 * 60 * 1000) {
         failedAttempts.delete(ip);
@@ -475,7 +499,7 @@ export async function handler(event) {
     if (personIdx === -1) return err(404, "Person not found");
 
     const person = people[personIdx];
-    const _ip = event.headers?.["x-forwarded-for"]?.split(",")[0]?.trim() || "unknown";
+    const _ip = clientIp(event);
     const _attempts = failedAttempts.get(_ip) || { count: 0, firstAttempt: Date.now() };
     if (Date.now() - _attempts.firstAttempt > 15 * 60 * 1000) {
       failedAttempts.delete(_ip);

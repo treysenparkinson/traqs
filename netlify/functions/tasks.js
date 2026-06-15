@@ -1,17 +1,12 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-
-function getOrgKey(event, file) {
-  const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!orgCode || !/^[a-zA-Z0-9]{3,20}$/.test(orgCode)) return null;
-  return `orgs/${orgCode}/${file}`;
-}
+import { orgKey } from "./_utils/org.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const s3Key = getOrgKey(event, "tasks.json");
+  const s3Key = orgKey(event, "tasks.json");
   if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
 
   // GET — read tasks from S3. Requires the caller to be a member of the

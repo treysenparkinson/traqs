@@ -66,8 +66,12 @@ export async function saveTasks(tasks, getToken, orgCode) {
 }
 
 // ─── People ──────────────────────────────────────────────────────────────────
-export async function fetchPeople(orgCode) {
-  const res = await fetch(`${BASE}/people`, { headers: orgHeader(orgCode) });
+// Authenticated members pass getToken and receive the full roster (minus PINs).
+// The pre-login kiosk passes getToken=null and receives a reduced projection
+// (no push tokens, no time-off PII) — see netlify/functions/people.js GET.
+export async function fetchPeople(getToken, orgCode) {
+  const headers = getToken ? await authReadHeaders(getToken, orgCode) : orgHeader(orgCode);
+  const res = await fetch(`${BASE}/people`, { headers });
   if (!res.ok) throw new Error(`fetchPeople failed: ${res.status}`);
   return res.json();
 }

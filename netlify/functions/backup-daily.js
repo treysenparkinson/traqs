@@ -105,6 +105,6 @@ export async function handler() {
     return { statusCode: 200, body: JSON.stringify(summary) };
   } catch (e) {
     console.error("backup-daily failed:", e);
-    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
+    return { statusCode: 500, body: JSON.stringify({ error: "Backup failed" }) };
   }
 }

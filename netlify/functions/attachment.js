@@ -79,19 +79,27 @@ export async function handler(event) {
   // for short-lived HMAC-signed presigned URLs issued at message-fetch time.
   if (event.httpMethod === "GET") {
     const key = event.queryStringParameters?.key || "";
-    if (!/^orgs\/[a-zA-Z0-9]{3,20}\/attachments\//.test(key)) {
+    // Anchor the trailing segment so the key can only reference an object
+    // directly under the org's attachments/ prefix — no path escape and no
+    // CR/LF or quote characters can reach the Content-Disposition header.
+    if (!/^orgs\/[a-zA-Z0-9]{3,20}\/attachments\/[a-zA-Z0-9._-]+$/.test(key)) {
       return err(400, "Missing or invalid key");
     }
 
     try {
       const { data, contentType } = await readBinaryWithMeta(key);
       const filename = key.split("/").pop();
+      // Render only images and PDFs inline (both are handled by sandboxed
+      // browser viewers). text/csv/office docs are forced to download, and
+      // nosniff (below) blocks content-type sniffing so a forged text/plain
+      // payload can't be reinterpreted as HTML and executed in our origin.
       const isInline = contentType.startsWith("image/") || contentType === "application/pdf";
       return {
         statusCode: 200,
         headers: {
           ...CORS,
           "Content-Type": contentType,
+          "X-Content-Type-Options": "nosniff",
           "Content-Disposition": isInline ? "inline" : `attachment; filename="${filename}"`,
           "Cache-Control": "private, max-age=86400",
         },

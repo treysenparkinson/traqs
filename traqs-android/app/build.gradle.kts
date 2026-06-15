@@ -1,8 +1,21 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
 }
+
+// Release signing credentials are loaded from a git-ignored keystore.properties
+// at the project root (see keystore.properties.example). They must never be
+// hardcoded here. If the file is absent (e.g. CI without secrets, or a clean
+// checkout), release signing is simply skipped so debug builds still work.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) load(FileInputStream(keystorePropsFile))
+}
+val hasReleaseSigning = keystorePropsFile.exists()
 
 android {
     namespace = "com.matrixsystems.traqs"
@@ -20,11 +33,13 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            storeFile = file("C:/Users/treysen/traqs-release.jks")
-            storePassword = "Traqs@feb2026!"
-            keyAlias = "traqs-key"
-            keyPassword = "Traqs@feb2026!"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
         }
     }
 
@@ -32,7 +47,10 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            // Only attach the release signing config when credentials are present.
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

@@ -124,6 +124,19 @@ export default async (req: Request): Promise<Response> => {
   const { system, messages, max_tokens, tools, tool_choice } = payload2;
   if (!messages || !Array.isArray(messages)) return jsonResp(req, 400, { error: "messages array is required" });
 
+  // Cap the input size. Without this a member can post a multi-MB
+  // messages/system/tools payload and run up unbounded Anthropic input-token
+  // spend per call (the 30/hr rate limit only bounds call count). 1MB covers
+  // a full Excel-schedule extraction with generous headroom.
+  const MAX_INPUT_BYTES = 1_000_000;
+  const inputBytes =
+    JSON.stringify(messages).length +
+    (typeof system === "string" ? system.length : 0) +
+    (Array.isArray(tools) ? JSON.stringify(tools).length : 0);
+  if (inputBytes > MAX_INPUT_BYTES) {
+    return jsonResp(req, 413, { error: "Request too large" });
+  }
+
   // Cap output tokens. With the output-128k beta header below, Sonnet 4 supports up to 128K.
   // Real-world Fast TRAQS extractions of full Excel schedules often need >8K output tokens
   // (the old default), which is why the user was hitting stop_reason: "max_tokens".
@@ -159,7 +172,9 @@ export default async (req: Request): Promise<Response> => {
   if (!upstream.ok) {
     const text = await upstream.text();
     console.error("Anthropic API error:", upstream.status, text);
-    return jsonResp(req, upstream.status, { error: text || "Anthropic API error" });
+    // Don't reflect the upstream body to the client — it can carry request
+    // metadata / quota detail. Log it server-side, return a generic message.
+    return jsonResp(req, upstream.status, { error: "AI request failed" });
   }
 
   // ── Pipe the SSE body straight back to the client ──────────────────────

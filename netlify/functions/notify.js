@@ -27,6 +27,15 @@ export async function handler(event) {
   const { type, jobTitle, panelTitle, stepLabel, jobTeamIds = [], newTeamIds = [], jobNumber, clientName, requestedByName } = body;
   if (!type) return err(400, "Missing type");
 
+  // Bound user-supplied strings/arrays before they're reflected into push
+  // payloads sent to every targeted device (anti-abuse / notification spam).
+  for (const [k, v] of Object.entries({ jobTitle, panelTitle, stepLabel, jobNumber, clientName, requestedByName })) {
+    if (typeof v === "string" && v.length > 300) return err(400, `${k} too long`);
+  }
+  if ((Array.isArray(jobTeamIds) && jobTeamIds.length > 1000) || (Array.isArray(newTeamIds) && newTeamIds.length > 1000)) {
+    return err(400, "Too many recipients");
+  }
+
   // Load people to get push tokens
   let people = [];
   try { people = await readJson(s3Key) || []; } catch { people = []; }

@@ -1,17 +1,12 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-
-function getOrgKey(event) {
-  const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!orgCode || !/^[a-zA-Z0-9]{3,20}$/.test(orgCode)) return null;
-  return `orgs/${orgCode}/groups.json`;
-}
+import { orgKey } from "./_utils/org.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
-  const s3Key = getOrgKey(event);
+  const s3Key = orgKey(event, "groups.json");
   if (!s3Key) return err(400, "Missing or invalid X-Org-Code header");
 
   // GET — return groups for the named org (membership required, since

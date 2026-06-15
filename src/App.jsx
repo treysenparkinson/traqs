@@ -923,7 +923,7 @@ function AuthGate() {
           setOrgCode(savedCode);
           sessionStorage.setItem(LS_CONFIG, JSON.stringify(cfg));
           try {
-            const people = await fetchPeople(savedCode);
+            const people = await fetchPeople(null, savedCode);
             setTeamPeople(people);
             sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));
           } catch {
@@ -1020,7 +1020,7 @@ function AuthGate() {
   function handleOrgResolved(code, config) {
     setOrgCode(code);
     setOrgConfig(config);
-    fetchPeople(code)
+    fetchPeople(null, code)
       .then(people => {
         setTeamPeople(people);
         sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));
@@ -1033,7 +1033,7 @@ function AuthGate() {
   // refresh the status pills the moment someone clocks in/out/lunches.
   const refreshTeamPeople = useCallback(() => {
     if (!orgCode) return Promise.resolve();
-    return fetchPeople(orgCode)
+    return fetchPeople(null, orgCode)
       .then(people => {
         setTeamPeople(people);
         sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));

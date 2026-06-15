@@ -1,0 +1,14 @@
+# Release signing — never commit credentials or the keystore
+keystore.properties
+*.jks
+*.keystore
+
+# Gradle / build
+.gradle/
+build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
