@@ -8006,19 +8006,13 @@ ${jobsCtx || "No jobs found."}`;
                     const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd, orgSettings.workDays);
                     const _oneDayW = 1 / nDays * 100;
                     const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
-                    let _ghostWRemaining = _ghostWBudget;
-                    _ghostSegs.forEach((seg, gi) => {
-                      const isFirst = gi === 0;
-                      const isLast = gi === _ghostSegs.length - 1;
-                      const _segIdx = days.indexOf(seg.start);
-                      const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _ghostHourOffW : 0);
-                      const _segEndIdx = days.indexOf(seg.end);
-                      const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
-                      const _segAvailW = _segRightPct - segLeft;
-                      const segW = isLast ? Math.max(0, _ghostWRemaining) : Math.max(0.5, Math.min(_ghostWRemaining, _segAvailW));
-                      _ghostWRemaining = Math.max(0, _ghostWRemaining - segW);
-                      ghosts.push(<div key={`team-ghost-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
-                    });
+                    // Render the drag ghost as ONE smooth rectangle anchored to the live cursor pixel
+                    // (_ghostLeft) with the bar's width. Re-deriving weekday-split segments from the
+                    // day-snapped snap date on every animation frame — and clamping them to the moving
+                    // window — is what made the ghost flicker while the timeline auto-scrolls. A single
+                    // rect tracks the cursor smoothly; the committed bar still draws its real weekend
+                    // splits on drop.
+                    ghosts.push(<div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${_ghostLeft}% + 2px)`, width: `calc(${Math.max(_ghostWBudget, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
                   }
                   (groupSnaps || []).forEach(gs => {
                     if ((gs.personIds || []).includes(p.id)) {
@@ -8324,17 +8318,22 @@ ${jobsCtx || "No jobs found."}`;
                           autoScrollAccum -= wholeDays * liveCW;
                           setTStart(prev => addD(prev, wholeDays));
                           setTEnd(prev => addD(prev, wholeDays));
-                          // Shift sx so bar stays under cursor as the timeline moves
+                          // Shift sx so the bar stays under the cursor as the timeline moves.
                           sx -= wholeDays * liveCW;
-                          // Push a fresh drag state update so the bar visually follows
                           const pxDx2 = lastCX - sx;
                           const pxDy2 = lastCY - sy;
                           const dx2 = Math.round(pxDx2 / liveCW);
                           let snapS2 = nextBD(addD(os, dx2), barBDOpts);
                           const snapE2 = addBD(snapS2, _visualWD - 1, barBDOpts);
+                          // CRITICAL: the ghost AND the release-commit both read teamDragLiveRef.
+                          // The original only updated teamDragInfo here, so the bar's date stayed
+                          // frozen at its pre-scroll value while the window moved — making the bar
+                          // drift off-screen and drop on the wrong date. Advance the live ref too
+                          // so the bar follows onto the revealed dates and drops where shown.
+                          if (teamDragLiveRef.current) teamDragLiveRef.current = { ...teamDragLiveRef.current, snapStart: snapS2, snapEnd: snapE2 };
                           setTeamDragInfo(prev => {
                             if (!prev) return prev;
-                            // Recompute dep-group ghost positions so they don't lag the dragged bar during auto-scroll.
+                            // Recompute dep-group ghost positions so they don't lag during auto-scroll.
                             const _osH2 = bar.task?.startHour ?? workStartH;
                             const _hourDelta2 = (prev.dropHour ?? _osH2) - _osH2;
                             const groupSnaps2 = (isGroupDrag && depsMode !== "unlocked" ? groupMembers : []).map(m => {
@@ -8385,16 +8384,15 @@ ${jobsCtx || "No jobs found."}`;
                         if (_mRect) {
                           const _mcx = (me.clientX - _grabPx) - _mRect.left;
                           const _rawDayIdx = _mcx / liveCW;
-                          let _di = Math.max(0, Math.min(days.length - 1, Math.floor(_rawDayIdx)));
-                          const _origDi = _di;
-                          while (_di < days.length - 1 && !isWorkDay(days[_di], barWorkDays)) _di++;
-                          const _snapDay = isWorkDay(days[_di], barWorkDays) ? days[_di] : snapS;
-                          snapS = _snapDay;
-                          if (isWorkDay(days[_origDi], barWorkDays)) {
-                            const _colFrac = Math.min(0.9999, Math.max(0, _rawDayIdx - _origDi));
+                          // Keep the window-independent dx-based `snapS` for the day. Do NOT look it
+                          // up in the closure's `days` array — that's the PRE-glide window, so after
+                          // auto-scroll it maps the cursor back near the start (the bug that made the
+                          // drop "lock near the start"). Only derive the drop hour here from the
+                          // cursor's fractional position within its column.
+                          if (isWorkDay(snapS, barWorkDays)) {
+                            const _colFrac = Math.min(0.9999, Math.max(0, _rawDayIdx - Math.floor(_rawDayIdx)));
                             const _rawHour = workStartH + _colFrac * totalWorkH;
-                            const _snappedHour = Math.round(_rawHour * 2) / 2;
-                            dropHour = Math.max(0, _snappedHour);
+                            dropHour = Math.max(0, Math.round(_rawHour * 2) / 2);
                           } else {
                             dropHour = workStartH;
                           }
@@ -8647,8 +8645,9 @@ ${jobsCtx || "No jobs found."}`;
                         while (_di2 < days.length - 1 && !isWorkDay(days[_di2], barWorkDays)) _di2++;
                         effStart = isWorkDay(days[_di2], barWorkDays) ? days[_di2] : null;
                         if (!effStart) return;
-                        // Use the ghost's exact position — free movement, no auto-snap (overlap was already rejected above)
-                        effStart = teamDragLiveRef.current?.snapStart || effStart;
+                        // Use the bar's live drop date (window-independent). Fall back to newStart
+                        // (also dx-based) rather than the stale `days[_dayIdx]` lookup above.
+                        effStart = teamDragLiveRef.current?.snapStart || newStart;
                         let finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
                         // Snap-forward (final guard, mirrors onM): if drop would leave only a sliver
                         // on the first day before a non-working day, advance to next workday start.
