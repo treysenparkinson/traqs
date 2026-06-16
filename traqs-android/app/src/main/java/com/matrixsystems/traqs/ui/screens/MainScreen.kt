@@ -60,8 +60,8 @@ fun MainScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    // iOS defaults to .schedule; mirror that.
-    var selected by rememberSaveable { mutableStateOf(TTab.SCHEDULE) }
+    // iOS defaults to .jobs (changed from .schedule on 2026-06-05) — mirror that.
+    var selected by rememberSaveable { mutableStateOf(TTab.JOBS) }
 
     LaunchedEffect(Unit) { appState.loadAll() }
 

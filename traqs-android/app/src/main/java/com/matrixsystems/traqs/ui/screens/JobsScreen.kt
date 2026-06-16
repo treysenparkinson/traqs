@@ -18,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -70,8 +71,6 @@ fun JobsScreen(
 
     val currentPersonId = appState.currentPersonId
     val currentPerson = appState.currentPerson
-    val engQueue = appState.engineeringQueue
-    val canSeeEngQueue = currentPerson?.isAdmin == true || currentPerson?.isEngineer == true
 
     var segment by rememberSaveable { mutableStateOf(JobsSegment.TODAY) }
     var selectedDate by remember { mutableStateOf(Date(startOfToday())) }
@@ -80,14 +79,33 @@ fun JobsScreen(
         computeMyTasks(jobs, currentPersonId, searchText)
     }
 
-    val dayCountMap = remember(myTasks, orgSettings) {
+    // Half-open [start, end) window for the active segment — the whole list
+    // (YOUR TASKS + ALL JOBS) is bounded to this span, mirroring iOS.
+    val range = remember(segment, selectedDate) {
+        activeRange(segment, selectedDate)
+    }
+
+    // My tasks that overlap the active range, sorted by start.
+    val mineInRange = remember(myTasks, range) {
+        myTasks.filter { overlapsRange(it.startStr, it.endStr, range) }
+            .sortedBy { parseFlexibleISO(it.startStr) ?: Long.MAX_VALUE }
+    }
+
+    // Jobs the user is NOT scheduled to, with at least one panel overlapping
+    // the range. Search filters by job title + jobNumber.
+    val othersInRange = remember(jobs, currentPersonId, range, searchText) {
+        computeOtherJobs(jobs, currentPersonId, range, searchText)
+    }
+
+    // Day counts for the calendar/strip/heatmap include ALL jobs, not just
+    // mine — so the dots actually reflect every scheduled piece of work.
+    val dayCountMap = remember(jobs, orgSettings) {
         val map = mutableMapOf<Long, Int>()
-        myTasks.forEach { t ->
-            val s = parseFlexibleISO(t.startStr) ?: return@forEach
-            val e = parseFlexibleISO(t.endStr) ?: return@forEach
-            if (e < s) return@forEach
-            var day = startOfDay(s)
-            val end = startOfDay(e)
+        // Helper to walk a [s, e] range and bump the count on each work day.
+        fun bump(startMs: Long, endMs: Long) {
+            if (endMs < startMs) return
+            var day = startOfDay(startMs)
+            val end = startOfDay(endMs)
             while (day <= end) {
                 if (isWorkDay(day, orgSettings)) {
                     map[day] = (map[day] ?: 0) + 1
@@ -95,29 +113,14 @@ fun JobsScreen(
                 day += 24L * 60 * 60 * 1000
             }
         }
+        for (job in jobs) {
+            for (panel in job.subs) {
+                val s = parseFlexibleISO(panel.start) ?: continue
+                val e = parseFlexibleISO(panel.end) ?: continue
+                bump(s, e)
+            }
+        }
         map
-    }
-
-    val tasksForSelected = remember(myTasks, selectedDate, orgSettings) {
-        val dayMs = startOfDay(selectedDate.time)
-        if (!isWorkDay(dayMs, orgSettings)) emptyList()
-        else myTasks.filter { it.overlapsDay(dayMs) }
-            .sortedBy { parseFlexibleISO(it.startStr) ?: Long.MAX_VALUE }
-    }
-
-    val upcomingTasks = remember(myTasks) {
-        val today = startOfToday()
-        myTasks
-            .filter { (parseFlexibleISO(it.endStr) ?: 0L) >= today }
-            .sortedBy { parseFlexibleISO(it.startStr) ?: Long.MAX_VALUE }
-            .take(30)
-    }
-
-    val todayTasks = remember(myTasks, orgSettings) {
-        val today = startOfToday()
-        if (!isWorkDay(today, orgSettings)) emptyList()
-        else myTasks.filter { it.overlapsDay(today) }
-            .sortedBy { parseFlexibleISO(it.startStr) ?: Long.MAX_VALUE }
     }
 
     Scaffold(
@@ -150,10 +153,6 @@ fun JobsScreen(
                     modifier = Modifier.fillMaxSize().background(c.bg),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    if (canSeeEngQueue && engQueue.isNotEmpty()) {
-                        item { EngineeringQueueSection(appState = appState, queue = engQueue) }
-                    }
-
                     // Inline search bar — only shown when the header's search icon is toggled.
                     // Matches iOS TasksView: slides in below the header with focus + Cancel.
                     if (showSearch) {
@@ -221,22 +220,10 @@ fun JobsScreen(
                         }
                     }
 
+                    // Per-segment picker (week strip / month calendar / year heatmap).
+                    // Today has no picker — it just renders the range body below.
                     when (segment) {
-                        JobsSegment.TODAY -> {
-                            item { DaySummaryLine(tasks = todayTasks, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                            if (todayTasks.isEmpty()) {
-                                item { TasksEmptyState() }
-                            } else {
-                                items(todayTasks, key = { it.id }) { task ->
-                                    TaskCard(
-                                        task = task,
-                                        appState = appState,
-                                        onOpen = { navController.navigate(Screen.JobDetail.createRoute(task.job.id)) },
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
+                        JobsSegment.TODAY -> { /* no picker */ }
                         JobsSegment.WEEK -> {
                             item {
                                 val allDays = weekDatesAround(selectedDate)
@@ -248,19 +235,6 @@ fun JobsScreen(
                                         countFor = { dayCountMap[startOfDay(it.time)] ?: 0 },
                                         onPick = { selectedDate = it },
                                         isWorkDay = { isWorkDay(it.time, orgSettings) }
-                                    )
-                                }
-                            }
-                            item { DaySummaryLine(tasks = tasksForSelected, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                            if (tasksForSelected.isEmpty()) {
-                                item { TasksEmptyState() }
-                            } else {
-                                items(tasksForSelected, key = { it.id }) { task ->
-                                    TaskCard(
-                                        task = task,
-                                        appState = appState,
-                                        onOpen = { navController.navigate(Screen.JobDetail.createRoute(task.job.id)) },
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
                                     )
                                 }
                             }
@@ -276,49 +250,29 @@ fun JobsScreen(
                                     )
                                 }
                             }
-                            item { DaySummaryLine(tasks = tasksForSelected, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) }
-                            if (tasksForSelected.isEmpty()) {
-                                item { TasksEmptyState() }
-                            } else {
-                                items(tasksForSelected, key = { it.id }) { task ->
-                                    TaskCard(
-                                        task = task,
-                                        appState = appState,
-                                        onOpen = { navController.navigate(Screen.JobDetail.createRoute(task.job.id)) },
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
                         }
                         JobsSegment.YEAR -> {
-                            val year = Calendar.getInstance().get(Calendar.YEAR)
+                            val year = Calendar.getInstance().apply { time = selectedDate }.get(Calendar.YEAR)
                             item {
                                 Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                                     YearHeatmap(year = year, countFor = { dayCountMap[startOfDay(it.time)] ?: 0 })
                                 }
                             }
-                            item {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text("UPCOMING", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 1.4.sp)
-                                }
-                            }
-                            if (upcomingTasks.isEmpty()) {
-                                item { TasksEmptyState() }
-                            } else {
-                                items(upcomingTasks, key = { it.id }) { task ->
-                                    TaskCard(
-                                        task = task,
-                                        appState = appState,
-                                        onOpen = { navController.navigate(Screen.JobDetail.createRoute(task.job.id)) },
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
                         }
                     }
+
+                    // Shared body for every segment: YOUR TASKS + ALL JOBS, both
+                    // bounded to the active range. Section headers only appear
+                    // when there are other (not-mine) jobs, so a fully-personal
+                    // view keeps its old look.
+                    rangeContent(
+                        mine = mineInRange,
+                        others = othersInRange,
+                        range = range,
+                        label = spanLabel(segment, selectedDate),
+                        appState = appState,
+                        onOpen = { jobId -> navController.navigate(Screen.JobDetail.createRoute(jobId)) }
+                    )
                 }
             }
         }
@@ -335,7 +289,11 @@ fun JobsScreen(
 data class TaskAssignment(
     val job: TRAQSJob,
     val panel: Panel,
-    val op: Operation?
+    val op: Operation?,
+    // True when the current user is actually scheduled to this work. Defaults
+    // to true so existing "my tasks" call sites are unchanged; the ALL JOBS
+    // section passes false for panels of jobs the user isn't assigned to.
+    val isMine: Boolean = true,
 ) {
     val id: String get() = "${job.id}/${panel.id}/${op?.id ?: "panel"}"
     val title: String get() = op?.title?.takeIf { it.isNotEmpty() } ?: panel.title
@@ -406,13 +364,119 @@ private fun isWorkDay(dayMs: Long, settings: OrgSettings): Boolean {
     return jsDay in settings.workDays
 }
 
-// MARK: - Day Summary Line
+// MARK: - Range / overlap helpers — mirror iOS activeRange + overlap tests.
+
+/// Half-open [first, last] LongRange (last is the inclusive last millisecond
+/// before the next segment starts) for the active segment. Mirrors iOS
+/// `activeRange` in TasksView.swift.
+internal fun activeRange(segment: JobsSegment, selectedDate: Date): LongRange {
+    val cal = Calendar.getInstance()
+    return when (segment) {
+        JobsSegment.TODAY -> {
+            val s = startOfDay(System.currentTimeMillis())
+            val e = s + 24L * 60 * 60 * 1000
+            s until e
+        }
+        JobsSegment.WEEK -> {
+            val days = weekDatesAround(selectedDate)
+            val first = startOfDay((days.firstOrNull() ?: selectedDate).time)
+            val last = startOfDay((days.lastOrNull() ?: selectedDate).time)
+            val e = last + 24L * 60 * 60 * 1000
+            first until e
+        }
+        JobsSegment.MONTH -> {
+            cal.time = selectedDate
+            cal.set(Calendar.DAY_OF_MONTH, 1)
+            cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+            val s = cal.timeInMillis
+            cal.add(Calendar.MONTH, 1)
+            val e = cal.timeInMillis
+            s until e
+        }
+        JobsSegment.YEAR -> {
+            cal.time = selectedDate
+            cal.set(Calendar.MONTH, Calendar.JANUARY)
+            cal.set(Calendar.DAY_OF_MONTH, 1)
+            cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+            val s = cal.timeInMillis
+            cal.add(Calendar.YEAR, 1)
+            val e = cal.timeInMillis
+            s until e
+        }
+    }
+}
+
+/// True iff a closed [startStr, endStr] date range overlaps the half-open
+/// `range`. LongRange.last is inclusive, so the test mirrors iOS:
+/// `s < range.upperBound && e >= range.lowerBound`.
+internal fun overlapsRange(startStr: String, endStr: String, range: LongRange): Boolean {
+    val s = parseFlexibleISO(startStr) ?: return false
+    val e = parseFlexibleISO(endStr) ?: return false
+    return s <= range.last && e >= range.first
+}
+
+/// True iff the current user is scheduled to a job anywhere — on the job team,
+/// any panel's team, or any op's team. Mirrors iOS isMineJob.
+private fun isMineJob(job: TRAQSJob, me: Int?): Boolean {
+    if (me == null) return false
+    if (me in job.team) return true
+    for (panel in job.subs) {
+        if (me in panel.team) return true
+        for (op in panel.subs) if (me in op.team) return true
+    }
+    return false
+}
+
+/// Jobs the user is NOT scheduled to that have at least one panel overlapping
+/// `range`. Search filters by title + jobNumber. Mirrors iOS otherJobs.
+private fun computeOtherJobs(
+    jobs: List<TRAQSJob>,
+    me: Int?,
+    range: LongRange,
+    search: String,
+): List<TRAQSJob> {
+    val q = search.trim().lowercase()
+    return jobs.filter { job ->
+        if (isMineJob(job, me)) return@filter false
+        if (q.isNotEmpty()) {
+            val hay = (job.title + " " + (job.jobNumber ?: "")).lowercase()
+            if (!hay.contains(q)) return@filter false
+        }
+        job.subs.any { overlapsRange(it.start, it.end, range) }
+    }.sortedBy { it.title.lowercase() }
+}
+
+/// Panels of `job` overlapping `range` as panel-level (op=null) not-mine
+/// TaskAssignments. These are the rows revealed when an AllJobsCard expands.
+private fun panelsInWindow(job: TRAQSJob, range: LongRange): List<TaskAssignment> =
+    job.subs
+        .filter { overlapsRange(it.start, it.end, range) }
+        .map { TaskAssignment(job, it, null, isMine = false) }
+
+/// Label for the span summary line. Today shows "EEE · MMM d", Week shows
+/// "MMM d – MMM d", Month shows "MMMM yyyy", Year shows "yyyy".
+private fun spanLabel(segment: JobsSegment, selectedDate: Date): String {
+    return when (segment) {
+        JobsSegment.TODAY -> SimpleDateFormat("EEE · MMM d", Locale.US).format(Date()).uppercase()
+        JobsSegment.WEEK -> {
+            val f = SimpleDateFormat("MMM d", Locale.US)
+            val days = weekDatesAround(selectedDate)
+            val first = days.firstOrNull() ?: selectedDate
+            val last = days.lastOrNull() ?: selectedDate
+            "${f.format(first)} – ${f.format(last)}".uppercase()
+        }
+        JobsSegment.MONTH -> SimpleDateFormat("MMMM yyyy", Locale.US).format(selectedDate).uppercase()
+        JobsSegment.YEAR -> SimpleDateFormat("yyyy", Locale.US).format(selectedDate)
+    }
+}
+
+// MARK: - Span Summary Line (replaces DaySummaryLine)
 
 @Composable
-private fun DaySummaryLine(tasks: List<TaskAssignment>, modifier: Modifier = Modifier) {
+private fun SpanSummaryLine(tasks: List<TaskAssignment>, label: String, modifier: Modifier = Modifier) {
     val c = traQSColors
-    val df = SimpleDateFormat("EEEE · MMM d", Locale.US)
-    val label = df.format(Date()).uppercase()
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 1.4.sp)
         Spacer(Modifier.weight(1f))
@@ -420,6 +484,180 @@ private fun DaySummaryLine(tasks: List<TaskAssignment>, modifier: Modifier = Mod
             if (tasks.isEmpty()) "No tasks" else "${tasks.size} ${if (tasks.size == 1) "task" else "tasks"}",
             fontSize = 11.sp, color = c.muted
         )
+    }
+}
+
+// MARK: - Section header (YOUR TASKS / ALL JOBS)
+// Centered, bold label flanked by hairlines so the two groups read as
+// clearly separated sections. Matches iOS sectionHeader.
+
+@Composable
+private fun SectionHeader(title: String, modifier: Modifier = Modifier) {
+    val c = traQSColors
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = c.border, thickness = 1.dp)
+        Text(
+            title,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = c.text,
+            letterSpacing = 1.6.sp,
+            maxLines = 1,
+            softWrap = false,
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f), color = c.border, thickness = 1.dp)
+    }
+}
+
+// MARK: - Range content — YOUR TASKS + ALL JOBS, both bounded to `range`.
+// Section headers only appear when there are other jobs; otherwise the
+// summary line + my task cards render as they always did.
+
+@OptIn(ExperimentalMaterial3Api::class)
+private fun androidx.compose.foundation.lazy.LazyListScope.rangeContent(
+    mine: List<TaskAssignment>,
+    others: List<TRAQSJob>,
+    range: LongRange,
+    label: String,
+    appState: AppState,
+    onOpen: (String) -> Unit,
+) {
+    if (others.isNotEmpty()) {
+        item("hdr-yours") {
+            SectionHeader(
+                "YOUR TASKS",
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
+            )
+        }
+    }
+    item("yours-summary") {
+        SpanSummaryLine(tasks = mine, label = label, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+    }
+    if (mine.isEmpty()) {
+        item("yours-empty") { TasksEmptyState() }
+    } else {
+        items(mine, key = { "mine/${it.id}" }) { task ->
+            TaskCard(
+                task = task,
+                appState = appState,
+                onOpen = { onOpen(task.job.id) },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
+    }
+    if (others.isNotEmpty()) {
+        item("hdr-all") {
+            SectionHeader(
+                "ALL JOBS",
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 28.dp, bottom = 12.dp),
+            )
+        }
+        items(others, key = { "other/${it.id}" }) { job ->
+            AllJobsCard(
+                job = job,
+                panels = panelsInWindow(job, range),
+                appState = appState,
+                onOpen = { onOpen(job.id) },
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+// MARK: - AllJobsCard (collapsible parent for a not-mine job)
+// Mirrors iOS AllJobsCard. Thin job header → tap to reveal each in-range
+// panel as a full TaskCard (isMine = false). LOG TIME on those panels still
+// works through the existing flow; the in-progress lockout in TaskCard
+// handles the case where someone else is already clocked in.
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AllJobsCard(
+    job: TRAQSJob,
+    panels: List<TaskAssignment>,
+    appState: AppState,
+    onOpen: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = traQSColors
+    var isExpanded by remember(job.id) { mutableStateOf(false) }
+    val jobColor = try { parseColor(job.color) } catch (_: Exception) { c.accent }
+    val clientName = appState.clientForJob(job)?.name?.takeIf { it.isNotEmpty() }
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // Thin tappable header — collapsed by default. The full-size TaskCard
+        // is reserved for YOUR TASKS and the panels revealed on expand.
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            onClick = { isExpanded = !isExpanded },
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = c.card),
+            border = BorderStroke(1.dp, c.border),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Box(modifier = Modifier.size(7.dp).clip(CircleShape).background(jobColor))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        job.title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = c.text,
+                        maxLines = 1,
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        job.jobNumber?.takeIf { it.isNotEmpty() }?.let {
+                            Text("#$it", fontSize = 10.sp, color = c.muted)
+                        }
+                        clientName?.let {
+                            Text(it, fontSize = 11.sp, color = c.muted, maxLines = 1)
+                        }
+                        Text(
+                            "· ${panels.size} panel${if (panels.size == 1) "" else "s"}",
+                            fontSize = 11.sp,
+                            color = c.muted,
+                        )
+                    }
+                }
+                Icon(
+                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = c.muted,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+
+        if (isExpanded) {
+            if (panels.isEmpty()) {
+                Text(
+                    "No panels scheduled in this window",
+                    fontSize = 12.sp,
+                    color = c.muted,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                )
+            } else {
+                panels.forEach { task ->
+                    TaskCard(
+                        task = task,
+                        appState = appState,
+                        onOpen = onOpen,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -484,6 +722,25 @@ fun TaskCard(
         else jc.opId == null && jc.panelId == task.panel.id
     }
 
+    // Another person (not me) currently clocked into this same work. For an
+    // op-level card we match the exact op; for a panel-level card we match
+    // anyone working anywhere in the panel.
+    val busyBy: Person? = remember(people, currentPersonId, task) {
+        people.firstOrNull { p ->
+            if (p.id == currentPersonId) return@firstOrNull false
+            val jc = p.activeJobClock ?: return@firstOrNull false
+            if (jc.jobId != task.job.id) return@firstOrNull false
+            val opId = task.op?.id
+            if (opId != null) jc.opId == opId
+            else jc.panelId == task.panel.id
+        }
+    }
+    val busyByOther = !isActive && busyBy != null
+    val busyByFirstName = remember(busyBy) {
+        val n = busyBy?.name ?: ""
+        if (n.isBlank()) "IN USE" else n.split(" ").firstOrNull() ?: n
+    }
+
     var showLogConfirm by remember { mutableStateOf(false) }
     var showStopConfirm by remember { mutableStateOf(false) }
     var showBreakConfirm by remember { mutableStateOf(false) }
@@ -518,7 +775,7 @@ fun TaskCard(
         border = BorderStroke(1.dp, if (isActive) c.accent.copy(alpha = 0.45f) else c.border)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Top row: dept tag + job number ····· status badge
+            // Top row: dept tag + job number [+ NOT ASSIGNED chip] ····· status badge
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
                     deptLabel,
@@ -533,8 +790,24 @@ fun TaskCard(
                 task.job.jobNumber?.takeIf { it.isNotEmpty() }?.let {
                     Text("#$it", fontSize = 11.sp, color = c.muted)
                 }
+                if (!task.isMine) {
+                    Text(
+                        "NOT ASSIGNED",
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = c.muted,
+                        letterSpacing = 0.5.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(c.text.copy(alpha = 0.05f))
+                            .border(1.dp, c.border, RoundedCornerShape(50))
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    )
+                }
                 Spacer(Modifier.weight(1f))
-                StatusBadge(task.status)
+                StatusBadge(if (busyByOther) JobStatus.IN_PROGRESS else task.status)
             }
 
             // Headline
@@ -587,6 +860,8 @@ fun TaskCard(
                     appState = appState,
                     deptColor = deptColor,
                     isStarting = isStarting,
+                    busyByOther = busyByOther,
+                    busyByFirstName = busyByFirstName,
                     onLog = { showLogConfirm = true }
                 )
             }
@@ -786,18 +1061,27 @@ private fun QueuedRow(
     appState: AppState,
     deptColor: Color,
     isStarting: Boolean,
+    busyByOther: Boolean,
+    busyByFirstName: String,
     onLog: () -> Unit,
 ) {
     val c = traQSColors
     val pct = task.op?.let { appState.opPct(it) } ?: appState.panelPct(task.panel)
+    val inProgressColor = Color(0xFF3D7FFF)
+    val labelColor = if (busyByOther) inProgressColor else c.muted
+    val barColor = if (busyByOther) inProgressColor else deptColor
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (isStarting) "STARTING…" else "PROGRESS",
+                    when {
+                        busyByOther -> "IN PROGRESS"
+                        isStarting -> "STARTING…"
+                        else -> "PROGRESS"
+                    },
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color = c.muted,
+                    color = labelColor,
                     letterSpacing = 1.0.sp
                 )
                 Spacer(Modifier.weight(1f))
@@ -814,26 +1098,44 @@ private fun QueuedRow(
                     modifier = Modifier
                         .fillMaxHeight()
                         .fillMaxWidth(fraction = (pct / 100f).coerceIn(0f, 1f))
-                        .background(deptColor, RoundedCornerShape(3.dp))
+                        .background(barColor, RoundedCornerShape(3.dp))
                 )
             }
         }
-        Button(
-            onClick = onLog,
-            enabled = !isStarting,
-            shape = RoundedCornerShape(20.dp),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = c.surface, contentColor = c.text),
-            border = BorderStroke(1.dp, c.border)
-        ) {
-            if (isStarting) {
-                CircularProgressIndicator(color = c.text, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+        if (busyByOther) {
+            // Someone else is clocked into this work — block logging and
+            // show who has it, greyed out so it clearly can't be tapped.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(c.surface)
+                    .border(1.dp, c.border, RoundedCornerShape(20.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .alpha(0.55f)
+            ) {
+                Icon(Icons.Default.Person, null, modifier = Modifier.size(14.dp), tint = c.muted)
                 Spacer(Modifier.width(6.dp))
-                Text("STARTING…", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
-            } else {
-                Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text("LOG TIME", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                Text(busyByFirstName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 0.8.sp)
+            }
+        } else {
+            Button(
+                onClick = onLog,
+                enabled = !isStarting,
+                shape = RoundedCornerShape(20.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = c.surface, contentColor = c.text),
+                border = BorderStroke(1.dp, c.border)
+            ) {
+                if (isStarting) {
+                    CircularProgressIndicator(color = c.text, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("STARTING…", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                } else {
+                    Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("LOG TIME", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                }
             }
         }
     }
