@@ -223,6 +223,32 @@ const fileToBase64 = (file) => new Promise((res, rej) => {
   r.onerror = () => rej(new Error(`Could not read ${file.name}`));
   r.readAsDataURL(file);
 });
+// Downscale an image file to a JPEG data URL (max edge ~1600px) so phone photos
+// stay well under the attachment 8 MB cap and S3 stays lean. Non-images pass
+// through unchanged (returned as a plain data URL).
+const downscaleImage = (file, maxEdge = 1600, quality = 0.82) => new Promise((resolve, reject) => {
+  if (!file.type?.startsWith("image/")) {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error(`Could not read ${file.name}`));
+    r.readAsDataURL(file);
+    return;
+  }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    URL.revokeObjectURL(url);
+    const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+    resolve(canvas.toDataURL("image/jpeg", quality));
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not load image")); };
+  img.src = url;
+});
 const excelToText = async (file) => {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { cellDates: true });
@@ -2658,6 +2684,10 @@ Extraction rules:
   const [pinnedGroups, setPinnedGroups] = useState(() => { try { return JSON.parse(localStorage.getItem("tq_pinned_groups") || "[]"); } catch { return []; } });
   const [groupCtxMenu, setGroupCtxMenu] = useState(null);
   const [lightboxAtt, setLightboxAtt] = useState(null);
+  // Panel photo capture (on job clock-out) + per-job Attachments window.
+  const [panelPhotoPrompt, setPanelPhotoPrompt] = useState(null); // { jobId, panelId, panelTitle, opId }
+  const [panelPhotoUploading, setPanelPhotoUploading] = useState(false);
+  const [attachmentsModal, setAttachmentsModal] = useState(null); // jobId
   const [pinnedThreads, setPinnedThreads] = useState(() => { try { return JSON.parse(localStorage.getItem("tq_pinned_threads") || "[]"); } catch { return []; } });
   const [threadCtxMenu, setThreadCtxMenu] = useState(null);
   const [confirmClearChat, setConfirmClearChat] = useState(null); // { threadKey, label, isGroup, groupId }
@@ -4612,6 +4642,61 @@ ${jobsCtx || "No jobs found."}`;
       setChatUploading(false);
     }
   }
+
+  // Upload a (downscaled) photo into a panel's attachments array and persist.
+  // target: { jobId, panelId, opId? }. Reuses the chat attachment endpoint.
+  const uploadPhotoToPanel = async (file, target) => {
+    const data = await downscaleImage(file);
+    // Name the file after the panel + date so the panel is identifiable straight
+    // from the filename (e.g. "Op-001_2026-06-16.jpg"). Spaces become "_" because
+    // the upload endpoint strips non [A-Za-z0-9._-] characters. A same-day counter
+    // keeps repeat shots of the same panel distinct.
+    const job = tasks.find(j => j.id === target.jobId);
+    const panel = job && (job.subs || []).find(p => p.id === target.panelId);
+    const date = new Date().toISOString().slice(0, 10);
+    const safeTitle = ((panel?.title || "panel").trim().replace(/\s+/g, "_") || "panel");
+    const stem = `${safeTitle}_${date}`;
+    const sameDay = (panel?.attachments || []).filter(a => (a.filename || "").startsWith(stem)).length;
+    const filename = `${stem}${sameDay > 0 ? `_${sameDay + 1}` : ""}.jpg`;
+    const att = await uploadAttachment({ filename, mimeType: "image/jpeg", data }, getToken, orgCode);
+    const meta = { ...att, filename, uploadedById: loggedInUser?.id || null, uploadedByName: loggedInUser?.name || "", uploadedAt: new Date().toISOString(), opId: target.opId || null };
+    let nextTasks = null;
+    setTasks(prev => {
+      nextTasks = prev.map(job => job.id !== target.jobId ? job : {
+        ...job,
+        subs: (job.subs || []).map(panel => panel.id !== target.panelId ? panel : { ...panel, attachments: [...(panel.attachments || []), meta] }),
+      });
+      return nextTasks;
+    });
+    if (nextTasks) saveTasks(nextTasks, getToken, orgCode).catch(console.warn);
+    return meta;
+  };
+  // <input onChange> handler for panel photo capture (modal + per-panel Add).
+  const handlePanelPhotoSelect = async (e, target) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = "";
+    if (!files.length) return;
+    setPanelPhotoUploading(true);
+    try {
+      for (const file of files) {
+        try { await uploadPhotoToPanel(file, target); }
+        catch (err) { console.error("Panel photo upload failed:", err); alert("Failed to upload photo. Please try again."); }
+      }
+    } finally { setPanelPhotoUploading(false); }
+  };
+  // Remove an attachment reference from a panel (S3 object is left in place,
+  // matching how chat thread deletion leaves binaries).
+  const deletePanelAttachment = (target, key) => {
+    let nextTasks = null;
+    setTasks(prev => {
+      nextTasks = prev.map(job => job.id !== target.jobId ? job : {
+        ...job,
+        subs: (job.subs || []).map(panel => panel.id !== target.panelId ? panel : { ...panel, attachments: (panel.attachments || []).filter(a => a.key !== key) }),
+      });
+      return nextTasks;
+    });
+    if (nextTasks) saveTasks(nextTasks, getToken, orgCode).catch(console.warn);
+  };
 
   // Unread: messages where user is participant, author is not self, newer than lastRead[threadKey]
   const unreadMessages = useMemo(() => {
@@ -10604,6 +10689,12 @@ ${jobsCtx || "No jobs found."}`;
             setTasks(newTasks);
             saveTasks(newTasks, getToken, orgCode).catch(console.warn);
           }
+          // Prompt to photograph the panel just finished (phones only). The job
+          // clock knows the exact panel, so no guessing. Skippable — runs after
+          // clock-out so it never blocks ending the job.
+          if (jc && jc.panelId && isMobile) {
+            setPanelPhotoPrompt({ jobId: jc.jobId, panelId: jc.panelId, panelTitle: jc.panelTitle || "this panel", opId: jc.opId || null });
+          }
         } else {
           alert(res.error || "Failed to end job");
         }
@@ -13952,73 +14043,132 @@ ${jobsCtx || "No jobs found."}`;
       }
       // Job-level detail (existing)
       const parent = tasks.find(x => x.id === fresh.id);
-      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>{cls}
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}><HealthIcon t={fresh} size={22} style={{ flexShrink: 0 }} /><h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2 }}>{fresh.title}</h3></div>
-        {(fresh.jobNumber || fresh.poNumber) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>{fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}{fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}</div>}
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>{fresh.clientId && <Badge t={"🏢 " + clientName(fresh.clientId)} c={clientColor(fresh.clientId)} lg />}<span style={{ fontSize: 15, color: T.textSec, display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span><span style={{ color: T.textDim }}>·</span>{fresh.hpd}h/day</span></div>
-        {fresh.dueDate && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "10px 16px", background: fresh.dueDate < TD ? "#ef444415" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b15" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${fresh.dueDate < TD ? "#ef444433" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b33" : T.border}` }}><span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Customer Due Date:</span><span style={{ fontSize: 14, fontWeight: 700, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text, fontFamily: T.mono }}>{fm(fresh.dueDate)}</span>{fresh.dueDate < TD && <span style={{ fontSize: 11, color: "#ef4444", fontWeight: 600 }}>OVERDUE</span>}</div>}
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Notes</div>
-          <textarea value={t.notes || ""} onChange={e => setModal(p => ({ ...p, data: { ...p.data, notes: e.target.value } }))} rows={3} placeholder="Add notes…" style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { notes: e.target.value }); }} />
-        </div>
-        {customCols.filter(c => !c.fieldKey).length > 0 && <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Custom Fields</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {customCols.filter(c => !c.fieldKey).map(col => {
-              const key = "_cc_" + col.id;
-              const val = fresh[key] || "";
-              return <div key={col.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 12, color: T.textDim, fontWeight: 600, minWidth: 100, flexShrink: 0 }}>{col.label}</span>
-                {col.type === "select" && (col.options || []).length > 0
-                  ? <select key={fresh.id + key} value={val} onChange={e => updTask(fresh.id, { [key]: e.target.value })} style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: val && val !== "—" ? T.text : T.textDim, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                      {(col.options || []).map(o => <option key={o} value={o === "—" ? "" : o}>{o}</option>)}
-                    </select>
-                  : <input key={fresh.id + key} type={col.type === "number" ? "number" : col.type === "date" ? "date" : "text"} defaultValue={val} placeholder="—" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
-              </div>;
-            })}
+      const dPanels = (parent && parent.subs) || [];
+      const dTotalAtt = dPanels.reduce((n, p) => n + (p.attachments?.length || 0), 0);
+      const dCanEdit = can("editJobs");
+      const dClient = fresh.clientId ? clients.find(c => c.id === fresh.clientId) : null;
+      const infoRow = (label, node) => <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+        <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{node}</span>
+      </div>;
+      const secTitle = (txt) => <div style={{ fontSize: 12, fontWeight: 800, color: T.text, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 11 }}>{txt}</div>;
+      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxWidth: isMobile ? "100%" : 1500, width: isMobile ? "100%" : "96vw", height: isMobile ? "auto" : "90vh", maxHeight: isMobile ? "none" : "90vh", padding: 0, overflow: isMobile ? "visible" : "hidden", display: "flex", flexDirection: isMobile ? "column" : "row" }} onClick={e => e.stopPropagation()}>{cls}
+        {/* ── Left: panel / operation details ── */}
+        <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "52px 18px 18px" : "30px 32px 28px" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
+            <HealthIcon t={fresh} size={22} style={{ flexShrink: 0, marginTop: 2 }} />
+            <h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2, flex: 1, minWidth: 0 }}>{fresh.title}</h3>
+            {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn>}
           </div>
-        </div>}
-        {/* Panels and Operations */}
-        {parent && (parent.subs || []).length > 0 && <div style={{ marginBottom: 16 }}>
-          <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({parent.subs.length})</h4>
-          {parent.subs.map(panel => {
-            const hasEng = panel.engineering !== undefined;
-            const pEng = panel.engineering || {};
-            const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
-            const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
-            return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 14, marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                <HealthIcon t={panel} size={14} />
-                <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
-                <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
-              </div>
-              {/* Engineering sign-off row — only for panel jobs */}
-              {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, marginRight: 4 }}>ENG:</span>
-                {approvalSteps.map(step => {
-                  const done = !!pEng[step.key];
-                  const isActive = step.key === pActiveStep;
-                  if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                  if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
-                  if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
-                  return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
-                })}
-                {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
-              </div>}
-              {(panel.subs || []).length > 0 && <div>
-                {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
-                  return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}` }}>
-                    <HealthIcon t={op} size={12} />
-                    <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
-                    <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
-                    {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isLight(person.color) ? "#000" : "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
-                    {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
-                  </div>; })}
-              </div>}
-            </div>;
-          })}
-        </div>}
-        {can("editJobs") && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><Btn onClick={() => { openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn></div>}
+          {dPanels.length > 0
+            ? <div>
+              <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({dPanels.length})</h4>
+              {parent.subs.map(panel => {
+                const hasEng = panel.engineering !== undefined;
+                const pEng = panel.engineering || {};
+                const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
+                const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
+                return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 14, marginBottom: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                    <HealthIcon t={panel} size={14} />
+                    <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
+                    <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
+                  </div>
+                  {/* Engineering sign-off row — only for panel jobs */}
+                  {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, marginRight: 4 }}>ENG:</span>
+                    {approvalSteps.map(step => {
+                      const done = !!pEng[step.key];
+                      const isActive = step.key === pActiveStep;
+                      if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
+                      if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                      if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
+                      return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
+                    })}
+                    {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
+                  </div>}
+                  {(panel.subs || []).length > 0 && <div>
+                    {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
+                      return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}` }}>
+                        <HealthIcon t={op} size={12} />
+                        <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
+                        <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
+                        {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isLight(person.color) ? "#000" : "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
+                        {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
+                      </div>; })}
+                  </div>}
+                </div>;
+              })}
+            </div>
+            : <div style={{ fontSize: 13, color: T.textDim, padding: "24px 0" }}>This job has no panels yet.</div>}
+        </div>
+        {/* ── Right: Information · Notes · Attachments ── */}
+        <div style={{ width: isMobile ? "auto" : 340, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "20px 18px" : "30px 22px", display: "flex", flexDirection: "column", gap: 24 }}>
+          {/* Information */}
+          <div>
+            {secTitle("Information")}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {dClient && infoRow("Client", <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 5, background: dClient.color, flexShrink: 0 }} />{dClient.name}</span>)}
+              {infoRow("Schedule", <span style={{ fontFamily: T.mono }}>{fm(fresh.start)} → {fm(fresh.end)}</span>)}
+              {infoRow("Hours / Day", `${fresh.hpd || 8}h`)}
+              {fresh.dueDate && infoRow("Customer Due Date", <span style={{ fontFamily: T.mono, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text }}>{fm(fresh.dueDate)}{fresh.dueDate < TD ? " · OVERDUE" : ""}</span>)}
+              {fresh.jobNumber && infoRow("Job #", <span style={{ fontFamily: T.mono }}>{fresh.jobNumber}</span>)}
+              {fresh.poNumber && infoRow("PO #", <span style={{ fontFamily: T.mono }}>{fresh.poNumber}</span>)}
+              {fresh.status && infoRow("Status", fresh.status)}
+              {fresh.pri && infoRow("Priority", fresh.pri)}
+            </div>
+            {customCols.filter(c => !c.fieldKey).length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
+              {customCols.filter(c => !c.fieldKey).map(col => {
+                const key = "_cc_" + col.id;
+                const val = fresh[key] || "";
+                return <div key={col.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  <span style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>{col.label}</span>
+                  {col.type === "select" && (col.options || []).length > 0
+                    ? <select key={fresh.id + key} value={val} onChange={e => updTask(fresh.id, { [key]: e.target.value })} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: val && val !== "—" ? T.text : T.textDim, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
+                        {(col.options || []).map(o => <option key={o} value={o === "—" ? "" : o}>{o}</option>)}
+                      </select>
+                    : <input key={fresh.id + key} type={col.type === "number" ? "number" : col.type === "date" ? "date" : "text"} defaultValue={val} placeholder="—" style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
+                </div>;
+              })}
+            </div>}
+          </div>
+          {/* Notes */}
+          <div>
+            {secTitle("Notes")}
+            <textarea value={t.notes || ""} onChange={e => setModal(p => ({ ...p, data: { ...p.data, notes: e.target.value } }))} rows={4} placeholder="Add notes…" style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { notes: e.target.value }); }} />
+          </div>
+          {/* Attachments */}
+          <div>
+            {secTitle(`Attachments${dTotalAtt ? ` (${dTotalAtt})` : ""}`)}
+            {dPanels.length === 0 && <div style={{ fontSize: 12, color: T.textDim }}>No panels to attach photos to.</div>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {dPanels.map(panel => {
+                const atts = panel.attachments || [];
+                return <div key={panel.id}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 7, gap: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{panel.title} <span style={{ color: T.textDim, fontWeight: 500 }}>({atts.length})</span></span>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: T.accent, cursor: "pointer", flexShrink: 0 }}>
+                      <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePanelPhotoSelect(e, { jobId: fresh.id, panelId: panel.id, opId: null })} />
+                      + Add
+                    </label>
+                  </div>
+                  {atts.length === 0
+                    ? <div style={{ fontSize: 11, color: T.textDim, paddingBottom: 2 }}>No photos.</div>
+                    : <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {atts.map(a => <div key={a.key} style={{ position: "relative", width: 72 }}>
+                          <div onClick={() => setLightboxAtt(a)} title={`${a.filename}${a.uploadedByName ? " · " + a.uploadedByName : ""}`} style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.bg }}>
+                            {a.mimeType?.startsWith("image/")
+                              ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>📎</div>}
+                          </div>
+                          {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: T.danger, color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
+                        </div>)}
+                      </div>}
+                </div>;
+              })}
+            </div>
+          </div>
+        </div>
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(false), position: "relative" }} onClick={e => e.stopPropagation()}>{cls}
@@ -16166,6 +16316,79 @@ ${jobsCtx || "No jobs found."}`;
       }
     </div>}</FadeOnClose>
 
+    {/* ─── Panel photo capture (on job clock-out) ─── */}
+    <FadeOnClose open={!!panelPhotoPrompt} duration={200}>{panelPhotoPrompt && (() => {
+      const pp = panelPhotoPrompt;
+      const job = tasks.find(j => j.id === pp.jobId);
+      const panel = job && (job.subs || []).find(p => p.id === pp.panelId);
+      const atts = panel?.attachments || [];
+      return <div className="anim-modal-overlay" onClick={() => setPanelPhotoPrompt(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)", zIndex: 2200, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <input id="panel-photo-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePanelPhotoSelect(e, { jobId: pp.jobId, panelId: pp.panelId, opId: pp.opId })} />
+        <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, width: "100%", maxWidth: 420, padding: 24, fontFamily: T.font, boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 Photo of {pp.panelTitle}</div>
+          <div style={{ fontSize: 13, color: T.textDim, marginBottom: 18, lineHeight: 1.5 }}>Take a picture of the panel you finished — it's saved to this job's Attachments.</div>
+          {atts.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+            {atts.map(a => <div key={a.key} onClick={() => setLightboxAtt(a)} style={{ width: 64, height: 64, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, background: T.surface }}>
+              <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            </div>)}
+          </div>}
+          <button onClick={() => document.getElementById("panel-photo-input").click()} disabled={panelPhotoUploading} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: panelPhotoUploading ? "default" : "pointer", fontFamily: T.font, opacity: panelPhotoUploading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            {panelPhotoUploading ? "Uploading…" : (atts.length > 0 ? "Take Another Photo" : "Take Photo")}
+          </button>
+          <button onClick={() => setPanelPhotoPrompt(null)} style={{ width: "100%", padding: "11px 0", marginTop: 10, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>{atts.length > 0 ? "Done" : "Skip"}</button>
+        </div>
+      </div>;
+    })()}</FadeOnClose>
+
+    {/* ─── Job Attachments window ─── */}
+    <FadeOnClose open={!!attachmentsModal} duration={200}>{attachmentsModal && (() => {
+      const job = tasks.find(j => j.id === attachmentsModal);
+      if (!job) return null;
+      const panels = job.subs || [];
+      const total = panels.reduce((n, p) => n + (p.attachments?.length || 0), 0);
+      const canEdit = can("editJobs");
+      return <div className="anim-modal-overlay" onClick={() => setAttachmentsModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", zIndex: 2200, display: "flex", alignItems: "stretch", justifyContent: "center", padding: 24 }}>
+        <div onClick={e => e.stopPropagation()} style={{ position: "relative", background: T.card, borderRadius: T.radius, width: "100%", maxWidth: 720, maxHeight: "calc(100vh - 48px)", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column", fontFamily: T.font }}>
+          <div style={{ padding: "20px 28px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>📎 Attachments</h3>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>{job.title} · {total} photo{total === 1 ? "" : "s"} across {panels.length} panel{panels.length === 1 ? "" : "s"}</div>
+            </div>
+            <button onClick={() => setAttachmentsModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
+          </div>
+          <div style={{ padding: "18px 28px", overflowY: "auto", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 20 }}>
+            {panels.length === 0 && <div style={{ textAlign: "center", color: T.textDim, fontSize: 14, padding: "30px 0" }}>This job has no panels.</div>}
+            {panels.map(panel => {
+              const atts = panel.attachments || [];
+              return <div key={panel.id}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{panel.title} <span style={{ color: T.textDim, fontWeight: 500 }}>({atts.length})</span></div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: T.accent, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <input type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => handlePanelPhotoSelect(e, { jobId: job.id, panelId: panel.id, opId: null })} />
+                    + Add
+                  </label>
+                </div>
+                {atts.length === 0
+                  ? <div style={{ fontSize: 12, color: T.textDim, padding: "4px 0 2px" }}>No photos yet.</div>
+                  : <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                      {atts.map(a => <div key={a.key} style={{ position: "relative", width: 96 }}>
+                        <div onClick={() => setLightboxAtt(a)} title={`${a.uploadedByName || ""}${a.uploadedAt ? " · " + new Date(a.uploadedAt).toLocaleString() : ""}`} style={{ width: 96, height: 96, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.surface }}>
+                          {a.mimeType?.startsWith("image/")
+                            ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30 }}>📎</div>}
+                        </div>
+                        {canEdit && <button onClick={() => deletePanelAttachment({ jobId: job.id, panelId: panel.id }, a.key)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", border: "none", background: T.danger, color: "#fff", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, boxShadow: "0 2px 6px rgba(0,0,0,0.4)" }}>×</button>}
+                        <div style={{ fontSize: 9, color: T.textDim, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.uploadedByName || a.filename}</div>
+                      </div>)}
+                    </div>}
+              </div>;
+            })}
+          </div>
+        </div>
+      </div>;
+    })()}</FadeOnClose>
+
     {/* ─── Quick chat sidebar ─── */}
     {quickChat && <div onClick={() => setQuickChat(null)} style={{ position: "fixed", inset: 0, zIndex: 600 }}>
       <div onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: isMobile ? "100%" : 360, background: T.card, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", zIndex: 601, boxShadow: "-8px 0 48px rgba(0,0,0,0.5)", animation: "slideInRight 0.22s cubic-bezier(0.22,1,0.36,1)" }}>
@@ -17392,7 +17615,12 @@ ${jobsCtx || "No jobs found."}`;
                 <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Edit Job</h3>
                 <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details and edit panels &amp; operations</div>
               </div>
-              <button onClick={() => setEditJobModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px", marginLeft: 12 }}>✕</button>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 12, flexShrink: 0 }}>
+                <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                  📎 Attachments{(() => { const n = (ej.subs || []).reduce((s, p) => s + (p.attachments?.length || 0), 0); return n ? ` (${n})` : ""; })()}
+                </button>
+                <button onClick={() => setEditJobModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
+              </div>
             </div>
             {/* Body */}
             <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", flex: 1, minHeight: 0 }}>
