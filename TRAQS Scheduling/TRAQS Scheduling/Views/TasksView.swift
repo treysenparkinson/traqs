@@ -6,12 +6,14 @@ import SwiftUI
 
 struct TasksView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
 
     @State private var searchText = ""
     @State private var segment: JobsSegment = .today
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
     @State private var showAddJob = false
     @State private var showSearch = false
+    @State private var path: [Job] = []
     @FocusState private var searchFocused: Bool
 
     enum JobsSegment: String, CaseIterable, Hashable { case today, week, month, year
@@ -35,7 +37,7 @@ struct TasksView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
         ZStack {
             Color(hex: T.bg).ignoresSafeArea()
 
@@ -104,7 +106,22 @@ struct TasksView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task { await appState.refreshOrgSettings() }
+        // Resolve a tapped "new job / assigned / step / ready" push to its
+        // job detail. `initial: true` covers a tap that's already pending when
+        // this view first appears; the jobs.count watcher retries once a
+        // cold-start load brings the job in.
+        .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeJobDeepLink() }
+        .onChange(of: appState.jobs.count) { _, _ in consumeJobDeepLink() }
         }
+    }
+
+    /// Push the job named by a pending `.job` deep link, if it's loaded.
+    /// Leaves the link pending (to retry) when the job isn't here yet.
+    private func consumeJobDeepLink() {
+        guard case let .job(number)? = appNav.pendingDeepLink else { return }
+        guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
+        path = [job]
+        appNav.pendingDeepLink = nil
     }
 
     // ── Today: original card stack ─────────────────────────────────────────

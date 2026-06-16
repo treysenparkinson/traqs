@@ -18,6 +18,7 @@ enum ChatFilter: String, CaseIterable, Hashable {
 
 struct MessagesView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
     @State private var showNewGroup = false
     @State private var showNewDM = false
     @State private var filter: ChatFilter = .all
@@ -306,6 +307,19 @@ struct MessagesView: View {
         }
         .task { await appState.refreshMessages() }
         .refreshable { await appState.refreshMessages() }
+        // Open the thread a tapped chat / finish-request push points at.
+        // ThreadDetailView loads its own messages, so we can navigate
+        // immediately without waiting on a refresh. `initial: true` handles a
+        // tap that's already pending when the Chat tab first appears.
+        .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeThreadDeepLink() }
+    }
+
+    /// Navigate to the thread named by a pending `.thread` deep link.
+    private func consumeThreadDeepLink() {
+        guard case let .thread(key)? = appNav.pendingDeepLink else { return }
+        navigationPath = NavigationPath()
+        navigationPath.append(key)
+        appNav.pendingDeepLink = nil
     }
 
     /// Renders a single inbox row, switching between navigation mode and

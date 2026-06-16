@@ -253,14 +253,16 @@ class AppState {
                 type: "step",
                 jobTitle: jobTitle, jobNumber: jobNumber,
                 panelTitle: panelTitle, stepLabel: stepLabel,
-                jobTeamIds: jobTeamIds, newTeamIds: nil, clientName: nil
+                jobTeamIds: jobTeamIds, newTeamIds: nil, clientName: nil,
+                approvedByName: personName
             ))
             if allDone {
                 try? await api.sendNotification(NotifyPayload(
                     type: "ready",
                     jobTitle: jobTitle, jobNumber: jobNumber,
                     panelTitle: panelTitle, stepLabel: stepLabel,
-                    jobTeamIds: jobTeamIds, newTeamIds: nil, clientName: nil
+                    jobTeamIds: jobTeamIds, newTeamIds: nil, clientName: nil,
+                    approvedByName: personName
                 ))
             }
         }

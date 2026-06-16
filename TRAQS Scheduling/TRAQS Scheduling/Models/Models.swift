@@ -715,4 +715,10 @@ struct NotifyPayload: Codable {
     var jobTeamIds: [String]
     var newTeamIds: [String]?
     var clientName: String?
+    // notify.js reflects these into the push body. When omitted the server
+    // falls back to "Someone"; passing the actual name (as the web app does)
+    // makes "step"/"ready" pushes read "<name> approved …". nil optionals are
+    // dropped by JSONEncoder, so older payloads stay byte-identical.
+    var approvedByName: String? = nil
+    var requestedByName: String? = nil
 }

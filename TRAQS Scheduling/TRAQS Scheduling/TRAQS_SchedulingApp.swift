@@ -26,6 +26,12 @@ struct TRAQS_SchedulingApp: App {
                 .environment(appNav)
                 .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
                 .id(themeSettings.version)
+                .task {
+                    // Register the notification-tap listener once. OneSignal
+                    // replays a cold-start tap as soon as this is added, so a
+                    // push that launched the app still deep-links correctly.
+                    appNav.registerPushHandlers()
+                }
                 .onChange(of: appState.currentPersonId, initial: true) { _, personId in
                     // `initial: true` is critical — without it, this only
                     // fired when currentPersonId *changed*, which meant a
