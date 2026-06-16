@@ -45,4 +45,9 @@
     # bootstrap (an inline <script type="module">). Production builds emit
     # only external script files, so this stays sound. If we ever inject
     # untrusted HTML we should switch to a nonce-based policy.
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.auth0.com https://api.anthropic.com https://onesignal.com https://*.s3.amazonaws.com https://*.amazonaws.com ws://localhost:* http://localhost:*; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    # frame-src must allow the Auth0 domain: when the refresh-token grant
+    # fails, @auth0/auth0-react falls back to silent auth in a hidden iframe
+    # pointed at the tenant. Without this, frame-src falls back to
+    # default-src 'self', the iframe is blocked, and login hangs forever on
+    # the loading spinner.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; connect-src 'self' https://*.auth0.com https://api.anthropic.com https://onesignal.com https://*.s3.amazonaws.com https://*.amazonaws.com ws://localhost:* http://localhost:*; frame-src 'self' https://*.auth0.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
