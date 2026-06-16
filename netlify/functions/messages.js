@@ -1,7 +1,8 @@
 import { validateToken } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-import { orgKey } from "./_utils/org.js";
+import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
+import { sendWebPush } from "./_utils/webpush.js";
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -233,11 +234,21 @@ export async function handler(event) {
       // because older iOS clients only stored [authorId] there — trusting
       // it meant nobody but the sender ever got pushed for group/job
       // threads.
+      const targetIds = recipientsForThread(threadKey, jobs, groups)
+        .filter(id => id !== String(authorId));
+
+      // Web push → desktop browsers (works whether or not a tab is open).
+      // Awaited so it completes before the serverless function freezes on return.
+      await sendWebPush(orgCodeFromHeader(event), targetIds, {
+        title: authorName || "New message",
+        body: text?.trim() || "Sent an attachment",
+        data: { kind: "message", threadKey, scope },
+      }).catch(() => {});
+
+      // OneSignal → native iOS/Android.
       const appId  = process.env.ONESIGNAL_APP_ID;
       const apiKey = process.env.ONESIGNAL_API_KEY;
       if (appId && apiKey) {
-        const targetIds = recipientsForThread(threadKey, jobs, groups)
-          .filter(id => id !== String(authorId));
         const registered = people
           .filter(p => p.pushToken && targetIds.includes(String(p.id)))
           .map(p => String(p.id));

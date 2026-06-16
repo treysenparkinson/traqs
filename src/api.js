@@ -581,6 +581,31 @@ export const breakClearAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+// ─── Web Push subscriptions ─────────────────────────────────────────────────
+// Store/remove this browser's Web Push subscription for the logged-in person.
+// The backend keys subscriptions by the authenticated personId.
+export async function savePushSubscription(subscription, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/push-subscribe`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ subscription }),
+  });
+  if (!res.ok) throw await saveError("push-subscribe", res.status, res);
+  return res.json();
+}
+
+export async function removePushSubscription(endpoint, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/push-subscribe`, {
+    method: "DELETE",
+    headers,
+    body: JSON.stringify({ endpoint }),
+  });
+  if (!res.ok) throw await saveError("push-subscribe", res.status, res);
+  return res.json();
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 // payload: { type, jobTitle, panelTitle, stepLabel, jobTeamIds, jobNumber }
 export async function callNotify(payload, getToken, orgCode) {

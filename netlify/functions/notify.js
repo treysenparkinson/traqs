@@ -1,6 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
+import { sendWebPush } from "./_utils/webpush.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -8,10 +9,6 @@ export async function handler(event) {
 
   const appId  = process.env.ONESIGNAL_APP_ID;
   const apiKey = process.env.ONESIGNAL_API_KEY;
-  // Graceful no-op when push isn't configured (e.g. local dev). Returning 500
-  // here floods the browser console even though callNotify catches it; making
-  // it a 200 with sent:0 keeps the console clean without changing behavior.
-  if (!appId || !apiKey) return json(200, { sent: 0, message: "OneSignal not configured" });
 
   // Membership required: previously any authenticated user could send a
   // push notification scoped to any org code, so an attacker could spam
@@ -60,13 +57,6 @@ export async function handler(event) {
     targetIds = [...new Set([...adminIds, ...teamIds])];
   }
 
-  // Only notify people who have registered a push token
-  const registeredIds = people
-    .filter(p => p.pushToken && targetIds.includes(String(p.id)))
-    .map(p => String(p.id));
-
-  if (registeredIds.length === 0) return json(200, { sent: 0, message: "No registered devices" });
-
   // Build notification content
   const jobLabel = jobNumber ? `Job #${jobNumber}` : jobTitle;
   let heading, content;
@@ -92,30 +82,47 @@ export async function handler(event) {
     return err(400, "Unknown notification type");
   }
 
-  // Send via OneSignal REST API
-  const osPayload = {
-    app_id: appId,
-    include_external_user_ids: registeredIds,
-    channel_for_external_user_ids: "push",
-    headings: { en: heading },
-    contents: { en: content },
-    data: { type, jobTitle, panelTitle, stepLabel, jobNumber },
-  };
+  // Web push → desktop browsers (works whether or not a tab is open).
+  // Independent of OneSignal config so desktop notifications work even when
+  // OneSignal isn't set up (e.g. local dev).
+  const webResult = await sendWebPush(member.orgCode, targetIds, {
+    title: heading,
+    body: content,
+    data: { kind: "event", type, jobNumber: jobNumber || null },
+  }).catch(() => ({ sent: 0 }));
 
-  const osRes = await fetch("https://onesignal.com/api/v1/notifications", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Basic ${apiKey}`,
-    },
-    body: JSON.stringify(osPayload),
-  });
-
-  const osBody = await osRes.json();
-  if (!osRes.ok) {
-    console.error("OneSignal error:", osBody);
-    return err(502, osBody.errors?.[0] || "OneSignal send failed");
+  // OneSignal → native iOS/Android. Skip cleanly when not configured.
+  let oneSignalId = null;
+  let osSent = 0;
+  if (appId && apiKey) {
+    const registeredIds = people
+      .filter(p => p.pushToken && targetIds.includes(String(p.id)))
+      .map(p => String(p.id));
+    if (registeredIds.length > 0) {
+      const osRes = await fetch("https://onesignal.com/api/v1/notifications", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Basic ${apiKey}`,
+        },
+        body: JSON.stringify({
+          app_id: appId,
+          include_external_user_ids: registeredIds,
+          channel_for_external_user_ids: "push",
+          headings: { en: heading },
+          contents: { en: content },
+          data: { type, jobTitle, panelTitle, stepLabel, jobNumber },
+        }),
+      });
+      const osBody = await osRes.json().catch(() => ({}));
+      if (!osRes.ok) {
+        console.error("OneSignal error:", osBody);
+      } else {
+        oneSignalId = osBody.id;
+        osSent = registeredIds.length;
+      }
+    }
   }
 
-  return json(200, { sent: registeredIds.length, oneSignalId: osBody.id });
+  return json(200, { sent: osSent + (webResult?.sent || 0), web: webResult?.sent || 0, oneSignalId });
 }

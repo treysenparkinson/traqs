@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
+import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -2605,6 +2606,14 @@ Extraction rules:
   const chatFileInputRef = useRef(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
+  // Desktop Web Push (Windows toast notifications). pushPerm tracks the
+  // browser Notification permission so the "Enable alerts" button can hide
+  // once granted. canWebPush is false on native (Capacitor → OneSignal) and
+  // unsupported browsers.
+  const canWebPush = pushSupported();
+  const [pushPerm, setPushPerm] = useState(() => pushPermission());
+  const [pushBusy, setPushBusy] = useState(false);
+  const pushAutoAskedRef = useRef(false); // guard: auto-prompt at most once per page load
   const chatBottomRef = useRef(null);
   const [lastRead, setLastRead] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tq_last_read") || "{}"); } catch { return {}; }
@@ -2649,6 +2658,34 @@ Extraction rules:
     const id = setInterval(() => fetchMessages(getToken, orgCode).then(setMessages).catch(() => {}), 15000);
     return () => clearInterval(id);
   }, [view, orgCode]);
+
+  // Desktop Web Push: once the user is logged in, either re-sync the existing
+  // subscription (permission already granted) or automatically prompt for
+  // permission (still "default"). The auto-prompt fires at most once per page
+  // load. Chrome/Edge show the prompt on load; Firefox/Safari ignore a prompt
+  // not tied to a click, so the "Enable alerts" button remains as a fallback.
+  useEffect(() => {
+    if (!orgCode || !loggedInUser || !canWebPush) return;
+    const perm = pushPermission();
+    if (perm === "granted") {
+      ensureSubscribed(getToken, orgCode);
+    } else if (perm === "default" && !pushAutoAskedRef.current) {
+      pushAutoAskedRef.current = true;
+      registerAndSubscribe(getToken, orgCode).then(() => setPushPerm(pushPermission()));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgCode, loggedInUser?.id]);
+
+  // When a Windows toast is clicked, the service worker focuses the tab and
+  // posts the payload here — jump to the Messages view.
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return;
+    const onMsg = (e) => {
+      if (e.data?.source === "traqs-push") setView("messages");
+    };
+    navigator.serviceWorker.addEventListener("message", onMsg);
+    return () => navigator.serviceWorker.removeEventListener("message", onMsg);
+  }, []);
 
   // 30s polling + focus/visibility re-fetch for multi-user sync
   useEffect(() => {
@@ -14068,6 +14105,21 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ fontSize: 11, fontWeight: 500, color: saveStatus === "saved" ? "#10b981" : saveStatus === "saving" ? T.accent : T.textSec, display: "inline-block", minWidth: 52 }}>{saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : "Unsaved"}</span>
           </div></Tip>
         </div>
+        {/* Enable desktop (Windows) notifications — only on web, until granted */}
+        {canWebPush && pushPerm !== "granted" && (
+          <Tip label="Get Windows notifications for new messages & job updates">
+            <button onClick={async (e) => {
+              e.stopPropagation();
+              setPushBusy(true);
+              await registerAndSubscribe(getToken, orgCode);
+              setPushPerm(pushPermission());
+              setPushBusy(false);
+            }} disabled={pushBusy} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: pushBusy ? "default" : "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font, opacity: pushBusy ? 0.6 : 1 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span style={{ fontSize: 12, fontWeight: 600, color: T.textSec, letterSpacing: "0.01em" }}>{pushBusy ? "Enabling…" : "Enable alerts"}</span>
+            </button>
+          </Tip>
+        )}
         {/* Notification Bell */}
         <div ref={notifRef} style={{ position: "relative" }}>
           <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
