@@ -27,12 +27,17 @@ export async function handler(event) {
     if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
       return err(400, "Invalid subscription");
     }
+    // Record the device color scheme so the sender can pick a contrasting
+    // notification icon (white logo on dark, dark logo on light). web-push
+    // ignores extra fields on the subscription object.
+    const theme = body.theme === "dark" ? "dark" : "light";
+    const stored = { ...sub, theme };
     const store = (await readJson(key).catch(() => null)) || {};
     const list = Array.isArray(store[pid]) ? store[pid] : [];
     const others = list.filter(s => s?.endpoint !== sub.endpoint);
     // Cap per-person subscriptions so a user churning browsers can't grow the
     // file unbounded; keep the most recent few.
-    store[pid] = [...others, sub].slice(-10);
+    store[pid] = [...others, stored].slice(-10);
     await writeJson(key, store);
     return json(200, { ok: true });
   }

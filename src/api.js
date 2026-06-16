@@ -584,12 +584,12 @@ export const breakClearAction = async (payload, getToken, orgCode) => {
 // ─── Web Push subscriptions ─────────────────────────────────────────────────
 // Store/remove this browser's Web Push subscription for the logged-in person.
 // The backend keys subscriptions by the authenticated personId.
-export async function savePushSubscription(subscription, getToken, orgCode) {
+export async function savePushSubscription(subscription, theme, getToken, orgCode) {
   const headers = await authHeaders(getToken, orgCode);
   const res = await fetch(`${BASE}/push-subscribe`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ subscription }),
+    body: JSON.stringify({ subscription, theme }),
   });
   if (!res.ok) throw await saveError("push-subscribe", res.status, res);
   return res.json();

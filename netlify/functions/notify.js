@@ -21,12 +21,12 @@ export async function handler(event) {
   let body;
   try { body = JSON.parse(event.body || "{}"); } catch { return err(400, "Invalid JSON"); }
 
-  const { type, jobTitle, panelTitle, stepLabel, jobTeamIds = [], newTeamIds = [], jobNumber, clientName, requestedByName } = body;
+  const { type, jobTitle, panelTitle, stepLabel, jobTeamIds = [], newTeamIds = [], jobNumber, clientName, requestedByName, approvedByName } = body;
   if (!type) return err(400, "Missing type");
 
   // Bound user-supplied strings/arrays before they're reflected into push
   // payloads sent to every targeted device (anti-abuse / notification spam).
-  for (const [k, v] of Object.entries({ jobTitle, panelTitle, stepLabel, jobNumber, clientName, requestedByName })) {
+  for (const [k, v] of Object.entries({ jobTitle, panelTitle, stepLabel, jobNumber, clientName, requestedByName, approvedByName })) {
     if (typeof v === "string" && v.length > 300) return err(400, `${k} too long`);
   }
   if ((Array.isArray(jobTeamIds) && jobTeamIds.length > 1000) || (Array.isArray(newTeamIds) && newTeamIds.length > 1000)) {
@@ -70,11 +70,15 @@ export async function handler(event) {
     heading = `👷 You've Been Assigned`;
     content = `You've been added to ${jobLabel}.`;
   } else if (type === "step") {
-    heading = `🔧 Engineering: ${stepLabel} Complete`;
-    content = `${panelTitle} on ${jobLabel} has been signed off — ${stepLabel} done.`;
+    const approver = approvedByName || "Someone";
+    heading = `🔧 ${stepLabel} Approved`;
+    content = panelTitle
+      ? `${approver} approved ${stepLabel} on ${panelTitle} — ${jobTitle || jobLabel}.`
+      : `${approver} approved ${stepLabel} on ${jobTitle || jobLabel}.`;
   } else if (type === "ready") {
-    heading = `✅ Ready to Build: ${panelTitle}`;
-    content = `All engineering steps complete for ${panelTitle} on ${jobLabel}. Shop can start!`;
+    const approver = approvedByName || "Someone";
+    heading = `✅ Ready to Build: ${jobTitle || jobLabel}`;
+    content = `${approver} signed off the final step — ${panelTitle} on ${jobTitle || jobLabel} is ready to build.`;
   } else if (type === "finish_request") {
     heading = `🏁 Finish Request: ${jobLabel}`;
     content = `${requestedByName || "Someone"} has requested to mark "${jobTitle}" as finished. Tap to approve or decline.`;

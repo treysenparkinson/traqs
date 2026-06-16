@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
-import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed } from "./push.js";
+import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -2673,6 +2673,8 @@ Extraction rules:
       pushAutoAskedRef.current = true;
       registerAndSubscribe(getToken, orgCode).then(() => setPushPerm(pushPermission()));
     }
+    // Keep the server's icon-theme in sync if the OS color scheme flips.
+    return watchTheme(getToken, orgCode);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgCode, loggedInUser?.id]);
 
@@ -4459,10 +4461,10 @@ ${jobsCtx || "No jobs found."}`;
         const jobTeamIds = (job.subs || []).flatMap(p => (p.subs || []).flatMap(op => op.team || []));
         const allDone = !!(panel.engineering?.designed && panel.engineering?.verified && panel.engineering?.sentToPerforex);
         // Notify step sign-off
-        callNotify({ type: "step", jobTitle: job.title, jobNumber: job.jobNumber || null, panelTitle: panel.title, stepLabel, jobTeamIds }, getToken, orgCode).catch(console.warn);
+        callNotify({ type: "step", jobTitle: job.title, jobNumber: job.jobNumber || null, panelTitle: panel.title, stepLabel, jobTeamIds, approvedByName: loggedInUser.name }, getToken, orgCode).catch(console.warn);
         // If all steps now done, also send ready-to-build notification
         if (allDone) {
-          callNotify({ type: "ready", jobTitle: job.title, jobNumber: job.jobNumber || null, panelTitle: panel.title, stepLabel, jobTeamIds }, getToken, orgCode).catch(console.warn);
+          callNotify({ type: "ready", jobTitle: job.title, jobNumber: job.jobNumber || null, panelTitle: panel.title, stepLabel, jobTeamIds, approvedByName: loggedInUser.name }, getToken, orgCode).catch(console.warn);
         }
       }
       return next;

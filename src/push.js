@@ -25,6 +25,17 @@ export function pushPermission() {
   return typeof Notification !== "undefined" ? Notification.permission : "denied";
 }
 
+// The device's current color scheme — the server uses this to choose a
+// notification icon that's visible against the OS toast background (white
+// logo on dark, dark logo on light). Service workers can't read matchMedia,
+// so we detect it here and report it with the subscription.
+function currentTheme() {
+  return typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
 // VAPID public key (base64url) → Uint8Array for applicationServerKey.
 function urlBase64ToUint8Array(base64String) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -47,7 +58,7 @@ async function subscribeAndSave(reg, getToken, orgCode) {
       applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
     });
   }
-  await savePushSubscription(sub.toJSON(), getToken, orgCode);
+  await savePushSubscription(sub.toJSON(), currentTheme(), getToken, orgCode);
   return sub;
 }
 
@@ -84,6 +95,21 @@ export async function ensureSubscribed(getToken, orgCode) {
   } catch (e) {
     console.warn("ensureSubscribed failed:", e);
   }
+}
+
+/**
+ * Re-sync the subscription whenever the OS color scheme changes, so the
+ * server-chosen notification icon keeps matching the device theme. Returns a
+ * cleanup function. No-op (returns a noop cleanup) when push isn't supported.
+ */
+export function watchTheme(getToken, orgCode) {
+  if (!pushSupported() || !window.matchMedia) return () => {};
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const onChange = () => {
+    if (pushPermission() === "granted") ensureSubscribed(getToken, orgCode);
+  };
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
 }
 
 /** Unsubscribe this browser and remove the subscription server-side. */

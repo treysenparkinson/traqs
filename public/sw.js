@@ -9,8 +9,10 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "TRAQS";
   const options = {
     body: payload.body || "",
-    icon: "/notif-icon.png",
-    badge: "/notif-icon.png",
+    // Icon is theme-chosen by the server (white logo on dark, dark on light);
+    // fall back to the default logo if absent.
+    icon: payload.icon || "/notif-icon.png",
+    badge: payload.badge || payload.icon || "/notif-icon.png",
     data: payload.data || {},
     // Collapse repeat pushes for the same thread into a single toast.
     tag: payload.data?.threadKey || payload.data?.type || undefined,

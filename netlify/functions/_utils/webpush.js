@@ -48,7 +48,10 @@ export async function sendWebPush(orgCode, personIds, { title, body, data = {} }
   try { store = await readJson(subsKey(orgCode)); } catch { store = null; }
   if (!store || typeof store !== "object") return { sent: 0 };
 
-  const message = JSON.stringify({ title, body, data });
+  // Icon is chosen per-subscription from the device's reported theme so the
+  // logo stays visible against the OS toast background: white logo on dark,
+  // dark logo on light.
+  const iconFor = (theme) => (theme === "dark" ? "/notif-icon-dark.png" : "/notif-icon-light.png");
   const dead = []; // { personId, endpoint }
   let sent = 0;
 
@@ -56,6 +59,8 @@ export async function sendWebPush(orgCode, personIds, { title, body, data = {} }
     ids.flatMap(pid =>
       (Array.isArray(store[pid]) ? store[pid] : []).map(async sub => {
         try {
+          const icon = iconFor(sub?.theme);
+          const message = JSON.stringify({ title, body, icon, badge: icon, data });
           await webpush.sendNotification(sub, message);
           sent++;
         } catch (e) {
