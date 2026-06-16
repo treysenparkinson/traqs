@@ -1041,7 +1041,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
 }
 // Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
 // `value` is an array of { type, id } tokens; clicking a row toggles it and keeps the popup open.
-function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false }) {
+function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [coords, setCoords] = useState(null);
@@ -1096,8 +1096,8 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
     const sel = isSel(type, o.id);
     const dot = type === "column" ? T.accent : (o.color || T.accent);
     return <div key={type + ":" + o.id} onClick={() => onToggle({ type, id: o.id })}
-      style={{ padding: "8px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: sel ? dot : T.text, fontWeight: sel ? 600 : 400, background: sel ? dot + "12" : "transparent", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
-      onMouseEnter={e => e.currentTarget.style.background = dot + "18"} onMouseLeave={e => e.currentTarget.style.background = sel ? dot + "12" : "transparent"}>
+      style={{ margin: "4px 8px", padding: "9px 12px", borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: sel ? dot : T.text, fontWeight: sel ? 600 : 400, background: sel ? dot + "1e" : "transparent", transition: "background-color 0.2s ease, color 0.2s ease", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
+      onMouseEnter={e => e.currentTarget.style.background = dot + "26"} onMouseLeave={e => e.currentTarget.style.background = sel ? dot + "1e" : "transparent"}>
       <div style={{ width: 9, height: 9, borderRadius: type === "column" ? 2 : 5, background: dot, flexShrink: 0 }} />
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
       {sel && <span style={{ color: dot, fontSize: 13, fontWeight: 800 }}>✓</span>}
@@ -1108,6 +1108,14 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
   const renderSection = (id, title, type, items) => {
     if (items.length === 0) return null;
     const selCount = items.filter(o => isSel(type, o.id)).length;
+    const allSel = items.length > 0 && selCount === items.length;
+    // Select-all toggles only the currently-unselected items (so it never
+    // deselects what's already chosen); once everything's selected it flips
+    // to deselect-all.
+    const selectAll = () => {
+      const targets = allSel ? items : items.filter(o => !isSel(type, o.id));
+      targets.forEach(o => onToggle({ type, id: o.id }));
+    };
     const isOpen = q ? true : !!openSec[id];
     return <div key={id}>
       <div onClick={() => { if (!q) toggleSec(id); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", cursor: q ? "default" : "pointer", userSelect: "none", borderTop: `1px solid ${T.border}` }}>
@@ -1119,6 +1127,9 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
       {/* grid-template-rows 0fr↔1fr animates the height; inner overflow hidden clips during the transition */}
       <div style={{ display: "grid", gridTemplateRows: isOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.15s ease", opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? "auto" : "none" }}>
         <div style={{ overflow: "hidden", minHeight: 0 }}>
+          <div style={{ padding: "6px 14px 2px" }}>
+            <button onClick={(e) => { e.stopPropagation(); selectAll(); }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent + "66"; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }} style={{ width: "100%", padding: "7px 8px", borderRadius: 9, background: "transparent", border: `1px dashed ${T.border}`, color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background-color 0.2s ease, border-color 0.2s ease" }}>{allSel ? "Deselect all" : "Select all"}</button>
+          </div>
           {items.map((o, i) => Row(type, o, i))}
         </div>
       </div>
@@ -1139,13 +1150,18 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
       <button onClick={() => onClear()} style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusXs, background: "transparent", border: `1px solid ${T.border}`, color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear grouping</button>
     </div>}
   </div></FadeOnClose>;
-  return <div style={{ position: "relative" }}>
-    <div ref={triggerRef} onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
-      {value.length > 0
-        ? <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.accent, fontWeight: 700 }}>{value.length} selected</span>
-        : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>Group by…</span>}
-      <span style={{ fontSize: compact ? 8 : 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
-    </div>
+  return <div style={{ position: "relative", ...(asIconButton ? { flexShrink: 0 } : {}) }}>
+    {asIconButton
+      ? <button ref={triggerRef} className="icon-btn-glow" onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }} title="Grouping" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
+        </button>
+      : <div ref={triggerRef} onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
+          {value.length > 0
+            ? <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.accent, fontWeight: 700 }}>{value.length} selected</span>
+            : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>Group by…</span>}
+          <span style={{ fontSize: compact ? 8 : 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
+        </div>}
     {createPortal(popup, document.body)}
   </div>;
 }
@@ -1863,7 +1879,7 @@ Extraction rules:
   const [sFPers, setSFPers] = useState([]);
   const [sFRole, setSFRole] = useState("All");
   // Inline expanding job-name search next to each page's filter button.
-  const [taskSearchOpen, setTaskSearchOpen] = useState(false);
+  const [taskSearchOpen, setTaskSearchOpen] = useState(true); // Jobs search stays expanded
   const [taskSearchQ, setTaskSearchQ] = useState("");
   const [scheduleSearchOpen, setScheduleSearchOpen] = useState(false);
   const [scheduleSearchQ, setScheduleSearchQ] = useState("");
@@ -3100,7 +3116,7 @@ Extraction rules:
     const fv = fCustom["_cc_" + c.id];
     return n + (((Array.isArray(fv) && fv.length > 0) || (typeof fv === "string" && fv.trim())) ? 1 : 0);
   }, 0);
-  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount + (grouping.length > 0 ? 1 : 0);
+  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount;
   // Filter-panel section for user-created custom columns — auto-appears for each column added via the "+" picker.
   // Select columns render as multi-select chips; text/number/date columns render as a contains-input.
   const renderCustomColFilters = () => {
@@ -6251,28 +6267,26 @@ ${jobsCtx || "No jobs found."}`;
                 {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
-                <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
+                <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
-                <div style={{ animation: `toolDrop 0.14s 76ms both ease-out` }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Grouping {grouping.length > 0 && <span style={{ color: T.accent }}>({grouping.length})</span>}</div>
-                  <GroupingSelect compact value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
-                    workers={people.map(p => ({ id: String(p.id), label: p.name, color: p.color || T.accent }))}
-                    clientOpts={clients.map(c => ({ id: c.id, label: c.name, color: c.color }))}
-                    columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]} />
-                </div>
                 <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 {renderCustomColFilters()}
                 {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setGrouping([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
             </div>
-            {/* Inline expanding search — icon collapses to 28px, expands to 200px on click */}
-            <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", height: 28, width: taskSearchOpen || taskSearchQ ? 200 : 28, borderRadius: T.radiusXs, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: taskSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
-              <button onClick={() => { const next = !taskSearchOpen; setTaskSearchOpen(next); if (next) setTimeout(() => document.getElementById("taskSearchInput")?.focus(), 50); }} title="Search jobs" style={{ width: 28, height: 28, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
+            {/* Grouping — its own independent button, next to Filter */}
+            <GroupingSelect asIconButton value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
+              workers={people.map(p => ({ id: String(p.id), label: p.name, color: p.color || T.accent }))}
+              clientOpts={clients.map(c => ({ id: c.id, label: c.name, color: c.color }))}
+              columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]} />
+            {/* Search jobs — kept expanded on the Jobs page */}
+            <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ order: 1, display: "flex", alignItems: "center", height: 28, width: taskSearchOpen || taskSearchQ ? 200 : 28, borderRadius: T.radiusXs, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: taskSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
+              <button onClick={() => document.getElementById("taskSearchInput")?.focus()} title="Search jobs" style={{ width: 28, height: 28, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
               {(taskSearchOpen || taskSearchQ) && <>
-                <input id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} onBlur={() => { if (!taskSearchQ) setTaskSearchOpen(false); }} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
-                {taskSearchQ && <button onClick={() => { setTaskSearchQ(""); setTaskSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
+                <input id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
+                {taskSearchQ && <button onClick={() => { setTaskSearchQ(""); document.getElementById("taskSearchInput")?.focus(); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
               </>}
             </div>
             {/* Alignment — single cycling toggle */}
@@ -6328,7 +6342,7 @@ ${jobsCtx || "No jobs found."}`;
               </Tip>
               <FadeOnClose open={taskFilterOpen}>{taskFilterOpen && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}
                   </div>
