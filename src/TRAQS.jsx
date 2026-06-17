@@ -226,7 +226,7 @@ const fileToBase64 = (file) => new Promise((res, rej) => {
 // Downscale an image file to a JPEG data URL (max edge ~1600px) so phone photos
 // stay well under the attachment 8 MB cap and S3 stays lean. Non-images pass
 // through unchanged (returned as a plain data URL).
-const downscaleImage = (file, maxEdge = 1600, quality = 0.82) => new Promise((resolve, reject) => {
+const downscaleImage = (file, maxEdge = 1600, quality = 0.82, mime = "image/jpeg") => new Promise((resolve, reject) => {
   if (!file.type?.startsWith("image/")) {
     const r = new FileReader();
     r.onload = () => resolve(r.result);
@@ -244,7 +244,7 @@ const downscaleImage = (file, maxEdge = 1600, quality = 0.82) => new Promise((re
     const canvas = document.createElement("canvas");
     canvas.width = w; canvas.height = h;
     canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-    resolve(canvas.toDataURL("image/jpeg", quality));
+    resolve(canvas.toDataURL(mime, quality));
   };
   img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not load image")); };
   img.src = url;
@@ -2048,7 +2048,25 @@ Extraction rules:
   const [bcModalState, setBcModalState] = useState("closed"); // "closed" | "open" | "closing"
   const [exportSelRows, setExportSelRows] = useState(new Set());
   const [exportSelSearch, setExportSelSearch] = useState("");
-  const [exportPreview, setExportPreview] = useState(null); // { html, filename, mime, kind }
+  const [exportPreview, setExportPreview] = useState(null); // { html, filename, mime, kind, jobs }
+  const [exportLayout, setExportLayout] = useState(null); // freeform designer: { orientation, grid, snap, logoDataUrl, pages:[{blocks:[]}] }
+  const [exportPageIdx, setExportPageIdx] = useState(0); // page being edited in the designer
+  const [exportEditing, setExportEditing] = useState(null); // block id whose text is being edited inline
+  const exportCancelRef = useRef(false); // set on Escape so the blur-commit is skipped
+  const [exportSelId, setExportSelId] = useState(null); // block selected for the properties inspector
+  const [exportSafe, setExportSafe] = useState(true); // show the editable blue boxes/handles ("safe zones")
+  const [exportTplOpen, setExportTplOpen] = useState(false); // TRAQS-styled template dropdown open state
+  const exportFitDoneRef = useRef(false); // one-time auto-fit-to-content pass per designer open
+  // Auto-fit every content block to its rendered height once when the designer opens.
+  useEffect(() => {
+    if (exportPreview?.kind !== "pdf" || !exportLayout) { exportFitDoneRef.current = false; return; }
+    if (exportFitDoneRef.current) return;
+    exportFitDoneRef.current = true;
+    const ctx = exportCtx(exportPreview.jobs || [], exportLayout);
+    (exportLayout.pages || []).forEach((pg, pi) => (pg.blocks || []).forEach(b => { if (["job", "panel", "summary", "notes", "attachments", "text"].includes(b.type)) fitBlockHeight(pi, b, ctx); }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportPreview, exportLayout]);
+  const exportDragRef = useRef(null); // active drag/resize gesture state
   const [customColLabel, setCustomColLabel] = useState("");
   const [customColType, setCustomColType] = useState("text");
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
@@ -2324,6 +2342,225 @@ Extraction rules:
     if (est === 0) return 0;
     return Math.min(100, Math.round(logged / est * 100));
   };
+  // ─── Freeform export designer: shared block renderer + page/layout builders ──
+  const EXPORT_PAGE = (orientation) => orientation === "landscape" ? { w: 1056, h: 816 } : { w: 816, h: 1056 };
+  const escHtml = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const EXPORT_CSS = `
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;color:#0f172a;background:#fff}
+    .page{position:relative;background:#fff;overflow:hidden}
+    .blk{position:absolute;overflow:hidden}
+    .blk-logo{width:100%;height:100%;object-fit:contain;object-position:left center}
+    .blk-title{font-size:26px;font-weight:800;color:#0f172a;line-height:1.12}
+    .blk-sub{font-size:15px;color:#64748b}
+    .blk-text{font-size:12px;color:#334155;line-height:1.6;white-space:pre-wrap}
+    .blk-dt{text-align:right}
+    .blk-dt .date{font-size:14px;font-weight:700;color:#0f172a}
+    .blk-dt .time{font-size:12px;color:#64748b}
+    .summary{display:flex;gap:18px;padding:14px 18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}
+    .summary .stat{flex:1}
+    .summary .stat .v{font-size:20px;font-weight:700;color:${T.accent}}
+    .summary .stat .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px}
+    .job-card{display:flex;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;background:#fff;height:100%}
+    .job-bar{width:6px;flex-shrink:0}
+    .job-body{flex:1;padding:14px 18px;overflow:hidden}
+    .job-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #f1f5f9}
+    .job-num{font-size:11px;color:${T.accent};font-weight:700;margin-right:8px;background:${T.accent}15;padding:2px 7px;border-radius:4px}
+    .job-title{font-size:15px;font-weight:700;color:#0f172a}
+    .job-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px 18px;margin-bottom:10px}
+    .job-meta>div{display:flex;flex-direction:column;gap:2px}
+    .lbl{font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;font-weight:600}
+    .job-notes{padding:8px 10px;background:#fafbfc;border-left:3px solid ${T.accent};border-radius:0 4px 4px 0;font-size:10px;color:#475569}
+    .job-notes .lbl{display:block;margin-bottom:2px}
+    .panels-wrap{margin-top:6px}
+    .panel{margin-bottom:10px}
+    .panel-header{padding:6px 10px;background:#f8fafc;border-radius:5px;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap}
+    .panel-title{font-size:12px;font-weight:700;color:#0f172a}
+    .panel-meta{display:flex;gap:10px;align-items:center;font-size:10px;color:#64748b;flex-wrap:wrap}
+    .op-table{width:100%;border-collapse:collapse;margin-top:2px}
+    .op-table th{padding:5px 8px;background:#fff;border-bottom:1px solid #e2e8f0;text-align:left;font-size:9px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.05em}
+    .op-table td{padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:10px;color:#334155;vertical-align:top}
+    .op-table tr:last-child td{border-bottom:none}
+    .op-title{font-weight:600;color:#0f172a}
+    .op-notes{color:#64748b;font-style:italic;max-width:200px}
+    .mono{font-family:'DM Sans',sans-serif}
+    .status-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em}
+    .empty{padding:8px 10px;font-size:10px;color:#94a3b8;font-style:italic}
+    .job-atts{font-size:10px}
+    .job-atts .lbl{display:block;margin-bottom:6px}
+    .att-list{display:flex;flex-direction:column;gap:4px}
+    .att-link{font-size:10px;color:${T.accent};text-decoration:underline;word-break:break-all}
+  `;
+  const panelHtml = (panel, o = {}) => {
+    const showOps = o.ops !== false, showStatus = o.status !== false, showDates = o.dates !== false, showHours = o.hours !== false, showCount = o.count !== false;
+    const ops = showOps ? (panel.subs || []).map(op => `<tr><td class="op-title">${escHtml(op.title)}</td><td><span class="status-pill" style="background:${(STA_C[op.status] || "#64748b") + "22"};color:${STA_C[op.status] || "#64748b"}">${escHtml(op.status || "—")}</span></td><td>${escHtml(op.pri || "—")}</td><td class="mono">${escHtml(fm(op.start) + " → " + fm(op.end))}</td><td class="mono">${_opHrs(op) > 0 ? _opHrs(op).toFixed(1) + "h" : "—"}</td><td class="mono">${_opPct(op)}%</td>${op.notes ? `<td class="op-notes">${escHtml(op.notes)}</td>` : "<td>—</td>"}</tr>`).join("") : "";
+    const meta = [
+      showStatus ? `<span class="status-pill" style="background:${(STA_C[panel.status] || "#64748b") + "22"};color:${STA_C[panel.status] || "#64748b"}">${escHtml(panel.status || "—")}</span>` : "",
+      showDates ? `<span class="mono">${escHtml(fm(panel.start) + " → " + fm(panel.end))}</span>` : "",
+      showHours ? `<span class="mono">${_panelHrs(panel) > 0 ? _panelHrs(panel).toFixed(1) + "h" : "—"}</span>` : "",
+      showCount ? `<span>${(panel.subs || []).length} op${(panel.subs || []).length !== 1 ? "s" : ""}</span>` : "",
+    ].join("");
+    return `<div class="panel"><div class="panel-header"><div class="panel-title">${escHtml(panel.title)}</div><div class="panel-meta">${meta}</div></div>${showOps ? ((panel.subs || []).length ? `<table class="op-table"><thead><tr><th>Operation</th><th>Status</th><th>Pri</th><th>Dates</th><th>Hours</th><th>Done</th><th>Notes</th></tr></thead><tbody>${ops}</tbody></table>` : `<div class="empty">No operations</div>`) : ""}</div>`;
+  };
+  const attListHtml = (atts) => `<div class="job-atts"><span class="lbl">Attachments (${atts.length})</span><div class="att-list">${atts.map(a => `<a class="att-link" href="${escHtml(window.location.origin + "/api/attachment?key=" + encodeURIComponent(a.key))}">${escHtml((a.panelTitle ? a.panelTitle + " — " : "") + a.filename)}</a>`).join("")}</div></div>`;
+  const jobCardHtml = (job, o = {}) => {
+    const cl = clients.find(c => c.id === job.clientId);
+    const stColor = STA_C[job.status] || "#64748b";
+    const meta = [
+      (cl && o.client !== false) ? `<div><span class="lbl">Client</span><span>${escHtml(cl.name)}</span></div>` : "",
+      o.priority !== false ? `<div><span class="lbl">Priority</span><span>${escHtml(job.pri || "—")}</span></div>` : "",
+      o.dates !== false ? `<div><span class="lbl">Start</span><span class="mono">${escHtml(fm(job.start))}</span></div><div><span class="lbl">End</span><span class="mono">${escHtml(fm(job.end))}</span></div>` : "",
+      o.due !== false ? `<div><span class="lbl">Due</span><span class="mono">${job.dueDate ? escHtml(fm(job.dueDate)) : "—"}</span></div>` : "",
+      (job.poNumber && o.po !== false) ? `<div><span class="lbl">PO #</span><span class="mono">${escHtml(job.poNumber)}</span></div>` : "",
+      o.hours !== false ? `<div><span class="lbl">Total Hours</span><span class="mono">${_jobHrs(job).toFixed(1)}h</span></div>` : "",
+      o.progress !== false ? `<div><span class="lbl">Progress</span><span class="mono">${_jobPct(job)}%</span></div>` : "",
+    ].join("");
+    const panels = o.panels !== false ? (job.subs || []).map(p => panelHtml(p, { ops: o.ops })).join("") : "";
+    const atts = (job.subs || []).flatMap(p => (p.attachments || []).map(a => ({ ...a, panelTitle: p.title })));
+    return `<section class="job-card"><div class="job-bar" style="background:${job.color || T.accent}"></div><div class="job-body"><div class="job-head"><div>${job.jobNumber ? `<span class="job-num">#${escHtml(job.jobNumber)}</span>` : ""}<span class="job-title">${escHtml(job.title)}</span></div><span class="status-pill" style="background:${stColor + "22"};color:${stColor}">${escHtml(job.status || "—")}</span></div>${meta.trim() ? `<div class="job-meta">${meta}</div>` : ""}${(job.notes && o.notes !== false) ? `<div class="job-notes" style="margin-bottom:10px"><span class="lbl">Notes</span>${escHtml(job.notes)}</div>` : ""}${o.panels !== false ? (panels ? `<div class="panels-wrap">${panels}</div>` : `<div class="empty">No tasks under this job</div>`) : ""}${(atts.length && o.attachments !== false) ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9">${attListHtml(atts)}</div>` : ""}</div></section>`;
+  };
+  // Default per-block field-visibility options (everything on; user filters in the inspector).
+  const defaultExportOpts = (type) => {
+    if (type === "job") return { client: true, priority: true, dates: true, due: true, po: true, hours: true, progress: true, notes: true, panels: true, ops: true, attachments: true };
+    if (type === "panel") return { ops: true, status: true, dates: true, hours: true, count: true };
+    if (type === "summary") return { jobs: true, tasks: true, operations: true, hours: true };
+    if (type === "datetime") return { date: true, time: true };
+    return {};
+  };
+  // Default text formatting for text blocks (align/size/bold/italic).
+  const defaultFmt = (type) => type === "title" ? { align: "left", size: 26, bold: true, italic: false } : type === "subtitle" ? { align: "left", size: 15, bold: false, italic: false } : { align: "left", size: 12, bold: false, italic: false };
+  const fmtStyleStr = (b) => { const f = b.fmt || {}; const defSize = b.type === "title" ? 26 : b.type === "subtitle" ? 15 : 12; const bold = f.bold != null ? f.bold : (b.type === "title"); return `text-align:${f.align || "left"};font-size:${f.size || defSize}px;font-weight:${bold ? 800 : 400};font-style:${f.italic ? "italic" : "normal"}`; };
+  // Human label for the "On this page" layers list.
+  const blockLabel = (b, jobs) => {
+    const job = b.ref?.jobId ? (jobs || []).find(j => j.id === b.ref.jobId) : null;
+    switch (b.type) {
+      case "logo": return "Logo";
+      case "title": return `Title — ${(b.text || "").slice(0, 22) || "untitled"}`;
+      case "subtitle": return `Subtitle — ${(b.text || "").slice(0, 22) || "—"}`;
+      case "text": return `Text — ${(b.text || "").slice(0, 20) || "—"}`;
+      case "datetime": return "Date / time";
+      case "summary": return "Summary";
+      case "job": return `Job — ${job?.title || "?"}`;
+      case "panel": { const p = job && (job.subs || []).find(x => x.id === b.ref?.panelId); return `Panel — ${p?.title || "?"}`; }
+      case "attachments": return `Attachments — ${job?.title || "?"}`;
+      case "notes": return `Notes — ${job?.title || "?"}`;
+      default: return b.type;
+    }
+  };
+  // Render one block's inner HTML. ctx = { jobs, logoDataUrl, dateStr, timeStr }.
+  const renderBlockHtml = (block, ctx) => {
+    const b = block || {};
+    const o = b.opts || {};
+    const jobs = ctx.jobs || [];
+    const job = b.ref?.jobId ? jobs.find(j => j.id === b.ref.jobId) : null;
+    switch (b.type) {
+      case "logo": return `<img class="blk-logo" src="${ctx.logoDataUrl || TRAQS_LOGO_BLUE}" alt="logo"/>`;
+      case "title": return `<div class="blk-title" style="${fmtStyleStr(b)}">${escHtml(b.text || "Job Queue Export")}</div>`;
+      case "subtitle": return `<div class="blk-sub" style="${fmtStyleStr(b)}">${escHtml(b.text || "")}</div>`;
+      case "text": return `<div class="blk-text" style="${fmtStyleStr(b)}">${escHtml(b.text || "")}</div>`;
+      case "datetime": return `<div class="blk-dt">${o.date !== false ? `<div class="date">${escHtml(ctx.dateStr)}</div>` : ""}${o.time !== false ? `<div class="time">${escHtml(ctx.timeStr)}</div>` : ""}</div>`;
+      case "summary": {
+        const tp = jobs.reduce((s, j) => s + (j.subs || []).length, 0);
+        const to = jobs.reduce((s, j) => s + (j.subs || []).reduce((a, p) => a + (p.subs || []).length, 0), 0);
+        const th = jobs.reduce((s, j) => s + _jobHrs(j), 0);
+        const stats = [
+          o.jobs !== false ? `<div class="stat"><div class="v">${jobs.length}</div><div class="l">Jobs</div></div>` : "",
+          o.tasks !== false ? `<div class="stat"><div class="v">${tp}</div><div class="l">Tasks</div></div>` : "",
+          o.operations !== false ? `<div class="stat"><div class="v">${to}</div><div class="l">Operations</div></div>` : "",
+          o.hours !== false ? `<div class="stat"><div class="v">${th.toFixed(1)}h</div><div class="l">Total Hours</div></div>` : "",
+        ].join("");
+        return `<div class="summary">${stats || `<div class="stat"><div class="l">No stats selected</div></div>`}</div>`;
+      }
+      case "notes": return `<div class="job-notes"><span class="lbl">Notes${job ? " · " + escHtml(job.title) : ""}</span>${escHtml(job?.notes || "")}</div>`;
+      case "attachments": { if (!job) return `<div class="empty">No job</div>`; const atts = (job.subs || []).flatMap(p => (p.attachments || []).map(a => ({ ...a, panelTitle: p.title }))); return attListHtml(atts); }
+      case "panel": { const p = job && (job.subs || []).find(x => x.id === b.ref?.panelId); return p ? panelHtml(p, o) : `<div class="empty">Panel not found</div>`; }
+      case "job": default: return job ? jobCardHtml(job, o) : `<div class="empty">Job not found</div>`;
+    }
+  };
+  const exportCtx = (jobs, layout) => { const now = new Date(); return { jobs, logoDataUrl: layout?.logoDataUrl || null, dateStr: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }), timeStr: now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) }; };
+  const blocksHtml = (page, ctx) => ((page && page.blocks) || []).map(b => `<div class="blk" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">${renderBlockHtml(b, ctx)}</div>`).join("");
+  // Single-page doc for the editor iframe (full page px; the editor scales it via CSS transform).
+  const buildPageDoc = (page, ctx, dims) => `<!DOCTYPE html><html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}</style></head><body><div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(page, ctx)}</div></body></html>`;
+  // Full multi-page doc for print / download.
+  const buildLayoutHtml = (layout, ctx) => { const dims = EXPORT_PAGE(layout.orientation); const pages = (layout.pages || []).map(pg => `<div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(pg, ctx)}</div>`).join(""); return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>TRAQS Export</title><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}@page{size:letter ${layout.orientation === "landscape" ? "landscape" : "portrait"};margin:0}.page{page-break-after:always}.page:last-child{page-break-after:auto}</style></head><body>${pages}</body></html>`; };
+  // Initial layout from the selected jobs: header band on page 1, then one job per page.
+  const seedLayout = (jobs) => {
+    const M = 48, W = 816;
+    const pages = [{ blocks: [
+      { id: uid(), type: "logo", x: M, y: M, w: 240, h: 64 },
+      { id: uid(), type: "datetime", x: W - M - 200, y: M, w: 200, h: 48, opts: defaultExportOpts("datetime") },
+      { id: uid(), type: "title", x: M, y: 128, w: W - 2 * M, h: 40, text: "Job Queue Export", fmt: defaultFmt("title") },
+    ] }];
+    (jobs || []).forEach((job, i) => {
+      const blk = { id: uid(), type: "job", w: W - 2 * M, h: 360, ref: { jobId: job.id }, opts: defaultExportOpts("job") };
+      if (i === 0) pages[0].blocks.push({ ...blk, x: M, y: 192 });
+      else pages.push({ blocks: [{ ...blk, x: M, y: M }] });
+    });
+    return { orientation: "portrait", grid: 16, snap: true, logoDataUrl: null, pages };
+  };
+  // Block mutations (functional updates so rapid drag deltas don't clobber each other).
+  const updateExportBlock = (pageIdx, id, patch) => setExportLayout(L => L ? { ...L, pages: L.pages.map((pg, i) => i !== pageIdx ? pg : { ...pg, blocks: pg.blocks.map(b => b.id === id ? { ...b, ...patch } : b) }) } : L);
+  const removeExportBlock = (pageIdx, id) => { pushExportHistory(); setExportLayout(L => L ? { ...L, pages: L.pages.map((pg, i) => i !== pageIdx ? pg : { ...pg, blocks: pg.blocks.filter(b => b.id !== id) }) } : L); };
+  const addExportBlock = (pageIdx, block) => { pushExportHistory(); setExportLayout(L => L ? { ...L, pages: L.pages.map((pg, i) => i !== pageIdx ? pg : { ...pg, blocks: [...pg.blocks, block] }) } : L); };
+  // Measure a block's natural content height (at its current width) in a hidden,
+  // style-isolated iframe and set the block's height to fit. No history (the
+  // triggering action already snapshotted).
+  const fitBlockHeight = (pageIdx, block, ctx) => {
+    try {
+      const ifr = document.createElement("iframe");
+      ifr.setAttribute("aria-hidden", "true");
+      ifr.style.cssText = `position:fixed;left:-10000px;top:0;width:${block.w}px;height:10px;border:0;visibility:hidden`;
+      document.body.appendChild(ifr);
+      const done = () => {
+        let h = block.h;
+        try { const el = ifr.contentDocument?.querySelector(".measure"); if (el) h = Math.max(24, Math.ceil(el.getBoundingClientRect().height)); } catch {}
+        try { ifr.remove(); } catch {}
+        updateExportBlock(pageIdx, block.id, { h });
+      };
+      ifr.onload = () => { const f = ifr.contentDocument?.fonts; if (f?.ready) f.ready.then(done, done); else setTimeout(done, 80); };
+      ifr.srcdoc = `<!DOCTYPE html><html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}.measure{position:absolute;top:0;left:0;width:${block.w}px}</style></head><body><div class="measure">${renderBlockHtml(block, ctx)}</div></body></html>`;
+    } catch {}
+  };
+  // Pointer drag/resize a block on the canvas overlay; snaps to grid.
+  const startBlockDrag = (e, pageIdx, block, mode, scale, layout) => {
+    e.preventDefault(); e.stopPropagation();
+    pushExportHistory();
+    const sx = e.clientX, sy = e.clientY, orig = { x: block.x, y: block.y, w: block.w, h: block.h };
+    const grid = layout?.grid || 16, snap = layout?.snap !== false;
+    const snp = v => snap ? Math.round(v / grid) * grid : Math.round(v);
+    exportDragRef.current = true;
+    const onMove = ev => {
+      const dx = (ev.clientX - sx) / scale, dy = (ev.clientY - sy) / scale;
+      if (mode === "resize") updateExportBlock(pageIdx, block.id, { w: Math.max(40, snp(orig.w + dx)), h: Math.max(24, snp(orig.h + dy)) });
+      else updateExportBlock(pageIdx, block.id, { x: Math.max(0, snp(orig.x + dx)), y: Math.max(0, snp(orig.y + dy)) });
+    };
+    const onUp = () => { exportDragRef.current = null; window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+  // ── Export designer undo/redo: snapshot the layout before each discrete edit ──
+  const exportLayoutRef = useRef(null);
+  useEffect(() => { exportLayoutRef.current = exportLayout; }, [exportLayout]);
+  const [exportPast, setExportPast] = useState([]);
+  const [exportFuture, setExportFuture] = useState([]);
+  const _snapLayout = () => exportLayoutRef.current ? JSON.parse(JSON.stringify(exportLayoutRef.current)) : null;
+  const pushExportHistory = () => { const s = _snapLayout(); if (s) { setExportPast(p => [...p, s].slice(-80)); setExportFuture([]); } };
+  const resetExportHistory = () => { setExportPast([]); setExportFuture([]); };
+  const exportUndo = () => { if (!exportPast.length) return; const prev = exportPast[exportPast.length - 1]; const cur = _snapLayout(); setExportPast(exportPast.slice(0, -1)); setExportFuture(cur ? [cur, ...exportFuture].slice(0, 80) : exportFuture); setExportLayout(prev); };
+  const exportRedo = () => { if (!exportFuture.length) return; const next = exportFuture[0]; const cur = _snapLayout(); setExportFuture(exportFuture.slice(1)); setExportPast(cur ? [...exportPast, cur].slice(-80) : exportPast); setExportLayout(next); };
+  useEffect(() => {
+    if (exportPreview?.kind !== "pdf") return;
+    const onKey = e => {
+      const tag = (e.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return; // let text fields keep native undo
+      const k = (e.key || "").toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && k === "z" && !e.shiftKey) { e.preventDefault(); exportUndo(); }
+      else if ((e.ctrlKey || e.metaKey) && (k === "y" || (k === "z" && e.shiftKey))) { e.preventDefault(); exportRedo(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportPreview, exportPast, exportFuture, exportLayout]);
   // Display-only status override for sub-ops: shows "Paused" when hours are logged but no one is clocked in
   const getOpDisplayStatus = (op) => {
     if (op.status === "Finished") return "Finished";
@@ -14823,146 +15060,9 @@ ${jobsCtx || "No jobs found."}`;
       const doCSV = () => setExportPreview({ html: null, filename: "jobs_export.csv", mime: "text/csv", kind: "csv", content: csvContent() });
       const doWord = () => setExportPreview({ html: wordContent(), filename: "jobs_export.doc", mime: "application/msword", kind: "word" });
       // PDF — TRAQS-branded printable layout with logo, date/time, and full job → panel → op hierarchy.
-      const doPDF = () => {
-        const now = new Date();
-        const dateStr = now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-        const timeStr = now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-        const escapeHtml = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-        const totalHoursAll = exportData.reduce((s, j) => s + _jobHrs(j), 0);
-        const totalPanels = exportData.reduce((s, j) => s + (j.subs || []).length, 0);
-        const totalOps = exportData.reduce((s, j) => s + (j.subs || []).reduce((sp, p) => sp + (p.subs || []).length, 0), 0);
-        const ACCENT = T.accent;
-        const jobCards = exportData.map(job => {
-          const cl = clients.find(c => c.id === job.clientId);
-          const stColor = STA_C[job.status] || "#64748b";
-          const jColor = job.color || ACCENT;
-          const panels = (job.subs || []).map(panel => {
-            const ops = (panel.subs || []).map(op => `
-              <tr>
-                <td class="op-title">${escapeHtml(op.title)}</td>
-                <td><span class="status-pill" style="background:${(STA_C[op.status] || "#64748b") + "22"};color:${STA_C[op.status] || "#64748b"}">${escapeHtml(op.status || "—")}</span></td>
-                <td>${escapeHtml(op.pri || "—")}</td>
-                <td class="mono">${escapeHtml(fm(op.start) + " → " + fm(op.end))}</td>
-                <td class="mono">${_opHrs(op) > 0 ? _opHrs(op).toFixed(1) + "h" : "—"}</td>
-                <td class="mono">${_opPct(op)}%</td>
-                ${op.notes ? `<td class="op-notes">${escapeHtml(op.notes)}</td>` : "<td>—</td>"}
-              </tr>`).join("");
-            return `<div class="panel">
-              <div class="panel-header">
-                <div class="panel-title">${escapeHtml(panel.title)}</div>
-                <div class="panel-meta">
-                  <span class="status-pill" style="background:${(STA_C[panel.status] || "#64748b") + "22"};color:${STA_C[panel.status] || "#64748b"}">${escapeHtml(panel.status || "—")}</span>
-                  <span class="mono">${escapeHtml(fm(panel.start) + " → " + fm(panel.end))}</span>
-                  <span class="mono">${_panelHrs(panel) > 0 ? _panelHrs(panel).toFixed(1) + "h" : "—"}</span>
-                  <span>${(panel.subs || []).length} op${(panel.subs || []).length !== 1 ? "s" : ""}</span>
-                </div>
-              </div>
-              ${ops ? `<table class="op-table"><thead><tr><th>Operation</th><th>Status</th><th>Pri</th><th>Dates</th><th>Hours</th><th>Done</th><th>Notes</th></tr></thead><tbody>${ops}</tbody></table>` : `<div class="empty">No operations</div>`}
-            </div>`;
-          }).join("");
-          // Attachments — flat list at the bottom of the job card, as clickable
-          // links (absolute URLs so they resolve from the saved/printed PDF).
-          const _atts = (job.subs || []).flatMap(p => (p.attachments || []).map(a => ({ key: a.key, filename: a.filename, panelTitle: p.title })));
-          const attBlock = _atts.length ? `<div class="job-atts"><span class="lbl">Attachments (${_atts.length})</span><div class="att-list">${_atts.map(a => `<a class="att-link" href="${escapeHtml(window.location.origin + "/api/attachment?key=" + encodeURIComponent(a.key))}">${escapeHtml((a.panelTitle ? a.panelTitle + " — " : "") + a.filename)}</a>`).join("")}</div></div>` : "";
-          return `<section class="job-card">
-            <div class="job-bar" style="background:${jColor}"></div>
-            <div class="job-body">
-              <div class="job-head">
-                <div>
-                  ${job.jobNumber ? `<span class="job-num">#${escapeHtml(job.jobNumber)}</span>` : ""}
-                  <span class="job-title">${escapeHtml(job.title)}</span>
-                </div>
-                <span class="status-pill" style="background:${stColor + "22"};color:${stColor}">${escapeHtml(job.status || "—")}</span>
-              </div>
-              <div class="job-meta">
-                ${cl ? `<div><span class="lbl">Client</span><span>${escapeHtml(cl.name)}</span></div>` : ""}
-                <div><span class="lbl">Priority</span><span>${escapeHtml(job.pri || "—")}</span></div>
-                <div><span class="lbl">Start</span><span class="mono">${escapeHtml(fm(job.start))}</span></div>
-                <div><span class="lbl">End</span><span class="mono">${escapeHtml(fm(job.end))}</span></div>
-                <div><span class="lbl">Due</span><span class="mono">${job.dueDate ? escapeHtml(fm(job.dueDate)) : "—"}</span></div>
-                ${job.poNumber ? `<div><span class="lbl">PO #</span><span class="mono">${escapeHtml(job.poNumber)}</span></div>` : ""}
-                <div><span class="lbl">Total Hours</span><span class="mono">${_jobHrs(job).toFixed(1)}h</span></div>
-                <div><span class="lbl">Progress</span><span class="mono">${_jobPct(job)}%</span></div>
-              </div>
-              ${job.notes ? `<div class="job-notes"><span class="lbl">Notes</span>${escapeHtml(job.notes)}</div>` : ""}
-              ${panels ? `<div class="panels-wrap">${panels}</div>` : `<div class="empty">No tasks under this job</div>`}
-              ${attBlock}
-            </div>
-          </section>`;
-        }).join("");
-        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>TRAQS Job Export · ${escapeHtml(dateStr)}</title>
-          <link rel="preconnect" href="https://fonts.googleapis.com">
-          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-          <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-          <style>
-            *{margin:0;padding:0;box-sizing:border-box}
-            body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;font-size:11px;color:#0f172a;background:#fff;padding:28px 32px}
-            .doc-header{display:flex;align-items:center;justify-content:space-between;padding-bottom:16px;border-bottom:2px solid #0f172a;margin-bottom:24px}
-            .logo{height:48px;display:block}
-            .doc-meta{text-align:right}
-            .doc-meta .date{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:2px}
-            .doc-meta .time{font-size:12px;color:#64748b;font-family:'DM Sans',sans-serif}
-            .summary{display:flex;gap:24px;margin-bottom:24px;padding:14px 18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}
-            .summary .stat{flex:1}
-            .summary .stat .v{font-size:20px;font-weight:700;color:${ACCENT};font-family:'DM Sans',sans-serif}
-            .summary .stat .l{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;margin-top:2px}
-            h1{font-size:14px;font-weight:700;color:#0f172a;margin-bottom:14px;text-transform:uppercase;letter-spacing:0.05em}
-            .job-card{display:flex;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:18px;overflow:hidden;page-break-inside:avoid;background:#fff}
-            .job-bar{width:6px;flex-shrink:0}
-            .job-body{flex:1;padding:14px 18px}
-            .job-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #f1f5f9}
-            .job-num{font-family:'DM Sans',sans-serif;font-size:11px;color:${ACCENT};font-weight:700;margin-right:8px;background:${ACCENT}15;padding:2px 7px;border-radius:4px}
-            .job-title{font-size:15px;font-weight:700;color:#0f172a}
-            .job-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px 18px;margin-bottom:10px}
-            .job-meta>div{display:flex;flex-direction:column;gap:2px}
-            .lbl{font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;font-weight:600}
-            .job-notes{margin-bottom:10px;padding:8px 10px;background:#fafbfc;border-left:3px solid ${ACCENT};border-radius:0 4px 4px 0;font-size:10px;color:#475569}
-            .job-notes .lbl{display:block;margin-bottom:2px}
-            .panels-wrap{margin-top:6px}
-            .panel{margin-bottom:10px}
-            .panel-header{padding:6px 10px;background:#f8fafc;border-radius:5px;display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap}
-            .panel-title{font-size:12px;font-weight:700;color:#0f172a}
-            .panel-meta{display:flex;gap:10px;align-items:center;font-size:10px;color:#64748b;flex-wrap:wrap}
-            .op-table{width:100%;border-collapse:collapse;margin-top:2px}
-            .op-table th{padding:5px 8px;background:#fff;border-bottom:1px solid #e2e8f0;text-align:left;font-size:9px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.05em}
-            .op-table td{padding:5px 8px;border-bottom:1px solid #f1f5f9;font-size:10px;color:#334155;vertical-align:top}
-            .op-table tr:last-child td{border-bottom:none}
-            .op-title{font-weight:600;color:#0f172a}
-            .op-notes{color:#64748b;font-style:italic;max-width:200px}
-            .mono{font-family:'DM Sans',sans-serif}
-            .status-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em}
-            .empty{padding:8px 10px;font-size:10px;color:#94a3b8;font-style:italic}
-            .job-atts{margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9}
-            .job-atts .lbl{display:block;margin-bottom:6px}
-            .att-list{display:flex;flex-direction:column;gap:4px}
-            .att-link{font-size:10px;color:${ACCENT};text-decoration:underline;word-break:break-all}
-            @media print{
-              @page{margin:14mm}
-              body{padding:0}
-              .doc-header{margin-bottom:16px}
-              .job-card{page-break-inside:avoid}
-            }
-          </style>
-        </head>
-        <body>
-          <div class="doc-header">
-            <img class="logo" src="${TRAQS_LOGO_BLUE}" alt="TRAQS" />
-            <div class="doc-meta">
-              <div class="date">${escapeHtml(dateStr)}</div>
-              <div class="time">${escapeHtml(timeStr)}</div>
-            </div>
-          </div>
-          <div class="summary">
-            <div class="stat"><div class="v">${exportData.length}</div><div class="l">Jobs</div></div>
-            <div class="stat"><div class="v">${totalPanels}</div><div class="l">Tasks</div></div>
-            <div class="stat"><div class="v">${totalOps}</div><div class="l">Operations</div></div>
-            <div class="stat"><div class="v">${totalHoursAll.toFixed(1)}h</div><div class="l">Total Hours</div></div>
-          </div>
-          <h1>Job Queue Export</h1>
-          ${jobCards || `<div class="empty">No jobs selected for export</div>`}
-        </body></html>`;
-        setExportPreview({ html, filename: "jobs_export.pdf", mime: "application/pdf", kind: "pdf" });
-      };
+      // Open the freeform designer; it seeds a layout from the selected jobs and
+      // builds the print HTML live via buildLayoutHtml.
+      const doPDF = () => { setExportLayout(seedLayout(exportData)); setExportPageIdx(0); resetExportHistory(); setExportPreview({ kind: "pdf", jobs: exportData, filename: "jobs_export.pdf", mime: "application/pdf" }); };
       const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every(j => exportSelRows.has(j.id));
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10004, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "stretch", justifyContent: "center", fontFamily: T.font, padding: "32px 24px" }} onClick={() => setExportSelOpen(false)}>
         <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ width: "min(980px, 100%)", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
@@ -15052,38 +15152,201 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Export Preview Modal — shows what will be printed / downloaded ── */}
     <FadeOnClose open={!!exportPreview} duration={220}>{exportPreview && (() => {
       const ep = exportPreview;
-      const previewIframeRef = { current: null };
-      const downloadIt = () => {
-        const content = ep.kind === "csv" ? ep.content : ep.html;
-        const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: ep.mime })); a.download = ep.filename; a.click();
-        setExportPreview(null); setExportSelOpen(false);
-      };
-      const printIt = () => {
-        const w = window.open("", "_blank");
-        w.document.write(ep.html); w.document.close(); w.focus();
-        setTimeout(() => { w.print(); setExportPreview(null); setExportSelOpen(false); }, 400);
-      };
-      const kindLabel = ep.kind === "pdf" ? "PDF" : ep.kind === "word" ? "Word" : "CSV";
+      const isPdf = ep.kind === "pdf";
+      const layout = exportLayout;
+      const ctx = exportCtx(ep.jobs || [], layout || {});
+      const dims = EXPORT_PAGE(layout?.orientation);
+      const pageIdx = Math.min(exportPageIdx, (layout?.pages?.length || 1) - 1);
+      const page = layout?.pages?.[pageIdx];
+      const html = isPdf ? (layout ? buildLayoutHtml(layout, ctx) : "") : ep.html;
+      const templates = orgSettings.exportTemplates || [];
+      const applyTemplate = t => { if (t?.layout) { setExportLayout(JSON.parse(JSON.stringify(t.layout))); setExportPageIdx(0); } };
+      const saveTemplate = () => { if (!layout) return; const name = (window.prompt("Save layout template as:") || "").trim(); if (!name) return; setOrgSettings(s => ({ ...s, exportTemplates: [...(s.exportTemplates || []), { id: uid(), name, layout: JSON.parse(JSON.stringify(layout)) }] })); };
+      const deleteTemplate = id => setOrgSettings(s => ({ ...s, exportTemplates: (s.exportTemplates || []).filter(t => t.id !== id) }));
+      const onLogoUpload = async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 360, 0.92, "image/png"); pushExportHistory(); setExportLayout(L => L ? { ...L, logoDataUrl: data } : L); } catch { alert("Could not load that image."); } };
+      const downloadIt = () => { const content = ep.kind === "csv" ? ep.content : html; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: ep.mime })); a.download = ep.filename; a.click(); setExportPreview(null); setExportSelOpen(false); };
+      const printIt = () => { const w = window.open("", "_blank"); w.document.write(html); w.document.close(); w.focus(); setTimeout(() => { w.print(); setExportPreview(null); setExportSelOpen(false); }, 400); };
+      const kindLabel = isPdf ? "PDF" : ep.kind === "word" ? "Word" : "CSV";
+      const CANVAS_W = 760;
+      const scale = dims ? Math.min(1, CANVAS_W / dims.w) : 1;
+      const ELBL = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 7 };
+      const EBTN = { padding: "0 12px", height: 30, borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
+      const palette = [
+        { type: "title", label: "Title", w: 420, h: 40, group: "Elements" },
+        { type: "subtitle", label: "Subtitle", w: 420, h: 28, group: "Elements" },
+        { type: "text", label: "Text box", w: 360, h: 80, group: "Elements" },
+        { type: "logo", label: "Logo", w: 240, h: 64, group: "Elements" },
+        { type: "datetime", label: "Date / time", w: 200, h: 48, group: "Elements" },
+        { type: "summary", label: "Summary", w: 720, h: 80, group: "Elements" },
+      ];
+      (ep.jobs || []).forEach(j => {
+        const g = j.title || "Job";
+        palette.push({ type: "job", label: "Full job card", w: 720, h: 320, ref: { jobId: j.id }, group: g });
+        palette.push({ type: "attachments", label: "Attachments", w: 360, h: 120, ref: { jobId: j.id }, group: g });
+        palette.push({ type: "notes", label: "Notes", w: 360, h: 90, ref: { jobId: j.id }, group: g });
+        (j.subs || []).forEach(p => palette.push({ type: "panel", label: `Panel: ${p.title}`, w: 720, h: 160, ref: { jobId: j.id, panelId: p.id }, group: g }));
+      });
+      // Group palette items for display while keeping original indices (used by drag/add).
+      const paletteGroups = []; const _gi = {};
+      palette.forEach((item, i) => { if (!(item.group in _gi)) { _gi[item.group] = paletteGroups.length; paletteGroups.push({ name: item.group, items: [] }); } paletteGroups[_gi[item.group]].items.push({ item, i }); });
+      const blockFromItem = (item, x, y) => ({ id: uid(), type: item.type, x, y, w: item.w, h: item.h, opts: defaultExportOpts(item.type), ...(item.ref ? { ref: item.ref } : {}), ...(["title", "subtitle", "text"].includes(item.type) ? { text: item.label, fmt: defaultFmt(item.type) } : {}) });
+      const commitEdit = (b, val) => { pushExportHistory(); updateExportBlock(pageIdx, b.id, { text: val }); setExportEditing(null); };
+      const TXT = ["title", "subtitle", "text"];
+      const selBlock = (page?.blocks || []).find(b => b.id === exportSelId) || null;
+      const setOpt = (b, key, val) => { pushExportHistory(); const opts = { ...(b.opts || {}), [key]: val }; updateExportBlock(pageIdx, b.id, { opts }); fitBlockHeight(pageIdx, { ...b, opts }, ctx); };
+      const setFmt = (b, patch) => { pushExportHistory(); const fmt = { ...(b.fmt || {}), ...patch }; updateExportBlock(pageIdx, b.id, { fmt }); fitBlockHeight(pageIdx, { ...b, fmt }, ctx); };
+      const editBlock = exportEditing ? (page?.blocks || []).find(b => b.id === exportEditing && TXT.includes(b.type)) : null;
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10006, background: "rgba(0,0,0,0.78)", display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "center", fontFamily: T.font }} onClick={() => setExportPreview(null)}>
-        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ margin: "auto", width: "min(1000px, 96vw)", height: "92vh", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden" }}>
-          {/* Header */}
-          <div style={{ padding: "14px 22px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-            <div style={{ lineHeight: 0, color: T.accent }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{kindLabel} Preview</div>
-              <div style={{ fontSize: 12, color: T.textDim }}>Review the export before sending or downloading</div>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ margin: "auto", width: isPdf ? "min(1480px, 98vw)" : "min(1000px, 96vw)", height: "94vh", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden" }}>
+          {/* Toolbar */}
+          <div style={{ padding: "12px 18px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{isPdf ? "Design Export" : kindLabel + " Preview"}</div>
+            {isPdf && layout && <>
+              <button onClick={exportUndo} disabled={!exportPast.length} title="Undo (Ctrl+Z)" style={{ ...EBTN, background: "transparent", color: exportPast.length ? T.text : T.textDim, border: `1px solid ${T.border}`, opacity: exportPast.length ? 1 : 0.5, cursor: exportPast.length ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 5 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>Undo</button>
+              <button onClick={exportRedo} disabled={!exportFuture.length} title="Redo (Ctrl+Shift+Z)" style={{ ...EBTN, background: "transparent", color: exportFuture.length ? T.text : T.textDim, border: `1px solid ${T.border}`, opacity: exportFuture.length ? 1 : 0.5, cursor: exportFuture.length ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 5 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>Redo</button>
+              <div style={{ width: 1, height: 22, background: T.border }} />
+              <div style={{ position: "relative" }}>
+                <button onClick={() => setExportTplOpen(o => !o)} style={{ ...EBTN, background: T.bg, color: T.text, border: `1px solid ${exportTplOpen ? T.accent : T.border}`, display: "inline-flex", alignItems: "center", gap: 6 }}>Template<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.15s", transform: exportTplOpen ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg></button>
+                {exportTplOpen && <div onClick={() => setExportTplOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />}
+                <FadeOnClose open={exportTplOpen} duration={150}>{exportTplOpen && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, minWidth: 200, maxHeight: 280, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 14px 40px rgba(0,0,0,0.5)", zIndex: 41, padding: 5, fontFamily: T.font }}>
+                  {templates.length === 0 && <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim }}>No saved templates yet.</div>}
+                  {templates.map(t => <div key={t.id} onClick={() => { applyTemplate(t); setExportTplOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 9px", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "14"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                    <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
+                    <button onClick={ev => { ev.stopPropagation(); deleteTemplate(t.id); }} title="Delete template" style={{ border: "none", background: "none", color: T.textDim, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px" }}>×</button>
+                  </div>)}
+                </div>}</FadeOnClose>
+              </div>
+              <button onClick={saveTemplate} style={{ ...EBTN, background: "transparent", color: T.accent, border: `1px solid ${T.accent}66` }}>Save template</button>
+              <div style={{ width: 1, height: 22, background: T.border }} />
+              <button onClick={() => { pushExportHistory(); setExportLayout(L => ({ ...L, orientation: L.orientation === "landscape" ? "portrait" : "landscape" })); }} style={{ ...EBTN, background: "transparent", color: T.textSec, border: `1px solid ${T.border}` }}>{layout.orientation === "landscape" ? "Landscape" : "Portrait"}</button>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textSec, cursor: "pointer" }}><input type="checkbox" checked={layout.snap !== false} onChange={e => { pushExportHistory(); setExportLayout(L => ({ ...L, snap: e.target.checked })); }} />Snap</label>
+            </>}
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setExportPreview(null)} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back</button>
+            {isPdf && <button onClick={printIt} style={{ ...EBTN, height: 32, padding: "0 16px", display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print / Save as PDF</button>}
+            {!isPdf && <button onClick={downloadIt} style={{ ...EBTN, height: 32, padding: "0 16px" }}>Download .{ep.kind === "csv" ? "csv" : "doc"}</button>}
+          </div>
+          {/* Body */}
+          {!isPdf ? (
+            <div style={{ flex: 1, overflow: "auto", background: "#525659", padding: 24, display: "flex", justifyContent: "center" }}>
+              {ep.kind === "csv"
+                ? <pre style={{ width: "100%", maxWidth: 1000, padding: 24, background: "#fff", color: "#0f172a", fontFamily: T.mono, fontSize: 12, lineHeight: 1.5, borderRadius: 6, whiteSpace: "pre", overflow: "auto" }}>{ep.content}</pre>
+                : <iframe srcDoc={ep.html} title="Export preview" sandbox="" style={{ width: "100%", maxWidth: 920, height: "100%", border: "none", background: "#fff", borderRadius: 6 }} />}
             </div>
-            <button onClick={() => setExportPreview(null)} style={{ height: 32, padding: "0 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back to Selection</button>
-            {ep.kind === "pdf" && <button onClick={printIt} style={{ height: 32, padding: "0 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print / Save as PDF</button>}
-            {ep.kind !== "pdf" && <button onClick={downloadIt} style={{ height: 32, padding: "0 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download .{ep.kind === "csv" ? "csv" : "doc"}</button>}
-          </div>
-          {/* Preview area */}
-          <div style={{ flex: 1, overflow: "auto", background: "#525659", padding: 24, display: "flex", justifyContent: "center" }}>
-            {ep.kind === "csv"
-              ? <pre style={{ width: "100%", maxWidth: 1000, padding: 24, background: "#fff", color: "#0f172a", fontFamily: T.mono, fontSize: 12, lineHeight: 1.5, borderRadius: 6, boxShadow: "0 10px 32px rgba(0,0,0,0.4)", whiteSpace: "pre", overflow: "auto" }}>{ep.content}</pre>
-              : <iframe ref={el => { previewIframeRef.current = el; }} srcDoc={ep.html} title="Export preview" sandbox="" style={{ width: "100%", maxWidth: 920, height: "100%", border: "none", background: "#fff", borderRadius: 6, boxShadow: "0 10px 32px rgba(0,0,0,0.4)" }} />
-            }
-          </div>
+          ) : !layout ? <div style={{ flex: 1 }} /> : (
+            <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+              {/* Left rail: Add elements + Layers */}
+              <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <div style={ELBL}>Add to sheet</div>
+                  {paletteGroups.map(grp => <div key={grp.name} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.textSec, margin: "4px 0 6px" }}>{grp.name}</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); }} title="Drag onto the sheet, or click to add" style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
+                    </div>
+                  </div>)}
+                </div>
+                <div>
+                  <div style={ELBL}>Logo</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <label style={{ ...EBTN, background: "transparent", color: T.accent, border: `1px solid ${T.accent}66`, display: "inline-flex", alignItems: "center", cursor: "pointer" }}><input type="file" accept="image/*" style={{ display: "none" }} onChange={onLogoUpload} />Upload…</label>
+                    {layout.logoDataUrl && <button onClick={() => { pushExportHistory(); setExportLayout(L => ({ ...L, logoDataUrl: null })); }} style={{ ...EBTN, background: "transparent", color: T.textSec, border: `1px solid ${T.border}` }}>Reset</button>}
+                  </div>
+                </div>
+                <div>
+                  <div style={ELBL}>On this page ({(page?.blocks || []).length})</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                    {(page?.blocks || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim }}>Nothing yet — add from above.</div>}
+                    {(page?.blocks || []).map(b => {
+                      const open = exportSelId === b.id;
+                      const o = b.opts || {};
+                      const chk = (label, key) => <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, color: T.textSec, cursor: "pointer" }}><input type="checkbox" checked={o[key] !== false} onChange={e => setOpt(b, key, e.target.checked)} />{label}</label>;
+                      const hasOpts = ["job", "panel", "summary", "datetime"].includes(b.type) || TXT.includes(b.type) || b.type !== "logo";
+                      return <div key={b.id} style={{ borderRadius: 7, border: `1px solid ${open ? T.accent + "55" : "transparent"}`, background: open ? T.accent + "10" : "transparent", transition: "background 0.18s, border-color 0.18s", overflow: "hidden" }}>
+                        <div onClick={() => setExportSelId(open ? null : b.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", cursor: "pointer" }}>
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={open ? T.accent : T.textDim} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.18s", transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
+                          <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: open ? 700 : 500, color: open ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blockLabel(b, ep.jobs)}</span>
+                          <button onClick={ev => { ev.stopPropagation(); removeExportBlock(pageIdx, b.id); if (open) setExportSelId(null); }} title="Remove" style={{ border: "none", background: "none", color: T.textDim, cursor: "pointer", fontSize: 15, lineHeight: 1, padding: "0 2px", flexShrink: 0 }}>×</button>
+                        </div>
+                        <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.2s ease" }}>
+                          <div style={{ overflow: "hidden", minHeight: 0 }}>
+                            <div style={{ padding: "2px 10px 10px 24px" }}>
+                              {TXT.includes(b.type) && <button onClick={() => setExportEditing(b.id)} style={{ ...EBTN, height: 26, marginBottom: 8, background: T.accent, color: T.accentText }}>Edit text</button>}
+                              {b.type === "datetime" && <>{chk("Date", "date")}{chk("Time", "time")}</>}
+                              {b.type === "summary" && <>{chk("Jobs", "jobs")}{chk("Tasks", "tasks")}{chk("Operations", "operations")}{chk("Total hours", "hours")}</>}
+                              {b.type === "panel" && <>{chk("Operations (tasks)", "ops")}{chk("Status", "status")}{chk("Dates", "dates")}{chk("Hours", "hours")}{chk("Op count", "count")}</>}
+                              {b.type === "job" && <>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", margin: "2px 0 4px" }}>Details</div>
+                                {chk("Client", "client")}{chk("Priority", "priority")}{chk("Dates", "dates")}{chk("Due date", "due")}{chk("PO #", "po")}{chk("Total hours", "hours")}{chk("Progress", "progress")}
+                                <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", margin: "8px 0 4px" }}>Sections</div>
+                                {chk("Notes", "notes")}{chk("Panels", "panels")}{chk("Operations (tasks)", "ops")}{chk("Attachments", "attachments")}
+                              </>}
+                              {["logo", "attachments", "notes"].includes(b.type) && <div style={{ fontSize: 11, color: T.textDim }}>{b.type === "logo" ? "Use the Logo upload above to change the image." : "No filters for this element."}</div>}
+                              {b.type !== "logo" && <button onClick={() => fitBlockHeight(pageIdx, b, ctx)} style={{ ...EBTN, height: 26, marginTop: 8, background: "transparent", color: T.accent, border: `1px solid ${T.accent}66` }}>Fit height</button>}
+                            </div>
+                          </div>
+                        </div>
+                      </div>;
+                    })}
+                  </div>
+                </div>
+              </div>
+              {/* Canvas */}
+              <div style={{ flex: 1, overflow: "auto", background: "#525659", padding: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                {editBlock && (() => {
+                  const f = editBlock.fmt || {};
+                  const ds = editBlock.type === "title" ? 26 : editBlock.type === "subtitle" ? 15 : 12;
+                  const size = f.size || ds;
+                  const bold = f.bold != null ? f.bold : (editBlock.type === "title");
+                  const al = f.align || "left";
+                  const fb = (active, onClick, child, title) => <button key={title} onMouseDown={ev => ev.preventDefault()} onClick={onClick} title={title} style={{ minWidth: 30, height: 28, padding: "0 7px", borderRadius: 6, border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accent : T.bg, color: active ? T.accentText : T.text, cursor: "pointer", fontSize: 14, fontFamily: T.font, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{child}</button>;
+                  const aSvg = (a, b2, c, d, e2, f2) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1={a} y1="12" x2={b2} y2="12"/><line x1={c} y1="18" x2={d} y2="18"/><line x1={e2} y1="9" x2={f2} y2="9" style={{ opacity: 0 }}/></svg>;
+                  return <div onMouseDown={ev => ev.preventDefault()} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 6px 20px rgba(0,0,0,0.45)", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
+                    {fb(al === "left", () => setFmt(editBlock, { align: "left" }), aSvg(3, 14, 3, 18, 0, 0), "Align left")}
+                    {fb(al === "center", () => setFmt(editBlock, { align: "center" }), aSvg(6, 18, 4, 20, 0, 0), "Align center")}
+                    {fb(al === "right", () => setFmt(editBlock, { align: "right" }), aSvg(10, 21, 6, 21, 0, 0), "Align right")}
+                    <div style={{ width: 1, height: 20, background: T.border }} />
+                    {fb(bold, () => setFmt(editBlock, { bold: !bold }), <span style={{ fontWeight: 800 }}>B</span>, "Bold")}
+                    {fb(!!f.italic, () => setFmt(editBlock, { italic: !f.italic }), <span style={{ fontStyle: "italic", fontWeight: 700, fontFamily: "Georgia, serif" }}>I</span>, "Italic")}
+                    <div style={{ width: 1, height: 20, background: T.border }} />
+                    <span style={{ fontSize: 11, color: T.textDim }}>Size</span>
+                    {fb(false, () => setFmt(editBlock, { size: Math.max(8, size - 2) }), "−", "Smaller")}
+                    <span style={{ fontSize: 12, color: T.text, minWidth: 26, textAlign: "center", fontFamily: T.mono }}>{size}</span>
+                    {fb(false, () => setFmt(editBlock, { size: Math.min(120, size + 2) }), "+", "Larger")}
+                  </div>;
+                })()}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                  {(layout.pages || []).map((_, i) => <button key={i} onClick={() => { setExportPageIdx(i); setExportSelId(null); }} style={{ height: 26, padding: "0 10px", borderRadius: 6, border: `1px solid ${i === pageIdx ? T.accent : "#ffffff44"}`, background: i === pageIdx ? T.accent : "#ffffff18", color: i === pageIdx ? T.accentText : "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Page {i + 1}</button>)}
+                  <button onClick={() => { const n = (layout.pages || []).length; pushExportHistory(); setExportLayout(L => ({ ...L, pages: [...L.pages, { blocks: [] }] })); setExportPageIdx(n); }} style={{ height: 26, padding: "0 10px", borderRadius: 6, border: "1px solid #ffffff44", background: "#ffffff18", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Page</button>
+                  {(layout.pages || []).length > 1 && <button onClick={() => { pushExportHistory(); setExportLayout(L => ({ ...L, pages: L.pages.filter((_, i) => i !== pageIdx) })); setExportPageIdx(p => Math.max(0, p - 1)); }} style={{ height: 26, padding: "0 10px", borderRadius: 6, border: "1px solid #ffffff44", background: "#ffffff18", color: "#fca5a5", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Remove Page</button>}
+                </div>
+                <div onDragOver={ev => ev.preventDefault()} onPointerDown={ev => { if (ev.target === ev.currentTarget) setExportSelId(null); }} onDrop={ev => { ev.preventDefault(); const i = parseInt(ev.dataTransfer.getData("text/plain"), 10); const item = palette[i]; if (!item) return; const rect = ev.currentTarget.getBoundingClientRect(); const g = layout.grid || 16; const snp = v => layout.snap !== false ? Math.round(v / g) * g : Math.round(v); const x = Math.max(0, snp((ev.clientX - rect.left) / scale)); const y = Math.max(0, snp((ev.clientY - rect.top) / scale)); const blk = blockFromItem(item, x, y); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); }}
+                  style={{ position: "relative", width: dims.w * scale, height: dims.h * scale, flexShrink: 0, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", backgroundColor: "#fff", backgroundImage: layout.snap !== false ? "linear-gradient(to right, rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px)" : "none", backgroundSize: `${(layout.grid || 16) * scale}px ${(layout.grid || 16) * scale}px` }}>
+                  <iframe srcDoc={page ? buildPageDoc(page, ctx, dims) : ""} title="page" scrolling="no" style={{ position: "absolute", top: 0, left: 0, width: dims.w, height: dims.h, border: "none", transform: `scale(${scale})`, transformOrigin: "top left", pointerEvents: "none", background: "transparent" }} />
+                  {(page?.blocks || []).map(b => {
+                    if (exportEditing === b.id && TXT.includes(b.type)) {
+                      const _f = b.fmt || {}; const _ds = b.type === "title" ? 26 : b.type === "subtitle" ? 15 : 12; const _bold = _f.bold != null ? _f.bold : (b.type === "title");
+                      const edStyle = { position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: `2px solid ${T.accent}`, borderRadius: 4, boxSizing: "border-box", padding: "5px 7px", fontSize: Math.round((_f.size || _ds) * scale), fontWeight: _bold ? 800 : 400, fontStyle: _f.italic ? "italic" : "normal", textAlign: _f.align || "left", fontFamily: T.font, color: "#0f172a", background: "#fff", outline: "none", boxShadow: `0 6px 22px ${T.accent}66`, resize: "none", zIndex: 6, lineHeight: 1.3 };
+                      const common = { autoFocus: true, defaultValue: b.text || "", placeholder: "Type text…", onPointerDown: ev => ev.stopPropagation(), onDoubleClick: ev => ev.stopPropagation(), onBlur: ev => { if (exportCancelRef.current) { exportCancelRef.current = false; setExportEditing(null); } else commitEdit(b, ev.target.value); } };
+                      return b.type === "text"
+                        ? <textarea key={b.id} {...common} onKeyDown={ev => { if (ev.key === "Escape") { ev.preventDefault(); exportCancelRef.current = true; ev.target.blur(); } }} style={edStyle} />
+                        : <input key={b.id} {...common} onKeyDown={ev => { if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); } else if (ev.key === "Escape") { ev.preventDefault(); exportCancelRef.current = true; ev.target.blur(); } }} style={edStyle} />;
+                    }
+                    const isSel = exportSelId === b.id;
+                    const show = exportSafe; // "safe zones" = the editable blue boxes/handles
+                    return <div key={b.id} onPointerDown={show ? (ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "move", scale, layout); }) : undefined} onDoubleClick={show ? (() => { if (TXT.includes(b.type)) setExportEditing(b.id); }) : undefined} title={show ? (TXT.includes(b.type) ? "Drag to move · double-click to edit text" : "Click to select · drag to move") : undefined} style={{ position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: show ? (isSel ? `2px solid ${T.accent}` : `1px solid ${T.accent}66`) : "none", background: show ? (isSel ? T.accent + "14" : T.accent + "08") : "transparent", cursor: show ? "move" : "default", boxSizing: "border-box", boxShadow: show && isSel ? `0 0 0 2px ${T.accent}44` : "none", pointerEvents: show ? "auto" : "none", transition: "border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease", animation: "menuIn 0.18s ease-out" }}>
+                      {show && <button onClick={ev => { ev.stopPropagation(); removeExportBlock(pageIdx, b.id); if (isSel) setExportSelId(null); }} onPointerDown={ev => ev.stopPropagation()} title="Remove" style={{ position: "absolute", top: -9, right: -9, width: 18, height: 18, borderRadius: "50%", border: "none", background: "#ef4444", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, boxShadow: "0 1px 4px rgba(0,0,0,0.4)" }}>×</button>}
+                      {show && <div onPointerDown={ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "resize", scale, layout); }} title="Resize" style={{ position: "absolute", right: -5, bottom: -5, width: 12, height: 12, borderRadius: 3, background: T.accent, cursor: "nwse-resize", boxShadow: "0 1px 3px rgba(0,0,0,0.4)" }} />}
+                    </div>;
+                  })}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", justifyContent: "center" }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#e2e8f0", cursor: "pointer" }}><input type="checkbox" checked={exportSafe} onChange={e => setExportSafe(e.target.checked)} />Show safe zones</label>
+                  <span style={{ fontSize: 11, color: "#94a3b8" }}>Click a block to edit options · drag to move · corner to resize · double-click text to edit</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>;
     })()}</FadeOnClose>
