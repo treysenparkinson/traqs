@@ -964,7 +964,7 @@ function MobileNav({ tabs, activeId, onChange }) {
   );
 }
 const HealthIcon = ({ t, size = 14 }) => { const h = getHealth(t); const c = HEALTH_DOT[h]; return <span title={h === "ontime" ? "On time" : h === "behind" ? "Slightly behind" : h === "critical" ? "Behind schedule" : "Done"} style={{ width: size, height: size, borderRadius: "50%", background: c, flexShrink: 0, display: "inline-block", boxShadow: "0 0 " + (size) + "px " + c + "55" }} />; };
-function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected", noneLabel = "None", portal = false }) {
+function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected", noneLabel = "None", portal = false, multi = false, values = [], onChangeMulti }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [coords, setCoords] = useState(null);
@@ -1003,25 +1003,31 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
         <input value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} autoFocus style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
       </div>
       <div style={{ maxHeight: 220, overflow: "auto" }}>
-        <div onClick={() => { onChange(null); setOpen(false); setQ(""); }}
-          style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: !value ? T.accent : T.textSec, fontWeight: !value ? 600 : 400, background: !value ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
-          onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = !value ? T.accent + "10" : "transparent"}>
+        {(() => { const act = multi ? values.length === 0 : !value; return (
+        <div onClick={() => { if (multi) { onChangeMulti([]); } else { onChange(null); setOpen(false); setQ(""); } }}
+          style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? T.accent : T.textSec, fontWeight: act ? 600 : 400, background: act ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
+          onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = act ? T.accent + "10" : "transparent"}>
           <div style={{ width: 10, height: 10, borderRadius: 5, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />{noneLabel}
-        </div>
+        </div>); })()}
         {filtered.length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No clients match "{q}"</div>}
-        {filtered.map((o, oi) => <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); setQ(""); }}
-          style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: value === o.value ? o.color || T.text : T.text, fontWeight: value === o.value ? 600 : 400, background: value === o.value ? (o.color || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
-          onMouseEnter={e => e.currentTarget.style.background = (o.color || T.accent) + "18"} onMouseLeave={e => e.currentTarget.style.background = value === o.value ? (o.color || T.accent) + "12" : "transparent"}>
+        {filtered.map((o, oi) => { const act = multi ? values.includes(o.value) : value === o.value; return <div key={o.value} onClick={() => { if (multi) { onChangeMulti(values.includes(o.value) ? values.filter(v => v !== o.value) : [...values, o.value]); } else { onChange(o.value); setOpen(false); setQ(""); } }}
+          style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? o.color || T.text : T.text, fontWeight: act ? 600 : 400, background: act ? (o.color || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
+          onMouseEnter={e => e.currentTarget.style.background = (o.color || T.accent) + "18"} onMouseLeave={e => e.currentTarget.style.background = act ? (o.color || T.accent) + "12" : "transparent"}>
           <div style={{ width: 10, height: 10, borderRadius: 5, background: o.color || T.accent, flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{o.label}</span>
+          {multi && act && <span style={{ color: T.accent, fontWeight: 700, flexShrink: 0 }}>✓</span>}
           {o.sub && <span style={{ fontSize: 12, color: T.textDim }}>{o.sub}</span>}
-        </div>)}
+        </div>; })}
       </div>
     </div></FadeOnClose>;
   return <div style={{ position: "relative", marginBottom: compact ? 0 : 16 }}>
     {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500, fontFamily: T.font }}>{label}</label>}
     <div ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
-      {selected ? <><div style={{ width: compact ? 7 : 10, height: compact ? 7 : 10, borderRadius: compact ? 4 : 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>}
+      {multi
+        ? (values.length === 0
+            ? <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>
+            : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{values.length === 1 ? (options.find(o => o.value === values[0])?.label || "1 selected") : `${values.length} selected`}</span>)
+        : (selected ? <><div style={{ width: compact ? 7 : 10, height: compact ? 7 : 10, borderRadius: compact ? 4 : 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>)}
       <span style={{ fontSize: compact ? 8 : 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
     </div>
     {portal ? createPortal(popup, document.body) : popup}
@@ -1877,7 +1883,7 @@ Extraction rules:
   };
   const deleteTemplate = (tid) => { persistTemplates(templates.filter(t => t.id !== tid)); };
 
-  const [fStat, setFStat] = useState("All");
+  const [fStat, setFStat] = useState([]);      // multi-select statuses; empty = All
   const [fPers, setFPers] = useState([]);      // multi-select person IDs (strings); empty = All
   // Jobs List-view grouping. Array of tokens { type: 'person'|'client'|'column', id }.
   // When non-empty, the jobs list renders one section per token (a column token
@@ -1888,7 +1894,7 @@ Extraction rules:
     return i >= 0 ? prev.filter((_, j) => j !== i) : [...prev, tok];
   });
   const [fJobNum, setFJobNum] = useState("");
-  const [fRole, setFRole] = useState("All");  // filter by assigned person's role
+  const [fRole, setFRole] = useState([]);  // multi-select assigned-person roles; empty = All
   const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
   const [fOverloaded, setFOverloaded] = useState(false); // show only tasks with overbooked team
   const [fTimePeriod, setFTimePeriod] = useState(['current', 'future', 'finished']); // time-based visibility
@@ -3203,7 +3209,7 @@ Extraction rules:
 
 
   const [clientModal, setClientModal] = useState(null);
-  const [fClient, setFClient] = useState("All");
+  const [fClient, setFClient] = useState([]);  // multi-select client IDs; empty = All
   // Custom-column filters — maps "_cc_<id>" → array of selected options (select cols) or substring string (text/number/date cols)
   const [fCustom, setFCustom] = useState({});
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
@@ -3332,19 +3338,44 @@ Extraction rules:
     if (hit(t.team)) return true;
     return (t.subs || []).some(panel => (panel.subs || []).some(op => hit(op.team)));
   }, []);
+  // Universal job search — matches `q` against every searchable cell of a job and its
+  // panels/ops: standard fields, resolved client + team names, hrs/progress, linked field
+  // columns (FIELD_COL_CATALOG), and any user-created custom columns (_cc_*). New linked or
+  // custom columns are picked up automatically, so search stays universal as cells are added.
+  const jobMatchesSearch = (t, q) => {
+    if (!q) return true;
+    const needle = q.toLowerCase();
+    const hay = [];
+    const push = v => { if (v != null && v !== "") hay.push(String(v).toLowerCase()); };
+    const pushDate = v => { if (v) { push(v); push(fmtDate(v)); } };
+    const collect = node => {
+      push(node.title); push(node.jobNumber); push(node.status); push(node.pri);
+      pushDate(node.start); pushDate(node.end); pushDate(node.dueDate);
+      (node.team || []).forEach(id => push(people.find(p => p.id === id)?.name));
+      FIELD_COL_CATALOG.forEach(fc => push(node[fc.fieldKey]));
+      Object.keys(node).forEach(k => { if (k.startsWith("_cc_")) push(node[k]); });
+    };
+    collect(t);
+    push(clients.find(c => c.id === t.clientId)?.name);
+    push(_jobHrs(t) > 0 ? _jobHrs(t) + "h" : "");
+    push(_jobPct(t) + "%");
+    (t.subs || []).forEach(panel => { collect(panel); (panel.subs || []).forEach(op => collect(op)); });
+    return hay.some(s => s.includes(needle));
+  };
   const filtered = useMemo(() => tasks.filter(t => {
     // Non-admins only see jobs where they are the project manager
     if (!isAdmin && loggedInUser && t.projectManagerId !== loggedInUser.id) return false;
-    if (fStat !== "All" && t.status !== fStat) return false;
+    if (fStat.length && !fStat.includes(t.status)) return false;
     if (fPers.length > 0) {
       const pSet = new Set(fPers);
       const matchTeam = (idList) => (idList || []).some(id => pSet.has(String(id)));
       const onOp = (t.subs || []).some(panel => (panel.subs || []).some(op => matchTeam(op.team)));
       if (!matchTeam(t.team) && !onOp) return false;
     }
-    if (fClient !== "All" && t.clientId !== fClient) return false;
-    if (fRole !== "All") {
-      const hasRole = (t.subs || []).some(panel => (panel.subs || []).some(op => { const person = people.find(x => (op.team || []).includes(x.id)); return person && person.department?.toLowerCase() === fRole.toLowerCase(); }));
+    if (fClient.length && !fClient.includes(t.clientId)) return false;
+    if (fRole.length) {
+      const roleSet = new Set(fRole.map(r => r.toLowerCase()));
+      const hasRole = (t.subs || []).some(panel => (panel.subs || []).some(op => { const person = people.find(x => (op.team || []).includes(x.id)); return person && roleSet.has(person.department?.toLowerCase()); }));
       if (!hasRole) return false;
     }
     if (fHpd !== "All") {
@@ -3353,12 +3384,7 @@ Extraction rules:
       if (!hasHpd) return false;
     }
     if (fJobNum && !String(t.jobNumber || "").toLowerCase().includes(fJobNum.toLowerCase())) return false;
-    if (taskSearchQ) {
-      const q = taskSearchQ.toLowerCase();
-      const hitJob = (t.title || "").toLowerCase().includes(q) || String(t.jobNumber || "").toLowerCase().includes(q);
-      const hitSub = (t.subs || []).some(panel => (panel.title || "").toLowerCase().includes(q) || (panel.subs || []).some(op => (op.title || "").toLowerCase().includes(q)));
-      if (!hitJob && !hitSub) return false;
-    }
+    if (taskSearchQ && !jobMatchesSearch(t, taskSearchQ)) return false;
     if (fTimePeriod.length < 3) {
       const isFinished = t.status === "Finished" || (t.end && t.end < TD);
       const isFuture = !isFinished && (t.start && t.start > TD);
@@ -3398,7 +3424,7 @@ Extraction rules:
       }
     }
     return true;
-  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, fTimePeriod, taskSearchQ, people, fCustom, customCols]);
+  }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, fTimePeriod, taskSearchQ, people, clients, fCustom, customCols]);
   const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if ((op.team || []).includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, (op.team || []).length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if ((t.team || []).includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, (t.team || []).length); (t.subs || []).forEach(s => { if ((s.team || []).includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, (s.team || []).length); }); } }); return h; }, [tasks, isOff]);
@@ -3419,7 +3445,7 @@ Extraction rules:
     const fv = fCustom["_cc_" + c.id];
     return n + (((Array.isArray(fv) && fv.length > 0) || (typeof fv === "string" && fv.trim())) ? 1 : 0);
   }, 0);
-  const activeFilterCount = (fRole !== "All" ? 1 : 0) + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + (fStat !== "All" ? 1 : 0) + (fClient !== "All" ? 1 : 0) + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount;
+  const activeFilterCount = fRole.length + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + fStat.length + fClient.length + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount;
   // Filter-panel section for user-created custom columns — auto-appears for each column added via the "+" picker.
   // Select columns render as multi-select chips; text/number/date columns render as a contains-input.
   const renderCustomColFilters = () => {
@@ -5576,14 +5602,14 @@ ${jobsCtx || "No jobs found."}`;
             <FadeOnClose open={filterOpen}><div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fStat === s || (s === "All" && fStat === "All") ? T.accent : T.border}`, background: fStat === s || (s === "All" && fStat === "All") ? T.accent + "22" : "transparent", color: fStat === s || (s === "All" && fStat === "All") ? T.accent : T.text, fontSize: 11, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>)}
+                {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>; })}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Time Period</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Client</div>
-              <div style={{ marginBottom: 14 }}><SearchSelect compact portal value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
+              <div style={{ marginBottom: 14 }}><SearchSelect multi compact portal values={fClient} onChangeMulti={setFClient} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
                 {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
@@ -5596,7 +5622,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role / Area</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setFRole(r)} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${fRole === r ? T.accent : T.border}`, background: fRole === r ? T.accent : "transparent", color: fRole === r ? T.accentText : T.text, fontSize: 11, fontWeight: fRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>)}
+                {["All", ...uniqueRoles].map(r => { const active = r === "All" ? fRole.length === 0 : fRole.includes(r); return <button key={r} onClick={() => r === "All" ? setFRole([]) : setFRole(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent : "transparent", color: active ? T.accentText : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>; })}
               </div>
               {renderCustomColFilters()}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
@@ -5609,7 +5635,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
                 <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
               </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFRole("All"); setFHpd("All"); setFClient("All"); setFPers([]); setGrouping([]); setFJobNum(""); setFStat("All"); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {activeFilterCount > 0 && <button onClick={() => { setFRole([]); setFHpd("All"); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFStat([]); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div></FadeOnClose>
           </div>
         </div>
@@ -6004,15 +6030,7 @@ ${jobsCtx || "No jobs found."}`;
   // ═══════════════════ ANALYTICS ═══════════════════
 
   // ═══════════════════ TASKS ═══════════════════
-  const jobSearchMatch = (t) => {
-    if (!jobSearch) return true;
-    const q = jobSearch.toLowerCase();
-    if (t.title?.toLowerCase().includes(q)) return true;
-    if (t.jobNumber && String(t.jobNumber).includes(q)) return true;
-    const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
-    if (client && client.name.toLowerCase().includes(q)) return true;
-    return false;
-  };
+  const jobSearchMatch = (t) => jobMatchesSearch(t, jobSearch);
   const sortTasks = (arr) => {
     if (colSort.id) {
       const { id, dir } = colSort;
@@ -6623,11 +6641,11 @@ ${jobsCtx || "No jobs found."}`;
                 {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
-                <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent+"22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}</div></div>
+                <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setGrouping([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
             </div>
             {/* Grouping — its own independent button, next to Filter */}
@@ -6700,7 +6718,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => <button key={s} onClick={() => setFStat(s === "All" ? "All" : s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${fStat === s ? T.accent : T.border}`, background: fStat === s ? T.accent + "22" : "transparent", color: fStat === s ? T.accent : T.text, fontSize: 10, fontWeight: fStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}
+                    {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
                   </div>
                 </div>
                 <div>
@@ -6711,7 +6729,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
-                  <SearchSelect compact portal value={fClient === "All" ? null : fClient} onChange={v => setFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" />
+                  <SearchSelect multi compact portal values={fClient} onChangeMulti={setFClient} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" />
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
@@ -6728,7 +6746,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat("All"); setFClient("All"); setFPers([]); setGrouping([]); setFJobNum(""); setFRole("All"); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
               </div>}</FadeOnClose>
             </div>
           </div>
