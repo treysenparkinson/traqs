@@ -2570,6 +2570,22 @@ Extraction rules:
     }
     return op.status;
   };
+  // Roll-up status for a panel from its operations' display statuses. Mirrors _panelPct:
+  // when ops exist, the panel reflects its children (the stored panel.status is only a
+  // fallback for panels with no ops). Precedence: all-finished > in-progress > paused >
+  // on-hold > pending > any-other-started > not-started.
+  const getPanelDisplayStatus = (panel) => {
+    const ops = panel.subs || [];
+    if (!ops.length) return panel.status || "Not Started";
+    const ds = ops.map(getOpDisplayStatus);
+    if (ds.every(s => s === "Finished")) return "Finished";
+    if (ds.some(s => s === "In Progress")) return "In Progress";
+    if (ds.some(s => s === "Paused")) return "Paused";
+    if (ds.some(s => s === "On Hold")) return "On Hold";
+    if (ds.some(s => s === "Pending")) return "Pending";
+    if (ds.some(s => s && s !== "Not Started")) return "In Progress";
+    return "Not Started";
+  };
   const condFields = [
     { key: "status", label: "Status", type: "select", options: STATUSES },
     { key: "pri",    label: "Priority", type: "select", options: PRIORITIES },
@@ -6917,7 +6933,7 @@ ${jobsCtx || "No jobs found."}`;
           const teamMembers = level === 0 ? (item.team || []).map(id => people.find(p => p.id === id)).filter(Boolean) : [];
           const health = getHealth(item);
           const healthColor = HEALTH_DOT[health];
-          const dispStatus = level === 2 ? getOpDisplayStatus(item) : (item.status || "Not Started");
+          const dispStatus = level === 2 ? getOpDisplayStatus(item) : level === 1 ? getPanelDisplayStatus(item) : (item.status || "Not Started");
           const staColor = STA_C[dispStatus] || T.textDim;
           const priColor = PRI_C[item.pri] || T.textDim;
           const hrs = level === 2 ? opHrs(item) : level === 1 ? panelHrs(item) : jobHrs(item);
@@ -6950,7 +6966,7 @@ ${jobsCtx || "No jobs found."}`;
                   }).join("\n");
                   return <div title={tip} onClick={e => { e.stopPropagation(); openChat({ ...item, level: 0 }); }} style={{ width: 8, height: 8, borderRadius: "50%", background: "#ef4444", flexShrink: 0, cursor: "pointer", boxShadow: "0 0 6px #ef444499" }} />;
                 })()}
-                {level === 1 && <div style={{ width: 5, height: 5, borderRadius: "50%", background: STA_C[item.status] || T.textDim, flexShrink: 0, opacity: 0.8 }} />}
+                {level === 1 && <div style={{ width: 5, height: 5, borderRadius: "50%", background: STA_C[getPanelDisplayStatus(item)] || T.textDim, flexShrink: 0, opacity: 0.8 }} />}
                 {level === 2 && <div style={{ width: 4, height: 4, borderRadius: "50%", background: T.textDim, flexShrink: 0, opacity: 0.5 }} />}
                 {isEdit(item.id, "title")
                   ? <input autoFocus defaultValue={item.title} onBlur={e => commitEdit(item.id, "title", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : 500, fontFamily: T.font, padding: "1px 4px", minWidth: 0 }} />
