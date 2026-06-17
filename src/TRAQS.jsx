@@ -2069,6 +2069,9 @@ Extraction rules:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportPreview, exportLayout]);
   const exportDragRef = useRef(null); // active drag/resize gesture state
+  const [exportDragging, setExportDragging] = useState(false); // true during a drag/resize gesture
+  const exportDocRef = useRef(""); // last committed preview-iframe doc, frozen while dragging to avoid reload flash
+  const exportIframeRef = useRef(null); // the live preview iframe — DOM is mutated directly during a drag
   const [customColLabel, setCustomColLabel] = useState("");
   const [customColType, setCustomColType] = useState("text");
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
@@ -2351,8 +2354,12 @@ Extraction rules:
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;color:#0f172a;background:#fff}
     .page{position:relative;background:#fff;overflow:hidden}
-    .blk{position:absolute;overflow:hidden}
-    .blk-logo{width:100%;height:100%;object-fit:contain;object-position:left center}
+    .page-footer{position:absolute;left:20px;bottom:14px;display:flex;align-items:center;gap:5px;opacity:0.4;filter:grayscale(1);pointer-events:none;z-index:0}
+    .page-footer span{font-size:9px;line-height:1;color:#000;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;position:relative;top:2px}
+    .page-footer img{height:13px;width:auto;display:block}
+    .blk{position:absolute;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
+    .blk>*{width:100%}
+    .blk-logo{width:100%;height:100%;object-fit:contain;object-position:center center}
     .blk-title{font-size:26px;font-weight:800;color:#0f172a;line-height:1.12}
     .blk-sub{font-size:15px;color:#64748b}
     .blk-text{font-size:12px;color:#334155;line-height:1.6;white-space:pre-wrap}
@@ -2430,7 +2437,7 @@ Extraction rules:
     return {};
   };
   // Default text formatting for text blocks (align/size/bold/italic).
-  const defaultFmt = (type) => type === "title" ? { align: "left", size: 26, bold: true, italic: false } : type === "subtitle" ? { align: "left", size: 15, bold: false, italic: false } : { align: "left", size: 12, bold: false, italic: false };
+  const defaultFmt = (type) => type === "title" ? { align: "center", size: 26, bold: true, italic: false } : type === "subtitle" ? { align: "center", size: 15, bold: false, italic: false } : { align: "center", size: 12, bold: false, italic: false };
   const fmtStyleStr = (b) => { const f = b.fmt || {}; const defSize = b.type === "title" ? 26 : b.type === "subtitle" ? 15 : 12; const bold = f.bold != null ? f.bold : (b.type === "title"); return `text-align:${f.align || "left"};font-size:${f.size || defSize}px;font-weight:${bold ? 800 : 400};font-style:${f.italic ? "italic" : "normal"}`; };
   // Human label for the "On this page" layers list.
   const blockLabel = (b, jobs) => {
@@ -2456,7 +2463,7 @@ Extraction rules:
     const jobs = ctx.jobs || [];
     const job = b.ref?.jobId ? jobs.find(j => j.id === b.ref.jobId) : null;
     switch (b.type) {
-      case "logo": return `<img class="blk-logo" src="${ctx.logoDataUrl || TRAQS_LOGO_BLUE}" alt="logo"/>`;
+      case "logo": return `<img class="blk-logo" style="object-position:${(b.fmt?.align) || "center"} center" src="${ctx.logoDataUrl || TRAQS_LOGO_BLUE}" alt="logo"/>`;
       case "title": return `<div class="blk-title" style="${fmtStyleStr(b)}">${escHtml(b.text || "Job Queue Export")}</div>`;
       case "subtitle": return `<div class="blk-sub" style="${fmtStyleStr(b)}">${escHtml(b.text || "")}</div>`;
       case "text": return `<div class="blk-text" style="${fmtStyleStr(b)}">${escHtml(b.text || "")}</div>`;
@@ -2480,11 +2487,14 @@ Extraction rules:
     }
   };
   const exportCtx = (jobs, layout) => { const now = new Date(); return { jobs, logoDataUrl: layout?.logoDataUrl || null, dateStr: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }), timeStr: now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) }; };
-  const blocksHtml = (page, ctx) => ((page && page.blocks) || []).map(b => `<div class="blk" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">${renderBlockHtml(b, ctx)}</div>`).join("");
+  const blocksHtml = (page, ctx) => ((page && page.blocks) || []).map(b => `<div class="blk" id="blk-${b.id}" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">${renderBlockHtml(b, ctx)}</div>`).join("");
+  // Locked branding footer — rendered into every page (editor + export), bottom-left, greyed
+  // out and small. Not part of the blocks array, so it can't be selected, moved, or removed.
+  const PAGE_FOOTER = `<div class="page-footer"><span>Powered by</span><img src="${TRAQS_LOGO_BLUE}" alt="TRAQS"/></div>`;
   // Single-page doc for the editor iframe (full page px; the editor scales it via CSS transform).
-  const buildPageDoc = (page, ctx, dims) => `<!DOCTYPE html><html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}</style></head><body><div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(page, ctx)}</div></body></html>`;
+  const buildPageDoc = (page, ctx, dims) => `<!DOCTYPE html><html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}</style></head><body><div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(page, ctx)}${PAGE_FOOTER}</div></body></html>`;
   // Full multi-page doc for print / download.
-  const buildLayoutHtml = (layout, ctx) => { const dims = EXPORT_PAGE(layout.orientation); const pages = (layout.pages || []).map(pg => `<div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(pg, ctx)}</div>`).join(""); return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>TRAQS Export</title><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}@page{size:letter ${layout.orientation === "landscape" ? "landscape" : "portrait"};margin:0}.page{page-break-after:always}.page:last-child{page-break-after:auto}</style></head><body>${pages}</body></html>`; };
+  const buildLayoutHtml = (layout, ctx) => { const dims = EXPORT_PAGE(layout.orientation); const pages = (layout.pages || []).map(pg => `<div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(pg, ctx)}${PAGE_FOOTER}</div>`).join(""); return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>TRAQS Export</title><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}@page{size:letter ${layout.orientation === "landscape" ? "landscape" : "portrait"};margin:0}.page{page-break-after:always}.page:last-child{page-break-after:auto}</style></head><body>${pages}</body></html>`; };
   // Initial layout from the selected jobs: header band on page 1, then one job per page.
   const seedLayout = (jobs) => {
     const M = 48, W = 816;
@@ -2531,12 +2541,19 @@ Extraction rules:
     const grid = layout?.grid || 16, snap = layout?.snap !== false;
     const snp = v => snap ? Math.round(v / grid) * grid : Math.round(v);
     exportDragRef.current = true;
+    setExportDragging(true);
     const onMove = ev => {
       const dx = (ev.clientX - sx) / scale, dy = (ev.clientY - sy) / scale;
-      if (mode === "resize") updateExportBlock(pageIdx, block.id, { w: Math.max(40, snp(orig.w + dx)), h: Math.max(24, snp(orig.h + dy)) });
-      else updateExportBlock(pageIdx, block.id, { x: Math.max(0, snp(orig.x + dx)), y: Math.max(0, snp(orig.y + dy)) });
+      const patch = mode === "resize"
+        ? { w: Math.max(40, snp(orig.w + dx)), h: Math.max(24, snp(orig.h + dy)) }
+        : { x: Math.max(0, snp(orig.x + dx)), y: Math.max(0, snp(orig.y + dy)) };
+      updateExportBlock(pageIdx, block.id, patch);
+      // The preview iframe is frozen (not reloaded) during the gesture, so move the real
+      // content by mutating the block's element directly — it tracks the ghost in lockstep.
+      const el = exportIframeRef.current?.contentDocument?.getElementById(`blk-${block.id}`);
+      if (el) { if (patch.x != null) el.style.left = patch.x + "px"; if (patch.y != null) el.style.top = patch.y + "px"; if (patch.w != null) el.style.width = patch.w + "px"; if (patch.h != null) el.style.height = patch.h + "px"; }
     };
-    const onUp = () => { exportDragRef.current = null; window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
+    const onUp = () => { exportDragRef.current = null; setExportDragging(false); window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
@@ -15212,11 +15229,8 @@ ${jobsCtx || "No jobs found."}`;
       const TXT = ["title", "subtitle", "text"];
       const selBlock = (page?.blocks || []).find(b => b.id === exportSelId) || null;
       const setOpt = (b, key, val) => { pushExportHistory(); const opts = { ...(b.opts || {}), [key]: val }; updateExportBlock(pageIdx, b.id, { opts }); fitBlockHeight(pageIdx, { ...b, opts }, ctx); };
-      const setFmt = (b, patch) => { pushExportHistory(); const fmt = { ...(b.fmt || {}), ...patch }; updateExportBlock(pageIdx, b.id, { fmt }); fitBlockHeight(pageIdx, { ...b, fmt }, ctx); };
-      // Formatting toolbar shows automatically for a text block that's either being
-      // inline-edited (exportEditing) or simply selected in the inspector (exportSelId).
-      const editBlockId = exportEditing || exportSelId;
-      const editBlock = editBlockId ? (page?.blocks || []).find(b => b.id === editBlockId && TXT.includes(b.type)) : null;
+      // Logos also carry fmt.align (mapped to object-position); only text needs a height refit.
+      const setFmt = (b, patch) => { pushExportHistory(); const fmt = { ...(b.fmt || {}), ...patch }; updateExportBlock(pageIdx, b.id, { fmt }); if (TXT.includes(b.type)) fitBlockHeight(pageIdx, { ...b, fmt }, ctx); };
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10006, background: "rgba(0,0,0,0.78)", display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "center", fontFamily: T.font }} onClick={() => setExportPreview(null)}>
         <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ margin: "auto", width: isPdf ? "min(1480px, 98vw)" : "min(1000px, 96vw)", height: "94vh", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden" }}>
           {/* Toolbar */}
@@ -15313,26 +15327,32 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               {/* Canvas */}
               <div style={{ flex: 1, overflow: "auto", background: "#525659", padding: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-                {editBlock && (() => {
-                  const f = editBlock.fmt || {};
-                  const ds = editBlock.type === "title" ? 26 : editBlock.type === "subtitle" ? 15 : 12;
+                {(() => {
+                  // Toolbar is always present. The target is whatever block is being edited or
+                  // selected. Alignment applies to text AND logos; bold/italic/size apply to
+                  // text only — for non-text (or nothing selected) they fade out and disable.
+                  const tgt = (page?.blocks || []).find(b => b.id === (exportEditing || exportSelId)) || null;
+                  const isText = !!tgt && TXT.includes(tgt.type);
+                  const isAlignable = isText || tgt?.type === "logo";
+                  const f = tgt?.fmt || {};
+                  const ds = tgt?.type === "title" ? 26 : tgt?.type === "subtitle" ? 15 : 12;
                   const size = f.size || ds;
-                  const bold = f.bold != null ? f.bold : (editBlock.type === "title");
-                  const al = f.align || "left";
-                  const fb = (active, onClick, child, title) => <button key={title} onMouseDown={ev => ev.preventDefault()} onClick={onClick} title={title} style={{ minWidth: 30, height: 28, padding: "0 7px", borderRadius: 6, border: `1px solid ${active ? T.accent : T.border}`, background: active ? T.accent : T.bg, color: active ? T.accentText : T.text, cursor: "pointer", fontSize: 14, fontFamily: T.font, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{child}</button>;
+                  const bold = f.bold != null ? f.bold : (tgt?.type === "title");
+                  const al = f.align || (tgt?.type === "logo" ? "center" : "left");
+                  const fb = (active, onClick, child, title, enabled) => <button key={title} disabled={!enabled} onMouseDown={ev => ev.preventDefault()} onClick={enabled ? onClick : undefined} title={enabled ? title : `${title} (select text)`} style={{ minWidth: 30, height: 28, padding: "0 7px", borderRadius: 6, border: `1px solid ${active && enabled ? T.accent : T.border}`, background: active && enabled ? T.accent : T.bg, color: active && enabled ? T.accentText : T.text, cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.38, fontSize: 14, fontFamily: T.font, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease" }}>{child}</button>;
                   const aSvg = (a, b2, c, d, e2, f2) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1={a} y1="12" x2={b2} y2="12"/><line x1={c} y1="18" x2={d} y2="18"/><line x1={e2} y1="9" x2={f2} y2="9" style={{ opacity: 0 }}/></svg>;
-                  return <div onMouseDown={ev => ev.preventDefault()} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 6px 20px rgba(0,0,0,0.45)", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
-                    {fb(al === "left", () => setFmt(editBlock, { align: "left" }), aSvg(3, 14, 3, 18, 0, 0), "Align left")}
-                    {fb(al === "center", () => setFmt(editBlock, { align: "center" }), aSvg(6, 18, 4, 20, 0, 0), "Align center")}
-                    {fb(al === "right", () => setFmt(editBlock, { align: "right" }), aSvg(10, 21, 6, 21, 0, 0), "Align right")}
+                  return <div onMouseDown={ev => ev.preventDefault()} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 6px 20px rgba(0,0,0,0.45)", fontFamily: T.font }}>
+                    {fb(al === "left", () => setFmt(tgt, { align: "left" }), aSvg(3, 14, 3, 18, 0, 0), "Align left", isAlignable)}
+                    {fb(al === "center", () => setFmt(tgt, { align: "center" }), aSvg(6, 18, 4, 20, 0, 0), "Align center", isAlignable)}
+                    {fb(al === "right", () => setFmt(tgt, { align: "right" }), aSvg(10, 21, 6, 21, 0, 0), "Align right", isAlignable)}
                     <div style={{ width: 1, height: 20, background: T.border }} />
-                    {fb(bold, () => setFmt(editBlock, { bold: !bold }), <span style={{ fontWeight: 800 }}>B</span>, "Bold")}
-                    {fb(!!f.italic, () => setFmt(editBlock, { italic: !f.italic }), <span style={{ fontStyle: "italic", fontWeight: 700, fontFamily: "Georgia, serif" }}>I</span>, "Italic")}
+                    {fb(bold, () => setFmt(tgt, { bold: !bold }), <span style={{ fontWeight: 800 }}>B</span>, "Bold", isText)}
+                    {fb(!!f.italic, () => setFmt(tgt, { italic: !f.italic }), <span style={{ fontStyle: "italic", fontWeight: 700, fontFamily: "Georgia, serif" }}>I</span>, "Italic", isText)}
                     <div style={{ width: 1, height: 20, background: T.border }} />
-                    <span style={{ fontSize: 11, color: T.textDim }}>Size</span>
-                    {fb(false, () => setFmt(editBlock, { size: Math.max(8, size - 2) }), "−", "Smaller")}
-                    <span style={{ fontSize: 12, color: T.text, minWidth: 26, textAlign: "center", fontFamily: T.mono }}>{size}</span>
-                    {fb(false, () => setFmt(editBlock, { size: Math.min(120, size + 2) }), "+", "Larger")}
+                    <span style={{ fontSize: 11, color: T.textDim, opacity: isText ? 1 : 0.38, transition: "opacity 0.2s ease" }}>Size</span>
+                    {fb(false, () => setFmt(tgt, { size: Math.max(8, size - 2) }), "−", "Smaller", isText)}
+                    <span style={{ fontSize: 12, color: T.text, minWidth: 26, textAlign: "center", fontFamily: T.mono, opacity: isText ? 1 : 0.38, transition: "opacity 0.2s ease" }}>{isText ? size : "—"}</span>
+                    {fb(false, () => setFmt(tgt, { size: Math.min(120, size + 2) }), "+", "Larger", isText)}
                   </div>;
                 })()}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -15342,7 +15362,15 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div onDragOver={ev => ev.preventDefault()} onPointerDown={ev => { if (ev.target === ev.currentTarget) setExportSelId(null); }} onDrop={ev => { ev.preventDefault(); const i = parseInt(ev.dataTransfer.getData("text/plain"), 10); const item = palette[i]; if (!item) return; const rect = ev.currentTarget.getBoundingClientRect(); const g = layout.grid || 16; const snp = v => layout.snap !== false ? Math.round(v / g) * g : Math.round(v); const x = Math.max(0, snp((ev.clientX - rect.left) / scale)); const y = Math.max(0, snp((ev.clientY - rect.top) / scale)); const blk = blockFromItem(item, x, y); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); }}
                   style={{ position: "relative", width: dims.w * scale, height: dims.h * scale, flexShrink: 0, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", backgroundColor: "#fff", backgroundImage: layout.snap !== false ? "linear-gradient(to right, rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px)" : "none", backgroundSize: `${(layout.grid || 16) * scale}px ${(layout.grid || 16) * scale}px` }}>
-                  <iframe srcDoc={page ? buildPageDoc(page, ctx, dims) : ""} title="page" scrolling="no" style={{ position: "absolute", top: 0, left: 0, width: dims.w, height: dims.h, border: "none", transform: `scale(${scale})`, transformOrigin: "top left", pointerEvents: "none", background: "transparent" }} />
+                  <iframe ref={exportIframeRef} srcDoc={(() => {
+                    // While dragging/resizing, reuse the last committed doc so the iframe doesn't
+                    // reload (and flash blank) on every pointer move. The dragged block's content
+                    // is moved live by mutating its element in onMove, so it tracks the ghost.
+                    if (exportDragging) return exportDocRef.current;
+                    const d = page ? buildPageDoc(page, ctx, dims) : "";
+                    exportDocRef.current = d;
+                    return d;
+                  })()} title="page" scrolling="no" style={{ position: "absolute", top: 0, left: 0, width: dims.w, height: dims.h, border: "none", transform: `scale(${scale})`, transformOrigin: "top left", pointerEvents: "none", background: "transparent" }} />
                   {(page?.blocks || []).map(b => {
                     if (exportEditing === b.id && TXT.includes(b.type)) {
                       const _f = b.fmt || {}; const _ds = b.type === "title" ? 26 : b.type === "subtitle" ? 15 : 12; const _bold = _f.bold != null ? _f.bold : (b.type === "title");
