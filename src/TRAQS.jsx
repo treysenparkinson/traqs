@@ -2056,6 +2056,8 @@ Extraction rules:
   const [exportSelId, setExportSelId] = useState(null); // block selected for the properties inspector
   const [exportSafe, setExportSafe] = useState(true); // show the editable blue boxes/handles ("safe zones")
   const [exportTplOpen, setExportTplOpen] = useState(false); // TRAQS-styled template dropdown open state
+  const [exportTplNameOpen, setExportTplNameOpen] = useState(false); // TRAQS-styled "name this template" modal
+  const [exportTplName, setExportTplName] = useState("");
   const exportFitDoneRef = useRef(false); // one-time auto-fit-to-content pass per designer open
   // Auto-fit every content block to its rendered height once when the designer opens.
   useEffect(() => {
@@ -2392,13 +2394,13 @@ Extraction rules:
     .att-link{font-size:10px;color:${T.accent};text-decoration:underline;word-break:break-all}
   `;
   const panelHtml = (panel, o = {}) => {
-    const showOps = o.ops !== false, showStatus = o.status !== false, showDates = o.dates !== false, showHours = o.hours !== false, showCount = o.count !== false;
+    // Panel-level status intentionally omitted — status is shown only in the parent job card's
+    // header (top right). Operation rows keep their own status column.
+    const showOps = o.ops !== false, showDates = o.dates !== false, showHours = o.hours !== false;
     const ops = showOps ? (panel.subs || []).map(op => `<tr><td class="op-title">${escHtml(op.title)}</td><td><span class="status-pill" style="background:${(STA_C[op.status] || "#64748b") + "22"};color:${STA_C[op.status] || "#64748b"}">${escHtml(op.status || "—")}</span></td><td>${escHtml(op.pri || "—")}</td><td class="mono">${escHtml(fm(op.start) + " → " + fm(op.end))}</td><td class="mono">${_opHrs(op) > 0 ? _opHrs(op).toFixed(1) + "h" : "—"}</td><td class="mono">${_opPct(op)}%</td>${op.notes ? `<td class="op-notes">${escHtml(op.notes)}</td>` : "<td>—</td>"}</tr>`).join("") : "";
     const meta = [
-      showStatus ? `<span class="status-pill" style="background:${(STA_C[panel.status] || "#64748b") + "22"};color:${STA_C[panel.status] || "#64748b"}">${escHtml(panel.status || "—")}</span>` : "",
       showDates ? `<span class="mono">${escHtml(fm(panel.start) + " → " + fm(panel.end))}</span>` : "",
       showHours ? `<span class="mono">${_panelHrs(panel) > 0 ? _panelHrs(panel).toFixed(1) + "h" : "—"}</span>` : "",
-      showCount ? `<span>${(panel.subs || []).length} op${(panel.subs || []).length !== 1 ? "s" : ""}</span>` : "",
     ].join("");
     return `<div class="panel"><div class="panel-header"><div class="panel-title">${escHtml(panel.title)}</div><div class="panel-meta">${meta}</div></div>${showOps ? ((panel.subs || []).length ? `<table class="op-table"><thead><tr><th>Operation</th><th>Status</th><th>Pri</th><th>Dates</th><th>Hours</th><th>Done</th><th>Notes</th></tr></thead><tbody>${ops}</tbody></table>` : `<div class="empty">No operations</div>`) : ""}</div>`;
   };
@@ -2422,7 +2424,7 @@ Extraction rules:
   // Default per-block field-visibility options (everything on; user filters in the inspector).
   const defaultExportOpts = (type) => {
     if (type === "job") return { client: true, priority: true, dates: true, due: true, po: true, hours: true, progress: true, notes: true, panels: true, ops: true, attachments: true };
-    if (type === "panel") return { ops: true, status: true, dates: true, hours: true, count: true };
+    if (type === "panel") return { ops: true, dates: true, hours: true };
     if (type === "summary") return { jobs: true, tasks: true, operations: true, hours: true };
     if (type === "datetime") return { date: true, time: true };
     return {};
@@ -15177,7 +15179,7 @@ ${jobsCtx || "No jobs found."}`;
       const html = isPdf ? (layout ? buildLayoutHtml(layout, ctx) : "") : ep.html;
       const templates = orgSettings.exportTemplates || [];
       const applyTemplate = t => { if (t?.layout) { setExportLayout(JSON.parse(JSON.stringify(t.layout))); setExportPageIdx(0); } };
-      const saveTemplate = () => { if (!layout) return; const name = (window.prompt("Save layout template as:") || "").trim(); if (!name) return; setOrgSettings(s => ({ ...s, exportTemplates: [...(s.exportTemplates || []), { id: uid(), name, layout: JSON.parse(JSON.stringify(layout)) }] })); };
+      const saveTemplate = () => { if (!layout) return; setExportTplName(""); setExportTplNameOpen(true); };
       const deleteTemplate = id => setOrgSettings(s => ({ ...s, exportTemplates: (s.exportTemplates || []).filter(t => t.id !== id) }));
       const onLogoUpload = async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 360, 0.92, "image/png"); pushExportHistory(); setExportLayout(L => L ? { ...L, logoDataUrl: data } : L); } catch { alert("Could not load that image."); } };
       const downloadIt = () => { const content = ep.kind === "csv" ? ep.content : html; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: ep.mime })); a.download = ep.filename; a.click(); setExportPreview(null); setExportSelOpen(false); };
@@ -15211,7 +15213,10 @@ ${jobsCtx || "No jobs found."}`;
       const selBlock = (page?.blocks || []).find(b => b.id === exportSelId) || null;
       const setOpt = (b, key, val) => { pushExportHistory(); const opts = { ...(b.opts || {}), [key]: val }; updateExportBlock(pageIdx, b.id, { opts }); fitBlockHeight(pageIdx, { ...b, opts }, ctx); };
       const setFmt = (b, patch) => { pushExportHistory(); const fmt = { ...(b.fmt || {}), ...patch }; updateExportBlock(pageIdx, b.id, { fmt }); fitBlockHeight(pageIdx, { ...b, fmt }, ctx); };
-      const editBlock = exportEditing ? (page?.blocks || []).find(b => b.id === exportEditing && TXT.includes(b.type)) : null;
+      // Formatting toolbar shows automatically for a text block that's either being
+      // inline-edited (exportEditing) or simply selected in the inspector (exportSelId).
+      const editBlockId = exportEditing || exportSelId;
+      const editBlock = editBlockId ? (page?.blocks || []).find(b => b.id === editBlockId && TXT.includes(b.type)) : null;
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10006, background: "rgba(0,0,0,0.78)", display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "center", fontFamily: T.font }} onClick={() => setExportPreview(null)}>
         <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ margin: "auto", width: isPdf ? "min(1480px, 98vw)" : "min(1000px, 96vw)", height: "94vh", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden" }}>
           {/* Toolbar */}
@@ -15287,10 +15292,10 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.2s ease" }}>
                           <div style={{ overflow: "hidden", minHeight: 0 }}>
                             <div style={{ padding: "2px 10px 10px 24px" }}>
-                              {TXT.includes(b.type) && <button onClick={() => setExportEditing(b.id)} style={{ ...EBTN, height: 26, marginBottom: 8, background: T.accent, color: T.accentText }}>Edit text</button>}
+                              {TXT.includes(b.type) && <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4 }}>Double-click this block on the sheet to edit its text. Formatting tools appear above the page.</div>}
                               {b.type === "datetime" && <>{chk("Date", "date")}{chk("Time", "time")}</>}
                               {b.type === "summary" && <>{chk("Jobs", "jobs")}{chk("Tasks", "tasks")}{chk("Operations", "operations")}{chk("Total hours", "hours")}</>}
-                              {b.type === "panel" && <>{chk("Operations (tasks)", "ops")}{chk("Status", "status")}{chk("Dates", "dates")}{chk("Hours", "hours")}{chk("Op count", "count")}</>}
+                              {b.type === "panel" && <>{chk("Operations (tasks)", "ops")}{chk("Dates", "dates")}{chk("Hours", "hours")}</>}
                               {b.type === "job" && <>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", margin: "2px 0 4px" }}>Details</div>
                                 {chk("Client", "client")}{chk("Priority", "priority")}{chk("Dates", "dates")}{chk("Due date", "due")}{chk("PO #", "po")}{chk("Total hours", "hours")}{chk("Progress", "progress")}
@@ -15298,7 +15303,6 @@ ${jobsCtx || "No jobs found."}`;
                                 {chk("Notes", "notes")}{chk("Panels", "panels")}{chk("Operations (tasks)", "ops")}{chk("Attachments", "attachments")}
                               </>}
                               {["logo", "attachments", "notes"].includes(b.type) && <div style={{ fontSize: 11, color: T.textDim }}>{b.type === "logo" ? "Use the Logo upload above to change the image." : "No filters for this element."}</div>}
-                              {b.type !== "logo" && <button onClick={() => fitBlockHeight(pageIdx, b, ctx)} style={{ ...EBTN, height: 26, marginTop: 8, background: "transparent", color: T.accent, border: `1px solid ${T.accent}66` }}>Fit height</button>}
                             </div>
                           </div>
                         </div>
@@ -15363,6 +15367,26 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>
           )}
+        </div>
+      </div>;
+    })()}</FadeOnClose>
+    {/* ── Save export template — name modal (TRAQS-styled, replaces window.prompt) ── */}
+    <FadeOnClose open={exportTplNameOpen} duration={180}>{exportTplNameOpen && (() => {
+      const commit = () => {
+        const name = exportTplName.trim();
+        if (!name || !exportLayout) { setExportTplNameOpen(false); return; }
+        setOrgSettings(s => ({ ...s, exportTemplates: [...(s.exportTemplates || []), { id: uid(), name, layout: JSON.parse(JSON.stringify(exportLayout)) }] }));
+        setExportTplNameOpen(false);
+      };
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setExportTplNameOpen(false)}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ width: "min(420px, 92vw)", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radius, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", padding: 22 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>Save layout template</div>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>Give this export layout a name so you can reuse it later.</div>
+          <input autoFocus value={exportTplName} onChange={e => setExportTplName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") setExportTplNameOpen(false); }} placeholder="Template name" style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
+            <button onClick={() => setExportTplNameOpen(false)} style={{ padding: "8px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={commit} disabled={!exportTplName.trim()} style={{ padding: "8px 16px", borderRadius: T.radiusSm, border: "none", background: exportTplName.trim() ? T.accent : T.border, color: exportTplName.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: exportTplName.trim() ? "pointer" : "default", fontFamily: T.font }}>Save</button>
+          </div>
         </div>
       </div>;
     })()}</FadeOnClose>
