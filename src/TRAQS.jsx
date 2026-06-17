@@ -1905,11 +1905,11 @@ Extraction rules:
   // Schedule page has its OWN filter state — keeps Schedule filtering independent
   // from the Jobs/Gantt filters so changes here never leak between pages.
   const [scheduleFilterOpen, setScheduleFilterOpen] = useState(false);
-  const [sFStat, setSFStat] = useState("All");
-  const [sFClient, setSFClient] = useState("All");
+  const [sFStat, setSFStat] = useState([]);    // multi-select statuses; empty = All
+  const [sFClient, setSFClient] = useState([]);  // multi-select client IDs; empty = All
   const [sFJobNum, setSFJobNum] = useState("");
   const [sFPers, setSFPers] = useState([]);
-  const [sFRole, setSFRole] = useState("All");
+  const [sFRole, setSFRole] = useState([]);    // multi-select roles; empty = All
   // Inline expanding job-name search next to each page's filter button.
   const [taskSearchOpen, setTaskSearchOpen] = useState(true); // Jobs search stays expanded
   const [taskSearchQ, setTaskSearchQ] = useState("");
@@ -3473,7 +3473,7 @@ Extraction rules:
       );
     });
   };
-  const scheduleFilterCount = (sFRole !== "All" ? 1 : 0) + sFPers.length + (sFJobNum ? 1 : 0) + (sFStat !== "All" ? 1 : 0) + (sFClient !== "All" ? 1 : 0);
+  const scheduleFilterCount = sFRole.length + sFPers.length + (sFJobNum ? 1 : 0) + sFStat.length + sFClient.length;
 
   // Check overlaps for a set of operations against a given task list
   // opsToCheck: [{ personId, start, end, opTitle, panelTitle, excludeOpId }]
@@ -7889,11 +7889,11 @@ ${jobsCtx || "No jobs found."}`;
     const sSearchQ = scheduleSearchQ.trim().toLowerCase();
     const passesScheduleBarFilter = (b) => {
       if (b.type !== "task") return true;
-      if (sFStat !== "All" && (b.status || "Not Started") !== sFStat) return false;
-      if (sFClient !== "All") {
+      if (sFStat.length && !sFStat.includes(b.status || "Not Started")) return false;
+      if (sFClient.length) {
         const cid = b.task?.grandPid || b.task?.pid;
         const cJob = tasks.find(t => t.id === cid);
-        if (!cJob || cJob.clientId !== sFClient) return false;
+        if (!cJob || !sFClient.includes(cJob.clientId)) return false;
       }
       if (sJobNumQ && !String(b.jobNumber || "").toLowerCase().includes(sJobNumQ)) return false;
       if (sSearchQ) {
@@ -7903,7 +7903,7 @@ ${jobsCtx || "No jobs found."}`;
       return true;
     };
     const rowList = []; roles.forEach(role => {
-      if (sFRole !== "All" && role?.toLowerCase() !== sFRole.toLowerCase()) return;
+      if (sFRole.length && !sFRole.map(r => r.toLowerCase()).includes(role?.toLowerCase())) return;
       const isC = !!tCollapsed[role];
       rowList.push({ type: "group", role, util: grpUtil(role) });
       roleMap[role].forEach(p => {
@@ -8064,12 +8064,12 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ animation: `toolDrop 0.14s 19ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Status</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {["All","Not Started","In Progress","Finished","On Hold"].map(s => <button key={s} onClick={() => setSFStat(s)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${sFStat === s ? T.accent : T.border}`, background: sFStat === s ? T.accent+"22" : "transparent", color: sFStat === s ? T.accent : T.text, fontSize: 10, fontWeight: sFStat === s ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>)}
+                  {["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? sFStat.length === 0 : sFStat.includes(s); return <button key={s} onClick={() => s === "All" ? setSFStat([]) : setSFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
                 </div>
               </div>
               <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Client</div>
-                <SearchSelect compact portal value={sFClient === "All" ? null : sFClient} onChange={v => setSFClient(v || "All")} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients..." emptyLabel="All Clients" noneLabel="All Clients" />
+                <SearchSelect multi compact portal values={sFClient} onChangeMulti={setSFClient} options={clients.map(c => ({ value: c.id, label: c.name, color: c.color }))} placeholder="Search clients..." emptyLabel="All Clients" noneLabel="All Clients" />
               </div>
               <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {sFPers.length > 0 && <span style={{ color: T.accent }}>({sFPers.length})</span>}</div>
@@ -8081,10 +8081,10 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Role / Area</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {["All", ...uniqueRoles].map(r => <button key={r} onClick={() => setSFRole(r)} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${sFRole === r ? T.accent : T.border}`, background: sFRole === r ? T.accent : "transparent", color: sFRole === r ? T.accentText : T.text, fontSize: 10, fontWeight: sFRole === r ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{r}</button>)}
+                  {["All", ...uniqueRoles].map(r => { const active = r === "All" ? sFRole.length === 0 : sFRole.includes(r); return <button key={r} onClick={() => r === "All" ? setSFRole([]) : setSFRole(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent : "transparent", color: active ? T.accentText : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{r}</button>; })}
                 </div>
               </div>
-              {scheduleFilterCount > 0 && <button onClick={() => { setSFRole("All"); setSFClient("All"); setSFPers([]); setSFJobNum(""); setSFStat("All"); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {scheduleFilterCount > 0 && <button onClick={() => { setSFRole([]); setSFClient([]); setSFPers([]); setSFJobNum(""); setSFStat([]); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div></FadeOnClose>
           </div>
           {/* Inline expanding search — sits right of the Schedule filter button */}
