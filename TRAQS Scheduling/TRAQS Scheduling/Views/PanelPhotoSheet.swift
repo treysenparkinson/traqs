@@ -78,7 +78,7 @@ struct EndJobPhotoOverlay: View {
             CameraPicker { image in pickedImage = image; pickedFile = nil; errorText = nil }
                 .ignoresSafeArea()
         }
-        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images, photoLibrary: .shared())
+        .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
         .fileImporter(isPresented: $showFiles,
                       allowedContentTypes: [.image, .pdf, .plainText, .commaSeparatedText, .data],
                       allowsMultipleSelection: false) { handleFileImport($0) }
