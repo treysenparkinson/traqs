@@ -945,8 +945,12 @@ private struct TaskCardV1: View {
     @State private var isStopping = false
     @State private var isStarting = false
     @State private var isBreakBusy = false
-    @State private var showStopConfirm = false
     @State private var showBreakConfirm = false
+    /// Set when the worker taps STOP — drives the end-job photo overlay, which
+    /// attaches the photo and THEN clocks out. Presented as a fullScreenCover
+    /// (with a clear background) so it fades in over the jobs list rather than
+    /// taking the whole screen, and doesn't collide with the LOG TIME sheet.
+    @State private var endJobTarget: PanelPhotoTarget?
 
     private var isActive: Bool {
         guard let jc = appState.myActiveJobClock else { return false }
@@ -1137,15 +1141,23 @@ private struct TaskCardV1: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
-        .alert("End this job?", isPresented: $showStopConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button("End Job", role: .destructive) {
-                guard !isStopping else { return }
-                isStopping = true
-                Task { await appState.jobClockOut(); isStopping = false }
+        .fullScreenCover(item: $endJobTarget) { target in
+            EndJobPhotoOverlay(target: target) { clockOut in
+                // Dismiss by clearing the item binding (reliable), then clock
+                // out on the app-level state — which outlives this card view,
+                // so the job still ends even if the card re-renders away.
+                endJobTarget = nil
+                if clockOut {
+                    // Drive the STOP button's "STOPPING…" spinner while the
+                    // clock-out is in flight (set after the overlay closes so
+                    // the indicator is visible on the card underneath).
+                    isStopping = true
+                    Task {
+                        await appState.jobClockOut()
+                        isStopping = false
+                    }
+                }
             }
-        } message: {
-            Text("This stops the timer and logs your hours for this job.")
         }
         .alert(appState.myActiveBreak != nil ? "End your break?" : "Start a break?",
                isPresented: $showBreakConfirm) {
@@ -1223,7 +1235,15 @@ private struct TaskCardV1: View {
                 .buttonStyle(.plain)
                 .disabled(isBreakBusy || isStopping)
 
-                Button { showStopConfirm = true } label: {
+                Button {
+                    // Open the photo step first; the overlay performs the
+                    // actual clock-out after a photo is attached (or skipped).
+                    endJobTarget = PanelPhotoTarget(
+                        jobId: task.job.id,
+                        panelId: task.panel.id,
+                        panelTitle: task.panel.title,
+                        opId: task.op?.id)
+                } label: {
                     HStack(spacing: 6) {
                         if isStopping {
                             ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)

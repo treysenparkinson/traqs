@@ -124,6 +124,44 @@ struct Operation: Codable, Identifiable, Equatable {
     static func == (lhs: Operation, rhs: Operation) -> Bool { lhs.id == rhs.id }
 }
 
+// MARK: - Panel Attachment
+
+/// A file (usually a clock-out photo) attached to a panel. Shape mirrors the
+/// web app's `panel.attachments` entries: the S3 `key` + `filename` come from
+/// the attachment upload endpoint; the rest is provenance written client-side.
+struct PanelAttachment: Codable, Identifiable, Equatable {
+    var key: String
+    var filename: String
+    var mimeType: String?
+    var size: Int?
+    var uploadedById: String?
+    var uploadedByName: String?
+    var uploadedAt: String?
+    var opId: String?
+
+    var id: String { key }
+
+    init(key: String, filename: String, mimeType: String? = nil, size: Int? = nil,
+         uploadedById: String? = nil, uploadedByName: String? = nil,
+         uploadedAt: String? = nil, opId: String? = nil) {
+        self.key = key; self.filename = filename; self.mimeType = mimeType; self.size = size
+        self.uploadedById = uploadedById; self.uploadedByName = uploadedByName
+        self.uploadedAt = uploadedAt; self.opId = opId
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key            = (try? c.decode(String.self, forKey: .key)) ?? ""
+        filename       = (try? c.decode(String.self, forKey: .filename)) ?? ""
+        mimeType       = try? c.decodeIfPresent(String.self, forKey: .mimeType)
+        size           = try? c.decodeIfPresent(Int.self, forKey: .size)
+        uploadedById   = try? c.decodeIfPresent(String.self, forKey: .uploadedById)
+        uploadedByName = try? c.decodeIfPresent(String.self, forKey: .uploadedByName)
+        uploadedAt     = try? c.decodeIfPresent(String.self, forKey: .uploadedAt)
+        opId           = try? c.decodeIfPresent(String.self, forKey: .opId)
+    }
+}
+
 // MARK: - Panel (Level 1)
 
 struct Panel: Codable, Identifiable, Equatable {
@@ -139,6 +177,9 @@ struct Panel: Codable, Identifiable, Equatable {
     var deps: [String]
     var engineering: Engineering?
     var subs: [Operation]
+    /// Photos / files attached to this panel (e.g. the clock-out photo of the
+    /// finished panel). Mirrors the web app's `panel.attachments`.
+    var attachments: [PanelAttachment] = []
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -154,6 +195,7 @@ struct Panel: Codable, Identifiable, Equatable {
         deps        = (try? c.decode([String].self, forKey: .deps)) ?? []
         engineering = try? c.decodeIfPresent(Engineering.self, forKey: .engineering)
         subs        = (try? c.decode([Operation].self, forKey: .subs)) ?? []
+        attachments = (try? c.decode([PanelAttachment].self, forKey: .attachments)) ?? []
     }
 
     static func == (lhs: Panel, rhs: Panel) -> Bool { lhs.id == rhs.id }

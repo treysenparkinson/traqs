@@ -720,6 +720,48 @@ class AppState {
         }
     }
 
+    // MARK: - Panel attachments
+
+    /// Upload a photo/file and attach it to a panel's `attachments`, then
+    /// persist the job. Used by the clock-out photo prompt. Mirrors the web
+    /// app's `uploadPhotoToPanel`: the S3 key/filename come from the upload
+    /// endpoint, provenance (who/when/which op) is stamped client-side.
+    /// Throws on upload failure so the caller can surface an error and let the
+    /// worker retry; the panel isn't mutated unless the upload succeeds.
+    func attachPanelPhoto(jobId: String, panelId: String, opId: String?,
+                          filename: String, mimeType: String, data: Data) async throws {
+        guard let api else {
+            throw APIError.unknown(NSError(domain: "TRAQS", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Service unavailable — try again."]))
+        }
+        let result = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data)
+        let meta = PanelAttachment(
+            key: result.key,
+            filename: result.filename,
+            mimeType: result.mimeType,
+            size: result.size,
+            uploadedById: currentPersonId,
+            uploadedByName: currentPerson?.name,
+            uploadedAt: ISO8601DateFormatter().string(from: Date()),
+            opId: opId
+        )
+        // Re-find the job at append time — jobs may have refreshed since the
+        // clock-out. updateJob persists via saveJobs (sendNotification stays
+        // false, so this doesn't fire a push).
+        guard var job = jobs.first(where: { $0.id == jobId }),
+              let pi = job.subs.firstIndex(where: { $0.id == panelId }) else { return }
+        job.subs[pi].attachments.append(meta)
+        updateJob(job)
+    }
+
+    /// Count of files already attached to a panel whose names start with
+    /// `stem` — used to disambiguate same-day clock-out photos (`_2`, `_3`).
+    func panelAttachmentCount(jobId: String, panelId: String, stemPrefix: String) -> Int {
+        guard let job = jobs.first(where: { $0.id == jobId }),
+              let panel = job.subs.first(where: { $0.id == panelId }) else { return 0 }
+        return panel.attachments.filter { $0.filename.hasPrefix(stemPrefix) }.count
+    }
+
     // MARK: - Break (lightweight status; job clock keeps running)
 
     var myActiveBreak: ActiveBreak? { currentPerson?.activeBreak }
