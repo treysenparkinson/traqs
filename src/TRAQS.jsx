@@ -2688,6 +2688,7 @@ Extraction rules:
   const [panelPhotoPrompt, setPanelPhotoPrompt] = useState(null); // { jobId, panelId, panelTitle, opId }
   const [panelPhotoUploading, setPanelPhotoUploading] = useState(false);
   const [attachmentsModal, setAttachmentsModal] = useState(null); // jobId
+  const [attView, setAttView] = useState("large"); // "large" | "list" — View Details attachments layout
   const [pinnedThreads, setPinnedThreads] = useState(() => { try { return JSON.parse(localStorage.getItem("tq_pinned_threads") || "[]"); } catch { return []; } });
   const [threadCtxMenu, setThreadCtxMenu] = useState(null);
   const [confirmClearChat, setConfirmClearChat] = useState(null); // { threadKey, label, isGroup, groupId }
@@ -4647,17 +4648,15 @@ ${jobsCtx || "No jobs found."}`;
   // target: { jobId, panelId, opId? }. Reuses the chat attachment endpoint.
   const uploadPhotoToPanel = async (file, target) => {
     const data = await downscaleImage(file);
-    // Name the file after the panel + date so the panel is identifiable straight
-    // from the filename (e.g. "Op-001_2026-06-16.jpg"). Spaces become "_" because
-    // the upload endpoint strips non [A-Za-z0-9._-] characters. A same-day counter
-    // keeps repeat shots of the same panel distinct.
+    // Name the file after the panel name/number + date only (e.g.
+    // "Op-001_2026-06-16.jpg"). Spaces become "_" because the upload endpoint
+    // strips non [A-Za-z0-9._-] characters. (S3 keys are random-prefixed, so
+    // same-day repeats never overwrite even though the display name matches.)
     const job = tasks.find(j => j.id === target.jobId);
     const panel = job && (job.subs || []).find(p => p.id === target.panelId);
     const date = new Date().toISOString().slice(0, 10);
     const safeTitle = ((panel?.title || "panel").trim().replace(/\s+/g, "_") || "panel");
-    const stem = `${safeTitle}_${date}`;
-    const sameDay = (panel?.attachments || []).filter(a => (a.filename || "").startsWith(stem)).length;
-    const filename = `${stem}${sameDay > 0 ? `_${sameDay + 1}` : ""}.jpg`;
+    const filename = `${safeTitle}_${date}.jpg`;
     const att = await uploadAttachment({ filename, mimeType: "image/jpeg", data }, getToken, orgCode);
     const meta = { ...att, filename, uploadedById: loggedInUser?.id || null, uploadedByName: loggedInUser?.name || "", uploadedAt: new Date().toISOString(), opId: target.opId || null };
     let nextTasks = null;
@@ -14139,7 +14138,13 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           {/* Attachments */}
           <div>
-            {secTitle(`Attachments${dTotalAtt ? ` (${dTotalAtt})` : ""}`)}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 11, gap: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, color: T.text, letterSpacing: "0.04em", textTransform: "uppercase" }}>Attachments{dTotalAtt ? ` (${dTotalAtt})` : ""}</div>
+              <div style={{ display: "flex", gap: 2, background: T.bg, borderRadius: 7, padding: 2, border: `1px solid ${T.border}`, flexShrink: 0 }}>
+                <button onClick={() => setAttView("large")} title="Large view" style={{ width: 26, height: 24, borderRadius: 5, border: "none", background: attView === "large" ? T.accent : "transparent", color: attView === "large" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+                <button onClick={() => setAttView("list")} title="List view" style={{ width: 26, height: 24, borderRadius: 5, border: "none", background: attView === "list" ? T.accent : "transparent", color: attView === "list" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+              </div>
+            </div>
             {dPanels.length === 0 && <div style={{ fontSize: 12, color: T.textDim }}>No panels to attach photos to.</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {dPanels.map(panel => {
@@ -14154,16 +14159,24 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   {atts.length === 0
                     ? <div style={{ fontSize: 11, color: T.textDim, paddingBottom: 2 }}>No photos.</div>
-                    : <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                        {atts.map(a => <div key={a.key} style={{ position: "relative", width: 72 }}>
-                          <div onClick={() => setLightboxAtt(a)} title={`${a.filename}${a.uploadedByName ? " · " + a.uploadedByName : ""}`} style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.bg }}>
-                            {a.mimeType?.startsWith("image/")
-                              ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                              : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>📎</div>}
-                          </div>
-                          {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: T.danger, color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
-                        </div>)}
-                      </div>}
+                    : attView === "list"
+                      ? <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {atts.map(a => <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg }}>
+                            <span style={{ fontSize: 14, flexShrink: 0 }}>{a.mimeType?.startsWith("image/") ? "🖼️" : "📄"}</span>
+                            <span onClick={() => setLightboxAtt(a)} title="View" style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "underline" }}>{a.filename}</span>
+                            {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", border: "none", background: T.danger + "22", color: T.danger, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
+                          </div>)}
+                        </div>
+                      : <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                          {atts.map(a => <div key={a.key} style={{ position: "relative", width: 72 }}>
+                            <div onClick={() => setLightboxAtt(a)} title={`${a.filename}${a.uploadedByName ? " · " + a.uploadedByName : ""}`} style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.bg }}>
+                              {a.mimeType?.startsWith("image/")
+                                ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>📎</div>}
+                            </div>
+                            {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: T.danger, color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
+                          </div>)}
+                        </div>}
                 </div>;
               })}
             </div>
@@ -14847,6 +14860,10 @@ ${jobsCtx || "No jobs found."}`;
               ${ops ? `<table class="op-table"><thead><tr><th>Operation</th><th>Status</th><th>Pri</th><th>Dates</th><th>Hours</th><th>Done</th><th>Notes</th></tr></thead><tbody>${ops}</tbody></table>` : `<div class="empty">No operations</div>`}
             </div>`;
           }).join("");
+          // Attachments — flat list at the bottom of the job card, as clickable
+          // links (absolute URLs so they resolve from the saved/printed PDF).
+          const _atts = (job.subs || []).flatMap(p => (p.attachments || []).map(a => ({ key: a.key, filename: a.filename, panelTitle: p.title })));
+          const attBlock = _atts.length ? `<div class="job-atts"><span class="lbl">Attachments (${_atts.length})</span><div class="att-list">${_atts.map(a => `<a class="att-link" href="${escapeHtml(window.location.origin + "/api/attachment?key=" + encodeURIComponent(a.key))}">${escapeHtml((a.panelTitle ? a.panelTitle + " — " : "") + a.filename)}</a>`).join("")}</div></div>` : "";
           return `<section class="job-card">
             <div class="job-bar" style="background:${jColor}"></div>
             <div class="job-body">
@@ -14869,6 +14886,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               ${job.notes ? `<div class="job-notes"><span class="lbl">Notes</span>${escapeHtml(job.notes)}</div>` : ""}
               ${panels ? `<div class="panels-wrap">${panels}</div>` : `<div class="empty">No tasks under this job</div>`}
+              ${attBlock}
             </div>
           </section>`;
         }).join("");
@@ -14914,6 +14932,10 @@ ${jobsCtx || "No jobs found."}`;
             .mono{font-family:'DM Sans',sans-serif}
             .status-pill{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em}
             .empty{padding:8px 10px;font-size:10px;color:#94a3b8;font-style:italic}
+            .job-atts{margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9}
+            .job-atts .lbl{display:block;margin-bottom:6px}
+            .att-list{display:flex;flex-direction:column;gap:4px}
+            .att-link{font-size:10px;color:${ACCENT};text-decoration:underline;word-break:break-all}
             @media print{
               @page{margin:14mm}
               body{padding:0}
@@ -16305,6 +16327,17 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* ─── Attachment lightbox ─── */}
     <FadeOnClose open={!!lightboxAtt} duration={220}>{lightboxAtt && <div className="anim-modal-overlay" onClick={() => setLightboxAtt(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+      {/* Top toolbar — download + share the link */}
+      <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 20, left: 24, display: "flex", gap: 8 }}>
+        <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 9, padding: "8px 14px", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: T.font, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Download
+        </a>
+        <button onClick={async () => { const url = `${window.location.origin}/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`; try { if (navigator.share) { await navigator.share({ title: lightboxAtt.filename, url }); } else if (navigator.clipboard) { await navigator.clipboard.writeText(url); alert("Link copied to clipboard"); } else { prompt("Copy this link:", url); } } catch {} }} style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 9, padding: "8px 14px", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: T.font, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+          Share
+        </button>
+      </div>
       <button onClick={() => setLightboxAtt(null)} style={{ position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "50%", width: 38, height: 38, color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
       {lightboxAtt.mimeType?.startsWith("image/")
         ? <img src={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} alt={lightboxAtt.filename} onClick={e => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "88vh", borderRadius: 10, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.8)" }} />
