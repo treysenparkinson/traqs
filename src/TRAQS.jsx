@@ -114,11 +114,19 @@ const ADMIN_PERMS = [
   { key: "undoHistory",   icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.86"/></svg>, label: "Undo schedule history changes" },
   { key: "orgSettings",   icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>, label: "Access organization settings" },
 ];
-const PRIORITIES = ["Low","Medium","High"];
-const STATUSES = ["Not Started","Pending","In Progress","On Hold","Finished"];
-const PRI_C = { Low: "#10b981", Medium: "#f59e0b", High: "#f43f5e" };
-const STA_C = { "Not Started": "#94a3b8", Pending: "#a78bfa", "In Progress": "#3b82f6", "On Hold": "#f59e0b", Finished: "#10b981", Paused: "#f59e0b" };
-const STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "On Hold": "⏸", Finished: "●", Paused: "⏸" };
+// Defaults — the live, user-editable lists live in component state (statusOpts/priOpts)
+// and shadow these as STATUSES/PRIORITIES/STA_C/PRI_C/STA_ICON inside the component.
+const DEFAULT_PRIORITIES = ["Low","Medium","High"];
+const DEFAULT_STATUSES = ["Not Started","Pending","In Progress","On Hold","Finished"];
+const DEFAULT_PRI_C = { Low: "#10b981", Medium: "#f59e0b", High: "#f43f5e" };
+const DEFAULT_STA_C = { "Not Started": "#94a3b8", Pending: "#a78bfa", "In Progress": "#3b82f6", "On Hold": "#f59e0b", Finished: "#10b981", Paused: "#f59e0b" };
+const DEFAULT_STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "On Hold": "⏸", Finished: "●", Paused: "⏸" };
+const OPT_PALETTE = ["#3b82f6","#10b981","#f59e0b","#f43f5e","#a78bfa","#06b6d4","#ec4899","#84cc16","#f97316","#14b8a6"];
+// Custom list-column options may be legacy strings or {name,color,icon} objects — normalize on read.
+const optName = o => (o && typeof o === "object") ? (o.name ?? "") : (o ?? "");
+const optColor = o => (o && typeof o === "object") ? o.color : null;
+const optIcon = o => (o && typeof o === "object") ? o.icon : null;
+const toOptObjs = names => (names || []).map((o, i) => (o && typeof o === "object") ? o : (o === "—" ? { name: "—" } : { name: o, color: OPT_PALETTE[i % OPT_PALETTE.length], icon: "○" }));
 // Striped overlay used to render the "worked / locked" portion of a bar across all views.
 const WORKED_STRIPE = "repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 5px, rgba(0,0,0,0.28) 5px, rgba(0,0,0,0.28) 10px)";
 // True when an op is locked — either by manual toggle OR by being fully worked (loggedHours >= hpd).
@@ -2199,6 +2207,26 @@ Extraction rules:
   const isColGroupable = (key) => (key in groupColPref ? !!groupColPref[key] : colGroupDefault(key));
   const toggleColGroupable = (key) => setGroupColPref(prev => ({ ...prev, [key]: !(key in prev ? prev[key] : colGroupDefault(key)) }));
   const [colCtxMenu, setColCtxMenu] = useState(null); // { x, y, colId, isCustom }
+  // Editable built-in list columns (Status / Priority). Each option carries its color (+ icon for status).
+  const [statusOpts, setStatusOpts] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem("tq_status_opts") || "null"); if (Array.isArray(s) && s.length) return s; } catch {}
+    return DEFAULT_STATUSES.map(n => ({ name: n, color: DEFAULT_STA_C[n] || "#94a3b8", icon: DEFAULT_STA_ICON[n] || "○" }));
+  });
+  useEffect(() => { localStorage.setItem("tq_status_opts", JSON.stringify(statusOpts)); }, [statusOpts]);
+  const [priOpts, setPriOpts] = useState(() => {
+    try { const s = JSON.parse(localStorage.getItem("tq_pri_opts") || "null"); if (Array.isArray(s) && s.length) return s; } catch {}
+    return DEFAULT_PRIORITIES.map(n => ({ name: n, color: DEFAULT_PRI_C[n] || "#94a3b8" }));
+  });
+  useEffect(() => { localStorage.setItem("tq_pri_opts", JSON.stringify(priOpts)); }, [priOpts]);
+  // Dynamic shadows of the module defaults — every in-component usage resolves to these.
+  const STATUSES = useMemo(() => statusOpts.map(o => o.name), [statusOpts]);
+  const PRIORITIES = useMemo(() => priOpts.map(o => o.name), [priOpts]);
+  const STA_C = useMemo(() => ({ ...DEFAULT_STA_C, ...Object.fromEntries(statusOpts.map(o => [o.name, o.color])) }), [statusOpts]);
+  const STA_ICON = useMemo(() => ({ ...DEFAULT_STA_ICON, ...Object.fromEntries(statusOpts.map(o => [o.name, o.icon || "○"])) }), [statusOpts]);
+  const PRI_C = useMemo(() => ({ ...DEFAULT_PRI_C, ...Object.fromEntries(priOpts.map(o => [o.name, o.color])) }), [priOpts]);
+  const [optDraft, setOptDraft] = useState(null); // { key, list } staged Edit Options changes — applied only on Save
+  const [optEditSeq, setOptEditSeq] = useState(0); // bumped on each Edit Options open to re-fire the staggered cascade
+  const optBaseLenRef = useRef(0); // option count captured at open — rows beyond it (added live) skip the stagger delay
   const [taskOrder, setTaskOrder] = useState([]); // manual job ID sort order
   const colDragRef = useRef(null); // colId being dragged
   const [colDropIdx, setColDropIdx] = useState(null);
@@ -2640,6 +2668,7 @@ Extraction rules:
     setColWidths(prev => { const n = [...prev]; n.splice(12 + idx, 1); return n; });
     setEngColWidths(prev => { const n = [...prev]; n.splice(9 + idx, 1); return n; });
   };
+  const updateCustomCol = (colId, patch) => setCustomCols(prev => prev.map(c => c.id === colId ? { ...c, ...patch } : c));
   const startColResize = (e, colIdx) => {
     e.preventDefault(); e.stopPropagation();
     const startX = e.clientX;
@@ -3461,10 +3490,10 @@ Extraction rules:
           <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>{col.label}</div>
           {isSelect ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-              {col.options.filter(o => o && o !== "—").map(o => {
-                const sel = (fCustom[key] || []).includes(o);
-                return <button key={o} onClick={() => setFCustom(prev => { const cur = prev[key] || []; const next = cur.includes(o) ? cur.filter(x => x !== o) : [...cur, o]; const c2 = { ...prev }; if (next.length) c2[key] = next; else delete c2[key]; return c2; })}
-                  style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "22" : "transparent", color: sel ? T.accent : T.text, fontSize: 11, fontWeight: sel ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{o}</button>;
+              {col.options.map(optName).filter(n => n && n !== "—").map(n => {
+                const sel = (fCustom[key] || []).includes(n);
+                return <button key={n} onClick={() => setFCustom(prev => { const cur = prev[key] || []; const next = cur.includes(n) ? cur.filter(x => x !== n) : [...cur, n]; const c2 = { ...prev }; if (next.length) c2[key] = next; else delete c2[key]; return c2; })}
+                  style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "22" : "transparent", color: sel ? T.accent : T.text, fontSize: 11, fontWeight: sel ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{n}</button>;
               })}
             </div>
           ) : (
@@ -4204,12 +4233,12 @@ Extraction rules:
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
 
   const AI_TOOLS = [
-    { name: "update_job", description: "Update any field of an existing job: status, priority, dates, job number, notes, due date", input_schema: { type: "object", properties: { job_id: { type: "string", description: "The job_id from context" }, status: { type: "string", enum: ["Not Started","Pending","In Progress","On Hold","Finished"] }, priority: { type: "string", enum: ["Low","Medium","High"] }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, due_date: { type: "string", description: "YYYY-MM-DD, or empty string to clear" }, job_number: { type: "string" }, notes: { type: "string" } }, required: ["job_id"] } },
-    { name: "create_job", description: "Create a new job", input_schema: { type: "object", properties: { title: { type: "string" }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, priority: { type: "string", enum: ["Low","Medium","High"] }, job_number: { type: "string" }, notes: { type: "string" }, team_ids: { type: "array", items: { type: "string" }, description: "person_ids to add" } }, required: ["title","start","end"] } },
+    { name: "update_job", description: "Update any field of an existing job: status, priority, dates, job number, notes, due date", input_schema: { type: "object", properties: { job_id: { type: "string", description: "The job_id from context" }, status: { type: "string", enum: STATUSES }, priority: { type: "string", enum: PRIORITIES }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, due_date: { type: "string", description: "YYYY-MM-DD, or empty string to clear" }, job_number: { type: "string" }, notes: { type: "string" } }, required: ["job_id"] } },
+    { name: "create_job", description: "Create a new job", input_schema: { type: "object", properties: { title: { type: "string" }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, priority: { type: "string", enum: PRIORITIES }, job_number: { type: "string" }, notes: { type: "string" }, team_ids: { type: "array", items: { type: "string" }, description: "person_ids to add" } }, required: ["title","start","end"] } },
     { name: "delete_job", description: "Permanently delete a job", input_schema: { type: "object", properties: { job_id: { type: "string" } }, required: ["job_id"] } },
     { name: "assign_person_to_job", description: "Add a team member to a job", input_schema: { type: "object", properties: { job_id: { type: "string" }, person_id: { type: "string" } }, required: ["job_id","person_id"] } },
     { name: "remove_person_from_job", description: "Remove a team member from a job", input_schema: { type: "object", properties: { job_id: { type: "string" }, person_id: { type: "string" } }, required: ["job_id","person_id"] } },
-    { name: "update_operation", description: "Update a specific operation: status, dates, or assigned person", input_schema: { type: "object", properties: { operation_id: { type: "string", description: "The op_id from context" }, panel_id: { type: "string", description: "The panel_id containing this operation" }, status: { type: "string", enum: ["Not Started","Pending","In Progress","On Hold","Finished"] }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, assign_person_id: { type: "string", description: "Person ID to assign to this operation" } }, required: ["operation_id","panel_id"] } },
+    { name: "update_operation", description: "Update a specific operation: status, dates, or assigned person", input_schema: { type: "object", properties: { operation_id: { type: "string", description: "The op_id from context" }, panel_id: { type: "string", description: "The panel_id containing this operation" }, status: { type: "string", enum: STATUSES }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, assign_person_id: { type: "string", description: "Person ID to assign to this operation" } }, required: ["operation_id","panel_id"] } },
   ];
 
   const buildAskSysPrompt = () => {
@@ -5604,7 +5633,7 @@ ${jobsCtx || "No jobs found."}`;
             <FadeOnClose open={filterOpen}><div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>; })}
+                {["All", ...STATUSES].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>; })}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Time Period</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
@@ -6037,8 +6066,8 @@ ${jobsCtx || "No jobs found."}`;
     if (colSort.id) {
       const { id, dir } = colSort;
       const mul = dir === "asc" ? 1 : -1;
-      const STATUS_ORDER = ["Not Started", "Pending", "In Progress", "On Hold", "Finished"];
-      const PRI_ORDER = ["Low", "Medium", "High"];
+      const STATUS_ORDER = STATUSES;
+      const PRI_ORDER = PRIORITIES;
       return [...arr].sort((a, b) => {
         if (id === "name")     { return mul * (a.title || "").toLowerCase().localeCompare((b.title || "").toLowerCase()); }
         if (id === "jobNum")   { return mul * (a.jobNumber || "").localeCompare(b.jobNumber || "", undefined, { numeric: true }); }
@@ -6589,7 +6618,7 @@ ${jobsCtx || "No jobs found."}`;
               return <button key={tpl.label} disabled={alreadyAdded} onClick={() => {
                 if (alreadyAdded) return;
                 const id = uid();
-                setCustomCols(prev => [...prev, { id, label: tpl.label, type: tpl.type, options: tpl.options }]);
+                setCustomCols(prev => [...prev, { id, label: tpl.label, type: tpl.type, options: tpl.type === "select" ? toOptObjs(tpl.options) : tpl.options }]);
                 setColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setEngColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setColPickerOpen(false);
@@ -6608,7 +6637,7 @@ ${jobsCtx || "No jobs found."}`;
         {/* Section: Custom Column */}
         <div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Custom Column</div>
-          <input value={customColLabel} onChange={e => setCustomColLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && customColLabel.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? ["—", "Option 1", "Option 2"] : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); } if (e.key === "Escape") setColPickerOpen(false); }} placeholder="Column name…" style={{ width: "100%", padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+          <input value={customColLabel} onChange={e => setCustomColLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && customColLabel.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); } if (e.key === "Escape") setColPickerOpen(false); }} placeholder="Column name…" style={{ width: "100%", padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
           <div style={{ display: "flex", gap: 6 }}>
             <select value={customColType} onChange={e => setCustomColType(e.target.value)} style={{ flex: 1, padding: "7px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
               <option value="text">Text</option>
@@ -6616,7 +6645,7 @@ ${jobsCtx || "No jobs found."}`;
               <option value="date">Date</option>
               <option value="select">Dropdown (List)</option>
             </select>
-            <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? ["—", "Option 1", "Option 2"] : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
+            <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
           </div>
         </div>
         </div>
@@ -6720,7 +6749,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {["All", "Not Started", "In Progress", "Finished", "On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
+                    {["All", ...STATUSES].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
                   </div>
                 </div>
                 <div>
@@ -6840,7 +6869,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontFamily: T.mono }}>{fm(fresh.start)}</span><span style={{ color: T.textDim }}>→</span><span style={{ fontFamily: T.mono }}>{fm(fresh.end)}</span>{fresh.hpd > 0 && <><span style={{ color: T.textDim }}> · </span>{fresh.hpd}h/day</>}
                 </span>
                 <ColorSlidingPill options={STATUSES.map(s => ({ value: s, label: s, color: STA_C[s] }))} value={fresh.status || "Not Started"} onChange={v => updTask(fresh.id, { status: v })} />
-                <ColorSlidingPill options={["Low","Medium","High"].map(p => ({ value: p, label: p, color: PRI_C[p] }))} value={fresh.pri || "Medium"} onChange={v => updTask(fresh.id, { pri: v })} />
+                <ColorSlidingPill options={PRIORITIES.map(p => ({ value: p, label: p, color: PRI_C[p] }))} value={fresh.pri || "Medium"} onChange={v => updTask(fresh.id, { pri: v })} />
               </div>
               {fresh.dueDate && <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, padding: "10px 16px", background: fresh.dueDate < TD ? "#ef444415" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b15" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${fresh.dueDate < TD ? "#ef444433" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b33" : T.border}` }}>
                 <span style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Customer Due:</span>
@@ -6861,7 +6890,7 @@ ${jobsCtx || "No jobs found."}`;
                       <span style={{ fontSize: 12, color: T.textDim, fontWeight: 600, minWidth: 90, flexShrink: 0 }}>{col.label}</span>
                       {col.type === "select" && (col.options || []).length > 0
                         ? <select key={fresh.id + key} value={val} onChange={e => updTask(fresh.id, { [key]: e.target.value })} style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: val && val !== "—" ? T.text : T.textDim, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                            {(col.options || []).map(o => <option key={o} value={o === "—" ? "" : o}>{o}</option>)}
+                            {(col.options || []).map(o => { const n = optName(o); return <option key={n} value={n === "—" ? "" : n}>{n}</option>; })}
                           </select>
                         : <input key={fresh.id + key} type={col.type === "number" ? "number" : col.type === "date" ? "date" : "text"} defaultValue={val} placeholder="—" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
                     </div>;
@@ -6946,7 +6975,7 @@ ${jobsCtx || "No jobs found."}`;
         const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
         const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "8px 10px", background: T.surface };
         const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: job.id, pid: null, title: job.title, jobNumber: job.jobNumber || null }); } else { updTask(job.id, { status: next }); } };
-        const cyclePri = (job) => { const opts = ["Low","Medium","High"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
+        const cyclePri = (job) => { const opts = PRIORITIES.length ? PRIORITIES : ["Medium"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
         const cycleStatusSub = (item, pid) => { const i = STATUSES.indexOf(item.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item.id, pid: pid || null, title: item.title, jobNumber: null }); } else { updTask(item.id, { status: next }, pid); } };
         const isEdit = (id, col) => gridCell?.id === id && gridCell?.col === col;
         const startEdit = (e, id, col) => { e.stopPropagation(); setGridCell({ id, col }); };
@@ -6980,7 +7009,7 @@ ${jobsCtx || "No jobs found."}`;
           const pc = pctColor(pct);
           const indent = level * 20;
           const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: job.id, pid: null, title: job.title, jobNumber: job.jobNumber || null }); } else { updTask(job.id, { status: next }); } };
-          const cyclePri = (job) => { const opts = ["Low","Medium","High"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
+          const cyclePri = (job) => { const opts = PRIORITIES.length ? PRIORITIES : ["Medium"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
           const cycleStatusSub = (item2, pid2) => { const i = STATUSES.indexOf(item2.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item2.id, pid: pid2 || null, title: item2.title, jobNumber: null }); } else { updTask(item2.id, { status: next }, pid2); } };
           const isScheduledLater = level === 0 ? !!item.scheduledLater : !!(tasks.find(t => t.id === jobId)?.scheduledLater);
           const safeDate = ds => { if (!ds) return "—"; const d = new Date(ds + "T12:00:00"); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
@@ -7197,14 +7226,16 @@ ${jobsCtx || "No jobs found."}`;
                 }
                 if (col.type === "select" && (col.options || []).length > 0) {
                   const selVal = val && val !== "—" ? val : "";
-                  const selColor = selVal ? STA_C[selVal] || T.accent : T.textDim;
+                  const selOpt = (col.options || []).find(o => optName(o) === selVal);
+                  const selColor = selVal ? (optColor(selOpt) || STA_C[selVal] || T.accent) : T.textDim;
+                  const selIcon = optIcon(selOpt);
                   // Styled picker (matches the Status column) instead of a native <select>, whose
                   // option list renders in the OS system font rather than the app font.
                   return (
                     <div key={col.id} style={{ ...cellBase, justifyContent: "center", cursor: "pointer", ...ccCond }}
                       onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setCcSelectPopover({ itemId: item.id, pid: pid || null, key, current: selVal, options: col.options || [], x: r.left, y: r.bottom + 4 }); }}>
                       {selVal
-                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: selColor + "20", border: `1px solid ${selColor}44`, fontSize: 11, fontWeight: 700, color: selColor, whiteSpace: "nowrap", userSelect: "none" }}>{selVal}</span>
+                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: selColor + "20", border: `1px solid ${selColor}44`, fontSize: 11, fontWeight: 700, color: selColor, whiteSpace: "nowrap", userSelect: "none" }}>{selIcon ? <span style={{ fontSize: 12 }}>{selIcon}</span> : null}{selVal}</span>
                         : <span style={{ fontSize: 11, color: T.textDim }}>—</span>}
                     </div>
                   );
@@ -13477,7 +13508,7 @@ ${jobsCtx || "No jobs found."}`;
                   return <div key={col.id}>
                     <label style={{ display:"block", fontSize:13, color:T.textSec, fontWeight:600, letterSpacing:"0.04em", textTransform:"uppercase", marginBottom:6 }}>{col.label}</label>
                     <select value={val} onChange={e => setEd(p => ({ ...p, [key]:e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:T.radiusSm, border:`1px solid ${T.border}`, background:T.surface, color:val?T.text:T.textDim, fontSize:14, fontFamily:T.font, outline:"none", cursor:"pointer" }}>
-                      {(col.options||[]).map(o => <option key={o} value={o==="—"?"":o}>{o}</option>)}
+                      {(col.options||[]).map(o => { const n = optName(o); return <option key={n} value={n==="—"?"":n}>{n}</option>; })}
                     </select>
                   </div>;
                 }
@@ -14416,7 +14447,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>{col.label}</span>
                   {col.type === "select" && (col.options || []).length > 0
                     ? <select key={fresh.id + key} value={val} onChange={e => updTask(fresh.id, { [key]: e.target.value })} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: val && val !== "—" ? T.text : T.textDim, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                        {(col.options || []).map(o => <option key={o} value={o === "—" ? "" : o}>{o}</option>)}
+                        {(col.options || []).map(o => { const n = optName(o); return <option key={n} value={n === "—" ? "" : n}>{n}</option>; })}
                       </select>
                     : <input key={fresh.id + key} type={col.type === "number" ? "number" : col.type === "date" ? "date" : "text"} defaultValue={val} placeholder="—" style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
                 </div>;
@@ -15445,9 +15476,67 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
     })()}</FadeOnClose>
     {/* ── Column header context menu ── */}
-    <FadeOnClose open={!!colCtxMenu}>{colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => setColCtxMenu(null)}>
+    <FadeOnClose open={!!colCtxMenu}>{colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => { setColCtxMenu(null); setOptDraft(null); }}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
-        {colCtxMenu.isCustom && <button onClick={() => { setEditingColHeader(colCtxMenu.colId); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {(() => {
+          const cid = colCtxMenu.colId;
+          const isStd = !colCtxMenu.isCustom && (cid === "status" || cid === "pri");
+          const col = colCtxMenu.isCustom ? customCols.find(c => c.id === cid) : null;
+          const isCustomSelect = !!(col && col.type === "select" && !col.fieldKey);
+          if (!isStd && !isCustomSelect) return null;
+          const open = colCtxMenu.subMenu === "edit";
+          const inputBase = { flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
+          const delBtn = (onClick, disabled) => <button onClick={onClick} disabled={disabled} title={disabled ? "At least one option required" : "Delete option"} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: disabled ? T.textDim : "#ef4444", cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1, opacity: disabled ? 0.4 : 1 }} onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = "#ef444415"; e.currentTarget.style.borderColor = "#ef4444"; } }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>×</button>;
+          const rowAnim = i => ({ animation: "dropIn 0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 12) * 0.03}s` });
+          const addBtn = (onClick, animIdx) => <button onClick={onClick} style={{ marginTop: 2, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, ...rowAnim(animIdx) }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add option</button>;
+          const lbl = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 };
+          const base = optBaseLenRef.current; // rows at indices >= base were added live → no stagger delay (appear instantly)
+          const draftKey = isStd ? cid : col.id;
+          const source = isStd ? (cid === "status" ? statusOpts : priOpts) : toOptObjs(col.options || []);
+          const draft = (optDraft && optDraft.key === draftKey) ? optDraft.list : source;
+          const setDraft = next => setOptDraft(prev => { const cur = (prev && prev.key === draftKey) ? prev.list : source; return { key: draftKey, list: typeof next === "function" ? next(cur) : next }; });
+          const dirty = JSON.stringify(draft) !== JSON.stringify(source);
+          const closeEditor = () => { setOptDraft(null); setColCtxMenu(prev => prev ? { ...prev, subMenu: null } : prev); };
+          const save = () => { if (isStd) (cid === "status" ? setStatusOpts : setPriOpts)(draft); else updateCustomCol(col.id, { options: draft }); closeEditor(); };
+          const hasIcon = !(isStd && cid === "pri"); // status + custom lists carry an icon; priority is color-only
+          const minOne = isStd; // built-in must keep ≥1; custom lists keep their blank/none sentinel instead
+          const upd = (i, patch) => setDraft(prev => prev.map((o, j) => j === i ? { ...o, ...patch } : o));
+          const del = i => setDraft(prev => prev.filter((_, j) => j !== i));
+          const add = () => setDraft(prev => [...prev, { name: `New ${prev.length + 1}`, color: OPT_PALETTE[prev.length % OPT_PALETTE.length], ...(hasIcon ? { icon: "○" } : {}) }]);
+          const rows = <>
+            <div style={{ ...lbl, ...rowAnim(0) }}>{isStd ? (cid === "status" ? "Status Options" : "Priority Options") : "List Options"}</div>
+            {draft.map((o, i) => optName(o) === "—"
+              ? <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 7px", fontSize: 11, color: T.textDim, fontStyle: "italic", ...rowAnim(i >= base ? 0 : i + 1) }}>(blank / none)</div>
+              : <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, ...rowAnim(i >= base ? 0 : i + 1) }}>
+                  <input type="color" value={o.color || "#94a3b8"} onClick={e => e.stopPropagation()} onChange={e => upd(i, { color: e.target.value })} title="Color" style={{ width: 22, height: 24, padding: 0, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: "transparent", cursor: "pointer", flexShrink: 0 }} />
+                  {hasIcon && <input value={o.icon || ""} onClick={e => e.stopPropagation()} onChange={e => upd(i, { icon: e.target.value.slice(0, 2) })} title="Icon" style={{ width: 26, textAlign: "center", padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", flexShrink: 0, boxSizing: "border-box" }} />}
+                  <input value={optName(o)} onClick={e => e.stopPropagation()} onChange={e => upd(i, { name: e.target.value })} onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }} onFocus={e => e.currentTarget.style.borderColor = T.accent} onBlur={e => e.currentTarget.style.borderColor = T.border} style={inputBase} />
+                  {delBtn(() => del(i), minOne && draft.length <= 1)}
+                </div>)}
+            {addBtn(add, draft.length + 1)}
+          </>;
+          const body = <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
+            <div key={optEditSeq} style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 280, overflowY: "auto" }}>{rows}</div>
+            <div style={{ display: "flex", gap: 6, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${T.border}`, ...rowAnim(draft.length + 2) }}>
+              <button onClick={closeEditor} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.bg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Cancel</button>
+              <button onClick={save} disabled={!dirty} title={dirty ? "Apply changes" : "No changes to save"} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: "none", background: dirty ? T.accent : T.border, color: dirty ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: dirty ? "pointer" : "default", fontFamily: T.font, opacity: dirty ? 1 : 0.7 }}>Save{dirty ? " •" : ""}</button>
+            </div>
+          </div>;
+          return <div>
+            <button onClick={() => { if (!open) { setOptEditSeq(s => s + 1); optBaseLenRef.current = source.length; } setColCtxMenu(prev => ({ ...prev, subMenu: open ? null : "edit" })); }}
+              style={{ width: "100%", padding: "9px 14px", background: open ? T.accent + "15" : "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: open ? T.accent : T.text, fontFamily: T.font, textAlign: "left" }}
+              onMouseEnter={e => { if (!open) e.currentTarget.style.background = T.accent + "10"; }}
+              onMouseLeave={e => { if (!open) e.currentTarget.style.background = "transparent"; }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              Edit Options
+              <svg style={{ marginLeft: "auto", transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+            <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
+              <div style={{ overflow: "hidden", minHeight: 0 }}>{body}</div>
+            </div>
+          </div>;
+        })()}
+        {colCtxMenu.isCustom && <button onClick={() => { setEditingColHeader(colCtxMenu.colId); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Rename Column
         </button>}
@@ -15465,7 +15554,7 @@ ${jobsCtx || "No jobs found."}`;
             {colCtxMenu.subMenu === `add${side}` && (() => {
               const doInsert = (type, label, options) => {
                 const newId = uid();
-                const newCol = { id: newId, label, type, options: options || [] };
+                const newCol = { id: newId, label, type, options: type === "select" ? toOptObjs(options || []) : (options || []) };
                 const w = type === "checkbox" ? 80 : type === "number" ? 90 : 120;
                 if (!colCtxMenu.isCustom) {
                   // Standard col: insert at start (left) or end (right) of customCols
@@ -15572,16 +15661,18 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setCcSelectPopover(null)} />
       <div style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: 320, overflowY: "auto", fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
         {ccSelectPopover.options.map((o, oi) => {
-          const optVal = o === "—" ? "" : o;
+          const n = optName(o);
+          const optVal = n === "—" ? "" : n;
           const isCurrent = optVal === ccSelectPopover.current;
-          const oc = optVal ? (STA_C[optVal] || T.accent) : T.textDim;
+          const oc = optColor(o) || (optVal ? (STA_C[optVal] || T.accent) : T.textDim);
+          const ic = optIcon(o);
           return (
-            <div key={o} onClick={() => { updTask(ccSelectPopover.itemId, { [ccSelectPopover.key]: optVal }, ccSelectPopover.pid || null); setCcSelectPopover(null); }}
+            <div key={n} onClick={() => { updTask(ccSelectPopover.itemId, { [ccSelectPopover.key]: optVal }, ccSelectPopover.pid || null); setCcSelectPopover(null); }}
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", userSelect: "none", animation: `toolDrop 0.14s ${oi * 38}ms both ease-out`, background: isCurrent ? oc + "12" : "transparent" }}
               onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = oc + "18"; }}
               onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? oc + "12" : "transparent"; }}>
-              <div style={{ width: 8, height: 8, borderRadius: 4, background: optVal ? oc : T.border, flexShrink: 0 }} />
-              <span style={{ fontSize: 13, fontWeight: isCurrent ? 600 : 400, color: isCurrent ? oc : T.text, flex: 1 }}>{o === "—" ? "— (none)" : o}</span>
+              {ic ? <span style={{ width: 12, textAlign: "center", fontSize: 13, color: optVal ? oc : T.textDim, flexShrink: 0 }}>{ic}</span> : <div style={{ width: 8, height: 8, borderRadius: 4, background: optVal ? oc : T.border, flexShrink: 0 }} />}
+              <span style={{ fontSize: 13, fontWeight: isCurrent ? 600 : 400, color: isCurrent ? oc : T.text, flex: 1 }}>{n === "—" ? "— (none)" : n}</span>
               {isCurrent && <svg width="12" height="12" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={oc} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </div>
           );
@@ -18341,7 +18432,7 @@ ${jobsCtx || "No jobs found."}`;
                   {fType === "select" && (fMeta?.options || []).length > 0
                     ? <select value={condWizard.triggerValue} onChange={e => setCondWizard(w => ({ ...w, triggerValue: e.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
                         <option value="">— Select —</option>
-                        {(fMeta.options || []).filter(o => o !== "—").map(o => <option key={o} value={o}>{o}</option>)}
+                        {(fMeta.options || []).map(optName).filter(n => n !== "—").map(n => <option key={n} value={n}>{n}</option>)}
                       </select>
                     : <input type={fType === "date" ? "date" : fType === "number" ? "number" : "text"} value={condWizard.triggerValue} onChange={e => setCondWizard(w => ({ ...w, triggerValue: e.target.value }))} placeholder="Enter value…" style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                   }
