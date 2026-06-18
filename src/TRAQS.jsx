@@ -2060,6 +2060,8 @@ Extraction rules:
   const [exportEditing, setExportEditing] = useState(null); // block id whose text is being edited inline
   const exportCancelRef = useRef(false); // set on Escape so the blur-commit is skipped
   const [exportSelId, setExportSelId] = useState(null); // block selected for the properties inspector
+  const [exportAddOpen, setExportAddOpen] = useState(false); // left-rail "+ Add Element" palette open state
+  const [exportAddSeq, setExportAddSeq] = useState(0); // bumped on each open to re-fire the staggered cascade
   const [exportSafe, setExportSafe] = useState(true); // show the editable blue boxes/handles ("safe zones")
   const [exportTplOpen, setExportTplOpen] = useState(false); // TRAQS-styled template dropdown open state
   const [exportTplNameOpen, setExportTplNameOpen] = useState(false); // TRAQS-styled "name this template" modal
@@ -15291,13 +15293,19 @@ ${jobsCtx || "No jobs found."}`;
               {/* Left rail: Add elements + Layers */}
               <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 16 }}>
                 <div>
-                  <div style={ELBL}>Add to sheet</div>
-                  {paletteGroups.map(grp => <div key={grp.name} style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: T.textSec, margin: "4px 0 6px" }}>{grp.name}</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                      {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); }} title="Drag onto the sheet, or click to add" style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
+                  <button onClick={() => { if (!exportAddOpen) setExportAddSeq(s => s + 1); setExportAddOpen(o => !o); }} title={exportAddOpen ? "Close the element picker" : "Add an element to this page"} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 34, borderRadius: 8, border: `1px solid ${exportAddOpen ? T.accent : T.accent + "66"}`, background: exportAddOpen ? T.accent : T.accent + "14", color: exportAddOpen ? T.accentText : T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s ease" }} onMouseEnter={ev => { if (!exportAddOpen) ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; }} onMouseLeave={ev => { ev.currentTarget.style.boxShadow = "none"; }}><span style={{ fontSize: 16, lineHeight: 1 }}>{exportAddOpen ? "×" : "+"}</span>{exportAddOpen ? "Close" : "Add Element"}</button>
+                  <div style={{ display: "grid", gridTemplateRows: exportAddOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
+                   <div style={{ overflow: "hidden", minHeight: 0 }}>
+                    <div key={exportAddSeq} style={{ marginTop: exportAddOpen ? 12 : 0, transition: "margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
+                    {paletteGroups.map(grp => <div key={grp.name} style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.textSec, margin: "4px 0 6px", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(grp.items[0]?.i ?? 0, 14) * 0.03}s` }}>{grp.name}</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }} title="Drag onto the sheet, or click to add" onMouseEnter={ev => { ev.currentTarget.style.borderColor = T.accent; ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; ev.currentTarget.style.background = T.accent + "14"; }} onMouseLeave={ev => { ev.currentTarget.style.borderColor = T.border; ev.currentTarget.style.boxShadow = "none"; ev.currentTarget.style.background = T.bg; }} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 0.03}s` }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
+                      </div>
+                    </div>)}
                     </div>
-                  </div>)}
+                   </div>
+                  </div>
                 </div>
                 <div>
                   <div style={ELBL}>Logo</div>
@@ -15378,7 +15386,7 @@ ${jobsCtx || "No jobs found."}`;
                   <button onClick={() => { const n = (layout.pages || []).length; pushExportHistory(); setExportLayout(L => ({ ...L, pages: [...L.pages, { blocks: [] }] })); setExportPageIdx(n); }} style={{ height: 26, padding: "0 10px", borderRadius: 6, border: "1px solid #ffffff44", background: "#ffffff18", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Page</button>
                   {(layout.pages || []).length > 1 && <button onClick={() => { pushExportHistory(); setExportLayout(L => ({ ...L, pages: L.pages.filter((_, i) => i !== pageIdx) })); setExportPageIdx(p => Math.max(0, p - 1)); }} style={{ height: 26, padding: "0 10px", borderRadius: 6, border: "1px solid #ffffff44", background: "#ffffff18", color: "#fca5a5", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Remove Page</button>}
                 </div>
-                <div onDragOver={ev => ev.preventDefault()} onPointerDown={ev => { if (ev.target === ev.currentTarget) setExportSelId(null); }} onDrop={ev => { ev.preventDefault(); const i = parseInt(ev.dataTransfer.getData("text/plain"), 10); const item = palette[i]; if (!item) return; const rect = ev.currentTarget.getBoundingClientRect(); const g = layout.grid || 16; const snp = v => layout.snap !== false ? Math.round(v / g) * g : Math.round(v); const x = Math.max(0, snp((ev.clientX - rect.left) / scale)); const y = Math.max(0, snp((ev.clientY - rect.top) / scale)); const blk = blockFromItem(item, x, y); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); }}
+                <div onDragOver={ev => ev.preventDefault()} onPointerDown={ev => { if (ev.target === ev.currentTarget) setExportSelId(null); }} onDrop={ev => { ev.preventDefault(); const i = parseInt(ev.dataTransfer.getData("text/plain"), 10); const item = palette[i]; if (!item) return; const rect = ev.currentTarget.getBoundingClientRect(); const g = layout.grid || 16; const snp = v => layout.snap !== false ? Math.round(v / g) * g : Math.round(v); const x = Math.max(0, snp((ev.clientX - rect.left) / scale)); const y = Math.max(0, snp((ev.clientY - rect.top) / scale)); const blk = blockFromItem(item, x, y); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }}
                   style={{ position: "relative", width: dims.w * scale, height: dims.h * scale, flexShrink: 0, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", backgroundColor: "#fff", backgroundImage: layout.snap !== false ? "linear-gradient(to right, rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px)" : "none", backgroundSize: `${(layout.grid || 16) * scale}px ${(layout.grid || 16) * scale}px` }}>
                   <iframe ref={exportIframeRef} srcDoc={(() => {
                     // While dragging/resizing, reuse the last committed doc so the iframe doesn't
