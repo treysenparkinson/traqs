@@ -6134,22 +6134,42 @@ ${jobsCtx || "No jobs found."}`;
       offline: T.textDim,
     };
     const statusFor = (p) => {
-      // Match clockState's lunch detection: look for an open lunchStart with no matching lunchEnd.
+      // Match clockState's lunch/break detection: look for an open start with no matching end.
       const evts = p?.activeClockIn?.events || [];
-      let lunchOpen = null;
+      let lunchOpen = null, breakOpen = false;
       for (const ev of evts) {
         if (ev.type === "lunchStart") lunchOpen = ev;
         else if (ev.type === "lunchEnd") lunchOpen = null;
+        else if (ev.type === "breakStart") breakOpen = true;
+        else if (ev.type === "breakEnd") breakOpen = false;
       }
       if (lunchOpen) return "lunch";
-      if (p?.activeBreak) return "break";
+      if (p?.activeBreak || breakOpen) return "break";
       if (p?.activeJobClock) return "job";
       if (p?.activeClockIn) return "idle";
       return "offline";
     };
+    // Break start timestamp, resilient to where the break was recorded: the lightweight
+    // activeBreak flag (web), an open breakStart in the payroll clock events, or — for iOS
+    // breaks that set the flag without persisting startedAt — the standalone breakStart row
+    // that breakBegin logs to the timeclock. Keeps the admin break timer accurate either way.
+    const breakStartTs = (p) => {
+      if (p?.activeBreak?.startedAt) return p.activeBreak.startedAt;
+      const evClock = p?.activeClockIn?.events || [];
+      let open = null;
+      for (const ev of evClock) { if (ev.type === "breakStart") open = ev.ts; else if (ev.type === "breakEnd") open = null; }
+      if (open) return open;
+      const today = new Date(now).toISOString().slice(0, 10);
+      const tcl = (timeclock || [])
+        .filter(e => String(e.personId) === String(p.id) && e.date === today && (e.eventType === "breakStart" || e.eventType === "breakEnd"))
+        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+      let tcOpen = null;
+      for (const e of tcl) { tcOpen = e.eventType === "breakStart" ? e.timestamp : null; }
+      return tcOpen || null;
+    };
     const startTsFor = (p, status) => {
       if (status === "job")     return p.activeJobClock?.clockIn;
-      if (status === "break")   return p.activeBreak?.startedAt;
+      if (status === "break")   return breakStartTs(p);
       if (status === "lunch") {
         const evts = p?.activeClockIn?.events || [];
         let last = null;

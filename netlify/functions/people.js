@@ -3,6 +3,29 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
 
+// Normalize a person's activeBreak so an active break always carries a startedAt.
+// iOS may set the flag (even as a bare boolean) without persisting a start time;
+// without this the admin "Live status" break timer has nothing to count from.
+// An existing startedAt — from the incoming record or the stored one — is always
+// preserved so an ongoing break's elapsed clock never resets.
+function withBreakStart(p, stored) {
+  const ab = p?.activeBreak;
+  if (!ab) return p;
+  const incomingStart = (typeof ab === "object" && ab.startedAt) || null;
+  const storedStart = (stored?.activeBreak && typeof stored.activeBreak === "object" && stored.activeBreak.startedAt) || null;
+  const dur = (typeof ab === "object" && ab.durationMinutes)
+    || (stored?.activeBreak && typeof stored.activeBreak === "object" && stored.activeBreak.durationMinutes)
+    || null;
+  return {
+    ...p,
+    activeBreak: {
+      ...(typeof ab === "object" ? ab : {}),
+      startedAt: incomingStart || storedStart || new Date().toISOString(),
+      ...(dur ? { durationMinutes: dur } : {}),
+    },
+  };
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
@@ -55,11 +78,15 @@ export async function handler(event) {
         return err(403, "Only admins can change user roles");
       }
 
-      // Preserve existing PINs for records that don't supply a new one.
+      // Preserve existing PINs for records that don't supply a new one, and
+      // anchor a break-start time when a break is active but missing one (e.g.
+      // iOS sets activeBreak without persisting startedAt) so admin timers stay
+      // accurate. An existing startedAt is always preserved — never reset.
       const merged = incoming.map(p => {
         const stored = existingMap.get(p.id);
-        if (stored?.pin && !p.pin) return { ...p, pin: stored.pin };
-        return p;
+        let np = (stored?.pin && !p.pin) ? { ...p, pin: stored.pin } : p;
+        np = withBreakStart(np, stored);
+        return np;
       });
 
       await writeJson(s3Key, merged);
@@ -106,7 +133,7 @@ export async function handler(event) {
         if (!member.isAdmin) return err(403, "Only admins can change user roles");
       }
 
-      existing[idx] = { ...existing[idx], ...allowedFields };
+      existing[idx] = withBreakStart({ ...existing[idx], ...allowedFields }, existing[idx]);
       await writeJson(s3Key, existing);
 
       // Strip PIN before returning, matching the GET behavior.
