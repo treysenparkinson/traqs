@@ -9965,16 +9965,33 @@ ${jobsCtx || "No jobs found."}`;
     }
     const maxBucket = Math.max(...buckets.map(b => b.h), 1);
 
-    // â”€â”€ Per-person workload â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // â”€â”€ Per-person pay-period hours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Hours logged in the CURRENT pay period (semi-monthly, e.g. the 5th & 20th
+    // â†’ 5thâ€“19th then 20thâ€“4th), shown as progress toward the per-period hour
+    // cap. This card runs on the pay-period cadence regardless of the
+    // week/month/year selector above, since payroll periods are their own thing.
+    const payPeriod = getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
+    const PERIOD_HOUR_CAP = orgSettings.payPeriodHourCap || 80;
+    const fmtPP = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    // Show every hourly (non-salary) person, even those with 0 logged hours this
+    // period, so managers can spot who hasn't clocked in yet. Sorted by hours
+    // desc, then name, so zero-hour people fall to the bottom alphabetically.
     const personRows = people.filter(p => p.payType !== "salary").map(p => {
-      const scheduled = daysInPeriod.reduce((s, d) => {
-        if (!orgSettings.workDays.includes(new Date(d + "T12:00:00").getDay())) return s;
-        return s + bookedHrs(p.id, d);
-      }, 0);
-      const logged = timeclock.filter(e => String(e.personId) === String(p.id) && e.date >= periodStart && e.date <= periodEnd && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
-      return { p, scheduled: Math.round(scheduled * 10) / 10, logged: Math.round(logged * 10) / 10 };
-    }).filter(r => r.scheduled > 0 || r.logged > 0).sort((a, b) => (b.scheduled + b.logged) - (a.scheduled + a.logged)).slice(0, 15);
-    const maxPersonHours = Math.max(...personRows.map(r => Math.max(r.scheduled, r.logged)), 1);
+      // PAY CLOCK only: completed clock-in/out punches (entries carrying both a
+      // clockIn AND a clockOut). Their `hours` is already net of lunch/break.
+      // This is deliberately NOT job-clock time (that accrues on tasks as
+      // loggedHours, never lands here) and NOT lunch/break rows (eventType).
+      let hrs = timeclock
+        .filter(e => String(e.personId) === String(p.id) && e.date >= payPeriod.start && e.date <= payPeriod.end && e.clockIn && e.clockOut)
+        .reduce((s, e) => s + (e.hours || 0), 0);
+      // Add the live, still-open shift so the bar reflects where they stand now.
+      const cs = effectiveClockState(p);
+      const openDate = p.activeClockIn?.clockIn?.slice(0, 10);
+      if (cs.isClocked && openDate && openDate >= payPeriod.start && openDate <= payPeriod.end) {
+        hrs += cs.runningMs / 3600000;
+      }
+      return { p, logged: Math.round(hrs * 10) / 10 };
+    }).sort((a, b) => b.logged - a.logged || a.p.name.localeCompare(b.p.name));
 
     // â”€â”€ Department breakdown (scheduled hours) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const deptTotals = {};
@@ -10090,26 +10107,30 @@ ${jobsCtx || "No jobs found."}`;
         )}
       </Card>
 
-      {/* Row: Per-person workload (2/3) + Department donut (1/3) */}
+      {/* Row: Per-person pay-period hours (2/3) + Department donut (1/3) */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 20 }}>
         <Card style={{ animation: "none" }}>
-          <h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Per-Person Workload</h4>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, margin: "0 0 16px", flexWrap: "wrap" }}>
+            <h4 style={{ color: T.textSec, margin: 0, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pay-Period Hours</h4>
+            <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fmtPP(payPeriod.start)} – {fmtPP(payPeriod.end)} · {PERIOD_HOUR_CAP}h cap</span>
+          </div>
           {personRows.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No workload data in this period.</div>
+            <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No hourly team members.</div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <div style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 120px", gap: 12, alignItems: "center", fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", paddingBottom: 4, borderBottom: `1px solid ${T.border}` }}>
                 <span>Name</span>
-                <span><span style={{ color: T.accent }}>● logged</span> &nbsp; <span style={{ color: T.textDim }}>● scheduled</span></span>
-                <span style={{ textAlign: "right" }}>hrs (logged / sched)</span>
+                <span>Progress toward {PERIOD_HOUR_CAP}h</span>
+                <span style={{ textAlign: "right" }}>hrs / cap</span>
               </div>
-              {personRows.map(({ p, scheduled, logged }) => {
-                // Per-row normalization — each row's bar fills proportionally to its own max
-                // (scheduled or logged), so one mega-booked person doesn't dwarf others.
-                const rowMax = Math.max(scheduled, logged, 1);
-                const schedPct = (scheduled / rowMax) * 100;
-                const logPct = (logged / rowMax) * 100;
-                const over = logged > scheduled;
+              {personRows.map(({ p, logged }) => {
+                // Fill = hours logged this pay period as a fraction of the cap (clamped
+                // at 100%). Color escalates: accent under cap, amber within 10% of it,
+                // red once the worker is over the period cap.
+                const pct = Math.min(100, (logged / PERIOD_HOUR_CAP) * 100);
+                const over = logged > PERIOD_HOUR_CAP;
+                const near = !over && logged >= PERIOD_HOUR_CAP * 0.9;
+                const barColor = over ? "#ef4444" : near ? "#f59e0b" : T.accent;
                 return (
                   <div key={p.id} style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 140px", gap: 12, alignItems: "center", padding: "4px 0" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
@@ -10117,10 +10138,9 @@ ${jobsCtx || "No jobs found."}`;
                       <span style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                     </div>
                     <div style={{ position: "relative", height: 20, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${schedPct}%`, background: T.textDim + "55", transition: "width 0.3s" }} />
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${logPct}%`, background: over ? "#f59e0b" : T.accent, transition: "width 0.3s" }} />
+                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: barColor, transition: "width 0.3s" }} />
                     </div>
-                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textAlign: "right" }}><span style={{ color: over ? "#f59e0b" : T.accent, fontWeight: 700 }}>{logged}h</span> <span style={{ opacity: 0.6 }}>/ {scheduled}h</span></div>
+                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textAlign: "right" }}><span style={{ color: barColor, fontWeight: 700 }}>{logged}h</span> <span style={{ opacity: 0.6 }}>/ {PERIOD_HOUR_CAP}h</span>{over && <span style={{ color: "#ef4444", fontWeight: 700 }}> (+{Math.round((logged - PERIOD_HOUR_CAP) * 10) / 10})</span>}</div>
                   </div>
                 );
               })}
