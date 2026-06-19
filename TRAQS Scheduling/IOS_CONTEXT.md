@@ -7,27 +7,30 @@ Pick back up from **"Where I left off"** below.
 
 ---
 
-## ⏯️ Where I left off (2026-06-16)
+## ⏯️ Where I left off (2026-06-16, evening)
 
-Building the **end-job panel photo** feature. Code is **done, committed, and
-builds clean**. I got to **testing it on my own phone** and hit a launch crash
-that turned out to be **environmental, not a code bug**:
+The **end-job panel photo** feature is **done, committed, builds clean, and now
+TESTED GREEN ON DEVICE.** ✅ The whole flow worked on the real phone.
 
-- My **iPhone is on the iOS 27 dev beta**, but my **MacBook's Xcode is not**
-  (only has the iOS 26 SDK / device support).
-- Running a build on a device whose OS is newer than Xcode supports →
-  low-level abort in `libxpc`/`dyld` **before `main()`**
-  (`-[OS_dispatch_mach_msg _setContext:]: unrecognized selector`). Not our code.
-- **Fix:** updating the MacBook / installing the Xcode that supports iOS 27
-  (doing this tonight, 2026-06-16). After that, rebuild and the app launches.
-- Meanwhile the app **builds and runs fine in the Simulator** — code is sound.
+### The device-launch blocker (RESOLVED)
+Earlier this session the on-device launch crashed before `main()` — a low-level
+`libxpc`/`dyld` abort (`-[OS_dispatch_mach_msg _setContext:]: unrecognized
+selector`). It was **environmental, not our code**: my **iPhone 17 Pro is on iOS
+27.0** but Xcode lacked the iOS 27 **device-support** files.
+- Now fixed: `~/Library/Developer/Xcode/iOS DeviceSupport/` has
+  `iPhone18,1 27.0 (24A5355q)`. Toolchain is **Xcode 26.3 / iOS 26.2 SDK**, which
+  builds + deploys to the iOS 27.0 device fine.
+- If a future device-launch crashes pre-`main()` again, suspect missing
+  DeviceSupport for the phone's OS, not the code.
 
 ### Next time I sit down
-1. Update Xcode (iOS 27 support) → clean build → run on phone.
-2. Test the full flow on device (see **Testing checklist** below) — camera
-   permission prompt, photo upload, job ends.
-3. Then: **show these attachments in iOS `JobDetailView`** (thumbnails + delete)
-   for parity with the web app — NOT built yet on native.
+1. **Show panel attachments in iOS `JobDetailView`** (thumbnails + delete) for
+   parity with the web app — NOT built yet on native. This is the main task.
+   - Source of truth for the shape: `Panel.attachments` ([`PanelAttachment`] in
+     `Models.swift`) — `key, filename, mimeType, size, uploadedById,
+     uploadedByName, uploadedAt, opId`.
+   - Web app does thumbnails + delete; mirror that. Upload path already exists
+     (`AppState.attachPanelPhoto(...)`); will likely need a delete/remove path.
 
 ---
 
@@ -99,7 +102,7 @@ repeats. Images are downscaled to JPEG (≤1600px, 0.82). Mirrors the web app.
 
 ---
 
-## ✅ Testing checklist (on device, after Xcode update)
+## ✅ Testing checklist (on device) — PASSED 2026-06-16
 1. Jobs tab → start a job (LOG TIME), then tap **STOP**.
 2. Overlay fades in with the "+" square + heading.
 3. Tap square → **Take Photo** (camera permission prompt first time) / **Photo
