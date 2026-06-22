@@ -8494,10 +8494,6 @@ ${jobsCtx || "No jobs found."}`;
                   if (teamDragInfo.targetPersonId === p.id && teamDragInfo.translateX != null && (Math.abs(teamDragInfo.translateX) > 4 || Math.abs(teamDragInfo.translateY || 0) > 4)) {
                     const _liveRef = teamDragLiveRef.current;
                     const _liveSnapDay = _liveRef?.snapStart || snapStart;
-                    const _liveSnapEnd = _liveRef?.snapEnd || snapEnd;
-                    const _ghostLeft = _liveRef?.ghostLeftPct != null
-                      ? _liveRef.ghostLeftPct
-                      : (days.indexOf(_liveSnapDay) >= 0 ? (days.indexOf(_liveSnapDay) / nDays * 100) : (diffD(tStart, _liveSnapDay) / nDays * 100));
                     const _ghostBarHpd = teamDragInfo.barHpd || 0;
                     const _dropHour = _liveRef?.dropHour ?? workStartH;
                     const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
@@ -8511,18 +8507,46 @@ ${jobsCtx || "No jobs found."}`;
                       while (_ghRem > totalWorkH) { _ghRem -= totalWorkH; _ghDays++; }
                       return _ghDays + 1;
                     })();
-                    const _ghostWBudget = _ghostBarHpd > 0 ? Math.max(0.03 / nDays * 100, (_ghostBarHpd / productiveHoursPerDay) / nDays * 100) : _ghostVisualDays / nDays * 100;
-                    const _ghostEndDay = addBD(_liveSnapDay, _ghostVisualDays - 1, { workDays: orgSettings.workDays, holidays: orgSettings.holidays });
-                    const _ghostSegs = weekdaySegments(_liveSnapDay, _ghostEndDay, tStart, tEnd, orgSettings.workDays);
                     const _oneDayW = 1 / nDays * 100;
                     const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
-                    // Render the drag ghost as ONE smooth rectangle anchored to the live cursor pixel
-                    // (_ghostLeft) with the bar's width. Re-deriving weekday-split segments from the
-                    // day-snapped snap date on every animation frame — and clamping them to the moving
-                    // window — is what made the ghost flicker while the timeline auto-scrolls. A single
-                    // rect tracks the cursor smoothly; the committed bar still draws its real weekend
-                    // splits on drop.
-                    ghosts.push(<div key="team-ghost" style={{ position: "absolute", top: 4, left: `calc(${_ghostLeft}% + 2px)`, width: `calc(${Math.max(_ghostWBudget, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                    // Total working-content width of the ghost, in day-units (weekends excluded).
+                    const _ghostWidthDays = _ghostBarHpd > 0 ? Math.max(0.03, _ghostBarHpd / productiveHoursPerDay) : _ghostVisualDays;
+                    // Anchor the ghost to the SMOOTH cursor position (the bar's live left edge), not the
+                    // day-snapped column — that's what lets it glide cleanly instead of stepping per day.
+                    // ghostLeftPct already bakes in the intra-day hour offset; the day-snapped fallback
+                    // (used before the first mouse-move / during auto-scroll) adds it explicitly.
+                    const _ghostLeftPct = _liveRef?.ghostLeftPct != null
+                      ? _liveRef.ghostLeftPct
+                      : ((days.indexOf(_liveSnapDay) >= 0 ? days.indexOf(_liveSnapDay) : diffD(tStart, _liveSnapDay)) / nDays * 100 + _ghostHourOffW);
+                    // Walk forward from the cursor column, laying the width across working-day columns and
+                    // inserting a gap whenever a disabled day (weekend/holiday) falls inside the span — so
+                    // the ghost breaks at weekends and flows into the next week while still tracking the
+                    // cursor smoothly. The committed bar uses the same floor-based day + hour offset, so
+                    // the ghost lands exactly where the bar drops.
+                    let _remDays = _ghostWidthDays;
+                    let _curCol = _ghostLeftPct / _oneDayW;
+                    let _guard = 0;
+                    while (_remDays > 0.001 && _guard++ < 500) {
+                      const _ci = Math.floor(_curCol + 1e-6);
+                      const _dd = (_ci >= 0 && _ci < nDays) ? days[_ci] : null;
+                      if (_dd && !isWorkDay(_dd, orgSettings.workDays)) { _curCol = _ci + 1; continue; }
+                      const _segStart = _curCol;
+                      let _segW = 0;
+                      while (_remDays > 0.001 && _guard++ < 500) {
+                        const _ci2 = Math.floor(_curCol + 1e-6);
+                        const _dd2 = (_ci2 >= 0 && _ci2 < nDays) ? days[_ci2] : null;
+                        if (_dd2 && !isWorkDay(_dd2, orgSettings.workDays)) break;
+                        const _colEnd = _ci2 + 1;
+                        const _take = Math.min(_remDays, _colEnd - _curCol);
+                        _segW += _take; _remDays -= _take; _curCol += _take;
+                        if (_curCol < _colEnd - 1e-6) break;
+                        _curCol = _colEnd;
+                      }
+                      if (_segW > 0) {
+                        const _gi = ghosts.length;
+                        ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${_segStart * _oneDayW}% + 2px)`, width: `calc(${Math.max(_segW * _oneDayW, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                      }
+                    }
                   }
                   (groupSnaps || []).forEach(gs => {
                     if ((gs.personIds || []).includes(p.id)) {
@@ -8700,6 +8724,11 @@ ${jobsCtx || "No jobs found."}`;
                     const _effectiveHpdForDrag = _dragWS.isPartiallyWorked ? _dragWS.remainingHpd : (bar.task?.hpd || 0);
                     const _dragBarHpd = _effectiveHpdForDrag > 0 ? _effectiveHpdForDrag / _dragTeamSz : productiveHoursPerDay;
                     const _dragOffsetH = Math.max(0, (bar.task?.startHour ?? workStartH) - workStartH);
+                    // The bar's own start-hour offset as a fraction of a day column. The bar's LEFT edge
+                    // sits at (its start day column + this offset), so the day-delta math below must add
+                    // it — otherwise an already-hour-positioned bar snaps to a day that disagrees with
+                    // where its left edge (and the ghost) actually is.
+                    const _origColOffset = totalWorkH > 0 ? _dragOffsetH / totalWorkH : 0;
                     const _visualWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil(_dragBarHpd / productiveHoursPerDay)) : wdDuration;
                     const taskPid = bar.task.pid || null;
                     const origPerson = p.id;
@@ -8832,7 +8861,7 @@ ${jobsCtx || "No jobs found."}`;
                           sx -= wholeDays * liveCW;
                           const pxDx2 = lastCX - sx;
                           const pxDy2 = lastCY - sy;
-                          const dx2 = Math.round(pxDx2 / liveCW);
+                          const dx2 = Math.floor(pxDx2 / liveCW + _origColOffset);
                           let snapS2 = nextBD(addD(os, dx2), barBDOpts);
                           const snapE2 = addBD(snapS2, _visualWD - 1, barBDOpts);
                           // CRITICAL: the ghost AND the release-commit both read teamDragLiveRef.
@@ -8885,8 +8914,14 @@ ${jobsCtx || "No jobs found."}`;
                         if (found !== null) { const pObj = people.find(x => String(x.id) === found); if (pObj) found = pObj.id; }
                         if (found !== lastDropPid) { lastDropPid = found; setDropTarget(found); }
                       }
-                      // Use live-measured column width so overlap preview matches actual render
-                      const dx = Math.round(pxDx / liveCW);
+                      // Use live-measured column width so overlap preview matches actual render.
+                      // floor (not round): the snapped start day = the column the bar's LEFT edge is
+                      // over, which is exactly the column the hour offset (dropHour) is measured within.
+                      // round desynced the two by up to half a column, so the bar dropped offset from
+                      // the ghost; floor keeps day + hour consistent and lets the ghost glide cleanly.
+                      // + _origColOffset accounts for the bar's own start-hour offset so the snapped
+                      // day matches the column the bar's left edge (and the ghost) actually sits in.
+                      const dx = Math.floor(pxDx / liveCW + _origColOffset);
                       let dropHour = null;
                       let snapS = nextBD(addD(os, dx), barBDOpts);
                       if (tMode === "month") {
@@ -8901,8 +8936,11 @@ ${jobsCtx || "No jobs found."}`;
                           // cursor's fractional position within its column.
                           if (isWorkDay(snapS, barWorkDays)) {
                             const _colFrac = Math.min(0.9999, Math.max(0, _rawDayIdx - Math.floor(_rawDayIdx)));
+                            // Continuous (no half-hour rounding) so the committed start hour lands
+                            // exactly under the gliding ghost — rounding here shifted the drop a few
+                            // pixels off the ghost. The bar stores this precise hour.
                             const _rawHour = workStartH + _colFrac * totalWorkH;
-                            dropHour = Math.max(0, Math.round(_rawHour * 2) / 2);
+                            dropHour = Math.max(0, _rawHour);
                           } else {
                             dropHour = workStartH;
                           }
@@ -9113,7 +9151,7 @@ ${jobsCtx || "No jobs found."}`;
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openDetail(bar.task); } return; }
                       const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
-                      const finalDx = Math.round((me.clientX - sx) / liveCW);
+                      const finalDx = Math.floor((me.clientX - sx) / liveCW + _origColOffset);
                       const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(os, finalDx));
                       const _finalDropH = teamDragLiveRef.current?.dropHour ?? workStartH;
                       const _finalProdOff = Math.max(0, _finalDropH - workStartH) / totalWorkH * productiveHoursPerDay;
