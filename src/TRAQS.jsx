@@ -2080,8 +2080,8 @@ Extraction rules:
     if (exportPreview?.kind !== "pdf" || !exportLayout) { exportFitDoneRef.current = false; return; }
     if (exportFitDoneRef.current) return;
     exportFitDoneRef.current = true;
-    const ctx = exportCtx(exportPreview.jobs || [], exportLayout);
-    (exportLayout.pages || []).forEach((pg, pi) => (pg.blocks || []).forEach(b => { if (["job", "panel", "summary", "notes", "attachments", "text"].includes(b.type)) fitBlockHeight(pi, b, ctx); }));
+    const ctx = exportCtx(exportPreview.jobs || [], exportLayout, { hoursReport: exportPreview.hoursReport });
+    (exportLayout.pages || []).forEach((pg, pi) => (pg.blocks || []).forEach(b => { if (["job", "panel", "summary", "notes", "attachments", "text", "hours"].includes(b.type)) fitBlockHeight(pi, b, ctx); }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [exportPreview, exportLayout]);
   const exportDragRef = useRef(null); // active drag/resize gesture state
@@ -2435,6 +2435,12 @@ Extraction rules:
     .job-atts .lbl{display:block;margin-bottom:6px}
     .att-list{display:flex;flex-direction:column;gap:4px}
     .att-link{font-size:10px;color:${T.accent};text-decoration:underline;word-break:break-all}
+    .hrs-table{width:100%;border-collapse:collapse}
+    .hrs-table th{padding:7px 10px;background:#f8fafc;border-bottom:2px solid #e2e8f0;text-align:left;font-size:10px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:0.05em}
+    .hrs-table th.num,.hrs-table td.num{text-align:right}
+    .hrs-table td{padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#334155}
+    .hrs-table .wkr{font-weight:600;color:#0f172a}
+    .hrs-table tfoot td{border-top:2px solid #e2e8f0;border-bottom:none;font-weight:700;color:#0f172a}
   `;
   const panelHtml = (panel, o = {}) => {
     // Panel-level status intentionally omitted — status is shown only in the parent job card's
@@ -2469,6 +2475,7 @@ Extraction rules:
     if (type === "job") return { client: true, priority: true, dates: true, due: true, po: true, hours: true, progress: true, notes: true, panels: true, ops: true, attachments: true };
     if (type === "panel") return { ops: true, dates: true, hours: true };
     if (type === "summary") return { jobs: true, tasks: true, operations: true, hours: true };
+    if (type === "hours") return { department: true };
     if (type === "datetime") return { date: true, time: true };
     return {};
   };
@@ -2485,6 +2492,7 @@ Extraction rules:
       case "text": return `Text — ${(b.text || "").slice(0, 20) || "—"}`;
       case "datetime": return "Date / time";
       case "summary": return "Summary";
+      case "hours": return "Pay-period hours";
       case "job": return `Job — ${job?.title || "?"}`;
       case "panel": { const p = job && (job.subs || []).find(x => x.id === b.ref?.panelId); return `Panel — ${p?.title || "?"}`; }
       case "attachments": return `Attachments — ${job?.title || "?"}`;
@@ -2519,10 +2527,20 @@ Extraction rules:
       case "notes": return `<div class="job-notes"><span class="lbl">Notes${job ? " · " + escHtml(job.title) : ""}</span>${escHtml(job?.notes || "")}</div>`;
       case "attachments": { if (!job) return `<div class="empty">No job</div>`; const atts = (job.subs || []).flatMap(p => (p.attachments || []).map(a => ({ ...a, panelTitle: p.title }))); return attListHtml(atts); }
       case "panel": { const p = job && (job.subs || []).find(x => x.id === b.ref?.panelId); return p ? panelHtml(p, o) : `<div class="empty">Panel not found</div>`; }
+      case "hours": {
+        const rep = ctx.hoursReport;
+        if (!rep) return `<div class="empty">No hours data</div>`;
+        const showDept = o.department !== false;
+        const cols = showDept ? 3 : 2;
+        const head = `<tr><th>Worker</th>${showDept ? "<th>Department</th>" : ""}<th class="num">Hours</th></tr>`;
+        const body = (rep.rows || []).map(r => `<tr><td class="wkr">${escHtml(r.name)}</td>${showDept ? `<td>${escHtml(r.department || "—")}</td>` : ""}<td class="num mono">${(r.hours || 0).toFixed(2)}</td></tr>`).join("");
+        const foot = `<tr><td>Total</td>${showDept ? "<td></td>" : ""}<td class="num mono">${(rep.total || 0).toFixed(2)}</td></tr>`;
+        return `<table class="hrs-table"><thead>${head}</thead><tbody>${body || `<tr><td colspan="${cols}" class="empty">No hourly workers</td></tr>`}</tbody><tfoot>${foot}</tfoot></table>`;
+      }
       case "job": default: return job ? jobCardHtml(job, o) : `<div class="empty">Job not found</div>`;
     }
   };
-  const exportCtx = (jobs, layout) => { const now = new Date(); return { jobs, logoDataUrl: layout?.logoDataUrl || null, dateStr: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }), timeStr: now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) }; };
+  const exportCtx = (jobs, layout, extra = {}) => { const now = new Date(); return { jobs, logoDataUrl: layout?.logoDataUrl || null, dateStr: now.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" }), timeStr: now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), ...extra }; };
   const blocksHtml = (page, ctx) => ((page && page.blocks) || []).map(b => `<div class="blk" id="blk-${b.id}" style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px">${renderBlockHtml(b, ctx)}</div>`).join("");
   // Locked branding footer — rendered into every page (editor + export), bottom-left, greyed
   // out and small. Not part of the blocks array, so it can't be selected, moved, or removed.
@@ -2544,6 +2562,18 @@ Extraction rules:
       if (i === 0) pages[0].blocks.push({ ...blk, x: M, y: 192 });
       else pages.push({ blocks: [{ ...blk, x: M, y: M }] });
     });
+    return { orientation: "portrait", grid: 16, snap: true, logoDataUrl: null, pages };
+  };
+  // Initial layout for a pay-period hours export: branded header + the hours table.
+  const seedHoursLayout = (report) => {
+    const M = 48, W = 816;
+    const pages = [{ blocks: [
+      { id: uid(), type: "logo", x: M, y: M, w: 240, h: 64 },
+      { id: uid(), type: "datetime", x: W - M - 200, y: M, w: 200, h: 48, opts: defaultExportOpts("datetime") },
+      { id: uid(), type: "title", x: M, y: 128, w: W - 2 * M, h: 40, text: "Pay Period Hours", fmt: defaultFmt("title") },
+      { id: uid(), type: "subtitle", x: M, y: 172, w: W - 2 * M, h: 28, text: report?.label || "", fmt: defaultFmt("subtitle") },
+      { id: uid(), type: "hours", x: M, y: 220, w: W - 2 * M, h: 400, opts: defaultExportOpts("hours") },
+    ] }];
     return { orientation: "portrait", grid: 16, snap: true, logoDataUrl: null, pages };
   };
   // Block mutations (functional updates so rapid drag deltas don't clobber each other).
@@ -10044,16 +10074,49 @@ ${jobsCtx || "No jobs found."}`;
     const areaPoly = linePts.length ? `${padL},${padT + innerH} ${linePoly} ${padL + (buckets.length - 1) * xStep},${padT + innerH}` : "";
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ frac: f, val: f * maxBucket }));
 
+    // ── Pay-period hours export (opens the shared export designer) ─────────────
+    // Payroll-grade: completed PAY-CLOCK punches only (clockIn + clockOut, net of
+    // lunch/break). Deliberately excludes the live open shift and job-clock logs.
+    // Lists every hourly person, including 0h, so the accountant has the full roster.
+    const buildHoursReport = () => {
+      const rows = people.filter(p => p.payType !== "salary").map(p => {
+        const hours = timeclock
+          .filter(e => String(e.personId) === String(p.id) && e.date >= payPeriod.start && e.date <= payPeriod.end && e.clockIn && e.clockOut)
+          .reduce((s, e) => s + (e.hours || 0), 0);
+        return { name: p.name, department: p.department || "", hours: Math.round(hours * 100) / 100 };
+      }).sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
+      const total = Math.round(rows.reduce((s, r) => s + r.hours, 0) * 100) / 100;
+      const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+      return { start: payPeriod.start, end: payPeriod.end, label: `${fmtY(payPeriod.start)} – ${fmtY(payPeriod.end)}`, cap: PERIOD_HOUR_CAP, rows, total };
+    };
+    const openHoursExport = () => {
+      const report = buildHoursReport();
+      setExportLayout(seedHoursLayout(report));
+      setExportPageIdx(0);
+      resetExportHistory();
+      setExportPreview({ kind: "pdf", jobs: [], hoursReport: report, filename: `pay-period-hours_${report.start}_to_${report.end}.pdf`, mime: "application/pdf" });
+    };
+
     return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Header — title + period pill toggle */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
+      {/* Header — title (left) · period pill (center) · export (right) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Analytics</h3>
-        <SlidingPill
-          size="sm"
-          options={[{ value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
-          value={analyticsPeriod}
-          onChange={setAnalyticsPeriod}
-        />
+        <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+          <SlidingPill
+            size="sm"
+            options={[{ value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
+            value={analyticsPeriod}
+            onChange={setAnalyticsPeriod}
+          />
+        </div>
+        <button
+          onClick={openHoursExport}
+          title="Export pay-period hours for payroll"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 30, padding: "0 13px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export Hours
+        </button>
       </div>
 
       {/* KPI strip — 4 tiles */}
@@ -15280,7 +15343,7 @@ ${jobsCtx || "No jobs found."}`;
       const ep = exportPreview;
       const isPdf = ep.kind === "pdf";
       const layout = exportLayout;
-      const ctx = exportCtx(ep.jobs || [], layout || {});
+      const ctx = exportCtx(ep.jobs || [], layout || {}, { hoursReport: ep.hoursReport });
       const dims = EXPORT_PAGE(layout?.orientation);
       const pageIdx = Math.min(exportPageIdx, (layout?.pages?.length || 1) - 1);
       const page = layout?.pages?.[pageIdx];
@@ -15305,6 +15368,7 @@ ${jobsCtx || "No jobs found."}`;
         { type: "datetime", label: "Date / time", w: 200, h: 48, group: "Elements" },
         { type: "summary", label: "Summary", w: 720, h: 80, group: "Elements" },
       ];
+      if (ep.hoursReport) palette.push({ type: "hours", label: "Hours table", w: 720, h: 360, group: "Elements" });
       (ep.jobs || []).forEach(j => {
         const g = j.title || "Job";
         palette.push({ type: "job", label: "Full job card", w: 720, h: 320, ref: { jobId: j.id }, group: g });
@@ -15407,6 +15471,7 @@ ${jobsCtx || "No jobs found."}`;
                               {b.type === "datetime" && <>{chk("Date", "date")}{chk("Time", "time")}</>}
                               {b.type === "summary" && <>{chk("Jobs", "jobs")}{chk("Tasks", "tasks")}{chk("Operations", "operations")}{chk("Total hours", "hours")}</>}
                               {b.type === "panel" && <>{chk("Operations (tasks)", "ops")}{chk("Dates", "dates")}{chk("Hours", "hours")}</>}
+                              {b.type === "hours" && <>{chk("Department column", "department")}</>}
                               {b.type === "job" && <>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", margin: "2px 0 4px" }}>Details</div>
                                 {chk("Client", "client")}{chk("Priority", "priority")}{chk("Dates", "dates")}{chk("Due date", "due")}{chk("PO #", "po")}{chk("Total hours", "hours")}{chk("Progress", "progress")}
