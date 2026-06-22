@@ -918,16 +918,19 @@ class AppState {
         if op.status == .finished { return (est, est) }
         if op.pendingFinish == true { return (est * 0.99, est) }
         let base = op.loggedHours ?? 0
-        // Live elapsed for any worker currently clocked into this op (display only).
-        var live: Double = 0
-        if let activeP = people.first(where: { $0.activeJobClock?.opId == op.id && !($0.activeJobClock?.clockIn.isEmpty ?? true) }),
-           let jc = activeP.activeJobClock,
-           let started = Date.fromFlexibleISO8601(jc.clockIn) {
-            let elapsedH = Date().timeIntervalSince(started) / 3600
-            let pausedH = (jc.totalPausedMs ?? 0) / 3_600_000
-            live = max(0, elapsedH - pausedH)
-        }
-        return (min(est, base + live), est)
+        return (min(est, base + liveElapsedHours(for: op)), est)
+    }
+
+    /// Live (not-yet-clocked-out) hours for whoever is currently clocked into
+    /// this op — display only, so progress/worked visuals creep forward between
+    /// server polls. 0 when nobody is on the op's clock.
+    private func liveElapsedHours(for op: Operation) -> Double {
+        guard let activeP = people.first(where: { $0.activeJobClock?.opId == op.id && !($0.activeJobClock?.clockIn.isEmpty ?? true) }),
+              let jc = activeP.activeJobClock,
+              let started = Date.fromFlexibleISO8601(jc.clockIn) else { return 0 }
+        let elapsedH = Date().timeIntervalSince(started) / 3600
+        let pausedH = (jc.totalPausedMs ?? 0) / 3_600_000
+        return max(0, elapsedH - pausedH)
     }
 
     func opPct(_ op: Operation) -> Int {
@@ -942,6 +945,36 @@ class AppState {
             }
         }
         return min(98, Int((h.logged / h.est * 100).rounded()))
+    }
+
+    /// Number of full op-days (fractional) recorded against an op from its
+    /// lifetime `loggedHours` total — used to fill the op's schedule tiles
+    /// front-to-back (one tile per `hpd` logged) for already-clocked-out work.
+    /// Live, in-progress time is NOT included here; it's attributed to the
+    /// actual day it's happening on via `liveHours(forOp:on:)` so a worker's
+    /// current session shows up on today's bar immediately. A finished op fills
+    /// all of its tiles.
+    func opLoggedDays(_ op: Operation) -> Double {
+        if op.status == .finished { return .greatestFiniteMagnitude }
+        let hpd = max(0.0001, op.hpd > 0 ? op.hpd : orgSettings.hpd)
+        return (op.loggedHours ?? 0) / hpd
+    }
+
+    /// Live (not-yet-clocked-out) hours for an op, attributed to the calendar
+    /// day its session STARTED on (normally today). The server only folds a
+    /// session into `loggedHours` at clock-out, so without this a worker sees
+    /// nothing on the bar while they're actively working. Sums all workers
+    /// currently on the op (an op can have more than one).
+    func liveHours(forOp op: Operation, on day: Date) -> Double {
+        let cal = Calendar.current
+        return people.reduce(0.0) { acc, p in
+            guard let jc = p.activeJobClock, jc.opId == op.id, !jc.clockIn.isEmpty,
+                  let started = Date.fromFlexibleISO8601(jc.clockIn),
+                  cal.isDate(started, inSameDayAs: day) else { return acc }
+            let elapsedH = Date().timeIntervalSince(started) / 3600
+            let pausedH = (jc.totalPausedMs ?? 0) / 3_600_000
+            return acc + max(0, elapsedH - pausedH)
+        }
     }
 
     /// Panel progress: total logged hours ÷ total estimated hours across child ops.

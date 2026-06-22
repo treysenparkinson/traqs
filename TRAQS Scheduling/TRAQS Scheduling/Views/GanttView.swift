@@ -220,6 +220,22 @@ struct GanttView: View {
         for item in items {
             var remaining = item.hpd
 
+            // Worked HOURS allocated to this op on this day (front-to-back across
+            // the op's days), poured continuously across the day's chunks below so
+            // a lunch-split task shows ONE fill that flows from the before-lunch
+            // chunk into the after-lunch one — not a sliver on each half.
+            let workedToday: Double = {
+                guard let op = item.op else { return 0 }
+                let dayIndex = max(0, businessDaySpan(from: op.start.asDate, to: day) - 1)
+                // Already-logged (clocked-out) work, distributed front-to-back.
+                let loggedFraction = min(1, max(0, appState.opLoggedDays(op) - Double(dayIndex)))
+                let loggedHoursToday = loggedFraction * item.hpd
+                // Plus any live, in-progress session happening THIS day, so a
+                // worker's current hour shows on today's bar right away.
+                return loggedHoursToday + appState.liveHours(forOp: op, on: day)
+            }()
+            var workedPacked: Double = 0   // hours of this op already emitted earlier today
+
             // Skip past lunch if the cursor lands inside it.
             if cursor >= lunchStart && cursor < lunchEnd { cursor = lunchEnd }
 
@@ -227,21 +243,26 @@ struct GanttView: View {
             let firstCapEdge = cursor < lunchStart ? lunchStart : .infinity
             let firstChunk = min(remaining, firstCapEdge - cursor)
             if firstChunk > 0.01 {
-                out.append(makeBlock(item, start: cursor, end: cursor + firstChunk))
+                out.append(makeBlock(item, start: cursor, end: cursor + firstChunk,
+                                     workedBefore: workedPacked, workedToday: workedToday))
                 cursor += firstChunk
                 remaining -= firstChunk
+                workedPacked += firstChunk
             }
             // Second chunk: anything left after lunch.
             if remaining > 0.01, cursor >= lunchStart, cursor <= lunchEnd {
                 cursor = lunchEnd
-                out.append(makeBlock(item, start: cursor, end: cursor + remaining))
+                out.append(makeBlock(item, start: cursor, end: cursor + remaining,
+                                     workedBefore: workedPacked, workedToday: workedToday))
                 cursor += remaining
+                workedPacked += remaining
             }
         }
         return out
     }
 
-    private func makeBlock(_ it: _ScheduleItem, start: Double, end: Double) -> ScheduleBlock {
+    private func makeBlock(_ it: _ScheduleItem, start: Double, end: Double,
+                           workedBefore: Double, workedToday: Double) -> ScheduleBlock {
         let clientName = it.job.clientId
             .flatMap { cid in appState.clients.first(where: { $0.id == cid })?.name }
             .flatMap { $0.isEmpty ? nil : $0 }
@@ -249,6 +270,13 @@ struct GanttView: View {
         let taskEnd   = (it.op?.end   ?? it.panel.end  ).asDate
         let span = businessDaySpan(from: taskStart, to: taskEnd)
         let totalHours = it.hpd * Double(max(1, span))
+        // This chunk's share of the day's worked hours: pour `workedToday` into
+        // the chunks in order, so the fill flows continuously across a lunch
+        // split (chunk 1 fills first, then chunk 2). Fraction is of THIS chunk's
+        // own duration so it maps onto the chunk's rendered height.
+        let chunkHours = max(0.0001, end - start)
+        let workedInChunk = min(max(0, workedToday - workedBefore), chunkHours)
+        let workedFraction = workedInChunk / chunkHours
         return ScheduleBlock(
             id: "\(it.panel.id)/\(it.op?.id ?? "panel")/\(Int(start * 60))",
             job: it.job,
@@ -265,7 +293,8 @@ struct GanttView: View {
             start: start, end: end,
             taskStart: taskStart,
             taskEnd: taskEnd,
-            totalHours: totalHours)
+            totalHours: totalHours,
+            workedFraction: workedFraction)
     }
 
     /// Inclusive count of business days (per orgSettings.workDays) between two dates.
@@ -354,6 +383,7 @@ struct ScheduleBlock: Identifiable, Equatable {
     let taskStart: Date?      // op.start (or panel.start when no op) — the task's calendar start
     let taskEnd: Date?        // op.end (or panel.end when no op) — the task's calendar end
     let totalHours: Double    // hpd × business-day span of the task
+    let workedFraction: Double // 0...1 of the op's estimate logged so far (0 for panel-level blocks)
 
     static func == (lhs: ScheduleBlock, rhs: ScheduleBlock) -> Bool { lhs.id == rhs.id }
 }
@@ -572,6 +602,44 @@ private struct LunchGhostBlock: View {
     }
 }
 
+/// Diagonal hatch + wash that marks the worked / logged portion of a schedule
+/// bar — the iOS analog of the web app's `WORKED_STRIPE` overlay. It both
+/// "lines" the region (diagonal hatch) and "greys it out" (a translucent wash),
+/// so a fully-worked bar reads as done at a glance. Tint adapts to the bar it
+/// sits on: light surface cards (Day view) get a dark hatch; saturated color
+/// tiles (Week view) get a light one. Purely decorative — never interactive.
+/// Always anchored to the top, so its bottom edge is the worked/remaining line;
+/// only the top corners are rounded (the outer bar clips the bottom).
+private struct WorkedStripe: View {
+    var cornerRadius: CGFloat = 0
+    var onLight: Bool = false
+
+    var body: some View {
+        let wash: Color = onLight ? Color.black.opacity(0.10) : Color.black.opacity(0.24)
+        let line: Color = onLight ? Color.black.opacity(0.30) : Color.white.opacity(0.34)
+        Canvas { ctx, size in
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(wash))
+            let gap: CGFloat = 7
+            let h = size.height
+            var x: CGFloat = -h
+            while x < size.width {
+                var p = Path()
+                p.move(to: CGPoint(x: x, y: 0))
+                p.addLine(to: CGPoint(x: x + h, y: h))
+                ctx.stroke(p, with: .color(line), lineWidth: 1.5)
+                x += gap
+            }
+        }
+        .clipShape(UnevenRoundedRectangle(
+            topLeadingRadius: cornerRadius,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0,
+            topTrailingRadius: cornerRadius,
+            style: .continuous))
+        .allowsHitTesting(false)
+    }
+}
+
 private struct ScheduleBlockView: View {
     let block: ScheduleBlock
     let height: CGFloat
@@ -593,7 +661,17 @@ private struct ScheduleBlockView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(height: height, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).fill(Color(hex: T.surface)))
+        .background(
+            // Surface fill + a top-anchored worked stripe behind the content, so
+            // the dept rail and labels stay legible on top of it.
+            ZStack(alignment: .top) {
+                RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).fill(Color(hex: T.surface))
+                if block.workedFraction > 0.001 {
+                    WorkedStripe(cornerRadius: T.cornerBlock, onLight: true)
+                        .frame(height: max(0, height * block.workedFraction))
+                }
+            }
+        )
         .overlay(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
         // Clip so any subview that doesn't measure exactly to height can't bleed
         // into the row below.
@@ -927,8 +1005,14 @@ private struct WeekBlockTile: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .frame(height: height)
         .background(
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(block.color.opacity(0.92))
+            ZStack(alignment: .top) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(block.color.opacity(0.92))
+                if block.workedFraction > 0.001 {
+                    WorkedStripe(cornerRadius: 2, onLight: false)
+                        .frame(height: max(0, height * block.workedFraction))
+                }
+            }
         )
         .contentShape(Rectangle())
     }
