@@ -2645,9 +2645,9 @@ Extraction rules:
       if (pi === 0) {
         const top = 250;
         return { blocks: [
-          { id: uid(), type: "logo", x: M, y: 44, w: 230, h: 60 },
-          { id: uid(), type: "legend", x: W - M - 250, y: 40, w: 250, h: 68 },
-          { id: uid(), type: "datetime", x: M, y: 112, w: 230, h: 40, opts: defaultExportOpts("datetime") },
+          { id: uid(), type: "logo", x: M, y: 44, w: 230, h: 60, fmt: { align: "left" } },
+          { id: uid(), type: "legend", x: W - M - 250, y: 40, w: 250, h: 68, fmt: { align: "right" } },
+          { id: uid(), type: "datetime", x: M, y: 112, w: 230, h: 40, opts: defaultExportOpts("datetime"), fmt: { align: "left" } },
           { id: uid(), type: "title", x: M, y: 162, w: W - 2 * M, h: 40, text: "Pay Period Hours", fmt: defaultFmt("title") },
           { id: uid(), type: "subtitle", x: M, y: 206, w: W - 2 * M, h: 26, text: report?.label || "", fmt: defaultFmt("subtitle") },
           { id: uid(), type: "hours", x: M, y: top, w: W - 2 * M, h: PH - top - 60, opts: defaultExportOpts("hours"), range, showGrand: last },
