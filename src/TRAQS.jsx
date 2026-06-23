@@ -2071,6 +2071,7 @@ Extraction rules:
   const [exportAddOpen, setExportAddOpen] = useState(false); // left-rail "+ Add Element" palette open state
   const [exportAddSeq, setExportAddSeq] = useState(0); // bumped on each open to re-fire the staggered cascade
   const [exportSafe, setExportSafe] = useState(true); // show the editable blue boxes/handles ("safe zones")
+  const [exportPtoMode, setExportPtoMode] = useState(false); // hours export: click day cells to toggle PTO highlight
   const [exportTplOpen, setExportTplOpen] = useState(false); // TRAQS-styled template dropdown open state
   const [exportTplNameOpen, setExportTplNameOpen] = useState(false); // TRAQS-styled "name this template" modal
   const [exportTplName, setExportTplName] = useState("");
@@ -2388,7 +2389,7 @@ Extraction rules:
   const escHtml = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const EXPORT_CSS = `
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;color:#0f172a;background:#fff}
+    body{font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;color:#0f172a;background:#fff;print-color-adjust:exact;-webkit-print-color-adjust:exact}
     .page{position:relative;background:#fff;overflow:hidden}
     .page-footer{position:absolute;left:20px;bottom:14px;display:flex;align-items:center;gap:5px;opacity:0.4;filter:grayscale(1);pointer-events:none;z-index:0}
     .page-footer span{font-size:9px;line-height:1;color:#000;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;position:relative;top:2px}
@@ -2441,6 +2442,32 @@ Extraction rules:
     .hrs-table td{padding:6px 10px;border-bottom:1px solid #f1f5f9;font-size:12px;color:#334155}
     .hrs-table .wkr{font-weight:600;color:#0f172a}
     .hrs-table tfoot td{border-top:2px solid #e2e8f0;border-bottom:none;font-weight:700;color:#0f172a}
+    .ts-report{display:flex;flex-direction:column;gap:12px}
+    .ts-emp{break-inside:avoid;page-break-inside:avoid;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+    .ts-emp-head{padding:6px 10px;background:#f8fafc;border-bottom:1px solid #e2e8f0;font-size:12px;font-weight:700;color:#0f172a;display:flex;align-items:baseline;gap:8px}
+    .ts-dept{font-weight:500;color:#64748b;font-size:10px;text-transform:uppercase;letter-spacing:0.04em}
+    .ts-grid{width:100%;border-collapse:collapse;table-layout:fixed}
+    .ts-grid th{padding:4px 3px;background:#fff;border-bottom:1px solid #e2e8f0;border-right:1px solid #f1f5f9;font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;text-align:center}
+    .ts-grid td{padding:4px 3px;border-bottom:1px solid #f1f5f9;border-right:1px solid #f1f5f9;font-size:11px;color:#334155;text-align:center;font-variant-numeric:tabular-nums}
+    .ts-grid th:last-child,.ts-grid td:last-child{border-right:none}
+    .ts-grid th.ts-wk,.ts-grid td.ts-wk{width:96px;text-align:left;font-size:10px;color:#475569;font-weight:600;text-transform:none;letter-spacing:0}
+    .ts-grid .ts-num{font-weight:700;color:#0f172a}
+    .ts-grid .ts-ot{color:#b45309}
+    .ts-grid .ts-empty{background:#fafbfc}
+    .ts-grid td.ts-day{cursor:pointer}
+    .ts-grid td.ts-day:hover{outline:2px solid #f59e0b;outline-offset:-2px}
+    .ts-sum{display:flex;gap:16px;padding:6px 10px;font-size:11px;color:#334155;background:#fcfcfd;border-top:1px solid #f1f5f9;flex-wrap:wrap}
+    .ts-sum b{color:#64748b;font-weight:700;text-transform:uppercase;font-size:9px;letter-spacing:0.04em;margin-right:3px}
+    .ts-sum .ts-pto{color:#b45309}
+    .ts-sum .ts-tot{margin-left:auto;font-weight:700;color:#0f172a}
+    .ts-grand{display:flex;gap:16px;padding:8px 10px;font-size:11px;font-weight:700;color:#0f172a;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}
+    .ts-grand .ts-tot{margin-left:auto}
+    .ts-legend{display:flex;gap:18px;font-size:10px;color:#64748b;padding:0 2px}
+    .ts-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px;border:1px solid rgba(0,0,0,0.12)}
+    .ts-key{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#fff}
+    .ts-key-title{font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px}
+    .ts-key-row{display:flex;align-items:center;gap:6px;font-size:10px;color:#475569;margin-top:3px}
+    .ts-key-row i{display:inline-block;width:13px;height:13px;border-radius:3px;border:1px solid rgba(0,0,0,0.12);flex-shrink:0}
   `;
   const panelHtml = (panel, o = {}) => {
     // Panel-level status intentionally omitted — status is shown only in the parent job card's
@@ -2493,6 +2520,7 @@ Extraction rules:
       case "datetime": return "Date / time";
       case "summary": return "Summary";
       case "hours": return "Pay-period hours";
+      case "legend": return "Color key";
       case "job": return `Job — ${job?.title || "?"}`;
       case "panel": { const p = job && (job.subs || []).find(x => x.id === b.ref?.panelId); return `Panel — ${p?.title || "?"}`; }
       case "attachments": return `Attachments — ${job?.title || "?"}`;
@@ -2511,7 +2539,7 @@ Extraction rules:
       case "title": return `<div class="blk-title" style="${fmtStyleStr(b)}">${escHtml(b.text || "Job Queue Export")}</div>`;
       case "subtitle": return `<div class="blk-sub" style="${fmtStyleStr(b)}">${escHtml(b.text || "")}</div>`;
       case "text": return `<div class="blk-text" style="${fmtStyleStr(b)}">${escHtml(b.text || "")}</div>`;
-      case "datetime": return `<div class="blk-dt">${o.date !== false ? `<div class="date">${escHtml(ctx.dateStr)}</div>` : ""}${o.time !== false ? `<div class="time">${escHtml(ctx.timeStr)}</div>` : ""}</div>`;
+      case "datetime": return `<div class="blk-dt" style="text-align:${b.fmt?.align || "right"}">${o.date !== false ? `<div class="date">${escHtml(ctx.dateStr)}</div>` : ""}${o.time !== false ? `<div class="time">${escHtml(ctx.timeStr)}</div>` : ""}</div>`;
       case "summary": {
         const tp = jobs.reduce((s, j) => s + (j.subs || []).length, 0);
         const to = jobs.reduce((s, j) => s + (j.subs || []).reduce((a, p) => a + (p.subs || []).length, 0), 0);
@@ -2530,6 +2558,39 @@ Extraction rules:
       case "hours": {
         const rep = ctx.hoursReport;
         if (!rep) return `<div class="empty">No hours data</div>`;
+        // Rich daily timesheet when the enriched report is present; else the simple totals table.
+        if (Array.isArray(rep.people) && Array.isArray(rep.weekCols)) {
+          const showDept = o.department !== false;
+          const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+          const fillFor = c => c === "yellow" ? "background:#fde68a" : c === "blue" ? "background:#bfdbfe" : "";
+          const fmtH = h => h > 0 ? String(Math.round(h * 100) / 100) : "";
+          const fmtN = n => n ? n.toFixed(2) : "";
+          const head = `<tr><th class="ts-wk">Week</th>${dayNames.map(dn => `<th>${dn}</th>`).join("")}<th class="ts-num">Total</th><th class="ts-num">OT</th></tr>`;
+          // This block renders only its assigned slice of the roster (b.range), so the report
+          // paginates across real designer pages instead of overflowing one fixed-height block.
+          const slice = Array.isArray(b.range) ? rep.people.slice(b.range[0], b.range[1]) : rep.people;
+          const emps = slice.map(pr => {
+            const byDate = {}; pr.days.forEach(d => { byDate[d.date] = d; });
+            const weekRows = rep.weekCols.map((col, wi) => {
+              const w = pr.weeks[wi] || { total: 0, ot: 0 };
+              const cells = dayNames.map((dn, dow) => {
+                const ds = col.dates.find(x => new Date(x + "T12:00:00").getDay() === dow);
+                const day = ds ? byDate[ds] : null;
+                if (!day) return `<td class="ts-empty"></td>`;
+                // Manual PTO highlight (b.cellColors) wins over the auto holiday-blue.
+                const color = (b.cellColors || {})[pr.personId + ":" + day.date] || day.autoColor;
+                return `<td class="ts-day" data-blk="${b.id}" data-pid="${escHtml(String(pr.personId))}" data-date="${day.date}" style="${fillFor(color)}">${fmtH(day.hours)}</td>`;
+              }).join("");
+              return `<tr><td class="ts-wk">${escHtml(col.label)}</td>${cells}<td class="ts-num">${fmtN(w.total)}</td><td class="ts-num ts-ot">${fmtN(w.ot)}</td></tr>`;
+            }).join("");
+            const summary = `<div class="ts-sum"><span><b>Reg</b> ${pr.regular.toFixed(2)}</span><span><b>OT</b> ${pr.ot.toFixed(2)}</span><span class="ts-pto"><b>PTO</b> ____</span><span><b>Holiday</b> ${pr.holiday.toFixed(2)}</span><span class="ts-tot"><b>Total</b> ${pr.total.toFixed(2)}</span></div>`;
+            return `<section class="ts-emp"><div class="ts-emp-head">${escHtml(pr.name)}${showDept && pr.department ? `<span class="ts-dept">${escHtml(pr.department)}</span>` : ""}</div><table class="ts-grid"><thead>${head}</thead><tbody>${weekRows}</tbody></table>${summary}</section>`;
+          }).join("");
+          const sum = k => rep.people.reduce((s, p) => s + (p[k] || 0), 0);
+          // Grand total (sum across the WHOLE roster) only on the last page's block.
+          const grand = (b.showGrand && rep.people.length) ? `<div class="ts-grand"><span><b>All employees</b></span><span>Reg ${sum("regular").toFixed(2)}</span><span>OT ${sum("ot").toFixed(2)}</span><span>Holiday ${sum("holiday").toFixed(2)}</span><span class="ts-tot">Total ${sum("total").toFixed(2)}</span></div>` : "";
+          return `<div class="ts-report">${emps || `<div class="empty">No hourly workers</div>`}${grand}</div>`;
+        }
         const showDept = o.department !== false;
         const cols = showDept ? 3 : 2;
         const head = `<tr><th>Worker</th>${showDept ? "<th>Department</th>" : ""}<th class="num">Hours</th></tr>`;
@@ -2537,6 +2598,7 @@ Extraction rules:
         const foot = `<tr><td>Total</td>${showDept ? "<td></td>" : ""}<td class="num mono">${(rep.total || 0).toFixed(2)}</td></tr>`;
         return `<table class="hrs-table"><thead>${head}</thead><tbody>${body || `<tr><td colspan="${cols}" class="empty">No hourly workers</td></tr>`}</tbody><tfoot>${foot}</tfoot></table>`;
       }
+      case "legend": { const al = b.fmt?.align || "left"; const jc = al === "right" ? "flex-end" : al === "center" ? "center" : "flex-start"; return `<div class="ts-key" style="text-align:${al}"><div class="ts-key-title">Key</div><div class="ts-key-row" style="justify-content:${jc}"><i style="background:#fde68a"></i><span>PTO</span></div><div class="ts-key-row" style="justify-content:${jc}"><i style="background:#bfdbfe"></i><span>Holiday pay</span></div></div>`; }
       case "job": default: return job ? jobCardHtml(job, o) : `<div class="empty">Job not found</div>`;
     }
   };
@@ -2546,7 +2608,10 @@ Extraction rules:
   // out and small. Not part of the blocks array, so it can't be selected, moved, or removed.
   const PAGE_FOOTER = `<div class="page-footer"><span>Powered by</span><img src="${TRAQS_LOGO_BLUE}" alt="TRAQS"/></div>`;
   // Single-page doc for the editor iframe (full page px; the editor scales it via CSS transform).
-  const buildPageDoc = (page, ctx, dims) => `<!DOCTYPE html><html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}</style></head><body><div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(page, ctx)}${PAGE_FOOTER}</div></body></html>`;
+  // The inline script relays day-cell clicks to the parent for PTO highlighting (only reaches the
+  // iframe when PTO mode makes it interactive; ignored by the parent otherwise).
+  const PTO_CLICK_SCRIPT = `<script>document.addEventListener("click",function(e){var td=e.target.closest&&e.target.closest("td[data-blk]");if(!td)return;parent.postMessage({type:"tq-pto-cell",blk:td.getAttribute("data-blk"),pid:td.getAttribute("data-pid"),date:td.getAttribute("data-date")},"*");});<\/script>`;
+  const buildPageDoc = (page, ctx, dims) => `<!DOCTYPE html><html><head><meta charset="utf-8"/><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}</style></head><body><div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(page, ctx)}${PAGE_FOOTER}</div>${PTO_CLICK_SCRIPT}</body></html>`;
   // Full multi-page doc for print / download.
   const buildLayoutHtml = (layout, ctx) => { const dims = EXPORT_PAGE(layout.orientation); const pages = (layout.pages || []).map(pg => `<div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(pg, ctx)}${PAGE_FOOTER}</div>`).join(""); return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>TRAQS Export</title><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}@page{size:letter ${layout.orientation === "landscape" ? "landscape" : "portrait"};margin:0}.page{page-break-after:always}.page:last-child{page-break-after:auto}</style></head><body>${pages}</body></html>`; };
   // Initial layout from the selected jobs: header band on page 1, then one job per page.
@@ -2564,16 +2629,34 @@ Extraction rules:
     });
     return { orientation: "portrait", grid: 16, snap: true, logoDataUrl: null, pages };
   };
-  // Initial layout for a pay-period hours export: branded header + the hours table.
+  // Initial layout for a pay-period hours export. The roster is split across as many pages as
+  // needed (each hours block renders only its slice via b.range) so nothing overflows a page.
+  // Page 1 carries the branded header + the color key (top-right); continuation pages are grids.
   const seedHoursLayout = (report) => {
-    const M = 48, W = 816;
-    const pages = [{ blocks: [
-      { id: uid(), type: "logo", x: M, y: M, w: 240, h: 64 },
-      { id: uid(), type: "datetime", x: W - M - 200, y: M, w: 200, h: 48, opts: defaultExportOpts("datetime") },
-      { id: uid(), type: "title", x: M, y: 128, w: W - 2 * M, h: 40, text: "Pay Period Hours", fmt: defaultFmt("title") },
-      { id: uid(), type: "subtitle", x: M, y: 172, w: W - 2 * M, h: 28, text: report?.label || "", fmt: defaultFmt("subtitle") },
-      { id: uid(), type: "hours", x: M, y: 220, w: W - 2 * M, h: 400, opts: defaultExportOpts("hours") },
-    ] }];
+    const M = 48, W = 816, PH = 1056;
+    const ppl = (report && report.people) || [];
+    // Conservative employees-per-page (each section ~150px tall). Page 1 has less room (header).
+    const FIRST = 4, REST = 6;
+    const ranges = [];
+    if (!ppl.length) ranges.push([0, 0]);
+    else { let i = 0; while (i < ppl.length) { const n = ranges.length === 0 ? FIRST : REST; ranges.push([i, Math.min(i + n, ppl.length)]); i += n; } }
+    const pages = ranges.map((range, pi) => {
+      const last = pi === ranges.length - 1;
+      if (pi === 0) {
+        const top = 250;
+        return { blocks: [
+          { id: uid(), type: "logo", x: M, y: 44, w: 230, h: 60 },
+          { id: uid(), type: "legend", x: W - M - 250, y: 40, w: 250, h: 68 },
+          { id: uid(), type: "datetime", x: M, y: 112, w: 230, h: 40, opts: defaultExportOpts("datetime") },
+          { id: uid(), type: "title", x: M, y: 162, w: W - 2 * M, h: 40, text: "Pay Period Hours", fmt: defaultFmt("title") },
+          { id: uid(), type: "subtitle", x: M, y: 206, w: W - 2 * M, h: 26, text: report?.label || "", fmt: defaultFmt("subtitle") },
+          { id: uid(), type: "hours", x: M, y: top, w: W - 2 * M, h: PH - top - 60, opts: defaultExportOpts("hours"), range, showGrand: last },
+        ] };
+      }
+      return { blocks: [
+        { id: uid(), type: "hours", x: M, y: M, w: W - 2 * M, h: PH - M - 60, opts: defaultExportOpts("hours"), range, showGrand: last },
+      ] };
+    });
     return { orientation: "portrait", grid: 16, snap: true, logoDataUrl: null, pages };
   };
   // Block mutations (functional updates so rapid drag deltas don't clobber each other).
@@ -2631,6 +2714,27 @@ Extraction rules:
   const _snapLayout = () => exportLayoutRef.current ? JSON.parse(JSON.stringify(exportLayoutRef.current)) : null;
   const pushExportHistory = () => { const s = _snapLayout(); if (s) { setExportPast(p => [...p, s].slice(-80)); setExportFuture([]); } };
   const resetExportHistory = () => { setExportPast([]); setExportFuture([]); };
+  // PTO highlight mode: the preview iframe posts {pid,date,blk} when a day cell is clicked; we
+  // toggle that cell's manual yellow on the owning block. Stored on the block so it's saved &
+  // undoable. exportPtoModeRef gates it so stray clicks do nothing when the mode is off.
+  const exportPtoModeRef = useRef(false);
+  useEffect(() => { exportPtoModeRef.current = exportPtoMode; }, [exportPtoMode]);
+  useEffect(() => {
+    const onMsg = (e) => {
+      const d = e.data;
+      if (!d || d.type !== "tq-pto-cell" || !exportPtoModeRef.current) return;
+      const key = d.pid + ":" + d.date;
+      pushExportHistory();
+      setExportLayout(L => L ? { ...L, pages: L.pages.map(pg => ({ ...pg, blocks: pg.blocks.map(b => {
+        if (b.id !== d.blk) return b;
+        const cc = { ...(b.cellColors || {}) };
+        if (cc[key] === "yellow") delete cc[key]; else cc[key] = "yellow";
+        return { ...b, cellColors: cc };
+      }) })) } : L);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, []);
   const exportUndo = () => { if (!exportPast.length) return; const prev = exportPast[exportPast.length - 1]; const cur = _snapLayout(); setExportPast(exportPast.slice(0, -1)); setExportFuture(cur ? [cur, ...exportFuture].slice(0, 80) : exportFuture); setExportLayout(prev); };
   const exportRedo = () => { if (!exportFuture.length) return; const next = exportFuture[0]; const cur = _snapLayout(); setExportFuture(exportFuture.slice(1)); setExportPast(cur ? [...exportPast, cur].slice(-80) : exportPast); setExportLayout(next); };
   useEffect(() => {
@@ -10117,15 +10221,73 @@ ${jobsCtx || "No jobs found."}`;
     // lunch/break). Deliberately excludes the live open shift and job-clock logs.
     // Lists every hourly person, including 0h, so the accountant has the full roster.
     const buildHoursReport = () => {
-      const rows = people.filter(p => p.payType !== "salary").map(p => {
-        const hours = timeclock
-          .filter(e => String(e.personId) === String(p.id) && e.date >= payPeriod.start && e.date <= payPeriod.end && e.clockIn && e.clockOut)
-          .reduce((s, e) => s + (e.hours || 0), 0);
-        return { name: p.name, department: p.department || "", hours: Math.round(hours * 100) / 100 };
-      }).sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
-      const total = Math.round(rows.reduce((s, r) => s + r.hours, 0) * 100) / 100;
+      const r2 = n => Math.round(n * 100) / 100;
       const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-      return { start: payPeriod.start, end: payPeriod.end, label: `${fmtY(payPeriod.start)} – ${fmtY(payPeriod.end)}`, cap: PERIOD_HOUR_CAP, rows, total };
+      const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const workDays = orgSettings.workDays || [1, 2, 3, 4, 5];
+      const holidays = orgSettings.holidays || [];
+      const hpd = orgSettings.hpd || 8;
+
+      // Every day of the pay period, in order (string compare is safe for YYYY-MM-DD).
+      const dates = []; for (let d = payPeriod.start; d <= payPeriod.end; d = addD(d, 1)) dates.push(d);
+
+      // Group days into Sun–Sat weeks, clipped to the period (partial weeks at the edges kept).
+      const sundayOf = ds => addD(ds, -new Date(ds + "T12:00:00").getDay());
+      const weekCols = [];
+      dates.forEach(ds => {
+        const wk = sundayOf(ds);
+        let col = weekCols.find(c => c.sunday === wk);
+        if (!col) { col = { sunday: wk, dates: [] }; weekCols.push(col); }
+        col.dates.push(ds);
+      });
+      weekCols.forEach(c => {
+        c.start = c.dates[0]; c.end = c.dates[c.dates.length - 1];
+        c.label = c.dates.length === 1 ? fmtMD(c.start) : `${fmtMD(c.start)} – ${fmtMD(c.end)}`;
+      });
+
+      // Per-person daily timesheet. Hourly only, incl. 0h, sorted by name.
+      const people_ = people.filter(p => p.payType !== "salary").slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+        // Completed PAY-CLOCK punches (clockIn + clockOut, net of lunch/break), summed by date.
+        const hoursByDate = {};
+        timeclock
+          .filter(e => String(e.personId) === String(p.id) && e.date >= payPeriod.start && e.date <= payPeriod.end && e.clockIn && e.clockOut)
+          .forEach(e => { hoursByDate[e.date] = (hoursByDate[e.date] || 0) + (e.hours || 0); });
+
+        const days = dates.map(ds => {
+          const weekday = new Date(ds + "T12:00:00").getDay();
+          const hours = r2(hoursByDate[ds] || 0);
+          const isHoliday = holidays.includes(ds);
+          const isWorkday = workDays.includes(weekday);
+          // Holidays auto-highlight blue. PTO (yellow) is applied manually per cell in the designer
+          // (click-to-highlight); day cells otherwise just show the hours logged.
+          const autoColor = isHoliday ? "blue" : null;
+          return { date: ds, weekday, hours, isWorkday, isHoliday, autoColor };
+        });
+
+        // Weekly OT = greater of daily-over-8 and weekly-over-40 (no double-count). regular = total − OT.
+        const weeks = weekCols.map(col => {
+          const wDays = days.filter(d => col.dates.includes(d.date));
+          const total = r2(wDays.reduce((s, d) => s + d.hours, 0));
+          const dailyOT = r2(wDays.reduce((s, d) => s + Math.max(0, d.hours - 8), 0));
+          const weeklyOT = r2(Math.max(0, total - 40));
+          const ot = Math.max(dailyOT, weeklyOT);
+          return { label: col.label, start: col.start, end: col.end, total, ot, regular: r2(total - ot) };
+        });
+
+        const regular = r2(weeks.reduce((s, w) => s + w.regular, 0));
+        const ot = r2(weeks.reduce((s, w) => s + w.ot, 0));
+        const pto = 0; // accountant fills PTO manually; yellow cells just flag the days
+        const holiday = r2(days.filter(d => d.isHoliday && d.isWorkday).length * hpd);
+        return { personId: p.id, name: p.name, department: p.department || "", days, weeks, regular, ot, pto, holiday, total: r2(regular + ot + pto + holiday) };
+      });
+
+      // Backward-compatible simple totals (so old saved layouts / the fallback table still work).
+      const rows = people_
+        .map(pr => ({ name: pr.name, department: pr.department, hours: r2(pr.days.reduce((s, d) => s + d.hours, 0)) }))
+        .sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
+      const total = r2(rows.reduce((s, r) => s + r.hours, 0));
+
+      return { start: payPeriod.start, end: payPeriod.end, label: `${fmtY(payPeriod.start)} – ${fmtY(payPeriod.end)}`, cap: PERIOD_HOUR_CAP, dates, weekCols, people: people_, rows, total };
     };
     const openHoursExport = () => {
       const report = buildHoursReport();
@@ -15385,6 +15547,10 @@ ${jobsCtx || "No jobs found."}`;
       const dims = EXPORT_PAGE(layout?.orientation);
       const pageIdx = Math.min(exportPageIdx, (layout?.pages?.length || 1) - 1);
       const page = layout?.pages?.[pageIdx];
+      // PTO highlight only applies to hours exports; gate on a present hours block so the mode
+      // can never get "stuck on" and disable block dragging in a non-hours export.
+      const layoutHasHours = (layout?.pages || []).some(pg => (pg.blocks || []).some(b => b.type === "hours"));
+      const ptoActive = exportPtoMode && layoutHasHours;
       const html = isPdf ? (layout ? buildLayoutHtml(layout, ctx) : "") : ep.html;
       const templates = orgSettings.exportTemplates || [];
       const applyTemplate = t => { if (t?.layout) { setExportLayout(JSON.parse(JSON.stringify(t.layout))); setExportPageIdx(0); } };
@@ -15533,12 +15699,12 @@ ${jobsCtx || "No jobs found."}`;
                   // text only — for non-text (or nothing selected) they fade out and disable.
                   const tgt = (page?.blocks || []).find(b => b.id === (exportEditing || exportSelId)) || null;
                   const isText = !!tgt && TXT.includes(tgt.type);
-                  const isAlignable = isText || tgt?.type === "logo";
+                  const isAlignable = isText || ["logo", "datetime", "legend"].includes(tgt?.type);
                   const f = tgt?.fmt || {};
                   const ds = tgt?.type === "title" ? 26 : tgt?.type === "subtitle" ? 15 : 12;
                   const size = f.size || ds;
                   const bold = f.bold != null ? f.bold : (tgt?.type === "title");
-                  const al = f.align || (tgt?.type === "logo" ? "center" : "left");
+                  const al = f.align || (tgt?.type === "datetime" ? "right" : tgt?.type === "logo" ? "center" : "left");
                   const fb = (active, onClick, child, title, enabled) => <button key={title} disabled={!enabled} onMouseDown={ev => ev.preventDefault()} onClick={enabled ? onClick : undefined} title={enabled ? title : `${title} (select text)`} style={{ minWidth: 30, height: 28, padding: "0 7px", borderRadius: 6, border: `1px solid ${active && enabled ? T.accent : T.border}`, background: active && enabled ? T.accent : T.bg, color: active && enabled ? T.accentText : T.text, cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.38, fontSize: 14, fontFamily: T.font, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease" }}>{child}</button>;
                   const aSvg = (a, b2, c, d, e2, f2) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1={a} y1="12" x2={b2} y2="12"/><line x1={c} y1="18" x2={d} y2="18"/><line x1={e2} y1="9" x2={f2} y2="9" style={{ opacity: 0 }}/></svg>;
                   return <div onMouseDown={ev => ev.preventDefault()} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 6px 20px rgba(0,0,0,0.45)", fontFamily: T.font }}>
@@ -15570,7 +15736,7 @@ ${jobsCtx || "No jobs found."}`;
                     const d = page ? buildPageDoc(page, ctx, dims) : "";
                     exportDocRef.current = d;
                     return d;
-                  })()} title="page" scrolling="no" style={{ position: "absolute", top: 0, left: 0, width: dims.w, height: dims.h, border: "none", transform: `scale(${scale})`, transformOrigin: "top left", pointerEvents: "none", background: "transparent" }} />
+                  })()} title="page" scrolling="no" style={{ position: "absolute", top: 0, left: 0, width: dims.w, height: dims.h, border: "none", transform: `scale(${scale})`, transformOrigin: "top left", pointerEvents: ptoActive ? "auto" : "none", background: "transparent" }} />
                   {(page?.blocks || []).map(b => {
                     if (exportEditing === b.id && TXT.includes(b.type)) {
                       const _f = b.fmt || {}; const _ds = b.type === "title" ? 26 : b.type === "subtitle" ? 15 : 12; const _bold = _f.bold != null ? _f.bold : (b.type === "title");
@@ -15581,7 +15747,8 @@ ${jobsCtx || "No jobs found."}`;
                         : <input key={b.id} {...common} onKeyDown={ev => { if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); } else if (ev.key === "Escape") { ev.preventDefault(); exportCancelRef.current = true; ev.target.blur(); } }} style={edStyle} />;
                     }
                     const isSel = exportSelId === b.id;
-                    const show = exportSafe; // "safe zones" = the editable blue boxes/handles
+                    // In PTO highlight mode the overlays must NOT intercept, so cell clicks reach the iframe.
+                    const show = exportSafe && !ptoActive; // "safe zones" = the editable blue boxes/handles
                     return <div key={b.id} onPointerDown={show ? (ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "move", scale, layout); }) : undefined} onDoubleClick={show ? (() => { if (TXT.includes(b.type)) setExportEditing(b.id); }) : undefined} title={show ? (TXT.includes(b.type) ? "Drag to move · double-click to edit text" : "Click to select · drag to move") : undefined} style={{ position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: show ? (isSel ? `2px solid ${T.accent}` : `1px solid ${T.accent}66`) : "none", background: show ? (isSel ? T.accent + "14" : T.accent + "08") : "transparent", cursor: show ? "move" : "default", boxSizing: "border-box", boxShadow: show && isSel ? `0 0 0 2px ${T.accent}44` : "none", pointerEvents: show ? "auto" : "none", transition: "border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease", animation: "menuIn 0.18s ease-out" }}>
                       {show && <button onClick={ev => { ev.stopPropagation(); removeExportBlock(pageIdx, b.id); if (isSel) setExportSelId(null); }} onPointerDown={ev => ev.stopPropagation()} title="Remove" style={{ position: "absolute", top: -9, right: -9, width: 18, height: 18, borderRadius: "50%", border: "none", background: "#ef4444", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, boxShadow: "0 1px 4px rgba(0,0,0,0.4)" }}>×</button>}
                       {show && <div onPointerDown={ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "resize", scale, layout); }} title="Resize" style={{ position: "absolute", right: -5, bottom: -5, width: 12, height: 12, borderRadius: 3, background: T.accent, cursor: "nwse-resize", boxShadow: "0 1px 3px rgba(0,0,0,0.4)" }} />}
@@ -15590,6 +15757,12 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", justifyContent: "center" }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#e2e8f0", cursor: "pointer" }}><input type="checkbox" checked={exportSafe} onChange={e => setExportSafe(e.target.checked)} />Show safe zones</label>
+                  {layoutHasHours && (
+                    <button onClick={() => setExportPtoMode(m => !m)} title="Click day cells to mark/unmark PTO (yellow)" style={{ height: 26, padding: "0 12px", borderRadius: 6, border: `1px solid ${ptoActive ? "#f59e0b" : "#ffffff44"}`, background: ptoActive ? "#f59e0b" : "#ffffff18", color: ptoActive ? "#fff" : "#e2e8f0", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 11, height: 11, borderRadius: 2, background: "#fde68a", border: "1px solid rgba(0,0,0,0.2)", display: "inline-block" }} />
+                      {ptoActive ? "PTO highlight: ON — click day cells" : "Highlight PTO"}
+                    </button>
+                  )}
                   <span style={{ fontSize: 11, color: "#94a3b8" }}>Click a block to edit options · drag to move · corner to resize · double-click text to edit</span>
                 </div>
               </div>
