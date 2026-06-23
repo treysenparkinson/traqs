@@ -15675,7 +15675,14 @@ ${jobsCtx || "No jobs found."}`;
                               {b.type === "datetime" && <>{chk("Date", "date")}{chk("Time", "time")}</>}
                               {b.type === "summary" && <>{chk("Jobs", "jobs")}{chk("Tasks", "tasks")}{chk("Operations", "operations")}{chk("Total hours", "hours")}</>}
                               {b.type === "panel" && <>{chk("Operations (tasks)", "ops")}{chk("Dates", "dates")}{chk("Hours", "hours")}</>}
-                              {b.type === "hours" && <>{chk("Department column", "department")}</>}
+                              {b.type === "hours" && <>
+                                {chk("Department column", "department")}
+                                <button onClick={() => setExportPtoMode(m => !m)} title="Click day cells on the sheet to mark/unmark PTO (yellow)" style={{ marginTop: 8, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, height: 30, padding: "0 10px", borderRadius: T.radiusSm, border: `1px solid ${ptoActive ? "#f59e0b" : T.border}`, background: ptoActive ? "#f59e0b" : T.bg, color: ptoActive ? "#fff" : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.18s, border-color 0.18s, color 0.18s" }}>
+                                  <span style={{ width: 12, height: 12, borderRadius: 3, background: "#fde68a", border: "1px solid rgba(0,0,0,0.2)", display: "inline-block", flexShrink: 0 }} />
+                                  {ptoActive ? "PTO highlight ON — click cells" : "Highlight PTO"}
+                                </button>
+                                {ptoActive && <div style={{ fontSize: 11, color: T.textDim, marginTop: 5, lineHeight: 1.4 }}>Click day cells on the sheet to toggle PTO (yellow). Press the button again to finish.</div>}
+                              </>}
                               {b.type === "job" && <>
                                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", margin: "2px 0 4px" }}>Details</div>
                                 {chk("Client", "client")}{chk("Priority", "priority")}{chk("Dates", "dates")}{chk("Due date", "due")}{chk("PO #", "po")}{chk("Total hours", "hours")}{chk("Progress", "progress")}
@@ -15757,12 +15764,6 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", justifyContent: "center" }}>
                   <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#e2e8f0", cursor: "pointer" }}><input type="checkbox" checked={exportSafe} onChange={e => setExportSafe(e.target.checked)} />Show safe zones</label>
-                  {layoutHasHours && (
-                    <button onClick={() => setExportPtoMode(m => !m)} title="Click day cells to mark/unmark PTO (yellow)" style={{ height: 26, padding: "0 12px", borderRadius: 6, border: `1px solid ${ptoActive ? "#f59e0b" : "#ffffff44"}`, background: ptoActive ? "#f59e0b" : "#ffffff18", color: ptoActive ? "#fff" : "#e2e8f0", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, display: "inline-flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ width: 11, height: 11, borderRadius: 2, background: "#fde68a", border: "1px solid rgba(0,0,0,0.2)", display: "inline-block" }} />
-                      {ptoActive ? "PTO highlight: ON — click day cells" : "Highlight PTO"}
-                    </button>
-                  )}
                   <span style={{ fontSize: 11, color: "#94a3b8" }}>Click a block to edit options · drag to move · corner to resize · double-click text to edit</span>
                 </div>
               </div>
