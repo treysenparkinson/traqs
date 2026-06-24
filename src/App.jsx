@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import TRAQS from "./TRAQS.jsx";
+import ErrorBoundary from "./ErrorBoundary.jsx";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople } from "./api.js";
 
@@ -1197,13 +1198,15 @@ function AuthGate() {
   };
 
   return (
-    <TRAQS
-      auth0User={user}
-      getToken={safeGetToken}
-      logout={logout}
-      orgCode={orgCode}
-      orgConfig={orgConfig}
-    />
+    <ErrorBoundary>
+      <TRAQS
+        auth0User={user}
+        getToken={safeGetToken}
+        logout={logout}
+        orgCode={orgCode}
+        orgConfig={orgConfig}
+      />
+    </ErrorBoundary>
   );
 }
 

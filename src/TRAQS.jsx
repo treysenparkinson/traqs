@@ -325,7 +325,12 @@ const CLOCK_STATUS_UI = {
 // payroll clock so pay timers are unaffected (the worker is still paid).
 const effectiveClockState = (person, now = Date.now()) => {
   const cs = clockState(person?.activeClockIn, now);
-  if (person?.activeBreak) return { ...cs, isClocked: true, isOnBreak: true, status: "break" };
+  // `activeBreak` is the lightweight job-clock break and can exist WITHOUT a
+  // payroll clock-in (the backend `breakBegin` action doesn't require one).
+  // Only overlay the "break" status here — never claim `isClocked` when there
+  // is no `activeClockIn`, or the UI dereferences a null `activeClockIn.clockIn`
+  // and white-screens. The payroll clock-in state must stay honest.
+  if (person?.activeBreak) return { ...cs, isOnBreak: true, status: "break" };
   return cs;
 };
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
@@ -11802,7 +11807,7 @@ ${jobsCtx || "No jobs found."}`;
                                 </div>
                               )}
                               <div style={{ display: "flex", gap: 14, fontSize: 12, color: T.textDim, flexWrap: "wrap" }}>
-                                {clocked && <span>Since {fmtTime(p.activeClockIn.clockIn)} ({eh}h {em}m)</span>}
+                                {clocked && <span>Since {fmtTime(p.activeClockIn?.clockIn)} ({eh}h {em}m)</span>}
                                 <span>Today: <strong style={{ color: T.accent }}>{todayH.toFixed(1)}h</strong></span>
                                 <span>Period: <strong style={{ color: T.text }}>{periodH.toFixed(1)}h</strong></span>
                               </div>
@@ -11968,9 +11973,9 @@ ${jobsCtx || "No jobs found."}`;
               const ui = CLOCK_STATUS_UI[cs.status];
               const dotColor = ui.color || T.border;
               const subtext = !cs.isClocked ? "not clocked in"
-                : cs.isOnLunch ? `on lunch · clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}`
-                : cs.isOnBreak ? `on break · clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}`
-                : `clocked in at ${fmtTime(loggedInUser.activeClockIn.clockIn)}`;
+                : cs.isOnLunch ? `on lunch · clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`
+                : cs.isOnBreak ? `on break · clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`
+                : `clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`;
               return (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                   <div style={{ width: 9, height: 9, borderRadius: "50%", background: dotColor, boxShadow: ui.glow, transition: "all 0.3s", flexShrink: 0 }} />
@@ -12143,7 +12148,7 @@ ${jobsCtx || "No jobs found."}`;
                                 </div>
                               </td>
                               <td style={{ padding: "10px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
-                                {clocked ? `${fmtTime(p.activeClockIn.clockIn)} (${eh}h ${em}m)` : "—"}
+                                {clocked ? `${fmtTime(p.activeClockIn?.clockIn)} (${eh}h ${em}m)` : "—"}
                               </td>
                               <td style={{ padding: "10px 10px", maxWidth: 200 }}>
                                 {p.activeJobClock ? (
