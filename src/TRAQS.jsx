@@ -7141,7 +7141,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
                   {client && <span style={{ fontSize: 11, color: client.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: client.color, display: "inline-block" }} />{client.name}</span>}
-                  {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: T.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 7, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>{pm.name.split(" ")[0]}</span> : null; })()}
+                  {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: T.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 7, color: T.accentText, fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>{pm.name.split(" ")[0]}</span> : null; })()}
                   {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600, marginLeft: "auto" }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>}
                 </div>
               </div>;
@@ -10785,7 +10785,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                         {["hourly","salary"].map(pt => (
                           <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)}
-                            style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? "#fff" : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}
+                            style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? (pt === "salary" ? "#fff" : T.accentText) : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}
                           >{pt}</button>
                         ))}
                       </div>
@@ -10810,7 +10810,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* Actions */}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 4 }}>
               <button onClick={closeSettings} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>
+              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>
                 {tsSettingsSaving ? "Saving…" : "Save Changes"}
               </button>
             </div>
@@ -11316,7 +11316,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* Footer */}
             <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={saveAll} disabled={saving} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: saving ? 0.7 : 1 }}>
+              <button onClick={saveAll} disabled={saving} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: saving ? 0.7 : 1 }}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>
             </div>
@@ -11642,7 +11642,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, background: T.surface, flexShrink: 0 }}>
               <button onClick={closeSettings} style={{ background: "none", border: "none", color: T.text, fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0 }}>←</button>
               <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Clock Settings</span>
-              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>{tsSettingsSaving ? "Saving…" : "Save"}</button>
+              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>{tsSettingsSaving ? "Saving…" : "Save"}</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
               {isAdmin && <div style={{ marginBottom: 24 }}>
@@ -11693,7 +11693,7 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>Pay Type</div>
                             <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                               {["hourly","salary"].map(pt => (
-                                <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)} style={{ flex: 1, padding: "8px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? "#fff" : T.textDim, fontSize: 12, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, textTransform: "capitalize" }}>{pt}</button>
+                                <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)} style={{ flex: 1, padding: "8px 0", border: "none", background: payType === pt ? (pt === "salary" ? "#6366f1" : T.accent) : T.surface, color: payType === pt ? (pt === "salary" ? "#fff" : T.accentText) : T.textDim, fontSize: 12, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, textTransform: "capitalize" }}>{pt}</button>
                               ))}
                             </div>
                           </div>
@@ -12165,7 +12165,7 @@ ${jobsCtx || "No jobs found."}`;
                   ) : (
                     <>
                       <button onClick={closeConfirm} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                      <button onClick={() => doConfirm(range)} disabled={tsConfirmSaving || entries.length === 0} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: (tsConfirmSaving || entries.length === 0) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (tsConfirmSaving || entries.length === 0) ? 0.6 : 1 }}>{tsConfirmSaving ? "Confirming…" : "Confirm Time Sheet"}</button>
+                      <button onClick={() => doConfirm(range)} disabled={tsConfirmSaving || entries.length === 0} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (tsConfirmSaving || entries.length === 0) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (tsConfirmSaving || entries.length === 0) ? 0.6 : 1 }}>{tsConfirmSaving ? "Confirming…" : "Confirm Time Sheet"}</button>
                     </>
                   )}
                 </div>
@@ -12190,7 +12190,7 @@ ${jobsCtx || "No jobs found."}`;
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Export Hours
             </button>
-            <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
+            <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               Confirm Time Sheet
             </button>
@@ -12535,7 +12535,7 @@ ${jobsCtx || "No jobs found."}`;
                                       <span style={{ color: T.textDim, fontSize: 11 }}>→</span>
                                       <input type="datetime-local" value={toLocal(tsEditEntry.clockOut)} onChange={ev => setTsEditEntry(x => ({ ...x, clockOut: fromLocal(ev.target.value) }))} style={{ colorScheme: T.colorScheme, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }} />
                                       <span style={{ flex: 1 }} />
-                                      <button onClick={saveEditEntry} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save</button>
+                                      <button onClick={saveEditEntry} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save</button>
                                       <button onClick={() => setTsEditEntry(null)} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                                     </div>
                                   );
@@ -13191,7 +13191,7 @@ ${jobsCtx || "No jobs found."}`;
                   setOrgCodeSaving(false);
                 }
               }}
-              style={{ width: "100%", padding: "14px 0", borderRadius: T.radiusSm, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 15, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}
+              style={{ width: "100%", padding: "14px 0", borderRadius: T.radiusSm, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : T.accentText, fontSize: 15, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}
             >{orgCodeSaving ? "Validating…" : "Switch Organization"}</button>
           </div>
         </div>
@@ -15087,7 +15087,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ textAlign: "center", maxWidth: 480, padding: "0 20px" }}>
           <div style={{ fontSize: 18, color: T.text, fontWeight: 600, marginBottom: 12 }}>Couldn't load your data</div>
           <div style={{ fontSize: 14, color: T.textDim, marginBottom: 24 }}>{loadError}</div>
-          <button onClick={() => window.location.reload()} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontWeight: 600, cursor: "pointer", fontFamily: T.font, fontSize: 14 }}>Reload</button>
+          <button onClick={() => window.location.reload()} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontWeight: 600, cursor: "pointer", fontFamily: T.font, fontSize: 14 }}>Reload</button>
         </div>
       </div>
     );
@@ -15585,7 +15585,7 @@ ${jobsCtx || "No jobs found."}`;
                 {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgCodeError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                  <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
+                  <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : T.accentText, fontSize: 11, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
                 </div>
               </div>}
             </div>
@@ -15787,7 +15787,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Export buttons */}
               <div style={{ display: "flex", gap: 6 }}>
                 {[["📄 PDF", doPDF], ["📊 CSV", doCSV], ["📝 Word", doWord]].map(([lbl, fn]) => (
-                  <button key={lbl} onClick={fn} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: exportData.length > 0 ? 1 : 0.4 }}>{lbl} {exportSelRows.size > 0 ? `(${exportSelRows.size})` : `(${visibleJobs.length})`}</button>
+                  <button key={lbl} onClick={fn} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: exportData.length > 0 ? 1 : 0.4 }}>{lbl} {exportSelRows.size > 0 ? `(${exportSelRows.size})` : `(${visibleJobs.length})`}</button>
                 ))}
               </div>
             </div>
@@ -16058,11 +16058,14 @@ ${jobsCtx || "No jobs found."}`;
                         : <input key={b.id} {...common} onKeyDown={ev => { if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); } else if (ev.key === "Escape") { ev.preventDefault(); exportCancelRef.current = true; ev.target.blur(); } }} style={edStyle} />;
                     }
                     const isSel = exportSelId === b.id;
+                    // Overlay chrome (selection border + resize handle) sits on the always-white export
+                    // page, so a light/white accent would vanish. Fall back to slate when the accent is light.
+                    const ov = isLight(T.accent) ? "#475569" : T.accent;
                     // In PTO highlight mode the overlays must NOT intercept, so cell clicks reach the iframe.
                     const show = exportSafe && !ptoActive; // "safe zones" = the editable blue boxes/handles
-                    return <div key={b.id} onPointerDown={show ? (ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "move", scale, layout); }) : undefined} onDoubleClick={show ? (() => { if (TXT.includes(b.type)) setExportEditing(b.id); }) : undefined} title={show ? (TXT.includes(b.type) ? "Drag to move · double-click to edit text" : "Click to select · drag to move") : undefined} style={{ position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: show ? (isSel ? `2px solid ${T.accent}` : `1px solid ${T.accent}66`) : "none", background: show ? (isSel ? T.accent + "14" : T.accent + "08") : "transparent", cursor: show ? "move" : "default", boxSizing: "border-box", boxShadow: show && isSel ? `0 0 0 2px ${T.accent}44` : "none", pointerEvents: show ? "auto" : "none", transition: "border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease", animation: "menuIn 0.18s ease-out" }}>
+                    return <div key={b.id} onPointerDown={show ? (ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "move", scale, layout); }) : undefined} onDoubleClick={show ? (() => { if (TXT.includes(b.type)) setExportEditing(b.id); }) : undefined} title={show ? (TXT.includes(b.type) ? "Drag to move · double-click to edit text" : "Click to select · drag to move") : undefined} style={{ position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: show ? (isSel ? `2px solid ${ov}` : `1px solid ${ov}66`) : "none", background: show ? (isSel ? ov + "14" : ov + "08") : "transparent", cursor: show ? "move" : "default", boxSizing: "border-box", boxShadow: show && isSel ? `0 0 0 2px ${ov}44` : "none", pointerEvents: show ? "auto" : "none", transition: "border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease", animation: "menuIn 0.18s ease-out" }}>
                       {show && <button onClick={ev => { ev.stopPropagation(); removeExportBlock(pageIdx, b.id); if (isSel) setExportSelId(null); }} onPointerDown={ev => ev.stopPropagation()} title="Remove" style={{ position: "absolute", top: -9, right: -9, width: 18, height: 18, borderRadius: "50%", border: "none", background: "#ef4444", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, boxShadow: "0 1px 4px rgba(0,0,0,0.4)" }}>×</button>}
-                      {show && <div onPointerDown={ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "resize", scale, layout); }} title="Resize" style={{ position: "absolute", right: -5, bottom: -5, width: 12, height: 12, borderRadius: 3, background: T.accent, cursor: "nwse-resize", boxShadow: "0 1px 3px rgba(0,0,0,0.4)" }} />}
+                      {show && <div onPointerDown={ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "resize", scale, layout); }} title="Resize" style={{ position: "absolute", right: -6, bottom: -6, width: 13, height: 13, borderRadius: 3, background: ov, cursor: "nwse-resize", boxShadow: "0 0 0 1.5px rgba(255,255,255,0.95), 0 1px 4px rgba(0,0,0,0.5)" }} />}
                     </div>;
                   })}
                 </div>
@@ -16621,7 +16624,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Holidays</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
               <TraqsDatePicker compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
-              <button onClick={() => { if (!holidayInput || orgSettings.holidays.includes(holidayInput)) return; setOrgSettings(s => ({ ...s, holidays: [...s.holidays, holidayInput].sort() })); setHolidayInput(""); }} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Add</button>
+              <button onClick={() => { if (!holidayInput || orgSettings.holidays.includes(holidayInput)) return; setOrgSettings(s => ({ ...s, holidays: [...s.holidays, holidayInput].sort() })); setHolidayInput(""); }} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Add</button>
             </div>
             {orgSettings.holidays.length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No holidays added</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -16637,7 +16640,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
         <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: T.card, display: "flex", justifyContent: "flex-end", flexShrink: 0, borderBottomLeftRadius: T.radiusSm, borderBottomRightRadius: T.radiusSm }}>
-          <button onClick={() => setOrgSettingsOpen(false)} style={{ padding: "7px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save &amp; Close</button>
+          <button onClick={() => setOrgSettingsOpen(false)} style={{ padding: "7px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save &amp; Close</button>
         </div>
       </div>
     </div>}</FadeOnClose>
@@ -16720,7 +16723,7 @@ ${jobsCtx || "No jobs found."}`;
                 const v = roleInput.trim();
                 if (v && !orgSettings.roles.includes(v)) { setOrgSettings(s => ({ ...s, roles: [...s.roles, v] })); setRoleInput(""); }
               }}
-              style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}
+              style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}
             >Add</button>
           </div>
         </div>
@@ -17058,7 +17061,7 @@ ${jobsCtx || "No jobs found."}`;
                             <button
                               onClick={savePin}
                               disabled={draft.length === 0 || saving}
-                              style={{ padding: "6px 14px", borderRadius: T.radiusXs, border: "none", background: draft.length > 0 ? T.accent : T.border, color: draft.length > 0 ? "#fff" : T.textDim, fontSize: 12, fontWeight: 700, cursor: draft.length > 0 ? "pointer" : "default", fontFamily: T.font, transition: "all 0.15s", opacity: saving ? 0.7 : 1 }}
+                              style={{ padding: "6px 14px", borderRadius: T.radiusXs, border: "none", background: draft.length > 0 ? T.accent : T.border, color: draft.length > 0 ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: draft.length > 0 ? "pointer" : "default", fontFamily: T.font, transition: "all 0.15s", opacity: saving ? 0.7 : 1 }}
                             >{saving ? "Saving…" : "Save PIN"}</button>
                           </div>
                         </div>
@@ -18210,7 +18213,7 @@ ${jobsCtx || "No jobs found."}`;
               <div key={person.id} style={{ marginBottom: 4 }}>
                 {/* Person header */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 28px 6px", position: "sticky", top: 0, background: T.card, zIndex: 2 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: 8, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
+                  <div style={{ width: 24, height: 24, borderRadius: 8, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0 }}>{person.name[0]}</div>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{person.name}</span>
                   <span style={{ fontSize: 11, color: T.textDim, marginLeft: 2 }}>{person.department}</span>
                   <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "2px 8px" }}>{pChanges.length} ops</span>
