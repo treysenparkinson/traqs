@@ -2721,6 +2721,91 @@ Extraction rules:
   const _snapLayout = () => exportLayoutRef.current ? JSON.parse(JSON.stringify(exportLayoutRef.current)) : null;
   const pushExportHistory = () => { const s = _snapLayout(); if (s) { setExportPast(p => [...p, s].slice(-80)); setExportFuture([]); } };
   const resetExportHistory = () => { setExportPast([]); setExportFuture([]); };
+
+  // ── Pay-period hours export (opens the shared export designer) ───────────────
+  // Payroll-grade: completed PAY-CLOCK punches only (clockIn + clockOut, net of
+  // lunch/break), CONFIRMED only — an admin must Confirm the timesheet before
+  // hours flow to the accountant. Excludes the live open shift and job-clock logs.
+  // Lists every hourly person, including 0h, so the accountant has the full roster.
+  // Component-scoped so both Analytics and the Time Clock page can launch it.
+  const buildHoursReport = () => {
+    const payPeriod = getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
+    const PERIOD_HOUR_CAP = orgSettings.payPeriodHourCap || 80;
+    const r2 = n => Math.round(n * 100) / 100;
+    const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const workDays = orgSettings.workDays || [1, 2, 3, 4, 5];
+    const holidays = orgSettings.holidays || [];
+    const hpd = orgSettings.hpd || 8;
+
+    // Every day of the pay period, in order (string compare is safe for YYYY-MM-DD).
+    const dates = []; for (let d = payPeriod.start; d <= payPeriod.end; d = addD(d, 1)) dates.push(d);
+
+    // Group days into Sun–Sat weeks, clipped to the period (partial weeks at the edges kept).
+    const sundayOf = ds => addD(ds, -new Date(ds + "T12:00:00").getDay());
+    const weekCols = [];
+    dates.forEach(ds => {
+      const wk = sundayOf(ds);
+      let col = weekCols.find(c => c.sunday === wk);
+      if (!col) { col = { sunday: wk, dates: [] }; weekCols.push(col); }
+      col.dates.push(ds);
+    });
+    weekCols.forEach(c => {
+      c.start = c.dates[0]; c.end = c.dates[c.dates.length - 1];
+      c.label = c.dates.length === 1 ? fmtMD(c.start) : `${fmtMD(c.start)} – ${fmtMD(c.end)}`;
+    });
+
+    // Per-person daily timesheet. Hourly only, incl. 0h, sorted by name.
+    const people_ = people.filter(p => p.payType !== "salary").slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+      // Completed PAY-CLOCK punches (clockIn + clockOut, net of lunch/break), CONFIRMED only, summed by date.
+      const hoursByDate = {};
+      timeclock
+        .filter(e => String(e.personId) === String(p.id) && e.date >= payPeriod.start && e.date <= payPeriod.end && e.clockIn && e.clockOut && e.confirmed)
+        .forEach(e => { hoursByDate[e.date] = (hoursByDate[e.date] || 0) + (e.hours || 0); });
+
+      const days = dates.map(ds => {
+        const weekday = new Date(ds + "T12:00:00").getDay();
+        const hours = r2(hoursByDate[ds] || 0);
+        const isHoliday = holidays.includes(ds);
+        const isWorkday = workDays.includes(weekday);
+        // Holidays auto-highlight blue. PTO (yellow) is applied manually per cell in the designer
+        // (click-to-highlight); day cells otherwise just show the hours logged.
+        const autoColor = isHoliday ? "blue" : null;
+        return { date: ds, weekday, hours, isWorkday, isHoliday, autoColor };
+      });
+
+      // Weekly OT = greater of daily-over-8 and weekly-over-40 (no double-count). regular = total − OT.
+      const weeks = weekCols.map(col => {
+        const wDays = days.filter(d => col.dates.includes(d.date));
+        const total = r2(wDays.reduce((s, d) => s + d.hours, 0));
+        const dailyOT = r2(wDays.reduce((s, d) => s + Math.max(0, d.hours - 8), 0));
+        const weeklyOT = r2(Math.max(0, total - 40));
+        const ot = Math.max(dailyOT, weeklyOT);
+        return { label: col.label, start: col.start, end: col.end, total, ot, regular: r2(total - ot) };
+      });
+
+      const regular = r2(weeks.reduce((s, w) => s + w.regular, 0));
+      const ot = r2(weeks.reduce((s, w) => s + w.ot, 0));
+      const pto = 0; // accountant fills PTO manually; yellow cells just flag the days
+      const holiday = r2(days.filter(d => d.isHoliday && d.isWorkday).length * hpd);
+      return { personId: p.id, name: p.name, department: p.department || "", days, weeks, regular, ot, pto, holiday, total: r2(regular + ot + pto + holiday) };
+    });
+
+    // Backward-compatible simple totals (so old saved layouts / the fallback table still work).
+    const rows = people_
+      .map(pr => ({ name: pr.name, department: pr.department, hours: r2(pr.days.reduce((s, d) => s + d.hours, 0)) }))
+      .sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
+    const total = r2(rows.reduce((s, r) => s + r.hours, 0));
+
+    return { start: payPeriod.start, end: payPeriod.end, label: `${fmtY(payPeriod.start)} – ${fmtY(payPeriod.end)}`, cap: PERIOD_HOUR_CAP, dates, weekCols, people: people_, rows, total };
+  };
+  const openHoursExport = () => {
+    const report = buildHoursReport();
+    setExportLayout(seedHoursLayout(report));
+    setExportPageIdx(0);
+    resetExportHistory();
+    setExportPreview({ kind: "pdf", jobs: [], hoursReport: report, filename: `pay-period-hours_${report.start}_to_${report.end}.pdf`, mime: "application/pdf" });
+  };
   // PTO highlight mode: the preview iframe posts {pid,date,blk} when a day cell is clicked; we
   // toggle that cell's manual yellow on the owning block. Stored on the block so it's saved &
   // undoable. exportPtoModeRef gates it so stray clicks do nothing when the mode is off.
@@ -10226,90 +10311,12 @@ ${jobsCtx || "No jobs found."}`;
     const areaPoly = linePts.length ? `${padL},${padT + innerH} ${linePoly} ${padL + (buckets.length - 1) * xStep},${padT + innerH}` : "";
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ frac: f, val: f * maxBucket }));
 
-    // ── Pay-period hours export (opens the shared export designer) ─────────────
-    // Payroll-grade: completed PAY-CLOCK punches only (clockIn + clockOut, net of
-    // lunch/break). Deliberately excludes the live open shift and job-clock logs.
-    // Lists every hourly person, including 0h, so the accountant has the full roster.
-    const buildHoursReport = () => {
-      const r2 = n => Math.round(n * 100) / 100;
-      const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
-      const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-      const workDays = orgSettings.workDays || [1, 2, 3, 4, 5];
-      const holidays = orgSettings.holidays || [];
-      const hpd = orgSettings.hpd || 8;
-
-      // Every day of the pay period, in order (string compare is safe for YYYY-MM-DD).
-      const dates = []; for (let d = payPeriod.start; d <= payPeriod.end; d = addD(d, 1)) dates.push(d);
-
-      // Group days into Sun–Sat weeks, clipped to the period (partial weeks at the edges kept).
-      const sundayOf = ds => addD(ds, -new Date(ds + "T12:00:00").getDay());
-      const weekCols = [];
-      dates.forEach(ds => {
-        const wk = sundayOf(ds);
-        let col = weekCols.find(c => c.sunday === wk);
-        if (!col) { col = { sunday: wk, dates: [] }; weekCols.push(col); }
-        col.dates.push(ds);
-      });
-      weekCols.forEach(c => {
-        c.start = c.dates[0]; c.end = c.dates[c.dates.length - 1];
-        c.label = c.dates.length === 1 ? fmtMD(c.start) : `${fmtMD(c.start)} – ${fmtMD(c.end)}`;
-      });
-
-      // Per-person daily timesheet. Hourly only, incl. 0h, sorted by name.
-      const people_ = people.filter(p => p.payType !== "salary").slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => {
-        // Completed PAY-CLOCK punches (clockIn + clockOut, net of lunch/break), summed by date.
-        // CONFIRMED only — an admin must Confirm the timesheet before hours flow to the accountant.
-        const hoursByDate = {};
-        timeclock
-          .filter(e => String(e.personId) === String(p.id) && e.date >= payPeriod.start && e.date <= payPeriod.end && e.clockIn && e.clockOut && e.confirmed)
-          .forEach(e => { hoursByDate[e.date] = (hoursByDate[e.date] || 0) + (e.hours || 0); });
-
-        const days = dates.map(ds => {
-          const weekday = new Date(ds + "T12:00:00").getDay();
-          const hours = r2(hoursByDate[ds] || 0);
-          const isHoliday = holidays.includes(ds);
-          const isWorkday = workDays.includes(weekday);
-          // Holidays auto-highlight blue. PTO (yellow) is applied manually per cell in the designer
-          // (click-to-highlight); day cells otherwise just show the hours logged.
-          const autoColor = isHoliday ? "blue" : null;
-          return { date: ds, weekday, hours, isWorkday, isHoliday, autoColor };
-        });
-
-        // Weekly OT = greater of daily-over-8 and weekly-over-40 (no double-count). regular = total − OT.
-        const weeks = weekCols.map(col => {
-          const wDays = days.filter(d => col.dates.includes(d.date));
-          const total = r2(wDays.reduce((s, d) => s + d.hours, 0));
-          const dailyOT = r2(wDays.reduce((s, d) => s + Math.max(0, d.hours - 8), 0));
-          const weeklyOT = r2(Math.max(0, total - 40));
-          const ot = Math.max(dailyOT, weeklyOT);
-          return { label: col.label, start: col.start, end: col.end, total, ot, regular: r2(total - ot) };
-        });
-
-        const regular = r2(weeks.reduce((s, w) => s + w.regular, 0));
-        const ot = r2(weeks.reduce((s, w) => s + w.ot, 0));
-        const pto = 0; // accountant fills PTO manually; yellow cells just flag the days
-        const holiday = r2(days.filter(d => d.isHoliday && d.isWorkday).length * hpd);
-        return { personId: p.id, name: p.name, department: p.department || "", days, weeks, regular, ot, pto, holiday, total: r2(regular + ot + pto + holiday) };
-      });
-
-      // Backward-compatible simple totals (so old saved layouts / the fallback table still work).
-      const rows = people_
-        .map(pr => ({ name: pr.name, department: pr.department, hours: r2(pr.days.reduce((s, d) => s + d.hours, 0)) }))
-        .sort((a, b) => b.hours - a.hours || a.name.localeCompare(b.name));
-      const total = r2(rows.reduce((s, r) => s + r.hours, 0));
-
-      return { start: payPeriod.start, end: payPeriod.end, label: `${fmtY(payPeriod.start)} – ${fmtY(payPeriod.end)}`, cap: PERIOD_HOUR_CAP, dates, weekCols, people: people_, rows, total };
-    };
-    const openHoursExport = () => {
-      const report = buildHoursReport();
-      setExportLayout(seedHoursLayout(report));
-      setExportPageIdx(0);
-      resetExportHistory();
-      setExportPreview({ kind: "pdf", jobs: [], hoursReport: report, filename: `pay-period-hours_${report.start}_to_${report.end}.pdf`, mime: "application/pdf" });
-    };
+    // Pay-period hours export (buildHoursReport / openHoursExport) is now defined
+    // at component scope and launched from the Time Clock page's "Export Hours"
+    // button (next to Confirm Time Sheet).
 
     return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Header — title (left) · period pill (center) · export (right) */}
+      {/* Header — title (left) · period pill (center). Hours export moved to the Time Clock page. */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Analytics</h3>
         <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
@@ -10320,14 +10327,6 @@ ${jobsCtx || "No jobs found."}`;
             onChange={setAnalyticsPeriod}
           />
         </div>
-        <button
-          onClick={openHoursExport}
-          title="Export pay-period hours for payroll"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, height: 30, padding: "0 13px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Export Hours
-        </button>
       </div>
 
       {/* KPI strip — 4 tiles */}
@@ -12102,9 +12101,13 @@ ${jobsCtx || "No jobs found."}`;
         {renderPersonEditModal()}
         {renderStartJobPicker()}
         {renderConfirmModal()}
-        {/* Confirm Time Sheet — admin only, top-right of the page */}
+        {/* Export Hours + Confirm Time Sheet — admin only, top-right of the page */}
         {isAdmin && (
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+            <button onClick={openHoursExport} title="Export pay-period hours for payroll" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export Hours
+            </button>
             <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               Confirm Time Sheet
