@@ -513,6 +513,28 @@ export const adminEditEntryAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+// Confirm / re-open a timesheet date range (admin only). Confirming locks every
+// completed punch in [start, end] (stamped confirmedAt/confirmedBy) so it can't
+// be edited and flows into the accountant's pay-period hours export. Re-opening
+// clears that lock so the range can be edited again.
+export const confirmTimesheetAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "confirmTimesheet", ...payload }),
+  }).then(r => r.json());
+};
+
+export const unconfirmTimesheetAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "unconfirmTimesheet", ...payload }),
+  }).then(r => r.json());
+};
+
 // Admin-triggered lunch/break events — flips a person's status with no PIN.
 // `payload.action` must be one of: adminLunchStart, adminLunchEnd, adminBreakStart, adminBreakEnd.
 export const adminTimeclockEventAction = async (payload, getToken, orgCode) => {

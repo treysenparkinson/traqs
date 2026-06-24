@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -1807,6 +1807,8 @@ Extraction rules:
   // inline sub-panels (Design or Organization Settings). Permissions/Departments just open
   // their existing modals, so they don't participate in this expanded state.
   const [sidebarSettingsOpen, setSidebarSettingsOpen] = useState(false);
+  // Time Clock sidebar group — collapsible parent with Time Sheet (the page) + Time Settings (settings panel).
+  const [sidebarTimeOpen, setSidebarTimeOpen] = useState(false);
   // Design + Organization launchers in the sidebar Settings tree open dedicated modals (TRAQS fade pattern).
   const [designModalOpen, setDesignModalOpen] = useState(false);
   const [orgSettingsModalOpen, setOrgSettingsModalOpen] = useState(false);
@@ -2881,6 +2883,9 @@ Extraction rules:
   const [showPinIds, setShowPinIds] = useState(new Set()); // person IDs with PIN visible as plaintext
   const [tsSettingsSaving, setTsSettingsSaving] = useState(false);
   const [tsEditEntry, setTsEditEntry] = useState(null); // { id, clockIn, clockOut, personId } | null
+  const [tsConfirmOpen, setTsConfirmOpen] = useState(false); // "Confirm Time Sheet" popup (admin)
+  const [tsConfirmRange, setTsConfirmRange] = useState(null); // { start, end } draft date range for the confirm popup
+  const [tsConfirmSaving, setTsConfirmSaving] = useState(false);
   const [tsPersonEditModal, setTsPersonEditModal] = useState(null); // { person, draftEntries } | null
   const [tsExpandedPersons, setTsExpandedPersons] = useState({}); // { [personId]: bool }
   const _pinKbRef = useRef(null); // holds { submitPin, closePin } — set each render inside renderTimeStamp
@@ -10253,9 +10258,10 @@ ${jobsCtx || "No jobs found."}`;
       // Per-person daily timesheet. Hourly only, incl. 0h, sorted by name.
       const people_ = people.filter(p => p.payType !== "salary").slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => {
         // Completed PAY-CLOCK punches (clockIn + clockOut, net of lunch/break), summed by date.
+        // CONFIRMED only — an admin must Confirm the timesheet before hours flow to the accountant.
         const hoursByDate = {};
         timeclock
-          .filter(e => String(e.personId) === String(p.id) && e.date >= payPeriod.start && e.date <= payPeriod.end && e.clockIn && e.clockOut)
+          .filter(e => String(e.personId) === String(p.id) && e.date >= payPeriod.start && e.date <= payPeriod.end && e.clockIn && e.clockOut && e.confirmed)
           .forEach(e => { hoursByDate[e.date] = (hoursByDate[e.date] || 0) + (e.hours || 0); });
 
         const days = dates.map(ds => {
@@ -10634,7 +10640,8 @@ ${jobsCtx || "No jobs found."}`;
     const renderSettingsPanel = () => {
       if (!tsSettingsOpen || !tsSettingsDraft) return null;
       return (
-        <div className="anim-drop" style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, zIndex: 999, minWidth: 640, maxWidth: "min(800px, 96vw)", maxHeight: "80vh", overflowY: "auto", background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 16px 48px rgba(0,0,0,0.55)" }}>
+        <div className="anim-modal-overlay" onClick={closeSettings} style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }}>
+        <div ref={tsSettingsRef} onClick={e => e.stopPropagation()} style={{ width: "min(800px, 96vw)", maxHeight: "85vh", overflowY: "auto", background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", animation: "slideUp 0.22s ease-out" }}>
           {/* Header row */}
           <div style={{ padding: "14px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, position: "sticky", top: 0, background: T.card, zIndex: 1 }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>Time Clock Settings</span>
@@ -10727,6 +10734,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             </div>
           </div>
+        </div>
         </div>
       );
     };
@@ -11182,6 +11190,16 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {entries.map(e => {
                       const hrs = computeHours(e.clockIn, e.clockOut);
+                      if (e.confirmed) {
+                        // Confirmed punches are locked — re-open the timesheet (Confirm Time Sheet) to edit.
+                        return (
+                          <div key={e.id} title="Confirmed timesheet — re-open it to edit" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, flexWrap: "wrap", opacity: 0.85 }}>
+                            <div style={{ flex: 1, minWidth: 0, fontFamily: T.mono, fontSize: 12, color: T.text }}>{fmtTime(e.clockIn)} <span style={{ color: T.textDim }}>→</span> {fmtTime(e.clockOut)}</div>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: T.radiusXs, background: "#10b98115", color: "#10b981", fontSize: 11, fontWeight: 600 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Confirmed</span>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, fontFamily: T.mono, minWidth: 48, textAlign: "right" }}>{hrs.toFixed(2)}h</div>
+                          </div>
+                        );
+                      }
                       return (
                         <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, flexWrap: "wrap" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
@@ -11944,20 +11962,164 @@ ${jobsCtx || "No jobs found."}`;
       );
     }
 
+    // ── Confirm Time Sheet (admin) ───────────────────────────────────────────
+    // Review every completed punch in a date range, then lock it as "confirmed"
+    // so it can't be edited and flows into the accountant's pay-period hours
+    // export (buildHoursReport pulls confirmed punches only).
+    const openConfirm = () => { setTsConfirmRange({ start: ppNow.start, end: ppNow.end }); setTsConfirmOpen(true); };
+    const closeConfirm = () => setTsConfirmOpen(false);
+    // Mirror the backend's confirm/re-open transform on local state so the UI
+    // updates instantly without a re-fetch.
+    const applyConfirmLocal = (start, end, confirmed, stamp, by) => {
+      setTimeclock(tc => tc.map(e => {
+        if (e.eventType || !e.clockIn || !e.clockOut) return e;
+        if (e.date < start || e.date > end) return e;
+        if (confirmed) return { ...e, confirmed: true, confirmedAt: stamp, confirmedBy: by };
+        const { confirmed: _c, confirmedAt: _a, confirmedBy: _b, ...rest } = e; return rest;
+      }));
+    };
+    const doConfirm = async (range) => {
+      if (!range.start || !range.end || range.start > range.end) { alert("Pick a valid date range."); return; }
+      setTsConfirmSaving(true);
+      try {
+        const res = await confirmTimesheetAction({ start: range.start, end: range.end }, getToken, orgCode);
+        if (res.ok) applyConfirmLocal(range.start, range.end, true, res.confirmedAt, res.confirmedBy);
+        else alert(res.error || "Failed to confirm timesheet");
+      } catch { alert("Network error"); } finally { setTsConfirmSaving(false); }
+    };
+    const doReopen = async (range) => {
+      setTsConfirmSaving(true);
+      try {
+        const res = await unconfirmTimesheetAction({ start: range.start, end: range.end }, getToken, orgCode);
+        if (res.ok) applyConfirmLocal(range.start, range.end, false);
+        else alert(res.error || "Failed to re-open timesheet");
+      } catch { alert("Network error"); } finally { setTsConfirmSaving(false); }
+    };
+
+    const renderConfirmModal = () => {
+      const range = tsConfirmRange || { start: ppNow.start, end: ppNow.end };
+      const entries = timeclock.filter(e => !e.eventType && e.clockIn && e.clockOut && e.date >= range.start && e.date <= range.end);
+      const byPerson = (() => {
+        const m = new Map();
+        entries.forEach(e => {
+          const key = String(e.personId);
+          if (!m.has(key)) { const pr = people.find(x => String(x.id) === key); m.set(key, { name: pr?.name || key, hours: 0, count: 0, confirmed: 0 }); }
+          const row = m.get(key); row.hours += (e.hours || 0); row.count++; if (e.confirmed) row.confirmed++;
+        });
+        return [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+      })();
+      const total = Math.round(entries.reduce((s, e) => s + (e.hours || 0), 0) * 100) / 100;
+      const confirmedCount = entries.filter(e => e.confirmed).length;
+      const allConfirmed = entries.length > 0 && confirmedCount === entries.length;
+      const setStart = v => { if (v) setTsConfirmRange(r => ({ ...(r || range), start: v })); };
+      const setEnd = v => { if (v) setTsConfirmRange(r => ({ ...(r || range), end: v })); };
+      return createPortal(
+        <FadeOnClose open={tsConfirmOpen} duration={220}>
+          {tsConfirmOpen && (
+            <div className="anim-modal-overlay" onClick={closeConfirm} style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }}>
+              <div onClick={e => e.stopPropagation()} style={{ width: "min(680px, 96vw)", maxHeight: "85vh", display: "flex", flexDirection: "column", background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", animation: "slideUp 0.22s ease-out" }}>
+                {/* Header */}
+                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Confirm Time Sheet</div>
+                    <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Review and lock clocked hours for the pay period. Confirmed hours flow into the accountant's hours export.</div>
+                  </div>
+                  <button onClick={closeConfirm} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>✕</button>
+                </div>
+
+                {/* Date range — TRAQS calendar pickers */}
+                <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, color: T.textDim }}>From</span>
+                  <TraqsDatePicker compact value={range.start} onChange={setStart} style={{ width: 170 }} />
+                  <span style={{ fontSize: 13, color: T.textDim }}>to</span>
+                  <TraqsDatePicker compact value={range.end} min={range.start} onChange={setEnd} style={{ width: 170 }} />
+                  <div style={{ flex: 1 }} />
+                  <button onClick={() => setTsConfirmRange({ start: ppNow.start, end: ppNow.end })} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>This period</button>
+                </div>
+
+                {/* Per-person hours */}
+                <div style={{ flex: 1, overflowY: "auto", padding: "8px 20px 16px" }}>
+                  {byPerson.length === 0 ? (
+                    <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "28px 0" }}>No completed clock-ins in this date range.</div>
+                  ) : (
+                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                      <thead>
+                        <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                          {["Name", "Punches", "Hours", "Status"].map((h, i) => (
+                            <th key={h} style={{ textAlign: i === 0 ? "left" : i === 3 ? "left" : "right", padding: "8px 6px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {byPerson.map(row => {
+                          const full = row.confirmed === row.count;
+                          const partial = row.confirmed > 0 && !full;
+                          return (
+                            <tr key={row.name} style={{ borderBottom: `1px solid ${T.border}20` }}>
+                              <td style={{ padding: "8px 6px", fontSize: 13, color: T.text, fontWeight: 600 }}>{row.name}</td>
+                              <td style={{ padding: "8px 6px", fontSize: 13, color: T.textDim, fontFamily: T.mono, textAlign: "right" }}>{row.count}</td>
+                              <td style={{ padding: "8px 6px", fontSize: 13, color: T.accent, fontFamily: T.mono, fontWeight: 700, textAlign: "right" }}>{row.hours.toFixed(2)}h</td>
+                              <td style={{ padding: "8px 6px", fontSize: 11, color: full ? "#10b981" : partial ? "#f59e0b" : T.textDim, fontWeight: 600 }}>{full ? "✓ Confirmed" : partial ? "Partial" : "Unconfirmed"}</td>
+                            </tr>
+                          );
+                        })}
+                        <tr>
+                          <td style={{ padding: "10px 6px", fontSize: 13, fontWeight: 700, color: T.text }}>Total</td>
+                          <td style={{ padding: "10px 6px", fontSize: 13, color: T.textDim, fontFamily: T.mono, textAlign: "right" }}>{entries.length}</td>
+                          <td style={{ padding: "10px 6px", fontSize: 13, color: T.accent, fontFamily: T.mono, fontWeight: 700, textAlign: "right" }}>{total.toFixed(2)}h</td>
+                          <td />
+                        </tr>
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* Actions */}
+                <div style={{ padding: "14px 20px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ flex: 1, fontSize: 12, color: allConfirmed ? "#10b981" : T.textDim }}>
+                    {allConfirmed ? "✓ This range is confirmed and included in the hours export." : entries.length > 0 ? `${confirmedCount} of ${entries.length} punches confirmed.` : ""}
+                  </span>
+                  {allConfirmed ? (
+                    <button onClick={() => doReopen(range)} disabled={tsConfirmSaving} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 700, cursor: tsConfirmSaving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: tsConfirmSaving ? 0.6 : 1 }}>{tsConfirmSaving ? "Re-opening…" : "Re-open to edit"}</button>
+                  ) : (
+                    <>
+                      <button onClick={closeConfirm} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                      <button onClick={() => doConfirm(range)} disabled={tsConfirmSaving || entries.length === 0} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: (tsConfirmSaving || entries.length === 0) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (tsConfirmSaving || entries.length === 0) ? 0.6 : 1 }}>{tsConfirmSaving ? "Confirming…" : "Confirm Time Sheet"}</button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </FadeOnClose>,
+        document.body
+      );
+    };
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
         {renderPinModal()}
         {renderPersonEditModal()}
         {renderStartJobPicker()}
-
-        {/* ── Settings button + dropdown ── */}
-        <div ref={tsSettingsRef} style={{ display: "flex", justifyContent: "flex-end", position: "relative" }}>
-          <button onClick={openSettings} style={{ display: "flex", alignItems: "center", gap: 7, padding: "7px 14px", borderRadius: T.radiusSm, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "12" : T.surface, color: tsSettingsOpen ? T.accent : T.textDim, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { if (!tsSettingsOpen) { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; } }} onMouseLeave={e => { if (!tsSettingsOpen) { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textDim; } }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            Time Clock Settings
-          </button>
-          {renderSettingsPanel()}
-        </div>
+        {renderConfirmModal()}
+        {/* Confirm Time Sheet — admin only, top-right of the page */}
+        {isAdmin && (
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              Confirm Time Sheet
+            </button>
+          </div>
+        )}
+        {/* Time Clock Settings — centered popup, opened from the sidebar's Time Settings item.
+            Portaled to <body> so position:fixed escapes AnimatedView's transform; FadeOnClose
+            animates the overlay out (X or backdrop click) before it unmounts. */}
+        {createPortal(
+          <FadeOnClose open={tsSettingsOpen && !!tsSettingsDraft} duration={220}>
+            {renderSettingsPanel()}
+          </FadeOnClose>,
+          document.body
+        )}
 
         {/* ── Personal clock section ── */}
         {loggedInUser.payType === "salary" ? (
@@ -12300,7 +12462,9 @@ ${jobsCtx || "No jobs found."}`;
                                       {tl5.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
                                     </div>
                                     <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
-                                    <button onClick={() => setTsEditEntry({ id: e.id, clockIn: e.clockIn, clockOut: e.clockOut, personId: e.personId })} style={{ padding: "2px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font, marginLeft: 4 }}>Edit</button>
+                                    {e.confirmed
+                                      ? <span title="Confirmed timesheet — re-open it to edit" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: T.radiusXs, background: "#10b98115", color: "#10b981", fontSize: 11, fontWeight: 600, marginLeft: 4, whiteSpace: "nowrap" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Confirmed</span>
+                                      : <button onClick={() => setTsEditEntry({ id: e.id, clockIn: e.clockIn, clockOut: e.clockOut, personId: e.personId })} style={{ padding: "2px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font, marginLeft: 4 }}>Edit</button>}
                                   </div>
                                 );
                               })}
@@ -14983,6 +15147,58 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {views.map(v => {
           const active = view === v.id;
+          // Time Clock is a collapsible group: a parent that defaults to the Time Sheet
+          // page when clicked, plus Time Sheet + Time Settings children.
+          if (v.id === "timestamp") {
+            const onSheet = view === "timestamp" && !tsSettingsOpen;
+            const onSettings = view === "timestamp" && tsSettingsOpen;
+            const openTimeSettings = () => { switchView("timestamp"); setTsSettingsDraft(people.map(p => ({ ...p }))); setTsSettingsOpen(true); };
+            return (
+              <div key={v.id}>
+                <button ref={el => { navBtnRefs.current[v.id] = el; }}
+                  onClick={() => {
+                    if (sidebarMode === "button" && !sidebarExpanded) { setSidebarExpanded(true); setSidebarTimeOpen(true); switchView("timestamp"); setTsSettingsOpen(false); return; }
+                    setSidebarTimeOpen(o => { const next = !o; if (next) { switchView("timestamp"); setTsSettingsOpen(false); } return next; });
+                  }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
+                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+                  onMouseDown={() => tipCtx.hide()}
+                  style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+                  {active && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: T.accent }} />}
+                  <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
+                  <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarTimeOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+                {/* Time Clock children — animated retract (mirrors the Settings group) */}
+                <div style={{ display: "grid", gridTemplateRows: sidebarTimeOpen && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: sidebarTimeOpen && sidebarExpanded ? 1 : 0, pointerEvents: sidebarTimeOpen && sidebarExpanded ? "auto" : "none" }}>
+                  <div style={{ overflow: "hidden", minHeight: 0 }}>
+                    <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+                      {/* Time Sheet — the normal page */}
+                      <button onClick={() => { switchView("timestamp"); setTsSettingsOpen(false); }}
+                        onMouseEnter={e => { if (!onSheet) e.currentTarget.style.background = T.accent + "0c"; }}
+                        onMouseLeave={e => { if (!onSheet) e.currentTarget.style.background = "transparent"; }}
+                        style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: onSheet ? T.accent + "18" : "transparent", color: onSheet ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: onSheet ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
+                        <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: onSheet ? T.accent : T.textSec }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+                        </span>
+                        <span style={{ flex: 1, textAlign: "left" }}>Time Sheet</span>
+                      </button>
+                      {/* Time Settings — opens the Time Clock Settings panel */}
+                      <button onClick={openTimeSettings}
+                        onMouseEnter={e => { if (!onSettings) e.currentTarget.style.background = T.accent + "0c"; }}
+                        onMouseLeave={e => { if (!onSettings) e.currentTarget.style.background = "transparent"; }}
+                        style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: onSettings ? T.accent + "18" : "transparent", color: onSettings ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: onSettings ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
+                        <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: onSettings ? T.accent : T.textSec }}>
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+                        </span>
+                        <span style={{ flex: 1, textAlign: "left" }}>Time Settings</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
           return (
             <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
               style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}

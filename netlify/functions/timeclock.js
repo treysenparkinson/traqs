@@ -193,6 +193,11 @@ export async function handler(event) {
         let log;
         try { log = await readJson(clockKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
 
+        // Confirmed punches are locked — the admin must re-open the timesheet first.
+        const existing = log.find(e => e.id === entryId);
+        if (!existing) return err(404, "Entry not found");
+        if (existing.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
+
         let found = false;
         log = log.map(e => {
           if (e.id !== entryId) return e;
@@ -207,6 +212,45 @@ export async function handler(event) {
         const updated = log.find(e => e.id === entryId);
         return json(200, { ok: true, entry: updated });
       }
+    }
+
+    // ── Confirm / Re-open Timesheet (admin only, Bearer token) ────────────────
+    // Confirming stamps every completed pay-clock punch in [start, end] as
+    // confirmed (confirmedAt/confirmedBy). Confirmed punches are locked from
+    // edits and are the ONLY ones the accountant's pay-period hours export
+    // pulls. Re-opening clears the lock so the range can be edited again.
+    if (action === "confirmTimesheet" || action === "unconfirmTimesheet") {
+      let _cm;
+      try { _cm = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      if (!_cm.isAdmin) return err(403, "Admin only");
+
+      const { start, end } = body;
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRe.test(start || "") || !dateRe.test(end || "")) return err(400, "Invalid start or end date (expected YYYY-MM-DD)");
+      if (start > end) return err(400, "start must be on or before end");
+
+      let log;
+      try { log = await readJson(clockKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
+
+      const confirming = action === "confirmTimesheet";
+      const stamp = new Date().toISOString();
+      const by = _cm.personId || _cm.email || "admin";
+      let count = 0;
+      const next = log.map(e => {
+        // Only completed pay-clock punches in range — not lunch/break events, not open shifts.
+        if (e.eventType || !e.clockIn || !e.clockOut) return e;
+        if (e.date < start || e.date > end) return e;
+        count++;
+        if (confirming) return { ...e, confirmed: true, confirmedAt: stamp, confirmedBy: by };
+        const { confirmed, confirmedAt, confirmedBy, ...rest } = e;
+        return rest;
+      });
+
+      // Nothing matched — skip the write (and dodge the empty-overwrite guard).
+      if (count === 0) return json(200, { ok: true, count: 0, confirmed: confirming, start, end });
+
+      try { await writeJson(clockKey, next); } catch { return err(500, "Failed to save timeclock"); }
+      return json(200, { ok: true, count, confirmed: confirming, start, end, confirmedAt: confirming ? stamp : null, confirmedBy: confirming ? by : null });
     }
 
     // ── Admin Lunch/Break Events (Bearer token, no PIN) ──────────────────────
