@@ -11849,7 +11849,7 @@ ${jobsCtx || "No jobs found."}`;
                     { id: "timesheets", label: "Timesheets" },
                     { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Requests (${pendingFinishOps.length})` : "Requests" },
                   ].map(tab => (
-                    <button key={tab.id} onClick={() => setTsAdminTab(tab.id)} style={{ flex: 1, padding: "13px 4px", background: "none", border: "none", borderBottom: `2.5px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 12, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
+                    <button key={tab.id} className="tq-noanim" onClick={() => setTsAdminTab(tab.id)} style={{ flex: 1, padding: "13px 4px", background: "none", border: "none", borderBottom: `2.5px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 12, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
                       {tab.label}
                     </button>
                   ))}
@@ -12318,7 +12318,7 @@ ${jobsCtx || "No jobs found."}`;
                 { id: "timesheets", label: "Timesheets" },
                 { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Finish Requests (${pendingFinishOps.length})` : "Finish Requests" },
               ].map(tab => (
-                <button key={tab.id} onClick={() => setTsAdminTab(tab.id)} style={{ padding: "14px 16px", background: "none", border: "none", borderBottom: `2px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
+                <button key={tab.id} className="tq-noanim" onClick={() => setTsAdminTab(tab.id)} style={{ padding: "14px 16px", background: "none", border: "none", borderBottom: `2px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
                   {tab.label}
                 </button>
               ))}
@@ -13069,7 +13069,7 @@ ${jobsCtx || "No jobs found."}`;
         {!prefOpen && isAdmin && (
           <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
             {[{ id: "main", label: "General" }, { id: "org", label: "Organization" }].map(tab => (
-              <button key={tab.id} onClick={() => setSettingsTab(tab.id)} style={{ flex: 1, padding: "11px 0", background: "none", border: "none", borderBottom: `2.5px solid ${settingsTab === tab.id ? T.accent : "transparent"}`, color: settingsTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: settingsTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
+              <button key={tab.id} className="tq-noanim" onClick={() => setSettingsTab(tab.id)} style={{ flex: 1, padding: "11px 0", background: "none", border: "none", borderBottom: `2.5px solid ${settingsTab === tab.id ? T.accent : "transparent"}`, color: settingsTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: settingsTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
                 {tab.label}
               </button>
             ))}
