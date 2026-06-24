@@ -614,6 +614,49 @@ animStyle.textContent = `
 .icon-btn-glow:hover  { box-shadow: 0 4px 14px rgba(0,0,0,0.22); filter: brightness(1.10); }
 .icon-btn-glow:active { filter: brightness(0.96); transition-duration: 0.08s; }
 
+/* ── Universal button hover — subtle lift + accent glow on EVERY button, app-wide.
+   Applies to every <button> (main pages, popups, modals, nav, toolbars) without
+   touching each one inline. --tq-glow / --tq-glow-ring are set from the active
+   theme accent (see the theme effect); they fall back to a neutral shadow on the
+   pre-login screens before the accent vars are set. !important is used so the
+   effect also overrides buttons that set their own inline transition/transform/
+   box-shadow. Disabled buttons are excluded; the lift is gated to real pointers
+   (hover: hover) so it can't stick on touch devices. */
+button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.2s ease, filter 0.2s ease,
+              background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
+@media (hover: hover) {
+  button:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    transform: translateY(-1.5px) !important;
+    box-shadow: 0 4px 16px var(--tq-glow, rgba(0,0,0,0.22)), 0 0 0 1px var(--tq-glow-ring, rgba(127,127,127,0.18)) !important;
+    filter: brightness(1.06);
+  }
+}
+button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: translateY(0) scale(0.97) !important;
+  transition-duration: 0.07s !important;
+}
+/* Navigation sidebar opts out of the lift/glow — it keeps the simple background
+   fade (set inline per nav button). Higher specificity than the rule above so it
+   wins even against !important. */
+.tq-sidebar button:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.tq-sidebar button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+/* Opt-out class for buttons that shouldn't pop/glow — close (✕/×) buttons and
+   slider/toggle controls. Applied via className on sliders/toggles and via the
+   close-button observer for ✕ buttons. Higher specificity than the rule above. */
+button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
 .anim-card-wrap {
   transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.32s cubic-bezier(0.22, 1, 0.36, 1),
@@ -885,7 +928,7 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
       {options.map(opt => {
         const isActive = value === opt.value;
         return (
-          <button key={opt.value} ref={el => { btnRefs.current[opt.value] = el; }} onClick={() => onChange(opt.value)}
+          <button key={opt.value} className="tq-noanim" ref={el => { btnRefs.current[opt.value] = el; }} onClick={() => onChange(opt.value)}
             style={{ position:"relative", zIndex:1, padding:pad, borderRadius:T.radiusXs, border:"none", fontSize:fs, fontWeight:isActive?fw:400, cursor:"pointer", fontFamily:T.font, background:"transparent", color:isActive?T.accentText:T.text, whiteSpace:"nowrap" }}>
             {opt.label}
           </button>
@@ -924,7 +967,7 @@ function ColorSlidingPill({ options, value, onChange, style: sx = {} }) {
       {options.map(opt => {
         const isActive = value === opt.value;
         return (
-          <button key={opt.value} ref={el => { btnRefs.current[opt.value] = el; }} onClick={() => onChange(opt.value)}
+          <button key={opt.value} className="tq-noanim" ref={el => { btnRefs.current[opt.value] = el; }} onClick={() => onChange(opt.value)}
             style={{ position: "relative", zIndex: 1, padding: "5px 11px", borderRadius: T.radiusXs, border: "none", fontSize: 12, fontWeight: isActive ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: isActive ? "#fff" : T.textSec, whiteSpace: "nowrap", transition: "color 0.15s" }}>
             {opt.label}
           </button>
@@ -962,7 +1005,7 @@ function MobileNav({ tabs, activeId, onChange }) {
         {tabs.map(tab => {
           const isActive = activeId === tab.id;
           return (
-            <button key={tab.id} ref={el => { btnRefs.current[tab.id] = el; }} onClick={() => onChange(tab.id)}
+            <button key={tab.id} className="tq-noanim" ref={el => { btnRefs.current[tab.id] = el; }} onClick={() => onChange(tab.id)}
               style={{ position: "relative", zIndex: 1, flex: 1, padding: "8px 4px", border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
               <span style={{ lineHeight: 0, position: "relative", display: "inline-block", color: isActive ? T.accent : T.textDim }}>
                 {tab.icon}
@@ -1338,8 +1381,28 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     let el = document.querySelector("style[data-traqs-glow]");
     if (!el) { el = document.createElement("style"); el.setAttribute("data-traqs-glow","1"); document.head.appendChild(el); }
     const a = T.accent;
+    // Tint the universal button-hover glow with the active accent (see the
+    // `button:hover` rule in the static stylesheet). Updates live with the theme.
+    document.documentElement.style.setProperty("--tq-glow", `${a}66`);
+    document.documentElement.style.setProperty("--tq-glow-ring", `${a}40`);
     el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes fastTraqIn { 0%{opacity:0;transform:translateX(28px) scale(0.7)} 55%{opacity:1;transform:translateX(-4px) scale(1.04)} 80%{transform:translateX(1px) scale(0.99)} 100%{opacity:1;transform:translateX(0) scale(1)} } @keyframes cancelScoot { 0%{transform:translateX(0)} 30%{transform:translateX(-6px)} 70%{transform:translateX(2px)} 100%{transform:translateX(0)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkCircle { 0%{stroke-dashoffset:88;opacity:0.6} 100%{stroke-dashoffset:0;opacity:1} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
   }, [T.accent]);
+  // Tag every icon-only close button (text is exactly ✕ or ×) with `tq-noanim`
+  // so it opts out of the universal button pop/glow. A MutationObserver catches
+  // buttons inside dynamically-mounted popups/modals too — so none are missed.
+  // Action buttons like "✕ Clear" / "✕ Decline" keep the animation (text ≠ glyph).
+  useEffect(() => {
+    const isClose = el => { const s = (el.textContent || "").trim(); return s === "✕" || s === "×"; };
+    const tagAll = root => {
+      if (!root || root.nodeType !== 1) return;
+      if (root.tagName === "BUTTON" && isClose(root)) root.classList.add("tq-noanim");
+      root.querySelectorAll && root.querySelectorAll("button").forEach(b => { if (isClose(b)) b.classList.add("tq-noanim"); });
+    };
+    tagAll(document.body);
+    const mo = new MutationObserver(muts => { for (const m of muts) m.addedNodes.forEach(tagAll); });
+    mo.observe(document.body, { childList: true, subtree: true });
+    return () => mo.disconnect();
+  }, []);
   // Inject react-colorful overrides once — compact size + TRAQS border-radius
   useEffect(() => {
     if (document.querySelector("style[data-traqs-colorpicker]")) return;
@@ -1972,27 +2035,41 @@ Extraction rules:
   const navPillRef  = useRef(null);
   const navBtnRefs  = useRef({});
   const navPillTransitioned = useRef(false);
-  // Runs after every render until pill is initialized — handles nav bar appearing after async auth
+  // Sidebar active-indicator: one shared vertical bar that slides to whichever
+  // nav button matches the current view (instead of the line popping per button).
+  const placeNavPill = () => {
+    const pill = navPillRef.current;
+    if (!pill) return;
+    const btn = navBtnRefs.current[view];
+    if (!btn) { pill.style.opacity = "0"; return; }
+    pill.style.opacity = "1";
+    pill.style.left = `${btn.offsetLeft}px`;
+    pill.style.transform = `translateY(${btn.offsetTop + 6}px)`;
+    pill.style.height = `${Math.max(0, btn.offsetHeight - 12)}px`;
+  };
+  // First paint (and when the nav appears after async auth): snap into place with
+  // no animation, then enable the slide transition.
   useLayoutEffect(() => {
     if (navPillTransitioned.current) return;
     const btn = navBtnRefs.current[view];
     const pill = navPillRef.current;
     if (!btn || !pill) return;
     pill.style.transition = "none";
-    pill.style.transform = `translateX(${btn.offsetLeft}px)`;
-    pill.style.width = `${btn.offsetWidth}px`;
+    placeNavPill();
     navPillTransitioned.current = true;
-    requestAnimationFrame(() => { if (navPillRef.current) navPillRef.current.style.transition = "transform 0.44s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.38s cubic-bezier(0.22, 1, 0.36, 1)"; });
+    requestAnimationFrame(() => { if (navPillRef.current) navPillRef.current.style.transition = "transform 0.34s cubic-bezier(0.22, 1, 0.36, 1), height 0.34s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease"; });
   }); // intentionally no dep array — bails immediately after first success
-  // Animates pill on view change (only after initialization)
+  // Slide to the active button on view change or any layout-shifting nav state.
+  // The extra delayed re-measures let it land true after the dropdown / sidebar
+  // open-close animations finish moving the buttons below.
   useLayoutEffect(() => {
     if (!navPillTransitioned.current) return;
-    const btn = navBtnRefs.current[view];
-    const pill = navPillRef.current;
-    if (!btn || !pill) return;
-    pill.style.transform = `translateX(${btn.offsetLeft}px)`;
-    pill.style.width = `${btn.offsetWidth}px`;
-  }, [view]);
+    placeNavPill();
+    const t1 = setTimeout(placeNavPill, 130);
+    const t2 = setTimeout(placeNavPill, 280);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, sidebarExpanded, sidebarTimeOpen, sidebarSettingsOpen, sidebarMode]);
   const [timeOffModal, setTimeOffModal] = useState(false);
   const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
@@ -5887,7 +5964,7 @@ ${jobsCtx || "No jobs found."}`;
               {renderCustomColFilters()}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Overloaded Only</span>
-                <button onClick={() => setFOverloaded(p => !p)} style={{ width: 36, height: 20, borderRadius: 10, background: fOverloaded ? T.accent : T.border, border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s", flexShrink: 0 }}>
+                <button className="tq-noanim" onClick={() => setFOverloaded(p => !p)} style={{ width: 36, height: 20, borderRadius: 10, background: fOverloaded ? T.accent : T.border, border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s", flexShrink: 0 }}>
                   <div style={{ position: "absolute", top: 2, left: fOverloaded ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                 </button>
               </div>
@@ -10673,7 +10750,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
                   <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <button type="button" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                    <button type="button" className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
                       <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
                     </button>
                     <div>
@@ -15137,7 +15214,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Body — sidebar + content ── */}
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: T.surface }}>
     {/* ── Left sidebar — chevron + vertical nav + profile ── */}
-    {!isMobile && <aside onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+    {!isMobile && <aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
@@ -15147,7 +15224,9 @@ ${jobsCtx || "No jobs found."}`;
         </button>
       </div>
       {/* Nav buttons */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+      <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+        {/* Shared active-indicator bar — slides between nav buttons (positioned in placeNavPill) */}
+        <span ref={navPillRef} aria-hidden="true" style={{ position: "absolute", top: 0, width: 3, height: 28, borderRadius: 2, background: T.accent, pointerEvents: "none", willChange: "transform, height, opacity" }} />
         {views.map(v => {
           const active = view === v.id;
           // Time Clock is a collapsible group: a parent that defaults to the Time Sheet
@@ -15167,8 +15246,7 @@ ${jobsCtx || "No jobs found."}`;
                   onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
                   onMouseDown={() => tipCtx.hide()}
                   style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
-                  {active && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: T.accent }} />}
-                  <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
+                      <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
                   <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarTimeOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </button>
@@ -15208,7 +15286,6 @@ ${jobsCtx || "No jobs found."}`;
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}>
-              {active && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: T.accent }} />}
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
               <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
             </button>
@@ -15220,12 +15297,11 @@ ${jobsCtx || "No jobs found."}`;
         {canSeeApprovalQueue && (() => {
           const active = view === "approvals";
           return (
-            <button onClick={() => switchView("approvals")}
+            <button ref={el => { navBtnRefs.current["approvals"] = el; }} onClick={() => switchView("approvals")}
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show("Approval Queue", e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
               style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
-              {active && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: T.accent }} />}
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </span>
@@ -15237,12 +15313,11 @@ ${jobsCtx || "No jobs found."}`;
         {isAdmin && (() => {
           const active = view === "admin";
           return (
-            <button onClick={() => switchView("admin")}
+            <button ref={el => { navBtnRefs.current["admin"] = el; }} onClick={() => switchView("admin")}
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show("Admin", e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
               style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
-              {active && <span style={{ position: "absolute", left: 0, top: 6, bottom: 6, width: 3, borderRadius: 2, background: T.accent }} />}
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </span>
@@ -18897,7 +18972,7 @@ ${jobsCtx || "No jobs found."}`;
             const applyLabel = condApplyCols.find(c => c.key === cond.applyTo)?.label || cond.applyTo;
             return (
               <div key={cond.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface, border: `1px solid ${cond.enabled ? T.accent + "33" : T.border}`, borderRadius: T.radiusSm, transition: "border-color 0.15s" }}>
-                <button onClick={() => setOrgSettings(s => ({ ...s, conditions: (s.conditions || []).map(c => c.id === cond.id ? { ...c, enabled: !c.enabled } : c) }))}
+                <button className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, conditions: (s.conditions || []).map(c => c.id === cond.id ? { ...c, enabled: !c.enabled } : c) }))}
                   style={{ width: 36, height: 20, borderRadius: 10, border: "none", background: cond.enabled ? T.accent : T.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                   <div style={{ width: 14, height: 14, borderRadius: 7, background: "#fff", position: "absolute", top: 3, left: cond.enabled ? 19 : 3, transition: "left 0.2s" }} />
                 </button>
