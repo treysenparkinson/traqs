@@ -2682,7 +2682,7 @@ Extraction rules:
         const foot = `<tr><td>Total</td>${showDept ? "<td></td>" : ""}<td class="num mono">${(rep.total || 0).toFixed(2)}</td></tr>`;
         return `<table class="hrs-table"><thead>${head}</thead><tbody>${body || `<tr><td colspan="${cols}" class="empty">No hourly workers</td></tr>`}</tbody><tfoot>${foot}</tfoot></table>`;
       }
-      case "legend": { const al = b.fmt?.align || "left"; const jc = al === "right" ? "flex-end" : al === "center" ? "center" : "flex-start"; return `<div class="ts-key" style="text-align:${al}"><div class="ts-key-title">Key</div><div class="ts-key-row" style="justify-content:${jc}"><i style="background:#fde68a"></i><span>PTO</span></div><div class="ts-key-row" style="justify-content:${jc}"><i style="background:#bfdbfe"></i><span>Holiday pay</span></div></div>`; }
+      case "legend": { const al = b.fmt?.align || "left"; const jc = al === "right" ? "flex-end" : al === "center" ? "center" : "flex-start"; return `<div class="ts-key" style="text-align:${al}"><div class="ts-key-title">Key</div><div class="ts-key-row" style="justify-content:${jc}"><i style="background:#fde68a"></i><span>PTO / UTO</span></div><div class="ts-key-row" style="justify-content:${jc}"><i style="background:#bfdbfe"></i><span>Holiday pay</span></div></div>`; }
       case "job": default: return job ? jobCardHtml(job, o) : `<div class="empty">Job not found</div>`;
     }
   };
@@ -2845,10 +2845,15 @@ Extraction rules:
         const hours = r2(hoursByDate[ds] || 0);
         const isHoliday = holidays.includes(ds);
         const isWorkday = workDays.includes(weekday);
-        // Holidays auto-highlight blue. PTO (yellow) is applied manually per cell in the designer
-        // (click-to-highlight); day cells otherwise just show the hours logged.
-        const autoColor = isHoliday ? "blue" : null;
-        return { date: ds, weekday, hours, isWorkday, isHoliday, autoColor };
+        // Any workday inside one of this person's time-off ranges (PTO or UTO, set in the
+        // schedule person editor) auto-highlights yellow so the accountant sees it without
+        // having to click — manual cell colors in the designer still override (see blocksHtml).
+        const offEntry = (p.timeOff || []).find(to => ds >= to.start && ds <= to.end);
+        const isPto = !!offEntry && isWorkday;
+        const ptoType = offEntry ? (offEntry.type || "PTO") : null;
+        // Holidays auto-highlight blue; PTO/UTO yellow takes precedence over the holiday blue.
+        const autoColor = isPto ? "yellow" : isHoliday ? "blue" : null;
+        return { date: ds, weekday, hours, isWorkday, isHoliday, isPto, ptoType, autoColor };
       });
 
       // Weekly OT = greater of daily-over-8 and weekly-over-40 (no double-count). regular = total − OT.
@@ -18008,12 +18013,13 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ marginBottom: 20 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <label style={{ fontSize: 13, color: T.textSec, fontWeight: 500, display: "flex", alignItems: "center", gap: 5 }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Time Off / Unavailable Dates</label>
-              <Btn variant="ghost" size="sm" onClick={() => setEd(p => ({ ...p, timeOff: [...(p.timeOff || []), { start: TD, end: addD(TD, 1), reason: "" }] }))}>+ Add</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setEd(p => ({ ...p, timeOff: [...(p.timeOff || []), { start: TD, end: addD(TD, 1), reason: "", type: "PTO" }] }))}>+ Add</Btn>
             </div>
             {(ed.timeOff || []).length === 0 && <div style={{ padding: 16, textAlign: "center", fontSize: 13, color: T.textDim, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>No time off scheduled</div>}
             {(ed.timeOff || []).map((to, i) => <div key={i} style={{ display: "flex", gap: 10, alignItems: "end", marginBottom: 10, padding: 12, background: T.surface, borderRadius: T.radiusSm, border: "1px solid #a78bfa22" }}>
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>From</label><TraqsDatePicker compact value={to.start} onChange={v => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], start: v }; setEd(p => ({ ...p, timeOff: nto })); }} /></div>
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>To</label><TraqsDatePicker compact value={to.end} onChange={v => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], end: v }; setEd(p => ({ ...p, timeOff: nto })); }} /></div>
+              <div><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Type</label><div style={{ display: "flex", gap: 4 }}>{["PTO", "UTO"].map(t => { const active = (to.type || "PTO") === t; const c = t === "PTO" ? "#10b981" : "#f59e0b"; return <button key={t} type="button" onClick={() => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], type: t }; setEd(p => ({ ...p, timeOff: nto })); }} style={{ padding: "8px 11px", borderRadius: T.radiusXs, border: `1px solid ${active ? c + "66" : T.border}`, background: active ? c + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: active ? 700 : 400, color: active ? c : T.textSec }}>{t}</button>; })}</div></div>
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Reason</label><input value={to.reason} onChange={e => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], reason: e.target.value }; setEd(p => ({ ...p, timeOff: nto })); }} placeholder="Vacation, Sick..." style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} /></div>
               <Btn variant="danger" size="sm" onClick={() => { const nto = ed.timeOff.filter((_, j) => j !== i); setEd(p => ({ ...p, timeOff: nto })); }}>✕</Btn>
             </div>)}
