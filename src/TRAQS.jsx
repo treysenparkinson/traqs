@@ -669,11 +669,8 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
 /* Adaptive (frosted-glass) mode — when a custom background image is set, every translucent
    popup / menu / card / panel gets a STRONG backdrop blur so text stays readable over the
    image. Gated by the .traqs-adaptive root class (only present when a bg image is active). */
-/* OPT-IN frosted glass: only elements tagged .tq-frost (job-list sections & other page
-   content) go translucent + strongly blurred over the background image. Everything else —
-   popups, dropdowns, menus, buttons, cards — stays SOLID by default (theme surfaces are opaque). */
-/* Page content (job-list sections & other .tq-frost / card surfaces) get a translucent tint
-   so the sharp background image shows through cleanly (no blur). cardOpacity drives the tint. */
+/* Page content (.tq-frost / .anim-card-wrap) gets a translucent tint so the sharp background
+   image shows through cleanly (no blur). cardOpacity drives the tint. */
 .traqs-adaptive .tq-frost,
 .traqs-adaptive .anim-card-wrap {
   background-color: var(--tq-frost-bg, var(--tq-surface-solid)) !important;
@@ -7636,7 +7633,9 @@ ${jobsCtx || "No jobs found."}`;
           // True if THIS row is mid-collapse — used so descendants inherit the closing state.
           const selfClosing = alwaysExpand ? groupClosing.has(groupExpKey) : closingJobs.has(item.id);
           const hasSubs = (item.subs || []).length > 0;
-          const rowBg = level === 0 ? (selTask === item.id ? T.accent + "12" : "transparent") : level === 1 ? T.surface + "cc" : T.bg + "cc";
+          // All levels share the parent job's clear look (transparent over the frosted section);
+          // hierarchy is conveyed by indentation, not by per-level background tints.
+          const rowBg = selTask === item.id ? T.accent + "12" : "transparent";
           const allConds = orgSettings.conditions || [];
           const matchingRowConds = allConds.filter(c => c.applyTo === "row" && evalCondition(c, item));
           const condBg = matchingRowConds.length ? (matchingRowConds[matchingRowConds.length - 1].formatBgColor || null) : null;
@@ -15815,7 +15814,7 @@ ${jobsCtx || "No jobs found."}`;
       const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity }) : (THEMES[draftMode] || THEMES.midnight);
       const pAdaptive = !!(isCustom && dc.bgImage);
       const pFrostBg = pAdaptive ? hexA(pT.surfaceSolid || pT.surface, (dc.cardOpacity ?? 80) / 100) : pT.card;
-      const pBlur = "none";
+      const pBlur = pAdaptive ? "blur(18px) saturate(1.4)" : "none";
       const pSolid = pT.surfaceSolid || pT.surface;
       const lbl = { fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 };
       const swatch = (key, label, sub) => (
