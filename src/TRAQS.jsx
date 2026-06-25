@@ -1500,6 +1500,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   });
   const [presetNameInput, setPresetNameInput] = useState("");
   useEffect(() => { localStorage.setItem("tq_theme_presets", JSON.stringify(themePresets)); }, [themePresets]);
+  // History of recently-used background images (most-recent first, capped at 5) so the
+  // Customize modal can switch back to a previous image without re-uploading it.
+  const [bgImageHistory, setBgImageHistory] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("tq_bg_image_history") || "null") || []; }
+    catch { return []; }
+  });
+  useEffect(() => { localStorage.setItem("tq_bg_image_history", JSON.stringify(bgImageHistory)); }, [bgImageHistory]);
+  const pushBgImage = data => { if (data) setBgImageHistory(prev => [data, ...prev.filter(x => x !== data)].slice(0, 5)); };
   // Inject glow-pulse keyframe so it always matches T.accent
   useEffect(() => {
     let el = document.querySelector("style[data-traqs-glow]");
@@ -15832,6 +15840,8 @@ ${jobsCtx || "No jobs found."}`;
       // Backed by a subtle tint OF THE SURFACE (not T.bg) so the surface-contrasting text
       // (T.text / T.textDim) stays readable regardless of how light/dark the chosen bg is.
       const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px 18px", marginBottom: 16 };
+      // Current image first, then the last-5 history — deduped — so the user can switch back.
+      const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
       const swatch = (key, label, sub) => (
         <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
@@ -15900,8 +15910,22 @@ ${jobsCtx || "No jobs found."}`;
                     : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
                         Upload background image
-                        <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); setDc(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
+                        <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); pushBgImage(data); setDc(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
                       </label>}
+                  {/* Recent images — current is ringed; click any to switch back without re-uploading */}
+                  {recentImgs.length > 0 && <div style={{ marginTop: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: T.textDim, marginBottom: 8 }}>Recent images</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {recentImgs.map((img, i) => {
+                        const isCur = img === dc.bgImage;
+                        return <button key={i} title={isCur ? "Current background" : "Use this background"} onClick={() => setDc(p => ({ ...p, bgImage: img, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity }))}
+                          style={{ position: "relative", width: 58, height: 40, borderRadius: T.radiusXs, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
+                          {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: T.accent, color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                          <span onClick={e => { e.stopPropagation(); setBgImageHistory(prev => prev.filter(x => x !== img)); if (isCur) setDc({ bgImage: null }); }} title="Remove from history" style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: T.surfaceSolid || T.surface, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</span>
+                        </button>;
+                      })}
+                    </div>
+                  </div>}
                   {dc.bgImage && <div style={{ marginTop: 16 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 6 }}><span>Background image opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.bgOpacity ?? 100}%</span></div>
                     <input type="range" min="0" max="100" value={dc.bgOpacity ?? 100} onChange={e => setDc({ bgOpacity: Number(e.target.value) })} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
