@@ -672,10 +672,11 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
 /* OPT-IN frosted glass: only elements tagged .tq-frost (job-list sections & other page
    content) go translucent + strongly blurred over the background image. Everything else —
    popups, dropdowns, menus, buttons, cards — stays SOLID by default (theme surfaces are opaque). */
-.traqs-adaptive .tq-frost {
+/* Page content (job-list sections & other .tq-frost / card surfaces) get a translucent tint
+   so the sharp background image shows through cleanly (no blur). cardOpacity drives the tint. */
+.traqs-adaptive .tq-frost,
+.traqs-adaptive .anim-card-wrap {
   background-color: var(--tq-frost-bg, var(--tq-surface-solid)) !important;
-  backdrop-filter: blur(26px) saturate(1.5) !important;
-  -webkit-backdrop-filter: blur(26px) saturate(1.5) !important;
 }
 /* Smoothly fade text between black/white as the custom surface flips light/dark, so the
    auto-contrast text color (white on dark surfaces, black on light) cross-fades instead of snapping. */
@@ -1486,6 +1487,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   useEffect(() => { localStorage.setItem("tq_theme", themeMode); }, [themeMode]);
   useEffect(() => { localStorage.setItem("tq_custom_theme", JSON.stringify(customTheme)); }, [customTheme]);
   const [customizationOpen, setCustomizationOpen] = useState(false);
+  // Draft theme edited inside the Customize modal — only applied to the live theme on Save.
+  const [draftMode, setDraftMode] = useState("custom");
+  const [draftCustom, setDraftCustom] = useState({ bg: "#1a1a2e", accent: "#e94560", surface: "#24243e", text: "#f1f5f9", bgImage: null, cardOpacity: 100, bgOpacity: 100 });
+  const [draftSidebar, setDraftSidebar] = useState("hover");
+  useEffect(() => { if (customizationOpen) { setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setDraftSidebar(sidebarMode); } }, [customizationOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const [themePresets, setThemePresets] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tq_theme_presets") || "null") || []; }
     catch { return []; }
@@ -1508,7 +1514,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const solid = T.surfaceSolid || T.surface || "#1e1e2e";
     document.documentElement.style.setProperty("--tq-surface-solid", solid);
     document.documentElement.style.setProperty("--tq-frost-bg", T.adaptive ? hexA(solid, (T.cardOpacity ?? 80) / 100) : solid);
-  }, [T.surfaceSolid, T.surface, T.adaptive, T.cardOpacity]);
+    document.documentElement.style.setProperty("--tq-bg-image", T.adaptive && T.bgImage ? `url("${T.bgImage}")` : "none");
+  }, [T.surfaceSolid, T.surface, T.adaptive, T.cardOpacity, T.bgImage]);
   // Tag every icon-only close button (text is exactly ✕ or ×) with `tq-noanim`
   // so it opts out of the universal button pop/glow. A MutationObserver catches
   // buttons inside dynamically-mounted popups/modals too — so none are missed.
@@ -6927,7 +6934,7 @@ ${jobsCtx || "No jobs found."}`;
               <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>{section.label}</h3>
               <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{section.items.length}</span>
             </div>
-            <div style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto" }}>
+            <div className="tq-frost" style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto" }}>
               <div style={{ minWidth: 1130 }}>
                 <div style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
                   <div style={hdrCell}>Approval</div>
@@ -8051,7 +8058,7 @@ ${jobsCtx || "No jobs found."}`;
               const done = ct.filter(t => t.status === "Finished").length;
               const isSel = selClient === c.id;
               const isBulkSel = selClients.has(c.id);
-              return <div key={c.id} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : setSelClient(isSel ? null : c.id)} style={{
+              return <div key={c.id} className={(isSel || isBulkSel) ? undefined : "tq-frost"} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : setSelClient(isSel ? null : c.id)} style={{
                 background: isBulkSel ? T.accent + "12" : isSel ? c.color + "18" : T.card,
                 borderRadius: T.radius,
                 border: `1.5px solid ${isBulkSel ? T.accent + "55" : isSel ? c.color + "66" : T.border}`,
@@ -8781,7 +8788,7 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
-      <div ref={teamRef} className="tq-schedule-scroll" onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
+      <div ref={teamRef} className="tq-schedule-scroll tq-frost" onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
         <style>{`.tq-schedule-scroll::-webkit-scrollbar{height:26px}.tq-schedule-scroll::-webkit-scrollbar-track{background:${T.bg};border-top:1px solid ${T.border}}.tq-schedule-scroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:13px;border:4px solid ${T.bg};min-width:80px}.tq-schedule-scroll::-webkit-scrollbar-thumb:hover{background:${T.accent}aa}.tq-schedule-scroll{scrollbar-width:auto;scrollbar-color:${T.border} ${T.bg}}`}</style>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
           {/* Dual header: week groups + day numbers */}
@@ -10288,7 +10295,7 @@ ${jobsCtx || "No jobs found."}`;
           return `${sd.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${ed.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
         };
         return (
-          <div style={{ background: T.bg, padding: "28px 20px 18px" }}>
+          <div style={{ padding: "28px 20px 18px" }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 12 }}>Schedule Status</div>
             <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
               {workersToday.map(({ person, todayBars, nextBar }) => {
@@ -10304,7 +10311,7 @@ ${jobsCtx || "No jobs found."}`;
                 const loggedHours = (todayBar.task?.loggedHours || 0) + liveElapsed;
                 const progressPct = Math.min(100, totalHours > 0 ? (loggedHours / totalHours) * 100 : 0);
                 return (
-                  <div key={person.id} style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
+                  <div key={person.id} className="tq-frost" style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                       <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: person.color || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: isLight(person.color || T.accent) ? "#000" : "#fff" }}>{initials}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
@@ -10552,7 +10559,7 @@ ${jobsCtx || "No jobs found."}`;
           { label: "Avg completion", val: avgPct, suffix: "%", color: "#10b981" },
           { label: "On-time", val: onTimePct, suffix: "%", color: onTimePct >= 80 ? "#10b981" : onTimePct >= 50 ? "#f59e0b" : T.danger },
         ].map((k, i) => (
-          <div key={k.label} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", fontFamily: T.font }}>
+          <div key={k.label} className="tq-frost" style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", fontFamily: T.font }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{k.label}</div>
             <div style={{ fontSize: 28, fontWeight: 800, color: k.color, fontFamily: T.mono, lineHeight: 1.1 }}>{k.val}{k.suffix}</div>
           </div>
@@ -11893,7 +11900,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Pay period hours — read-only, all users see their own */}
             {loggedInUser.payType !== "salary" && (
-              <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
+              <div className="tq-frost" style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>My Pay Hours</div>
                 <div style={{ display: "flex", gap: 10 }}>
                   <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusSm, padding: "12px 0", textAlign: "center" }}>
@@ -11937,7 +11944,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Job Clock — STATE 1 / 2 / 3 */}
             {isClockedIn && (
-              <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
+              <div className="tq-frost" style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14 }}>Job Clock</div>
 
                 {/* STATE 1: clocked in, no active job */}
@@ -12009,7 +12016,7 @@ ${jobsCtx || "No jobs found."}`;
                         const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
                         const recentEntries = timeclock.filter(e => e.personId === p.id && e.date >= thirtyAgo && !e.eventType).sort((a, b) => b.clockIn.localeCompare(a.clockIn));
                         return (
-                          <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? pillColor + "30" : T.borderLight}`, overflow: "hidden" }}>
+                          <div key={p.id} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? pillColor + "30" : T.borderLight}`, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ padding: "14px 16px", cursor: "pointer" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                                 <div style={{ width: 9, height: 9, borderRadius: 5, background: T.textDim, flexShrink: 0 }} />
@@ -12083,7 +12090,7 @@ ${jobsCtx || "No jobs found."}`;
                         const pTotal = pEntries.reduce((s, e) => s + (e.hours||0), 0);
                         const isExpTS = !!tsExpandedPersons["ts_" + person.id];
                         return (
-                          <div key={person.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, marginBottom: 10, overflow: "hidden" }}>
+                          <div key={person.id} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, marginBottom: 10, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, ["ts_" + person.id]: !prev["ts_" + person.id] }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" }}>
                               <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim }} />
                               <span style={{ fontSize: 14, fontWeight: 600, color: T.text, flex: 1 }}>{person.name}</span>
@@ -12448,7 +12455,7 @@ ${jobsCtx || "No jobs found."}`;
 
         {/* ── Admin section ── */}
         {isAdmin && (
-          <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}` }}>
+          <div className="tq-frost" style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}` }}>
             {/* Admin tabs */}
             <div style={{ padding: "0 20px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 2 }}>
               {[
@@ -12774,7 +12781,7 @@ ${jobsCtx || "No jobs found."}`;
             {byDate.map(({ date, entries }) => {
               const dayTotal = entries.reduce((s, e) => s + (e.hours||0), 0);
               return (
-                <div key={date} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
+                <div key={date} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
                   <div style={{ padding: "10px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{fmtDayHeader(date)}</span>
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{dayTotal.toFixed(2)} hrs</span>
@@ -15544,7 +15551,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ overflow: "hidden", minHeight: 0 }}>
             <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
               {/* Design — opens modal */}
-              <button onClick={() => setDesignModalOpen(true)}
+              <button onClick={() => setCustomizationOpen(true)}
                 onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                 style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
@@ -15624,8 +15631,13 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </aside>}
-    <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", backgroundColor: T.bg, ...(T.bgImage ? { backgroundImage: `linear-gradient(${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat" } : {}), borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
-      {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "admin" && isAdmin && <div style={{ flex: 1 }}>{renderAdmin()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
+    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
+      {/* Sharp background-image layer — kept as its own element (not a CSS background on the scroll
+          container) so the tq-frost sections' backdrop-filter actually blurs it, like the preview. */}
+      {T.bgImage && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "fixed", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />}
+      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px" }}>
+        {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "admin" && isAdmin && <div style={{ flex: 1 }}>{renderAdmin()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
+      </div>
     </div>
     </div>
     {/* ── BuilderTrend Modal ── */}
@@ -15795,101 +15807,182 @@ ${jobsCtx || "No jobs found."}`;
     )}</FadeOnClose>
     {/* Customization Modal */}
     {customizationOpen && (() => {
-      return <div style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}
-        onClick={() => setCustomizationOpen(false)}>
-        <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(480px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
-          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>Customization</span>
+      const isCustom = draftMode === "custom";
+      const dc = draftCustom;
+      const setDc = upd => setDraftCustom(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
+      // Preview theme built from the DRAFT (never the live theme), so the mockup shows exactly
+      // what Save will apply — colors, background image, frosted-glass cards, auto text contrast.
+      const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity }) : (THEMES[draftMode] || THEMES.midnight);
+      const pAdaptive = !!(isCustom && dc.bgImage);
+      const pFrostBg = pAdaptive ? hexA(pT.surfaceSolid || pT.surface, (dc.cardOpacity ?? 80) / 100) : pT.card;
+      const pBlur = "none";
+      const pSolid = pT.surfaceSolid || pT.surface;
+      const lbl = { fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 };
+      const swatch = (key, label, sub) => (
+        <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
+            <div style={{ width: "100%", height: "100%", background: dc[key] }} />
+            <input type="color" value={dc[key] || "#000000"} onChange={e => setDc({ [key]: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+          </label>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
+            <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
+          </div>
+          <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc[key]}</div>
+        </div>
+      );
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10001, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }} onClick={() => setCustomizationOpen(false)}>
+        <div onClick={e => e.stopPropagation()} style={{ background: T.surfaceSolid || T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radius, boxShadow: "0 28px 80px rgba(0,0,0,0.6)", width: "min(1360px, 98vw)", height: "min(880px, 95vh)", display: "flex", flexDirection: "column", overflow: "hidden", animation: "slideUp 0.22s ease-out" }}>
+          {/* Header */}
+          <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <span style={{ color: T.accent, lineHeight: 0 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="12" r="2.5"/><circle cx="17" cy="13" r="2.5"/><path d="M12 22a10 10 0 1 1 10-10c0 2-2 3-4 3h-2a2 2 0 0 0-1 4 2 2 0 0 1-1 3z"/></svg></span>
+            <span style={{ fontSize: 17, fontWeight: 800, color: T.text, flex: 1 }}>Customize Appearance</span>
             <button onClick={() => setCustomizationOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
           </div>
-          <div style={{ padding: "20px" }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Theme</div>
-            <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-              {[
-                { id: "midnight", label: "Dark",   bg: "#080d18", accent: "#3d7fff" },
-                { id: "frost",    label: "Light",  bg: "#f0f4f9", accent: "#0ea5e9" },
-                { id: "custom",   label: "Custom", bg: customTheme.bg, accent: customTheme.accent },
-              ].map(th => {
-                const active = themeMode === th.id;
-                return <button key={th.id} onClick={() => setThemeMode(th.id)} title={th.label}
-                  style={{ flex: 1, padding: "12px 4px 10px", background: th.bg, border: `2px solid ${active ? th.accent : "transparent"}`, borderRadius: T.radiusXs, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 6, transition: "border 0.18s, transform 0.18s, box-shadow 0.18s", transform: active ? "scale(1.06)" : "scale(1)", boxShadow: active ? `0 0 0 2px ${th.accent}44` : "none" }}>
-                  {th.id === "custom"
-                    ? <div style={{ width: 20, height: 20, borderRadius: 10, background: "conic-gradient(#f43f5e,#f59e0b,#10b981,#3d7fff,#7c3aed,#f43f5e)" }} />
-                    : <div style={{ width: 20, height: 20, borderRadius: 10, background: th.accent, boxShadow: active ? `0 0 10px ${th.accent}88` : "none" }} />}
-                  <span style={{ fontSize: 10, fontWeight: active ? 700 : 500, color: active ? th.accent : "#888" }}>{th.label}</span>
-                </button>;
-              })}
-            </div>
-            {themeMode === "custom" && <div style={{ marginBottom: 20, padding: "14px 16px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Custom Colors</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                {[
-                  { key: "bg",      label: "Background",    sub: "App background" },
-                  { key: "surface", label: "Lists & Cards", sub: "Tables, lists & panels" },
-                  { key: "accent",  label: "Buttons",       sub: "Buttons, highlights & indicators" },
-                ].map(({ key, label, sub }) => (
-                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <label style={{ position: "relative", width: 42, height: 42, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block", boxShadow: `0 0 0 1px ${customTheme[key]}44` }}>
-                      <div style={{ width: "100%", height: "100%", background: customTheme[key] }} />
-                      <input type="color" value={customTheme[key]} onChange={e => setCustomTheme(p => ({ ...p, [key]: e.target.value }))}
-                        style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
-                    </label>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
-                      <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
-                    </div>
-                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: "'DM Sans',sans-serif" }}>{customTheme[key]}</div>
-                  </div>
-                ))}
+          {/* Body: controls + live preview */}
+          <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+            {/* Controls */}
+            <div style={{ width: 372, flexShrink: 0, borderRight: `1px solid ${T.border}`, overflowY: "auto", padding: "20px 22px" }}>
+              <div style={lbl}>Sidebar Behavior</div>
+              <div style={{ display: "flex", gap: 4, background: T.bg, borderRadius: 999, padding: 3, border: `1px solid ${T.border}`, marginBottom: 22 }}>
+                {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
+                  const active = draftSidebar === opt.id;
+                  return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
+                })}
               </div>
-              {/* Background image + adaptive card opacity */}
-              <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Background Image</div>
-                {customTheme.bgImage
+              <div style={lbl}>Theme</div>
+              <div style={{ display: "flex", gap: 8, marginBottom: 22 }}>
+                {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
+                  const active = draftMode === th.id;
+                  return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.accent + "15" : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
+                })}
+              </div>
+              {isCustom && <>
+                <div style={lbl}>Colors</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 22 }}>
+                  {swatch("bg", "Background", "App background")}
+                  {swatch("surface", "Lists & Cards", "Tables, lists & panels")}
+                  {swatch("accent", "Buttons", "Buttons, highlights & indicators")}
+                </div>
+                <div style={lbl}>Background Image</div>
+                {dc.bgImage
                   ? <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                      <div style={{ width: 64, height: 42, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, backgroundImage: `url(${customTheme.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
-                      <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>Image set · cards adapt to it</div>
-                      <button onClick={() => setCustomTheme(p => ({ ...p, bgImage: null }))} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
+                      <div style={{ width: 64, height: 42, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
+                      <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>Image set · cards frost over it</div>
+                      <button onClick={() => setDc({ bgImage: null })} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
                     </div>
                   : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", marginBottom: 14, borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
                       Upload background image
-                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); setCustomTheme(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
+                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); setDc(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
                     </label>}
-                {customTheme.bgImage && <div style={{ marginBottom: 14 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 4 }}><span>Background image opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{customTheme.bgOpacity ?? 100}%</span></div>
-                  <input type="range" min="0" max="100" value={customTheme.bgOpacity ?? 100} onChange={e => setCustomTheme(p => ({ ...p, bgOpacity: Number(e.target.value) }))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
+                {dc.bgImage && <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 4 }}><span>Background image opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.bgOpacity ?? 100}%</span></div>
+                  <input type="range" min="0" max="100" value={dc.bgOpacity ?? 100} onChange={e => setDc({ bgOpacity: Number(e.target.value) })} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
                 </div>}
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 4 }}><span>Job card opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{customTheme.cardOpacity ?? 100}%</span></div>
-                  <input type="range" min="20" max="100" value={customTheme.cardOpacity ?? 100} onChange={e => setCustomTheme(p => ({ ...p, cardOpacity: Number(e.target.value) }))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
-                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 4 }}>Lower = more transparent, letting the background show through cards &amp; lists.</div>
+                <div style={{ marginBottom: 22 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 4 }}><span>Card frost opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.cardOpacity ?? 100}%</span></div>
+                  <input type="range" min="20" max="100" value={dc.cardOpacity ?? 100} onChange={e => setDc({ cardOpacity: Number(e.target.value) })} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 4 }}>Lower = more transparent; cards & lists show more of the background.</div>
+                </div>
+              </>}
+              <div style={lbl}>Saved Presets</div>
+              {themePresets.length === 0 && <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>No saved presets yet.</div>}
+              {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                {themePresets.map((p, idx) => (
+                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
+                    onClick={() => { setDraftMode("custom"); setDraftCustom(c => ({ ...c, bg: p.bg, accent: p.accent, text: p.text || c.text, surface: p.surface || c.surface })); }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
+                    <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }} style={{ background: "none", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
+                  </div>
+                ))}
+              </div>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)} placeholder="Preset name…"
+                  onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); } }}
+                  style={{ flex: 1, background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
+                <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); }}
+                  style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
+              </div>
+            </div>
+            {/* Live preview — mirrors the home / jobs-list view (blank placeholder rows) */}
+            <div style={{ flex: 1, minWidth: 0, padding: 22, display: "flex", flexDirection: "column", gap: 10, background: T.bg }}>
+              <div style={lbl}>Live Preview · Jobs</div>
+              <div style={{ flex: 1, borderRadius: 16, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 8px 30px rgba(0,0,0,0.25)", background: pSolid }}>
+                {/* full-width solid header (logo + New Job) — sits above sidebar + content, no divider */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
+                  <span style={{ fontSize: 30, fontWeight: 800, color: pT.text, letterSpacing: "-0.03em", marginLeft: 46 }}>traqs</span>
+                  <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                    <span style={{ width: 16, height: 16, borderRadius: 8, background: pT.border }} />
+                    <span style={{ width: 16, height: 16, borderRadius: 8, background: pT.border }} />
+                  </span>
+                </div>
+                {/* row: sidebar + content */}
+                <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+                  {/* sidebar (solid chrome) — Button mode fades in a toggle on top, sliding icons down */}
+                  <div style={{ width: 48, flexShrink: 0, background: pSolid, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14 }}>
+                    <div style={{ height: draftSidebar === "button" ? 26 : 0, opacity: draftSidebar === "button" ? 1 : 0, marginBottom: draftSidebar === "button" ? 16 : 0, overflow: "hidden", transition: "height 0.3s ease, opacity 0.3s ease, margin-bottom 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                        {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 1, background: pT.text }} />)}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                      {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 6, background: i === 0 ? pT.accent : pT.border }} />)}
+                    </div>
+                  </div>
+                  {/* rounded content panel with the background image (mirrors the 22px content area) */}
+                  <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
+                    {pAdaptive && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (dc.bgOpacity ?? 100) / 100 }} />}
+                    <div style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
+                      {/* content toolbar — New Job lives here (on the screen), not in the header */}
+                      <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "7px 14px" }}>+ New Job</span>
+                      </div>
+                      {[[70, 56, 82], [62, 78, 48, 66], [74, 50, 60]].map((rowWidths, sec) => {
+                        const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
+                        return <div key={sec}>
+                          {/* group header — blank label + count chip */}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+                            <div style={{ height: 9, width: 88, borderRadius: 4, background: pT.text, opacity: 0.55 }} />
+                            <div style={{ height: 15, width: 24, borderRadius: 8, background: pT.accent + "2e" }} />
+                          </div>
+                          {/* frosted section panel */}
+                          <div style={{ background: pFrostBg, backdropFilter: pBlur, WebkitBackdropFilter: pBlur, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden" }}>
+                            {/* column-header row (blank) */}
+                            <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "8px 14px", borderBottom: `1.5px solid ${pT.border}` }}>
+                              {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 3, background: pT.textDim, opacity: 0.45 }} />)}
+                            </div>
+                            {/* blank rows */}
+                            {rowWidths.map((nameW, r) => (
+                              <div key={r} style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "10px 14px", borderBottom: r < rowWidths.length - 1 ? `1px solid ${pT.border}` : "none" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <div style={{ width: 9, height: 9, borderRadius: 5, background: pT.accent, flexShrink: 0, opacity: 0.85 }} />
+                                  <div style={{ height: 8, width: `${nameW}%`, borderRadius: 4, background: pT.textDim, opacity: 0.32 }} />
+                                </div>
+                                <div style={{ height: 8, width: "80%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
+                                <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 7, height: 7, borderRadius: 4, background: pT.textDim, opacity: 0.4 }} /><div style={{ height: 8, width: "60%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} /></div>
+                                <span style={{ height: 15, width: 46, borderRadius: 7, background: pT.accent + "26", border: `1px solid ${pT.accent}44` }} />
+                                <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
+                                <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
+                                <div style={{ height: 6, borderRadius: 3, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 3 }} /></div>
+                                <div style={{ width: 16, height: 16, borderRadius: 8, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
+                              </div>
+                            ))}
+                          </div>
+                        </div>;
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>}
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Saved Presets</div>
-            {themePresets.length === 0 && <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14 }}>No saved presets yet. Save your custom theme as a preset below.</div>}
-            {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
-              {themePresets.map((p, idx) => (
-                <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
-                  onClick={() => { setThemeMode("custom"); setCustomTheme(c => ({ ...c, bg: p.bg, accent: p.accent, text: p.text || c.text, surface: p.surface || c.surface })); }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
-                  <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }}
-                    style={{ background: "none", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
-                </div>
-              ))}
-            </div>}
-            <div style={{ display: "flex", gap: 8 }}>
-              <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)}
-                placeholder="Preset name…"
-                onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent, text: customTheme.text, surface: customTheme.surface }]); setPresetNameInput(""); } }}
-                style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
-              <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent, text: customTheme.text, surface: customTheme.surface }]); setPresetNameInput(""); }}
-                style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
             </div>
-            <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>Saves the current custom background &amp; accent as a named preset you can apply later.</div>
+          </div>
+          {/* Footer */}
+          <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <span style={{ fontSize: 12, color: T.textDim, flex: 1 }}>Changes preview live and apply only when you save.</span>
+            <Btn variant="ghost" onClick={() => setCustomizationOpen(false)}>Cancel</Btn>
+            <Btn onClick={() => { setThemeMode(draftMode); if (draftMode === "custom") setCustomTheme(draftCustom); setSidebarMode(draftSidebar); setCustomizationOpen(false); }}>Save Changes</Btn>
           </div>
         </div>
       </div>;
