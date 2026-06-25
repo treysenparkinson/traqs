@@ -1198,6 +1198,18 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…" }) {
     </div>}
   </div>;
 }
+// Compact comment input for an approval-queue row. Enter or the arrow button adds the comment.
+function ApprovalCommentInput({ onAdd }) {
+  const [text, setText] = useState("");
+  const submit = () => { const t = text.trim(); if (!t) return; onAdd(t); setText(""); };
+  const has = !!text.trim();
+  return <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+    <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); submit(); } }} placeholder="Add comment…" style={{ flex: 1, minWidth: 0, padding: "5px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+    <button className="tq-noanim" onClick={submit} title="Add comment" style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 6, border: "none", background: has ? T.accent : T.border, color: has ? T.accentText : T.textDim, cursor: has ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </button>
+  </div>;
+}
 // Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
 // `value` is an array of { type, id } tokens; clicking a row toggles it and keeps the popup open.
 function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false }) {
@@ -5290,6 +5302,12 @@ ${jobsCtx || "No jobs found."}`;
   // Open the modal to edit a job panel's approval steps (chain mode). Seeds from an existing
   // chain, or from the row's current steps (engineering/template) preserving done-state.
   const editPanelApproval = (jobId, panelId, headerTitle, seedSteps) => setApprovalModal({ target: { kind: "chain", jobId, panelId }, title: headerTitle || "Approval", steps: (seedSteps || []).map(s => ({ ...s })), clientId: "", templateId: "", dept: "", dueDate: "" });
+  // ── Approval comments. Standalone → approval.comments; job rows → panel.apprComments[key]. ──
+  const _newComment = (text) => ({ text: text.trim(), by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() });
+  const addApprovalComment = (id, text) => { if (!text.trim()) return; setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, comments: [...(a.comments || []), _newComment(text)] }) })); };
+  const delApprovalComment = (id, idx) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, comments: (a.comments || []).filter((_, i) => i !== idx) }) }));
+  const addPanelComment = (jobId, panelId, key, text) => { if (!text.trim()) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprComments: { ...(p.apprComments || {}), [key]: [...((p.apprComments || {})[key] || []), _newComment(text)] } }) })); };
+  const delPanelComment = (jobId, panelId, key, idx) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprComments: { ...(p.apprComments || {}), [key]: ((p.apprComments || {})[key] || []).filter((_, i) => i !== idx) } }) }));
   const isEngComplete = (panel) => {
     const e = panel.engineering || {};
     return !!(e.designed && e.verified && e.sentToPerforex);
@@ -6833,7 +6851,7 @@ ${jobsCtx || "No jobs found."}`;
     const total = entries.length;
     const pending = entries.filter(e => !e.isDone).length;
     const empty = total === 0;
-    const COLS = "minmax(220px,1.6fr) 130px 130px minmax(280px,2.2fr) 170px";
+    const COLS = "minmax(190px,1.4fr) 120px 120px minmax(220px,1.8fr) 150px minmax(210px,1.7fr)";
     const cellBase = { padding: "9px 12px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1.25px solid ${T.border}`, display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" };
     const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "10px 12px", background: T.surface };
     const groupOpts = [["type", "Type"], ["client", "Client"], ["dept", "Department"], ["status", "Status"]];
@@ -6871,18 +6889,22 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{section.items.length}</span>
             </div>
             <div style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto" }}>
-              <div style={{ minWidth: 900 }}>
+              <div style={{ minWidth: 1130 }}>
                 <div style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
                   <div style={hdrCell}>Approval</div>
                   <div style={hdrCell}>Client</div>
                   <div style={hdrCell}>Department</div>
                   <div style={hdrCell}>Progress</div>
-                  <div style={{ ...hdrCell, borderRight: "none" }}>Last Activity</div>
+                  <div style={hdrCell}>Last Activity</div>
+                  <div style={{ ...hdrCell, borderRight: "none" }}>Comments</div>
                 </div>
                 {section.items.map(e => {
                   const bar = e.isDone ? "#10b981" : T.accent;
                   const pct = e.totalCount > 0 ? Math.round((e.doneCount / e.totalCount) * 100) : 0;
                   const client = e.clientId ? clients.find(c => c.id === e.clientId) : null;
+                  const comments = e.kind === "standalone" ? ((orgSettings.approvals || []).find(a => a.id === e.approvalId)?.comments || []) : ((e.panel.apprComments || {})[e.typeKey] || []);
+                  const addComment = txt => e.kind === "standalone" ? addApprovalComment(e.approvalId, txt) : addPanelComment(e.job.id, e.panel.id, e.typeKey, txt);
+                  const delComment = idx => e.kind === "standalone" ? delApprovalComment(e.approvalId, idx) : delPanelComment(e.job.id, e.panel.id, e.typeKey, idx);
                   const mkCtx = ev => {
                     ev.preventDefault();
                     if (e.kind === "standalone") setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "standalone", approvalId: e.approvalId });
@@ -6920,8 +6942,17 @@ ${jobsCtx || "No jobs found."}`;
                         </div>
                       </div>
                     </div>
-                    <div style={{ ...cellBase, borderRight: "none", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 2 }}>
+                    <div style={{ ...cellBase, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 2 }}>
                       {e.lastAt > 0 ? <><span style={{ fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{e.lastBy || "—"}{e.lastLabel && <span style={{ fontWeight: 400, color: T.textDim }}> · {e.lastLabel}</span>}</span><span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fmtWhen(e.lastAt)}</span></> : <span style={{ color: T.textDim, fontSize: 12 }}>—</span>}
+                    </div>
+                    <div style={{ ...cellBase, borderRight: "none", flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: 5, padding: "8px 12px" }}>
+                      {comments.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 70, overflowY: "auto" }}>
+                        {comments.map((c, ci) => { const mine = c.by && loggedInUser && c.by === loggedInUser.id; const canDel = mine || isAdmin; return <div key={ci} style={{ display: "flex", alignItems: "flex-start", gap: 4, fontSize: 11, lineHeight: 1.35 }}>
+                          <span style={{ flex: 1, minWidth: 0 }}><span style={{ fontWeight: 700, color: T.accent }}>{c.byName}:</span> <span style={{ color: T.textSec }}>{c.text}</span></span>
+                          {canDel && <button onClick={() => delComment(ci)} title="Delete comment" style={{ flexShrink: 0, width: 14, height: 14, borderRadius: 4, border: "none", background: "transparent", color: T.textDim, fontSize: 12, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>}
+                        </div>; })}
+                      </div>}
+                      <ApprovalCommentInput onAdd={addComment} />
                     </div>
                   </div>;
                 })}
