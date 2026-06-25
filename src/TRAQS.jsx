@@ -3319,6 +3319,7 @@ Extraction rules:
   const [panelPhotoUploading, setPanelPhotoUploading] = useState(false);
   const [attachmentsModal, setAttachmentsModal] = useState(null); // jobId
   const [attView, setAttView] = useState("large"); // "large" | "list" — View Details attachments layout
+  const [detailSecClosed, setDetailSecClosed] = useState({ notes: true, att: true, analytics: true }); // View Details right-sidebar sections collapsed by key (Information open by default)
   const [pinnedThreads, setPinnedThreads] = useState(() => { try { return JSON.parse(localStorage.getItem("tq_pinned_threads") || "[]"); } catch { return []; } });
   const [threadCtxMenu, setThreadCtxMenu] = useState(null);
   const [confirmClearChat, setConfirmClearChat] = useState(null); // { threadKey, label, isGroup, groupId }
@@ -14973,11 +14974,53 @@ ${jobsCtx || "No jobs found."}`;
       const dTotalAtt = dPanels.reduce((n, p) => n + (p.attachments?.length || 0), 0);
       const dCanEdit = can("editJobs");
       const dClient = fresh.clientId ? clients.find(c => c.id === fresh.clientId) : null;
+      // ── Analytics ──────────────────────────────────────────────────────────
+      const dJob = parent || fresh;
+      const dOps = dPanels.flatMap(p => p.subs || []);
+      // Actual hours worked = confirmed/clocked time logged against this job's ops (uncapped).
+      const dLoggedH = dOps.reduce((s, op) => s + timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((a, e) => a + (e.hours || 0), 0), 0);
+      const dEstH = _jobHrs(dJob);
+      const dPct = _jobPct(dJob);
+      const dDoneOps = dOps.filter(op => op.status === "Finished").length;
+      const dTeamIds = [...new Set(dOps.flatMap(op => op.team || []))];
+      const dHealth = getHealth(dJob);
+      const dHealthColor = HEALTH_DOT[dHealth];
+      const dIsDone = dHealth === "done" || fresh.status === "Finished";
+      const dHealthLabel = dHealth === "ontime" ? "On Time" : dHealth === "behind" ? "Behind" : dHealth === "critical" ? "Late" : "Done";
+      const dDeadline = fresh.dueDate || fresh.end;
+      const dDaysLeft = dDeadline ? Math.round((new Date(dDeadline + "T12:00:00") - new Date(TD + "T12:00:00")) / 86400000) : null;
+      const dPctColor = dPct >= 80 ? "#10b981" : dPct >= 40 ? "#f59e0b" : T.accent;
       const infoRow = (label, node) => <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
-        <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{node}</span>
+        <span style={{ fontSize: 14, color: T.text, fontWeight: 400 }}>{node}</span>
       </div>;
       const secTitle = (txt) => <div style={{ fontSize: 12, fontWeight: 800, color: T.text, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 11 }}>{txt}</div>;
+      // Collapsible right-sidebar section with the TRAQS expand/collapse animation. Large header,
+      // chevron that rotates, body that grid-rows-animates open/closed. `extra` renders inline on
+      // the right of the header (e.g. the attachments view toggle).
+      const sec = (key, title, body, extra, first) => {
+        const open = !detailSecClosed[key];
+        return <div style={{ paddingTop: first ? 0 : 34 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, cursor: "pointer", userSelect: "none" }} onClick={() => setDetailSecClosed(p => ({ ...p, [key]: !p[key] }))}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+              <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: open ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }} width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <span style={{ fontSize: 18, fontWeight: 800, color: T.text, letterSpacing: "-0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+            </div>
+            {extra ? <div onClick={e => e.stopPropagation()} style={{ flexShrink: 0 }}>{extra}</div> : null}
+          </div>
+          {/* grid-rows 0fr↔1fr is the only animated property; the top gap lives INSIDE the clipped
+              area (padding) so it collapses with the content instead of snapping. */}
+          <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: open ? "auto" : "none" }}>
+            <div style={{ overflow: "hidden", minHeight: 0 }}>
+              <div style={{ paddingTop: 12, opacity: open ? 1 : 0, transition: "opacity 0.18s ease" }}>{body}</div>
+            </div>
+          </div>
+        </div>;
+      };
+      const statCard = (label, val, color) => <div style={{ background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "9px 11px" }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: color || T.text, marginTop: 3, fontFamily: T.mono }}>{val}</div>
+      </div>;
       return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxWidth: isMobile ? "100%" : 1500, width: isMobile ? "100%" : "96vw", height: isMobile ? "auto" : "90vh", maxHeight: isMobile ? "none" : "90vh", padding: 0, overflow: isMobile ? "visible" : "hidden", display: "flex", flexDirection: isMobile ? "column" : "row" }} onClick={e => e.stopPropagation()}>{cls}
         {/* ── Left: panel / operation details ── */}
         <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "52px 18px 18px" : "30px 32px 28px" }}>
@@ -15029,10 +15072,12 @@ ${jobsCtx || "No jobs found."}`;
             : <div style={{ fontSize: 13, color: T.textDim, padding: "24px 0" }}>This job has no panels yet.</div>}
         </div>
         {/* ── Right: Information · Notes · Attachments ── */}
-        <div style={{ width: isMobile ? "auto" : 340, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "20px 18px" : "30px 22px", display: "flex", flexDirection: "column", gap: 24 }}>
+        <div style={{ width: isMobile ? "auto" : 340, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : "0 22px 22px", display: "flex", flexDirection: "column", gap: 4 }}>
+          {/* Close-button header band — keeps the ✕ on its own row so the Information section
+              header doesn't sit level with it. */}
+          {!isMobile && <div style={{ height: 56, flexShrink: 0 }} />}
           {/* Information */}
-          <div>
-            {secTitle("Information")}
+          {sec("info", "Information", <>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {dClient && infoRow("Client", <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 5, background: dClient.color, flexShrink: 0 }} />{dClient.name}</span>)}
               {infoRow("Schedule", <span style={{ fontFamily: T.mono }}>{fm(fresh.start)} → {fm(fresh.end)}</span>)}
@@ -15057,21 +15102,11 @@ ${jobsCtx || "No jobs found."}`;
                 </div>;
               })}
             </div>}
-          </div>
+          </>, null, true)}
           {/* Notes */}
-          <div>
-            {secTitle("Notes")}
-            <textarea value={t.notes || ""} onChange={e => setModal(p => ({ ...p, data: { ...p.data, notes: e.target.value } }))} rows={4} placeholder="Add notes…" style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { notes: e.target.value }); }} />
-          </div>
+          {sec("notes", "Notes", <textarea value={t.notes || ""} onChange={e => setModal(p => ({ ...p, data: { ...p.data, notes: e.target.value } }))} rows={4} placeholder="Add notes…" style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, fontWeight: 400, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { notes: e.target.value }); }} />)}
           {/* Attachments */}
-          <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 11, gap: 8 }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: T.text, letterSpacing: "0.04em", textTransform: "uppercase" }}>Attachments{dTotalAtt ? ` (${dTotalAtt})` : ""}</div>
-              <div style={{ display: "flex", gap: 2, background: T.bg, borderRadius: 7, padding: 2, border: `1px solid ${T.border}`, flexShrink: 0 }}>
-                <button onClick={() => setAttView("large")} title="Large view" style={{ width: 26, height: 24, borderRadius: 5, border: "none", background: attView === "large" ? T.accent : "transparent", color: attView === "large" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
-                <button onClick={() => setAttView("list")} title="List view" style={{ width: 26, height: 24, borderRadius: 5, border: "none", background: attView === "list" ? T.accent : "transparent", color: attView === "list" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
-              </div>
-            </div>
+          {sec("att", `Attachments${dTotalAtt ? ` (${dTotalAtt})` : ""}`, <>
             {dPanels.length === 0 && <div style={{ fontSize: 12, color: T.textDim }}>No panels to attach photos to.</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {dPanels.map(panel => {
@@ -15107,7 +15142,37 @@ ${jobsCtx || "No jobs found."}`;
                 </div>;
               })}
             </div>
-          </div>
+          </>, <div style={{ display: "flex", gap: 2, background: T.bg, borderRadius: 7, padding: 2, border: `1px solid ${T.border}`, flexShrink: 0 }}>
+            <button onClick={() => setAttView("large")} title="Large view" style={{ width: 26, height: 24, borderRadius: 5, border: "none", background: attView === "large" ? T.accent : "transparent", color: attView === "large" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+            <button onClick={() => setAttView("list")} title="List view" style={{ width: 26, height: 24, borderRadius: 5, border: "none", background: attView === "list" ? T.accent : "transparent", color: attView === "list" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+          </div>)}
+          {/* Analytics */}
+          {sec("analytics", "Analytics", <>
+            {/* Progress */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Progress</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: dHealthColor, background: dHealthColor + "15", border: `1px solid ${dHealthColor}33`, borderRadius: 6, padding: "1px 8px" }}><span style={{ width: 7, height: 7, borderRadius: 4, background: dHealthColor }} />{dHealthLabel}</span>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: dPctColor }}>{dPct}%</span>
+                </span>
+              </div>
+              <div style={{ height: 9, borderRadius: 5, background: T.bg, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                <div style={{ width: `${dPct}%`, height: "100%", background: dPctColor, borderRadius: 5, transition: "width 0.3s ease" }} />
+              </div>
+            </div>
+            {/* Stats */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {statCard("Hours Worked", `${dLoggedH.toFixed(1)}h`, dHealthColor === HEALTH_DOT.critical && dLoggedH > dEstH ? "#ef4444" : undefined)}
+              {statCard("Estimated", `${dEstH.toFixed(1)}h`)}
+              {statCard("Remaining", `${Math.max(0, dEstH - dLoggedH).toFixed(1)}h`)}
+              {statCard("Operations", `${dDoneOps}/${dOps.length}`)}
+              {statCard("Panels", String(dPanels.length))}
+              {statCard("Team", String(dTeamIds.length))}
+              {statCard("Attachments", String(dTotalAtt))}
+              {statCard("Timeline", dIsDone ? "Done" : dDaysLeft == null ? "—" : dDaysLeft < 0 ? `${-dDaysLeft}d late` : `${dDaysLeft}d left`, dIsDone ? "#10b981" : dDaysLeft != null && dDaysLeft < 0 ? "#ef4444" : dDaysLeft != null && dDaysLeft <= 3 ? "#f59e0b" : undefined)}
+            </div>
+          </>)}
         </div>
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
@@ -17775,7 +17840,17 @@ ${jobsCtx || "No jobs found."}`;
         </div>;
       })()}
       {/* View Details */}
-      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => { openDetail(it); setCtxMenu(null); }} animIdx={ci()} />
+      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => {
+        // Schedule (team/gantt) bars are ops/panels — resolve up to the parent JOB so this opens
+        // the same full job-details page as the job list, not just the op/panel detail.
+        let target = it;
+        if (ctxMenu.source === "team" || ctxMenu.source === "gantt") {
+          let job = (it.grandPid && tasks.find(j => j.id === it.grandPid)) || (it.pid && tasks.find(j => j.id === it.pid)) || null;
+          if (!job) { for (const j of tasks) { if (j.id === it.id) { job = j; break; } if ((j.subs || []).some(p => p.id === it.id || (p.subs || []).some(o => o.id === it.id))) { job = j; break; } } }
+          if (job) target = job;
+        }
+        openDetail(target); setCtxMenu(null);
+      }} animIdx={ci()} />
       {/* Add/Edit Dependencies — ops with sibling ops */}
       {isOp && (() => { let panel = null, parentJobId = null; for (const job of tasks) { for (const pnl of (job.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { panel = pnl; parentJobId = job.id; break; } } if (panel) break; } return panel && (panel.subs||[]).length >= 2 ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>} label="Add/Edit Dependencies" sub="Manage dependency links between sub-ops" onClick={() => { setCtxMenu(null); setDepsModal({ item: it, panelSubs: panel.subs||[], panelId: panel.id, jobId: parentJobId, panelTitle: panel.title, depsMode: panel.depsMode||"unlocked" }); }} animIdx={ci()} /> : null; })()}
       {/* Reschedule */}
