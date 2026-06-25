@@ -656,6 +656,16 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
   box-shadow: none !important;
   filter: none !important;
 }
+/* Menu/dropdown items (context menus .anim-ctx, dropdowns .anim-drop) don't pop or lift —
+   they just fade-highlight on hover. The background fade comes from the base button transition. */
+.anim-ctx button:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.anim-ctx button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.anim-drop button:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.anim-drop button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: none !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
 
 .anim-card-wrap {
   transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -1125,6 +1135,67 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
         </div>;
       })}
     </div></FadeOnClose>
+  </div>;
+}
+// TRAQS-styled Department/Type picker for approvals: pick an existing template, pick "Custom",
+// or create a new template inline (onCreate saves the approval's current steps as that type).
+function ApprovalTypeDrop({ templateId, templates, onPick, onCreate }) {
+  const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const h = e => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setAdding(false); setName(""); } };
+    document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const current = templates.find(t => t.id === templateId);
+  const commit = () => { const n = name.trim(); if (!n) return; onCreate(n); setAdding(false); setName(""); setOpen(false); };
+  const rowBase = { display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", fontFamily: T.font, transition: "background-color 0.15s ease" };
+  return <div ref={ref} style={{ position: "relative" }}>
+    <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", userSelect: "none" }}>
+      <span style={{ fontSize: 14, color: current ? T.text : T.textDim, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current ? current.name : "Custom (no type)"}</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", maxHeight: 280, overflowY: "auto" }}>
+      {templates.map((t) => { const isOn = t.id === templateId; return <div key={t.id} onClick={() => { onPick(t.id); setOpen(false); }} style={{ ...rowBase, background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+        <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
+        <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{t.name}</span>
+      </div>; })}
+      <div onClick={() => { onPick(""); setOpen(false); }} style={{ ...rowBase, background: !templateId ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = !templateId ? T.accent + "10" : "transparent"}>
+        <div style={{ width: 8, height: 8, borderRadius: 4, background: !templateId ? T.accent : T.border, flexShrink: 0 }} />
+        <span style={{ fontSize: 13, color: T.textSec }}>Custom (no type)</span>
+      </div>
+      <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
+        {!adding
+          ? <div onClick={() => setAdding(true)} style={{ ...rowBase, color: T.accent, fontWeight: 700, fontSize: 13 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New type…
+            </div>
+          : <div style={{ display: "flex", gap: 6, padding: "8px 12px" }} onClick={e => e.stopPropagation()}>
+              <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setAdding(false); setName(""); } }} placeholder="Type name" style={{ flex: 1, minWidth: 0, padding: "6px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
+              <button onClick={commit} style={{ padding: "0 12px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Add</button>
+            </div>}
+      </div>
+    </div>}
+  </div>;
+}
+// Minimal TRAQS-styled single-select. options: [{ value, label, color? }]. No built-in margin.
+function SimpleDrop({ value, options, onChange, placeholder = "Select…" }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => { if (!open) return; const h = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [open]);
+  const sel = options.find(o => o.value === value);
+  return <div ref={ref} style={{ position: "relative" }}>
+    <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 12px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", userSelect: "none" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1 }}>{sel?.color && <span style={{ width: 8, height: 8, borderRadius: 4, background: sel.color, flexShrink: 0 }} />}<span style={{ fontSize: 14, color: sel ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.label : placeholder}</span></span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
+      {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", transition: "background-color 0.15s ease", background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+        <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color || (isOn ? T.accent : T.border), flexShrink: 0 }} />
+        <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{o.label}</span>
+      </div>; })}
+    </div>}
   </div>;
 }
 // Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
@@ -2248,6 +2319,11 @@ Extraction rules:
   const [signOffSettingsOpen, setSignOffSettingsOpen] = useState(false);
   const [pmSectionsCollapsed, setPmSectionsCollapsed] = useState({});
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
+  // ── Standalone approvals (live in orgSettings.approvals; independent of jobs) ──
+  const [approvalGroupBy, setApprovalGroupBy] = useState("type"); // type | client | dept | status
+  const [approvalGroupOpen, setApprovalGroupOpen] = useState(false);
+  const [approvalModal, setApprovalModal] = useState(null); // { id?, title, clientId, templateId, dept, steps:[{label,done?,byName?,at?}], dueDate }
+  const [approvalCtx, setApprovalCtx] = useState(null); // { x, y, id } right-click menu for a standalone approval
   const [soDropPanelId, setSoDropPanelId] = useState(null); // panel id with sign-off dropdown open in new job modal
   const [deptDropId, setDeptDropId] = useState(null); // id of panel or sub-op with dept dropdown open
   const [deptAddInput, setDeptAddInput] = useState(""); // text in the inline "add department" field
@@ -5192,6 +5268,28 @@ ${jobsCtx || "No jobs found."}`;
   ];
   const approverLabel = orgSettings.approverLabel || "Approver";
   const queueLabel = orgSettings.approvalQueueLabel || "Approval Queue";
+  // ── Standalone approval CRUD (persisted in orgSettings.approvals) ──
+  const upsertApproval = (appr) => setOrgSettings(s => {
+    const list = s.approvals || [];
+    return { ...s, approvals: list.some(a => a.id === appr.id) ? list.map(a => a.id === appr.id ? { ...a, ...appr } : a) : [...list, appr] };
+  });
+  const deleteApproval = (id) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).filter(a => a.id !== id) }));
+  const signApprovalStep = (id, idx) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, steps: (a.steps || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }) }));
+  const revertApprovalStep = (id, idx) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, steps: (a.steps || []).map((st, i) => i !== idx ? st : { ...st, done: false, by: null, byName: "", at: null }) }) }));
+  // Open the create/edit approval modal. Picking a template seeds dept + steps (still editable).
+  const openApprovalModal = (existing) => {
+    if (existing) setApprovalModal({ id: existing.id, title: existing.title || "", clientId: existing.clientId || "", templateId: existing.templateId || "", dept: existing.dept || "", steps: (existing.steps || []).map(s => ({ ...s })), dueDate: existing.dueDate || "" });
+    else { const t0 = signOffTemplates[0]; setApprovalModal({ title: "", clientId: "", templateId: t0?.id || "", dept: t0?.name || queueLabel, steps: (t0?.steps || []).map(l => ({ label: l, done: false })), dueDate: "" }); }
+  };
+  // ── Per-panel editable approval chain (panel.apprChain) — lets ANY job-derived approval
+  //    (including fast-traqs engineering ones) have custom, add/remove-able steps. ──
+  const setPanelChain = (jobId, panelId, steps) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: steps }) }));
+  const removePanelChain = (jobId, panelId) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => { if (p.id !== panelId) return p; const { apprChain, ...rest } = p; return rest; }) }));
+  const signChainStep = (jobId, panelId, idx) => { if (!canApprove) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }) })); };
+  const revertChainStep = (jobId, panelId, idx) => { if (!canApprove) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: false, by: null, byName: "", at: null }) }) })); };
+  // Open the modal to edit a job panel's approval steps (chain mode). Seeds from an existing
+  // chain, or from the row's current steps (engineering/template) preserving done-state.
+  const editPanelApproval = (jobId, panelId, headerTitle, seedSteps) => setApprovalModal({ target: { kind: "chain", jobId, panelId }, title: headerTitle || "Approval", steps: (seedSteps || []).map(s => ({ ...s })), clientId: "", templateId: "", dept: "", dueDate: "" });
   const isEngComplete = (panel) => {
     const e = panel.engineering || {};
     return !!(e.designed && e.verified && e.sentToPerforex);
@@ -6677,242 +6775,159 @@ ${jobsCtx || "No jobs found."}`;
   // collapse animation matches the Jobs grid exactly.
   const renderApprovalQueue = () => {
     const userDept = (loggedInUser?.department || "").toLowerCase();
-    // Build one section per sign-off template (+ a "Legacy Engineering" section for panels
-    // still using panel.engineering). Each section's job entry has only the workflows tied
-    // to that section's template. Jobs with no sign-off / engineering data don't appear.
-    const sectionsMap = {};
-    const ensureSection = (key, title) => sectionsMap[key] || (sectionsMap[key] = { key, title, jobs: [] });
-    const totalJobsSet = new Set();
-    tasks.forEach(job => {
-      const byTemplate = {};
-      (job.subs || []).forEach(panel => {
-        // Sign-off template workflows
-        signOffTemplates.forEach(t => {
-          if (!isAdmin && userDept !== t.name.toLowerCase()) return;
-          const so = (panel.signOffs || {})[t.id];
-          if (so === undefined || so === null) return;
-          let doneCount = 0, lastAt = 0, lastBy = "", lastLabel = "";
-          t.steps.forEach((label, i) => {
-            const rec = so[String(i)];
-            if (rec) { doneCount++; const at = new Date(rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = rec.byName || ""; lastLabel = label; } }
-          });
-          const activeStepIdx = t.steps.findIndex((_, i) => !so[String(i)]);
-          const totalCount = t.steps.length;
-          (byTemplate[t.id] = byTemplate[t.id] || []).push({
-            key: panel.id + ":so:" + t.id, panel, kind: "signoff", template: t,
-            steps: t.steps.map((label, i) => ({ key: i, label, rec: so[String(i)] })),
-            activeStepIdx, doneCount, totalCount,
-            isDone: totalCount > 0 && doneCount === totalCount,
-            lastAt, lastBy, lastLabel,
-          });
-        });
-        // Engineering workflow (legacy)
-        if (panel.engineering !== undefined && (isAdmin || userDept === queueLabel.toLowerCase())) {
-          const e = panel.engineering || {};
-          let doneCount = 0, lastAt = 0, lastBy = "", lastLabel = "";
-          approvalSteps.forEach(s => {
-            if (e[s.key]) { doneCount++; const at = new Date(e[s.key].at).getTime(); if (at > lastAt) { lastAt = at; lastBy = e[s.key].byName || ""; lastLabel = s.label; } }
-          });
-          const activeKey = !e.designed ? "designed" : !e.verified ? "verified" : !e.sentToPerforex ? "sentToPerforex" : null;
-          const activeStepIdx = approvalSteps.findIndex(s => s.key === activeKey);
-          (byTemplate["__eng__"] = byTemplate["__eng__"] || []).push({
-            key: panel.id + ":eng", panel, kind: "eng",
-            steps: approvalSteps.map(s => ({ key: s.key, label: s.label, rec: e[s.key] })),
-            activeStepIdx, doneCount, totalCount: approvalSteps.length,
-            isDone: doneCount === approvalSteps.length,
-            lastAt, lastBy, lastLabel,
-          });
-        }
+    const visibleFor = (deptName) => isAdmin || userDept === (deptName || "").toLowerCase();
+    const fmtWhen = (at) => { if (!at) return ""; const d = new Date(at); return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); };
+    // Build a flat list of approval rows: standalone approvals + one row per job panel-workflow.
+    const entries = [];
+    (orgSettings.approvals || []).forEach(a => {
+      const tmpl = signOffTemplates.find(t => t.id === a.templateId);
+      const deptLabel = a.dept || tmpl?.name || queueLabel;
+      if (!visibleFor(deptLabel)) return;
+      const steps = (a.steps || []).map((st, i) => ({ key: i, label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null }));
+      const doneCount = steps.filter(s => s.rec).length;
+      let lastAt = 0, lastBy = "", lastLabel = "";
+      steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
+      entries.push({ id: "appr:" + a.id, kind: "standalone", approvalId: a.id, title: a.title || "Untitled approval", subtitle: a.dueDate ? ("Due " + fm(a.dueDate)) : "", jobNumber: null, clientId: a.clientId || null, deptLabel, typeKey: "__standalone__", typeLabel: "Standalone Approvals", steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: true });
+    });
+    tasks.forEach(job => (job.subs || []).forEach(panel => {
+      signOffTemplates.forEach(t => {
+        const so = (panel.signOffs || {})[t.id];
+        if (so === undefined || so === null) return;
+        if (!visibleFor(t.name)) return;
+        const steps = t.steps.map((label, i) => ({ key: i, label, rec: so[String(i)] }));
+        const doneCount = steps.filter(s => s.rec).length;
+        let lastAt = 0, lastBy = "", lastLabel = "";
+        steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
+        entries.push({ id: panel.id + ":so:" + t.id, kind: "signoff", job, panel, template: t, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: t.name, typeKey: t.id, typeLabel: t.name, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: false });
       });
-      // Push this job into each section it has workflows for.
-      Object.entries(byTemplate).forEach(([tid, wfs]) => {
-        const title = tid === "__eng__"
-          ? queueLabel
-          : (signOffTemplates.find(t => t.id === tid)?.name || "—");
-        const section = ensureSection(tid, title);
-        const totalSteps = wfs.reduce((s, w) => s + w.totalCount, 0);
-        const doneSteps  = wfs.reduce((s, w) => s + w.doneCount, 0);
-        const allDone    = wfs.every(w => w.isDone);
-        const mostRecent = wfs.reduce((m, w) => (w.lastAt > (m?.lastAt || 0) ? w : m), null);
-        section.jobs.push({
-          job,
-          panelWorkflows: wfs,
-          totalSteps, doneSteps, allDone,
-          lastAt:    mostRecent?.lastAt    || 0,
-          lastBy:    mostRecent?.lastBy    || "",
-          lastLabel: mostRecent?.lastLabel || "",
-        });
-        totalJobsSet.add(job.id);
-      });
-    });
-    // Section order: sign-off templates first (in orgSettings order), legacy engineering last.
-    const sections = Object.values(sectionsMap).sort((a, b) => {
-      if (a.key === "__eng__") return 1;
-      if (b.key === "__eng__") return -1;
-      const ai = signOffTemplates.findIndex(t => t.id === a.key);
-      const bi = signOffTemplates.findIndex(t => t.id === b.key);
-      return ai - bi;
-    });
-    // Within each section: pending jobs first, done last; insertion order preserved otherwise
-    // (Array.prototype.sort is stable) — so signing off a step doesn't reshuffle the row.
-    sections.forEach(sec => {
-      sec.jobs.sort((a, b) => (a.allDone !== b.allDone) ? (a.allDone ? 1 : -1) : 0);
-    });
-    const totalJobs = totalJobsSet.size;
-    const empty = sections.length === 0 || sections.every(s => s.jobs.length === 0);
-    const COLS = "minmax(220px,1fr) 90px 130px minmax(300px,2.4fr) 190px";
-    const cellBase = { padding: "8px 12px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1.25px solid ${T.border}`, display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" };
-    const hdrCell  = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "10px 12px", background: T.surface };
+      // A custom per-panel chain supersedes the engineering workflow and is fully editable.
+      if (Array.isArray(panel.apprChain) && visibleFor(queueLabel)) {
+        const steps = panel.apprChain.map((st, i) => ({ key: i, label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null }));
+        const doneCount = steps.filter(s => s.rec).length;
+        let lastAt = 0, lastBy = "", lastLabel = "";
+        steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
+        entries.push({ id: panel.id + ":chain", kind: "chain", job, panel, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: queueLabel, typeKey: "__eng__", typeLabel: queueLabel, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: true });
+      } else if (panel.engineering !== undefined && visibleFor(queueLabel)) {
+        const e = panel.engineering || {};
+        const steps = approvalSteps.map(s => ({ key: s.key, label: s.label, rec: e[s.key] }));
+        const doneCount = steps.filter(s => s.rec).length;
+        let lastAt = 0, lastBy = "", lastLabel = "";
+        steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
+        entries.push({ id: panel.id + ":eng", kind: "eng", job, panel, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: queueLabel, typeKey: "__eng__", typeLabel: queueLabel, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: doneCount === steps.length, lastAt, lastBy, lastLabel, editable: false });
+      }
+    }));
+    // Group entries by the selected dimension.
+    const grpDef = {
+      type: e => ({ key: e.typeKey, label: e.typeLabel }),
+      client: e => { const c = e.clientId ? clients.find(x => x.id === e.clientId) : null; return { key: e.clientId || "__none__", label: c ? c.name : "No client", color: c?.color }; },
+      dept: e => ({ key: e.deptLabel || "—", label: e.deptLabel || "—" }),
+      status: e => e.isDone ? { key: "done", label: "Approved" } : { key: "pending", label: "Pending" },
+    };
+    const gd = grpDef[approvalGroupBy] || grpDef.type;
+    const buckets = new Map();
+    entries.forEach(e => { const { key, label, color } = gd(e); if (!buckets.has(key)) buckets.set(key, { key, label, color, items: [] }); buckets.get(key).items.push(e); });
+    const sections = [...buckets.values()];
+    sections.forEach(sec => sec.items.sort((a, b) => (a.isDone !== b.isDone) ? (a.isDone ? 1 : -1) : (b.lastAt - a.lastAt)));
+    if (approvalGroupBy === "status") sections.sort((a, b) => a.key === "pending" ? -1 : 1);
+    else sections.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+    const total = entries.length;
+    const pending = entries.filter(e => !e.isDone).length;
+    const empty = total === 0;
+    const COLS = "minmax(220px,1.6fr) 130px 130px minmax(280px,2.2fr) 170px";
+    const cellBase = { padding: "9px 12px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1.25px solid ${T.border}`, display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" };
+    const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "10px 12px", background: T.surface };
+    const groupOpts = [["type", "Type"], ["client", "Client"], ["dept", "Department"], ["status", "Status"]];
+    const signStep = (e, sIdx) => { if (e.kind === "standalone") signApprovalStep(e.approvalId, sIdx); else if (e.kind === "chain") signChainStep(e.job.id, e.panel.id, sIdx); else if (e.kind === "signoff") signOffStep(e.job.id, e.panel.id, e.template.id, sIdx); else signOffEngineering(e.job.id, e.panel.id, e.steps[sIdx].key); };
+    const revertStepFor = (e, sIdx) => { if (e.kind === "standalone") revertApprovalStep(e.approvalId, sIdx); else if (e.kind === "chain") revertChainStep(e.job.id, e.panel.id, sIdx); else if (e.kind === "signoff") revertStep(e.job.id, e.panel.id, e.template.id, sIdx); else revertEngineering(e.job.id, e.panel.id, e.steps[sIdx].key); };
     return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <span style={{ lineHeight: 0, color: T.accent }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        </span>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <span style={{ lineHeight: 0, color: T.accent }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Approval Queue</h2>
-        {!empty && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px", marginLeft: 4 }}>{totalJobs} {totalJobs === 1 ? "job" : "jobs"}</span>}
-        {isAdmin && <button onClick={() => { setSignOffSettingsOpen(true); setSignOffTemplateEditing({ name: "", steps: [] }); }}
-          style={{ marginLeft: "auto", padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44`, transition: "filter 0.15s" }}
-          onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.08)"; }}
-          onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
-          + New Approval Template
-        </button>}
+        {!empty && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{pending} pending · {total} total</span>}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ position: "relative" }}>
+            <button onClick={ev => { ev.stopPropagation(); setApprovalGroupOpen(o => !o); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+              Group: {(groupOpts.find(g => g[0] === approvalGroupBy) || groupOpts[0])[1]}
+            </button>
+            {approvalGroupOpen && <><div onClick={() => setApprovalGroupOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} /><div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 32px rgba(0,0,0,0.4)", overflow: "hidden", minWidth: 150 }}>
+              {groupOpts.map(([k, lbl]) => <button key={k} onClick={() => { setApprovalGroupBy(k); setApprovalGroupOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: approvalGroupBy === k ? T.accent + "12" : "transparent", border: "none", color: approvalGroupBy === k ? T.accent : T.text, fontSize: 13, fontWeight: approvalGroupBy === k ? 700 : 500, cursor: "pointer", fontFamily: T.font }} onMouseEnter={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = T.accent + "08"; }} onMouseLeave={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = "transparent"; }}>{lbl}</button>)}
+            </div></>}
+          </div>
+          <button onClick={() => openApprovalModal(null)} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44` }}>+ New Approval</button>
+        </div>
       </div>
-      {empty && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 24px", textAlign: "center", gap: 12 }}>
+      {empty && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "70px 24px", textAlign: "center", gap: 12 }}>
         <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
         <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: T.text }}>Nothing waiting for approval</h3>
-        <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 320, lineHeight: 1.65 }}>Pending sign-offs and finished items will appear here.</p>
+        <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 360, lineHeight: 1.65 }}>Create a standalone approval with “+ New Approval”, or pending job sign-offs will show up here automatically.</p>
       </div>}
       {!empty && <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        {sections.map(section => section.jobs.length === 0 ? null : (
-        <div key={section.key}>
-          {/* Section header */}
-          <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 8 }}>
-            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>{section.title}</h3>
-            <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{section.jobs.length} {section.jobs.length === 1 ? "job" : "jobs"}</span>
-          </div>
-          <div style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto", overflowY: "visible" }}>
-            <div style={{ minWidth: 900 }}>
-              {/* Header */}
-              <div style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
-                <div style={hdrCell}>Job</div>
-                <div style={hdrCell}>Job #</div>
-                <div style={hdrCell}>Client</div>
-                <div style={hdrCell}>Approval</div>
-                <div style={{ ...hdrCell, borderRight: "none" }}>Last Activity</div>
-              </div>
-              {section.jobs.map(({ job, panelWorkflows, totalSteps, doneSteps, allDone, lastAt, lastBy, lastLabel }) => {
-            const isExpanded = expandedJobs.has(section.key + ":" + job.id);
-            const isClosing  = closingJobs.has(section.key + ":" + job.id);
-            const showSubs   = isExpanded || isClosing;
-            const client     = job.clientId ? clients.find(c => c.id === job.clientId) : null;
-            const jobBar     = allDone ? "#10b981" : T.accent;
-            const dateStr    = lastAt > 0 ? new Date(lastAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-            const timeStr    = lastAt > 0 ? new Date(lastAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
-            const pct        = totalSteps > 0 ? Math.round((doneSteps / totalSteps) * 100) : 0;
-            const expandKey  = section.key + ":" + job.id;
-            return (
-              <Fragment key={section.key + ":" + job.id}>
-                <div onClick={() => toggleJobExpand(expandKey)}
-                  style={{ display: "grid", gridTemplateColumns: COLS, cursor: "pointer", borderBottom: `1.25px solid ${T.border}`, background: isExpanded ? T.accent + "08" : "transparent", transition: "background 0.15s" }}
-                  onMouseEnter={e => { if (!isExpanded) e.currentTarget.style.background = T.accent + "08"; }}
-                  onMouseLeave={e => { if (!isExpanded) e.currentTarget.style.background = "transparent"; }}>
-                  <div style={{ ...cellBase, gap: 8, paddingLeft: 12, position: "relative" }}>
-                    <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobBar }} />
-                    <svg width="10" height="10" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.18s", color: T.textDim, flexShrink: 0 }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.title}</span>
-                    {allDone && <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98118", borderRadius: 8, padding: "1px 7px", flexShrink: 0 }}>✓ Done</span>}
-                  </div>
-                  <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 11 }}>
-                    {job.jobNumber ? <span style={{ color: T.accent, fontWeight: 700 }}>#{job.jobNumber}</span> : <span style={{ color: T.textDim }}>—</span>}
-                  </div>
-                  <div style={cellBase}>
-                    {client
-                      ? <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: client.color, fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: client.color, flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span>
-                      : <span style={{ fontSize: 12, color: T.textDim }}>—</span>}
-                  </div>
-                  <div style={cellBase}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
-                      <div style={{ flex: 1, height: 6, borderRadius: 3, background: T.border, overflow: "hidden", minWidth: 40 }}>
-                        <div style={{ height: "100%", width: pct + "%", background: jobBar, borderRadius: 3, transition: "width 0.3s" }} />
-                      </div>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: jobBar, fontFamily: T.mono, flexShrink: 0 }}>{doneSteps}/{totalSteps}</span>
-                      <span style={{ fontSize: 11, color: T.textDim, flexShrink: 0 }}>{panelWorkflows.length} workflow{panelWorkflows.length !== 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-                  <div style={{ ...cellBase, borderRight: "none", fontSize: 11, color: T.textSec, fontFamily: T.mono, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 2 }}>
-                    {lastAt > 0 ? <>
-                      <span style={{ fontFamily: T.font, fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
-                        {lastBy || "—"}{lastLabel && <span style={{ fontWeight: 400, color: T.textDim }}> · {lastLabel}</span>}
-                      </span>
-                      <span style={{ fontSize: 10, color: T.textDim }}>{dateStr} · {timeStr}</span>
-                    </> : <span style={{ color: T.textDim }}>—</span>}
-                  </div>
+        {sections.map(section => (
+          <div key={section.key}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+              {section.color && <div style={{ width: 12, height: 12, borderRadius: 4, background: section.color, flexShrink: 0 }} />}
+              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>{section.label}</h3>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{section.items.length}</span>
+            </div>
+            <div style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto" }}>
+              <div style={{ minWidth: 900 }}>
+                <div style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
+                  <div style={hdrCell}>Approval</div>
+                  <div style={hdrCell}>Client</div>
+                  <div style={hdrCell}>Department</div>
+                  <div style={hdrCell}>Progress</div>
+                  <div style={{ ...hdrCell, borderRight: "none" }}>Last Activity</div>
                 </div>
-                {showSubs && panelWorkflows.map((wf, wIdx) => {
-                  const wfColor = wf.isDone ? "#10b981" : T.accent;
-                  const wfLabel = wf.kind === "signoff" ? wf.template.name : queueLabel;
-                  const wfDate  = wf.lastAt > 0 ? new Date(wf.lastAt).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-                  const wfTime  = wf.lastAt > 0 ? new Date(wf.lastAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
-                  return (
-                    <div key={wf.key} style={{
-                      display: "grid", gridTemplateColumns: COLS,
-                      borderBottom: `1.25px solid ${T.border}`,
-                      background: T.surface + "aa",
-                      animation: isClosing
-                        ? `gridRowOut 0.18s ${wIdx * 18}ms both ease-in`
-                        : `gridRowIn 0.14s ${wIdx * 22}ms both ease-out`,
-                      overflow: "hidden",
-                    }}>
-                      <div style={{ ...cellBase, gap: 7, paddingLeft: 36 }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: wfColor, background: wfColor + "18", borderRadius: 4, padding: "1px 6px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>{wfLabel}</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{wf.panel.title}</span>
+                {section.items.map(e => {
+                  const bar = e.isDone ? "#10b981" : T.accent;
+                  const pct = e.totalCount > 0 ? Math.round((e.doneCount / e.totalCount) * 100) : 0;
+                  const client = e.clientId ? clients.find(c => c.id === e.clientId) : null;
+                  const mkCtx = ev => {
+                    ev.preventDefault();
+                    if (e.kind === "standalone") setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "standalone", approvalId: e.approvalId });
+                    else if (e.kind === "signoff") setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "signoff", templateId: e.template.id, templateName: e.template.name });
+                    else setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "panel", jobId: e.job.id, panelId: e.panel.id, headerTitle: `${e.title} · ${e.subtitle}`, hasChain: e.kind === "chain", seed: e.steps.map(s => ({ label: s.label, done: !!s.rec, by: s.rec?.by || null, byName: s.rec?.byName || "", at: s.rec?.at || null })) });
+                  };
+                  return <div key={e.id} onContextMenu={mkCtx}
+                    style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.25px solid ${T.border}`, transition: "background 0.15s", cursor: "context-menu" }}
+                    onMouseEnter={ev => ev.currentTarget.style.background = T.accent + "06"} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
+                    <div style={{ ...cellBase, gap: 4, position: "relative", flexDirection: "column", alignItems: "flex-start", justifyContent: "center" }}>
+                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: bar }} />
+                      <div style={{ display: "flex", alignItems: "center", gap: 7, maxWidth: "100%" }}>
+                        {e.kind === "standalone" && <span style={{ fontSize: 9, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "0.05em" }}>New</span>}
+                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</span>
+                        {e.isDone && <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98118", borderRadius: 8, padding: "1px 7px", flexShrink: 0 }}>✓ Done</span>}
                       </div>
-                      <div style={cellBase} />
-                      <div style={cellBase} />
-                      <div style={{ ...cellBase, gap: 5, flexWrap: "wrap" }}>
-                        {wf.steps.map((s, sIdx) => {
-                          const isStepDone = !!s.rec;
-                          const isStepActive = !wf.isDone && sIdx === wf.activeStepIdx;
-                          if (isStepDone) return (
-                            <Tip key={s.key} label={`${s.rec.byName} · ${new Date(s.rec.at).toLocaleDateString()} — click to undo`}>
-                              <button onClick={() => { if (wf.kind === "signoff") revertStep(job.id, wf.panel.id, wf.template.id, sIdx); else revertEngineering(job.id, wf.panel.id, s.key); }}
-                                style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, background: "#10b98112", border: "1px solid #10b98140", fontSize: 11, fontWeight: 700, color: "#10b981", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
-                                onMouseEnter={e => { e.currentTarget.style.background = T.danger + "12"; e.currentTarget.style.borderColor = T.danger + "55"; e.currentTarget.style.color = T.danger; }}
-                                onMouseLeave={e => { e.currentTarget.style.background = "#10b98112"; e.currentTarget.style.borderColor = "#10b98140"; e.currentTarget.style.color = "#10b981"; }}>
-                                <span>✓</span>{s.label}
-                              </button>
-                            </Tip>
-                          );
-                          if (isStepActive) return (
-                            <button key={s.key} onClick={() => { if (wf.kind === "signoff") signOffStep(job.id, wf.panel.id, wf.template.id, sIdx); else signOffEngineering(job.id, wf.panel.id, s.key); }}
-                              style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>
-                              → {s.label}
-                            </button>
-                          );
-                          return (
-                            <span key={s.key} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>
-                              ○ {s.label}
-                            </span>
-                          );
-                        })}
-                      </div>
-                      <div style={{ ...cellBase, borderRight: "none", fontSize: 11, color: T.textSec, fontFamily: T.mono, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 2 }}>
-                        {wf.lastAt > 0 ? <>
-                          <span style={{ fontFamily: T.font, fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>
-                            {wf.lastBy || "—"}{wf.lastLabel && <span style={{ fontWeight: 400, color: T.textDim }}> · {wf.lastLabel}</span>}
-                          </span>
-                          <span style={{ fontSize: 10, color: T.textDim }}>{wfDate} · {wfTime}</span>
-                        </> : <span style={{ color: T.textDim }}>—</span>}
+                      {(e.subtitle || e.jobNumber) && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{e.jobNumber ? <span style={{ color: T.accent, fontWeight: 700, fontFamily: T.mono }}>#{e.jobNumber}</span> : null}{e.jobNumber && e.subtitle ? " · " : ""}{e.subtitle}</div>}
+                    </div>
+                    <div style={cellBase}>{client ? <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: client.color, fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: client.color, flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span> : <span style={{ fontSize: 12, color: T.textDim }}>—</span>}</div>
+                    <div style={cellBase}><span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.deptLabel}</span></div>
+                    <div style={cellBase}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: T.border, overflow: "hidden", minWidth: 40 }}><div style={{ height: "100%", width: pct + "%", background: bar, borderRadius: 3, transition: "width 0.3s" }} /></div>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: bar, fontFamily: T.mono, flexShrink: 0 }}>{e.doneCount}/{e.totalCount}</span>
+                        </div>
+                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+                          {e.steps.map((s, sIdx) => {
+                            if (s.rec) return <Tip key={sIdx} label={`${s.rec.byName || ""}${s.rec.at ? " · " + new Date(s.rec.at).toLocaleDateString() : ""} — click to undo`}><button onClick={() => revertStepFor(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, background: "#10b98112", border: "1px solid #10b98140", fontSize: 11, fontWeight: 700, color: "#10b981", cursor: "pointer", fontFamily: T.font }}>✓ {s.label}</button></Tip>;
+                            const isActive = !e.isDone && sIdx === e.activeStepIdx;
+                            if (isActive) return <button key={sIdx} onClick={() => signStep(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>→ {s.label}</button>;
+                            return <span key={sIdx} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>○ {s.label}</span>;
+                          })}
+                          {e.steps.length === 0 && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>No steps{e.editable ? " — right-click to add" : ""}</span>}
+                        </div>
                       </div>
                     </div>
-                  );
+                    <div style={{ ...cellBase, borderRight: "none", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 2 }}>
+                      {e.lastAt > 0 ? <><span style={{ fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{e.lastBy || "—"}{e.lastLabel && <span style={{ fontWeight: 400, color: T.textDim }}> · {e.lastLabel}</span>}</span><span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fmtWhen(e.lastAt)}</span></> : <span style={{ color: T.textDim, fontSize: 12 }}>—</span>}
+                    </div>
+                  </div>;
                 })}
-              </Fragment>
-            );
-          })}
+              </div>
             </div>
           </div>
-        </div>
         ))}
       </div>}
     </div>;
@@ -16870,6 +16885,108 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}</FadeOnClose>
+    {/* Approval row — right-click menu. Standalone → edit/delete the approval; sign-off → edit that template's steps. */}
+    {approvalCtx && <><div onMouseDown={() => setApprovalCtx(null)} style={{ position: "fixed", inset: 0, zIndex: 10040 }} />
+      <div className="anim-ctx" style={{ position: "fixed", left: Math.min(approvalCtx.x, window.innerWidth - 200), top: Math.min(approvalCtx.y, window.innerHeight - 110), zIndex: 10041, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, overflow: "hidden", fontFamily: T.font }}>
+        {approvalCtx.kind === "standalone" ? <>
+          <button onClick={() => { const a = (orgSettings.approvals || []).find(x => x.id === approvalCtx.approvalId); if (a) openApprovalModal(a); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
+          </button>
+          <button onClick={() => { deleteApproval(approvalCtx.approvalId); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.danger, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete Approval
+          </button>
+        </> : approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit “{approvalCtx.templateName}” Steps
+        </button> : <>
+          <button onClick={() => { editPanelApproval(approvalCtx.jobId, approvalCtx.panelId, approvalCtx.headerTitle, approvalCtx.seed); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
+          </button>
+          {approvalCtx.hasChain && <button onClick={() => { removePanelChain(approvalCtx.jobId, approvalCtx.panelId); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.textSec, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Reset to default steps
+          </button>}
+        </>}
+      </div></>}
+    {/* Standalone approval — create / edit modal */}
+    <FadeOnClose open={!!approvalModal} duration={200}>{approvalModal && (() => {
+      const m = approvalModal;
+      const setM = upd => setApprovalModal(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
+      const pickTemplate = tid => setApprovalModal(p => {
+        const t = signOffTemplates.find(x => x.id === tid);
+        if (!t) return { ...p, templateId: "" };
+        const prev = p.steps || [];
+        const steps = (t.steps || []).map(label => prev.find(s => s.label === label) || { label, done: false });
+        return { ...p, templateId: tid, dept: t.name, steps };
+      });
+      const setStep = (i, label) => setApprovalModal(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? { ...s, label } : s) }));
+      const addStep = () => setApprovalModal(p => ({ ...p, steps: [...(p.steps || []), { label: "", done: false }] }));
+      const delStep = i => setApprovalModal(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }));
+      const isChain = m.target?.kind === "chain";
+      const valid = isChain || (m.title || "").trim().length > 0;
+      const save = () => {
+        if (!valid) return;
+        const steps = (m.steps || []).filter(s => (s.label || "").trim()).map(s => ({ ...s, label: s.label.trim() }));
+        if (isChain) { setPanelChain(m.target.jobId, m.target.panelId, steps); setApprovalModal(null); return; }
+        const base = { id: m.id || uid(), title: m.title.trim(), clientId: m.clientId || null, templateId: m.templateId || null, dept: m.dept || (signOffTemplates.find(t => t.id === m.templateId)?.name) || queueLabel, steps, dueDate: m.dueDate || null };
+        if (!m.id) { base.createdAt = new Date().toISOString(); base.createdBy = loggedInUser?.name || "Admin"; }
+        upsertApproval(base);
+        setApprovalModal(null);
+      };
+      const fld = { width: "100%", boxSizing: "border-box", padding: "9px 11px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none" };
+      const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 };
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10035, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }} onClick={() => setApprovalModal(null)}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ width: "min(520px, 96vw)", maxHeight: "90vh", overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 16, boxShadow: "0 24px 70px rgba(0,0,0,0.55)", padding: 26 }}>
+          <h3 style={{ margin: "0 0 18px", color: T.text, fontSize: 20, fontWeight: 800 }}>{isChain ? "Edit Approval Steps" : m.id ? "Edit Approval" : "New Approval"}</h3>
+          {isChain
+            ? <div style={{ marginBottom: 16, fontSize: 13, color: T.textSec, fontWeight: 600 }}>{m.title}</div>
+            : <>
+              <div style={{ marginBottom: 14 }}>
+                <label style={lbl}>Title</label>
+                <input autoFocus value={m.title} onChange={e => setM({ title: e.target.value })} placeholder="e.g. CSA Panel Review" style={fld} />
+              </div>
+              <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <label style={lbl}>Department / Type</label>
+                  <ApprovalTypeDrop templateId={m.templateId || ""} templates={signOffTemplates}
+                    onPick={tid => tid ? pickTemplate(tid) : setM({ templateId: "", dept: queueLabel })}
+                    onCreate={name => { const id = uid(); const stepLabels = (m.steps || []).map(s => s.label).filter(Boolean); setOrgSettings(s => ({ ...s, signOffTemplates: [...(s.signOffTemplates || []), { id, name, steps: stepLabels }] })); setApprovalModal(p => ({ ...p, templateId: id, dept: name })); }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 180 }}>
+                  <label style={lbl}>Client</label>
+                  <SimpleDrop value={m.clientId || ""} placeholder="No client"
+                    options={[{ value: "", label: "No client" }, ...clients.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => ({ value: c.id, label: c.name, color: c.color }))]}
+                    onChange={v => setM({ clientId: v })} />
+                </div>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <label style={lbl}>Due date (optional)</label>
+                <TraqsDatePicker compact value={m.dueDate || ""} onChange={v => setM({ dueDate: v })} placeholder="No due date" />
+              </div>
+            </>}
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <label style={{ ...lbl, marginBottom: 0 }}>Steps</label>
+              <button onClick={addStep} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Add step</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {(m.steps || []).map((s, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, background: s.done ? "#10b98118" : T.surface, color: s.done ? "#10b981" : T.textDim, border: `1px solid ${s.done ? "#10b98140" : T.border}` }}>{s.done ? "✓" : i + 1}</span>
+                <input value={s.label} onChange={e => setStep(i, e.target.value)} placeholder={`Step ${i + 1}`} style={{ ...fld, padding: "7px 10px", fontSize: 13 }} />
+                <button onClick={() => delStep(i)} title="Remove step" style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 14, cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>)}
+              {(m.steps || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim, fontStyle: "italic", padding: "6px 2px" }}>No steps yet — add the approval steps above.</div>}
+            </div>
+          </div>
+          {!valid && <div style={{ marginBottom: 12, fontSize: 12, color: T.danger, fontWeight: 500 }}>A title is required.</div>}
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <div>{m.id && <Btn variant="danger" onClick={() => { deleteApproval(m.id); setApprovalModal(null); }}>Delete</Btn>}</div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn variant="ghost" onClick={() => setApprovalModal(null)}>Cancel</Btn>
+              <Btn onClick={save} disabled={!valid}>{m.id ? "Save" : "Create"}</Btn>
+            </div>
+          </div>
+        </div>
+      </div>;
+    })()}</FadeOnClose>
     {/* Sign Off Templates Settings Modal */}
     <FadeOnClose open={!!signOffSettingsOpen} duration={220}>{signOffSettingsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => { setSignOffSettingsOpen(false); setSignOffTemplateEditing(null); }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(520px, calc(100vw - 32px))", maxHeight: "88vh", display: "flex", flexDirection: "column", animation: "slideUp 0.22s ease-out" }}>
