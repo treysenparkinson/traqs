@@ -630,7 +630,7 @@ button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
 @media (hover: hover) {
   button:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
     transform: translateY(-1.5px) !important;
-    box-shadow: 0 4px 16px var(--tq-glow, rgba(0,0,0,0.22)), 0 0 0 1px var(--tq-glow-ring, rgba(127,127,127,0.18)) !important;
+    box-shadow: 0 4px 16px var(--tq-glow, rgba(0,0,0,0.22)) !important;
     filter: brightness(1.06);
   }
 }
