@@ -2275,12 +2275,20 @@ Extraction rules:
   const [holidayInput, setHolidayInput] = useState("");
   useEffect(() => { localStorage.setItem("tq_org_settings", JSON.stringify(orgSettings)); }, [orgSettings]);
   useEffect(() => { saveStatusRef.current = saveStatus; }, [saveStatus]);
-  const [editingColHeader, setEditingColHeader] = useState(null); // colId being renamed
+  const [editingColHeader, setEditingColHeader] = useState(null); // colId being renamed (eng columns)
+  const [renameCol, setRenameCol] = useState(null); // { colId, isCustom, value, x, y } — small draggable rename popover
   const [colOrder, setColOrder] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tq_col_order") || "null") || STD_COL_DEFS.map(c => c.id); }
     catch { return STD_COL_DEFS.map(c => c.id); }
   });
   useEffect(() => { localStorage.setItem("tq_col_order", JSON.stringify(colOrder)); }, [colOrder]);
+  // Custom display labels for STANDARD columns (custom columns store their own label).
+  // Keyed by std col id → renamed label. Lets every column on the jobs list be renamed.
+  const [colLabels, setColLabels] = useState(() => {
+    try { return JSON.parse(localStorage.getItem("tq_col_labels") || "{}") || {}; }
+    catch { return {}; }
+  });
+  useEffect(() => { localStorage.setItem("tq_col_labels", JSON.stringify(colLabels)); }, [colLabels]);
   // Per-column "use for grouping" overrides, keyed by std col id or "_cc_"+customId.
   // Absent key → default: GROUPABLE_STD for std columns, true for custom columns.
   const [groupColPref, setGroupColPref] = useState(() => {
@@ -2315,6 +2323,8 @@ Extraction rules:
   const [taskOrder, setTaskOrder] = useState([]); // manual job ID sort order
   const colDragRef = useRef(null); // colId being dragged
   const [colDropIdx, setColDropIdx] = useState(null);
+  const [colDragging, setColDragging] = useState(false); // true mid pointer-drag (suppresses sort, shows drop line)
+  const colDragMovedRef = useRef(false); // set on a real drag so the trailing click doesn't also sort
   const rowDragRef = useRef(null); // job id being dragged
   const [rowDragOverId, setRowDragOverId] = useState(null);
   const [conditionsOpen, setConditionsOpen] = useState(false);
@@ -7305,6 +7315,51 @@ ${jobsCtx || "No jobs found."}`;
         const cellAlignJc = cellAlign === "right" ? "flex-end" : cellAlign === "center" ? "center" : "flex-start";
         const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
         const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "8px 10px", background: T.surface };
+        // Display label for a standard column, honoring user renames.
+        const stdColLabel = col => colLabels[col.id] || col.label;
+        const doColSort = id => setColSort(prev => prev.id === id ? (prev.dir === "asc" ? { id, dir: "desc" } : { id: null, dir: "asc" }) : { id, dir: "asc" });
+        // Pointer-based column reorder. Native HTML5 drag was unreliable inside the sticky,
+        // overflow-clipped grid (and never set dataTransfer, so it failed entirely in some
+        // browsers). This tracks the pointer directly. A column reorders only within its own
+        // group (standard cols vs. custom cols), matching how the body renders the two groups.
+        const startColDrag = (e, colId, isCustom) => {
+          if (e.button !== 0) return;
+          const headerRow = e.currentTarget.parentElement;
+          const startX = e.clientX;
+          const stdCount = orderedStdCols.length;
+          colDragRef.current = colId;
+          colDragMovedRef.current = false;
+          let moved = false, ins = null;
+          const onMove = me => {
+            if (!moved) { if (Math.abs(me.clientX - startX) < 4) return; moved = true; setColDragging(true); }
+            const cells = Array.from(headerRow.children);
+            const lo = isCustom ? stdCount : 0;
+            const hi = isCustom ? stdCount + customCols.length : stdCount; // exclusive
+            let slot = hi;
+            for (let k = lo; k < hi; k++) {
+              const r = cells[k].getBoundingClientRect();
+              if (me.clientX < r.left + r.width / 2) { slot = k; break; }
+            }
+            ins = slot;
+            setColDropIdx(slot);
+          };
+          const onUp = () => {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            const wasMoved = moved, slot = ins;
+            colDragRef.current = null; setColDropIdx(null); setColDragging(false);
+            if (!wasMoved) { doColSort(colId); return; } // a click, not a drag → sort
+            colDragMovedRef.current = true; // swallow the trailing click
+            if (slot == null) return;
+            if (isCustom) {
+              setCustomCols(prev => { const arr = [...prev]; const from = arr.findIndex(c => c.id === colId); if (from < 0) return prev; let to = slot - stdCount; const [m] = arr.splice(from, 1); if (from < to) to--; to = Math.max(0, Math.min(arr.length, to)); arr.splice(to, 0, m); return arr; });
+            } else {
+              setColOrder(prev => { const arr = [...prev]; const from = arr.indexOf(colId); if (from < 0) return prev; let to = slot; const [m] = arr.splice(from, 1); if (from < to) to--; to = Math.max(0, Math.min(arr.length, to)); arr.splice(to, 0, m); return arr; });
+            }
+          };
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+        };
         const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: job.id, pid: null, title: job.title, jobNumber: job.jobNumber || null }); } else { updTask(job.id, { status: next }); } };
         const cyclePri = (job) => { const opts = PRIORITIES.length ? PRIORITIES : ["Medium"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
         const cycleStatusSub = (item, pid) => { const i = STATUSES.indexOf(item.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item.id, pid: pid || null, title: item.title, jobNumber: null }); } else { updTask(item.id, { status: next }, pid); } };
@@ -7595,22 +7650,19 @@ ${jobsCtx || "No jobs found."}`;
           {(() => {
             const minW = colWidths.reduce((a, b) => a + b, 0);
             const gridOnClick = () => { if (gridCell) setGridCell(null); setColPickerOpen(false); setExportOpen(false); };
-            const ColHeaders = () => (
+            const ColHeaders = (hdrKey = "main") => (
               <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.surface, borderBottom: `1.5px solid ${T.border}` }}>
                 {orderedStdCols.map((col, displayIdx) => {
                   const widthIdx = 1 + col.i;
                   const isDragOver = colDropIdx === displayIdx && colDragRef.current !== col.id;
                   return (
-                    <div key={col.id} draggable
-                      onDragStart={e => { e.dataTransfer.effectAllowed = "move"; colDragRef.current = col.id; }}
-                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (colDragRef.current !== col.id) setColDropIdx(displayIdx); }}
-                      onDragLeave={() => setColDropIdx(null)}
-                      onDrop={e => { e.preventDefault(); const dragId = colDragRef.current; colDragRef.current = null; setColDropIdx(null); if (!dragId || dragId === col.id) return; setColOrder(prev => { const from = prev.indexOf(dragId); const to = prev.indexOf(col.id); if (from < 0 || to < 0) return prev; const next = [...prev]; next.splice(from, 1); next.splice(to, 0, dragId); return next; }); }}
-                      onDragEnd={() => { colDragRef.current = null; setColDropIdx(null); }}
-                      onContextMenu={e => { e.preventDefault(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: col.id, isCustom: false }); }}
-                      onClick={e => { if (colDragRef.current) return; e.stopPropagation(); setColSort(prev => prev.id === col.id ? (prev.dir === "asc" ? { id: col.id, dir: "desc" } : { id: null, dir: "asc" }) : { id: col.id, dir: "asc" }); }}
-                      style={{ ...hdrCell, justifyContent: col.align === "right" ? "flex-end" : col.align === "center" ? "center" : "flex-start", position: "relative", userSelect: "none", cursor: "pointer", borderLeft: isDragOver ? `2px solid ${T.accent}` : undefined, gap: 4, background: colSort.id === col.id ? T.accent + "12" : undefined }}>
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, color: colSort.id === col.id ? T.accent : undefined }}>{col.label}</span>
+                    <div key={col.id}
+                      onMouseDown={e => startColDrag(e, col.id, false)}
+                      onContextMenu={e => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: col.id, isCustom: false, hdrLeft: r.left, hdrTop: r.top }); }}
+                      onClick={e => { e.stopPropagation(); if (colDragMovedRef.current) { colDragMovedRef.current = false; return; } }}
+                      onDoubleClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setRenameCol({ colId: col.id, isCustom: false, value: stdColLabel(col), x: r.left, y: Math.max(8, r.top - 50) }); }}
+                      style={{ ...hdrCell, justifyContent: col.align === "right" ? "flex-end" : col.align === "center" ? "center" : "flex-start", position: "relative", userSelect: "none", cursor: colDragging ? "grabbing" : "pointer", borderLeft: isDragOver ? `2px solid ${T.accent}` : undefined, gap: 4, background: colSort.id === col.id ? T.accent + "12" : undefined }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, color: colSort.id === col.id ? T.accent : undefined }}>{stdColLabel(col)}</span>
                       <span style={{ fontSize: 9, flexShrink: 0, color: colSort.id === col.id ? T.accent : T.textDim, opacity: colSort.id === col.id ? 1 : 0.35, transition: "opacity 0.15s" }}>{colSort.id === col.id ? (colSort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>
                       <div onMouseDown={e => { e.stopPropagation(); startColResize(e, widthIdx); }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "33"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
                     </div>
@@ -7620,19 +7672,14 @@ ${jobsCtx || "No jobs found."}`;
                   const widthIdx = 12 + i;
                   const isDragOverCustom = colDropIdx === (orderedStdCols.length + i) && colDragRef.current !== c.id;
                   return (
-                    <div key={c.id} draggable
-                      onDragStart={e => { e.dataTransfer.effectAllowed = "move"; colDragRef.current = c.id; }}
-                      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (colDragRef.current !== c.id) setColDropIdx(orderedStdCols.length + i); }}
-                      onDragLeave={() => setColDropIdx(null)}
-                      onDrop={e => { e.preventDefault(); const dragId = colDragRef.current; colDragRef.current = null; setColDropIdx(null); if (!dragId || dragId === c.id) return; setCustomCols(prev => { const from = prev.findIndex(x => x.id === dragId); const to = prev.findIndex(x => x.id === c.id); if (from < 0 || to < 0) return prev; const next = [...prev]; next.splice(from, 1); next.splice(to, 0, prev[from]); return next; }); }}
-                      onDragEnd={() => { colDragRef.current = null; setColDropIdx(null); }}
-                      onContextMenu={e => { e.preventDefault(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: c.id, isCustom: true }); }}
-                      onClick={e => { if (colDragRef.current) return; e.stopPropagation(); setColSort(prev => prev.id === c.id ? (prev.dir === "asc" ? { id: c.id, dir: "desc" } : { id: null, dir: "asc" }) : { id: c.id, dir: "asc" }); }}
-                      style={{ ...hdrCell, position: "relative", userSelect: "none", cursor: "pointer", gap: 4, borderLeft: isDragOverCustom ? `2px solid ${T.accent}` : undefined, background: colSort.id === c.id ? T.accent + "12" : undefined }}>
-                      {editingColHeader === c.id
-                        ? <input autoFocus defaultValue={c.label} onBlur={e => { setCustomCols(prev => prev.map(x => x.id === c.id ? { ...x, label: e.target.value || x.label } : x)); setEditingColHeader(null); }} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setEditingColHeader(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 3, color: T.textDim, fontSize: 10, fontWeight: 700, fontFamily: T.font, padding: "1px 3px", textTransform: "uppercase", letterSpacing: "0.07em", minWidth: 0 }} />
-                        : <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, color: colSort.id === c.id ? T.accent : undefined }}>{c.label}</span>}
-                      {editingColHeader !== c.id && <span style={{ fontSize: 9, flexShrink: 0, color: colSort.id === c.id ? T.accent : T.textDim, opacity: colSort.id === c.id ? 1 : 0.35, transition: "opacity 0.15s" }}>{colSort.id === c.id ? (colSort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>}
+                    <div key={c.id}
+                      onMouseDown={e => startColDrag(e, c.id, true)}
+                      onContextMenu={e => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: c.id, isCustom: true, hdrLeft: r.left, hdrTop: r.top }); }}
+                      onClick={e => { e.stopPropagation(); if (colDragMovedRef.current) { colDragMovedRef.current = false; return; } }}
+                      onDoubleClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setRenameCol({ colId: c.id, isCustom: true, value: c.label, x: r.left, y: Math.max(8, r.top - 50) }); }}
+                      style={{ ...hdrCell, position: "relative", userSelect: "none", cursor: colDragging ? "grabbing" : "pointer", gap: 4, borderLeft: isDragOverCustom ? `2px solid ${T.accent}` : undefined, background: colSort.id === c.id ? T.accent + "12" : undefined }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, color: colSort.id === c.id ? T.accent : undefined }}>{c.label}</span>
+                      <span style={{ fontSize: 9, flexShrink: 0, color: colSort.id === c.id ? T.accent : T.textDim, opacity: colSort.id === c.id ? 1 : 0.35, transition: "opacity 0.15s" }}>{colSort.id === c.id ? (colSort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>
                       <div onMouseDown={e => { e.stopPropagation(); startColResize(e, widthIdx); }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "33"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
                     </div>
                   );
@@ -7684,7 +7731,7 @@ ${jobsCtx || "No jobs found."}`;
                       : <>
                         {activeJobs.length > 0 && <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                           <div style={{ minWidth: minW }}>
-                            <ColHeaders />
+                            {ColHeaders(sKey + ":a")}
                             {activeJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#94a3b8", isFinished: false, alwaysExpand: false, groupPrefix }))}
                           </div>
                         </div>}
@@ -7695,7 +7742,7 @@ ${jobsCtx || "No jobs found."}`;
                           </div>
                           <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                             <div style={{ minWidth: minW }}>
-                              <ColHeaders />
+                              {ColHeaders(sKey + ":f")}
                               {finishedJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#10b981", isFinished: true, alwaysExpand: false, groupPrefix }))}
                             </div>
                           </div>
@@ -7820,7 +7867,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ overflow: "hidden", minHeight: 0 }}>
                       <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                         <div style={{ minWidth: minW }}>
-                          <ColHeaders />
+                          {ColHeaders("pm:" + (pm?.id ?? pmLabel))}
                           {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
                           {can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
                             onMouseEnter={e => e.currentTarget.style.background = T.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -7846,7 +7893,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                   <div style={{ minWidth: minW }}>
-                    <ColHeaders />
+                    {ColHeaders("finished-all")}
                     {finishedTasks.map(job => GridRow({ item: job, level: 0, jobColor: "#10b981", isFinished: true }))}
                   </div>
                 </div>
@@ -16099,6 +16146,35 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>;
     })()}</FadeOnClose>
+    {/* ── Rename column popover — tiny, anchored over the header cell, draggable ── */}
+    {renameCol && (() => {
+      const commit = () => {
+        const v = (renameCol.value || "").trim();
+        if (renameCol.isCustom) { if (v) setCustomCols(prev => prev.map(x => x.id === renameCol.colId ? { ...x, label: v } : x)); }
+        else { const def = STD_COL_DEFS.find(c => c.id === renameCol.colId); setColLabels(prev => { const n = { ...prev }; if (!v || v === def?.label) delete n[renameCol.colId]; else n[renameCol.colId] = v; return n; }); }
+        setRenameCol(null);
+      };
+      const startDrag = e => {
+        if (e.target.tagName === "INPUT") return;
+        e.preventDefault();
+        const sx = e.clientX, sy = e.clientY, ox = renameCol.x, oy = renameCol.y;
+        const onM = me => setRenameCol(r => r ? { ...r, x: ox + (me.clientX - sx), y: oy + (me.clientY - sy) } : r);
+        const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+        document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+      };
+      const left = Math.max(8, Math.min(renameCol.x, window.innerWidth - 222));
+      const top = Math.max(8, renameCol.y);
+      return <>
+        <div style={{ position: "fixed", inset: 0, zIndex: 10029 }} onMouseDown={commit} />
+        <div onMouseDown={startDrag} className="anim-ctx" style={{ position: "fixed", left, top, zIndex: 10030, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,0.45)", padding: 8, width: 206, cursor: "grab", fontFamily: T.font, userSelect: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, margin: "0 2px 6px" }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{ color: T.textDim, flexShrink: 0 }}><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+            <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Rename</span>
+          </div>
+          <input autoFocus value={renameCol.value} onMouseDown={e => e.stopPropagation()} onChange={e => setRenameCol(r => ({ ...r, value: e.target.value }))} onFocus={e => e.target.select()} onKeyDown={e => { if (e.key === "Enter") commit(); else if (e.key === "Escape") setRenameCol(null); }} placeholder="Column name" style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "text" }} onFocusCapture={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+        </div>
+      </>;
+    })()}
     {/* ── Column header context menu ── */}
     <FadeOnClose open={!!colCtxMenu}>{colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => { setColCtxMenu(null); setOptDraft(null); }}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
@@ -16160,7 +16236,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>;
         })()}
-        {colCtxMenu.isCustom && <button onClick={() => { setEditingColHeader(colCtxMenu.colId); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {<button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Rename Column
         </button>}
