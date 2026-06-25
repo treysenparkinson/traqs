@@ -669,18 +669,13 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
 /* Adaptive (frosted-glass) mode — when a custom background image is set, every translucent
    popup / menu / card / panel gets a STRONG backdrop blur so text stays readable over the
    image. Gated by the .traqs-adaptive root class (only present when a bg image is active). */
-.traqs-adaptive .anim-modal-box,
-.traqs-adaptive .anim-ctx,
-.traqs-adaptive .anim-drop,
-.traqs-adaptive .anim-card-wrap,
+/* OPT-IN frosted glass: only elements tagged .tq-frost (job-list sections & other page
+   content) go translucent + strongly blurred over the background image. Everything else —
+   popups, dropdowns, menus, buttons, cards — stays SOLID by default (theme surfaces are opaque). */
 .traqs-adaptive .tq-frost {
+  background-color: var(--tq-frost-bg, var(--tq-surface-solid)) !important;
   backdrop-filter: blur(26px) saturate(1.5) !important;
   -webkit-backdrop-filter: blur(26px) saturate(1.5) !important;
-}
-/* Dim + blur the area behind a modal too, so open dialogs read cleanly. */
-.traqs-adaptive .anim-modal-overlay {
-  backdrop-filter: blur(4px) !important;
-  -webkit-backdrop-filter: blur(4px) !important;
 }
 /* Smoothly fade text between black/white as the custom surface flips light/dark, so the
    auto-contrast text color (white on dark surfaces, black on light) cross-fades instead of snapping. */
@@ -774,23 +769,19 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
   const surfDk = hexLum(surf) < 0.5;
   const txt  = surfDk ? "#f1f5f9" : "#0f172a";
   const bord = blendHex(surf, surfDk ? 0.18 : -0.12);
-  // Adaptive (glass) cards when an image is set, or whenever card opacity is dialed below 100.
+  // ALL surfaces stay SOLID (popups, dropdowns, buttons, cards) for consistency. The frosted-glass
+  // translucency is OPT-IN per element via the `.tq-frost` class (which pulls --tq-frost-bg). adaptive
+  // = a background image is set; cardOpacity drives the frost tint via the CSS var (see effect).
   const adaptive = !!bgImage;
-  const a = Math.max(0, Math.min(1, cardOpacity / 100));
-  const useAlpha = adaptive || cardOpacity < 100;
-  const surfCol = useAlpha ? hexA(surf, a) : surf;
-  const cardCol = useAlpha ? hexA(card, a) : card;
   return {
-    name:"Custom", bg, surface:surfCol, surfaceSolid:surf, card:cardCol, border:bord,
+    name:"Custom", bg, surface:surf, surfaceSolid:surf, card, border:bord,
     borderLight:blendHex(surf, surfDk ? 0.24 : -0.09),
     text:txt, textSec:txt, textDim:txt,
     accent, accentText:accentText(accent), danger:"#f43f5e",
     font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'DM Sans',sans-serif",
-    radius:16, radiusSm:12, radiusXs:8, glass:cardCol, glassBorder:bord,
-    blur: adaptive ? "blur(10px)" : "none", glow:"none", colorScheme:dk?"dark":"light",
+    radius:16, radiusSm:12, radiusXs:8, glass:surf, glassBorder:bord,
+    blur:"none", glow:"none", colorScheme:dk?"dark":"light",
     bgImage, bgOpacity, cardOpacity, adaptive,
-    // Frosted-glass blur for cards/lists — only when a background image is set (adaptive).
-    cardBlur: adaptive ? "blur(26px) saturate(1.5)" : "",
   };
 }
 
@@ -1512,6 +1503,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.documentElement.style.setProperty("--tq-glow-ring", `${a}40`);
     el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes fastTraqIn { 0%{opacity:0;transform:translateX(28px) scale(0.7)} 55%{opacity:1;transform:translateX(-4px) scale(1.04)} 80%{transform:translateX(1px) scale(0.99)} 100%{opacity:1;transform:translateX(0) scale(1)} } @keyframes cancelScoot { 0%{transform:translateX(0)} 30%{transform:translateX(-6px)} 70%{transform:translateX(2px)} 100%{transform:translateX(0)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkCircle { 0%{stroke-dashoffset:88;opacity:0.6} 100%{stroke-dashoffset:0;opacity:1} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
   }, [T.accent]);
+  // Solid chrome color + the translucent tint used by opt-in `.tq-frost` content (job-list sections).
+  useEffect(() => {
+    const solid = T.surfaceSolid || T.surface || "#1e1e2e";
+    document.documentElement.style.setProperty("--tq-surface-solid", solid);
+    document.documentElement.style.setProperty("--tq-frost-bg", T.adaptive ? hexA(solid, (T.cardOpacity ?? 80) / 100) : solid);
+  }, [T.surfaceSolid, T.surface, T.adaptive, T.cardOpacity]);
   // Tag every icon-only close button (text is exactly ✕ or ×) with `tq-noanim`
   // so it opts out of the universal button pop/glow. A MutationObserver catches
   // buttons inside dynamically-mounted popups/modals too — so none are missed.
