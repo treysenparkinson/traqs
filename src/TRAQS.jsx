@@ -666,6 +666,25 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
   box-shadow: none !important;
   filter: none !important;
 }
+/* Adaptive (frosted-glass) mode — when a custom background image is set, every translucent
+   popup / menu / card / panel gets a STRONG backdrop blur so text stays readable over the
+   image. Gated by the .traqs-adaptive root class (only present when a bg image is active). */
+.traqs-adaptive .anim-modal-box,
+.traqs-adaptive .anim-ctx,
+.traqs-adaptive .anim-drop,
+.traqs-adaptive .anim-card-wrap,
+.traqs-adaptive .tq-frost {
+  backdrop-filter: blur(26px) saturate(1.5) !important;
+  -webkit-backdrop-filter: blur(26px) saturate(1.5) !important;
+}
+/* Dim + blur the area behind a modal too, so open dialogs read cleanly. */
+.traqs-adaptive .anim-modal-overlay {
+  backdrop-filter: blur(4px) !important;
+  -webkit-backdrop-filter: blur(4px) !important;
+}
+/* Smoothly fade text between black/white as the custom surface flips light/dark, so the
+   auto-contrast text color (white on dark surfaces, black on light) cross-fades instead of snapping. */
+.traqs-custom * { transition: color 0.3s ease; }
 
 .anim-card-wrap {
   transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -725,6 +744,11 @@ function blendHex(hex, f) {
   const t=f>0?255:0, a=Math.abs(f), c=v=>Math.min(255,Math.max(0,Math.round(v+(t-v)*a))).toString(16).padStart(2,"0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
+// hex (#rrggbb) → rgba() string with the given 0..1 alpha. Used for translucent cards/overlays.
+function hexA(hex, a) {
+  try { const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${Math.max(0,Math.min(1,a))})`; }
+  catch { return hex; }
+}
 function isLight(hex) {
   try {
     const r = parseInt(hex.slice(1,3), 16);
@@ -738,18 +762,35 @@ function accentText(accent) {
   try { return hexLum(accent) > 0.35 ? "#0f172a" : "#ffffff"; } catch { return "#ffffff"; }
 }
 
-function buildCustomTheme(bg, accent) {
+// Custom-theme inputs: bg (background), accent (buttons/highlights), surface (lists/cards).
+// Text is AUTOMATIC — it contrasts the surface it sits on. opts: { bgImage, cardOpacity 0..100,
+// bgOpacity 0..100 }. A background image flips cards into "adaptive" mode: surfaces/cards become
+// translucent (alpha = cardOpacity) so the image shows through, tinted by the system surface color.
+function buildCustomTheme(bg, accent, surface, opts = {}) {
+  const { bgImage = null, cardOpacity = 100, bgOpacity = 100 } = opts;
   const dk = hexLum(bg) < 0.18;
-  const card = blendHex(bg, dk ? 0.10 : 0);
-  const bord = blendHex(bg, dk ? 0.18 : -0.12);
+  const surf = surface || blendHex(bg, dk ? 0.07 : -0.03);
+  const card = surface || blendHex(bg, dk ? 0.10 : 0);
+  const surfDk = hexLum(surf) < 0.5;
+  const txt  = surfDk ? "#f1f5f9" : "#0f172a";
+  const bord = blendHex(surf, surfDk ? 0.18 : -0.12);
+  // Adaptive (glass) cards when an image is set, or whenever card opacity is dialed below 100.
+  const adaptive = !!bgImage;
+  const a = Math.max(0, Math.min(1, cardOpacity / 100));
+  const useAlpha = adaptive || cardOpacity < 100;
+  const surfCol = useAlpha ? hexA(surf, a) : surf;
+  const cardCol = useAlpha ? hexA(card, a) : card;
   return {
-    name:"Custom", bg, surface:blendHex(bg,dk?0.07:-0.03), card, border:bord,
-    borderLight:blendHex(bg,dk?0.24:-0.09),
-    text:dk?"#f1f5f9":"#0f172a", textSec:dk?"#f1f5f9":"#0f172a", textDim:dk?"#f1f5f9":"#0f172a",
+    name:"Custom", bg, surface:surfCol, surfaceSolid:surf, card:cardCol, border:bord,
+    borderLight:blendHex(surf, surfDk ? 0.24 : -0.09),
+    text:txt, textSec:txt, textDim:txt,
     accent, accentText:accentText(accent), danger:"#f43f5e",
     font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'DM Sans',sans-serif",
-    radius:16, radiusSm:12, radiusXs:8, glass:card, glassBorder:bord,
-    blur:"none", glow:"none", colorScheme:dk?"dark":"light",
+    radius:16, radiusSm:12, radiusXs:8, glass:cardCol, glassBorder:bord,
+    blur: adaptive ? "blur(10px)" : "none", glow:"none", colorScheme:dk?"dark":"light",
+    bgImage, bgOpacity, cardOpacity, adaptive,
+    // Frosted-glass blur for cards/lists — only when a background image is set (adaptive).
+    cardBlur: adaptive ? "blur(26px) saturate(1.5)" : "",
   };
 }
 
@@ -1157,7 +1198,7 @@ function ApprovalTypeDrop({ templateId, templates, onPick, onCreate }) {
       <span style={{ fontSize: 14, color: current ? T.text : T.textDim, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current ? current.name : "Custom (no type)"}</span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", maxHeight: 280, overflowY: "auto" }}>
+    {open && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", maxHeight: 280, overflowY: "auto" }}>
       {templates.map((t) => { const isOn = t.id === templateId; return <div key={t.id} onClick={() => { onPick(t.id); setOpen(false); }} style={{ ...rowBase, background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
         <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{t.name}</span>
@@ -1190,7 +1231,7 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…" }) {
       <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1 }}>{sel?.color && <span style={{ width: 8, height: 8, borderRadius: 4, background: sel.color, flexShrink: 0 }} />}<span style={{ fontSize: 14, color: sel ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.label : placeholder}</span></span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    {open && <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
+    {open && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
       {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", transition: "background-color 0.15s ease", background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
         <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color || (isOn ? T.accent : T.border), flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{o.label}</span>
@@ -1446,10 +1487,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return (THEMES[saved] || saved === "custom") ? saved : "midnight";
   });
   const [customTheme, setCustomTheme] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tq_custom_theme") || "null") || { bg: "#1a1a2e", accent: "#e94560" }; }
-    catch { return { bg: "#1a1a2e", accent: "#e94560" }; }
+    const def = { bg: "#1a1a2e", accent: "#e94560", text: "#f1f5f9", surface: "#24243e", bgImage: null, cardOpacity: 100, bgOpacity: 100 };
+    try { return { ...def, ...(JSON.parse(localStorage.getItem("tq_custom_theme") || "null") || {}) }; }
+    catch { return def; }
   });
-  T = themeMode === "custom" ? buildCustomTheme(customTheme.bg, customTheme.accent) : (THEMES[themeMode] || THEMES.midnight);
+  T = themeMode === "custom" ? buildCustomTheme(customTheme.bg, customTheme.accent, customTheme.surface, { bgImage: customTheme.bgImage, cardOpacity: customTheme.cardOpacity, bgOpacity: customTheme.bgOpacity }) : (THEMES[themeMode] || THEMES.midnight);
   useEffect(() => { localStorage.setItem("tq_theme", themeMode); }, [themeMode]);
   useEffect(() => { localStorage.setItem("tq_custom_theme", JSON.stringify(customTheme)); }, [customTheme]);
   const [customizationOpen, setCustomizationOpen] = useState(false);
@@ -7776,7 +7818,7 @@ ${jobsCtx || "No jobs found."}`;
                     {activeJobs.length === 0 && finishedJobs.length === 0
                       ? <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: T.radius, background: T.card }}>(no jobs)</div>
                       : <>
-                        {activeJobs.length > 0 && <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                        {activeJobs.length > 0 && <div className="tq-frost" style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                           <div style={{ minWidth: minW }}>
                             {ColHeaders(sKey + ":a")}
                             {activeJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#94a3b8", isFinished: false, alwaysExpand: false, groupPrefix }))}
@@ -7787,7 +7829,7 @@ ${jobsCtx || "No jobs found."}`;
                             <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
                             <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>{finishedJobs.length}</span>
                           </div>
-                          <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                          <div className="tq-frost" style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                             <div style={{ minWidth: minW }}>
                               {ColHeaders(sKey + ":f")}
                               {finishedJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#10b981", isFinished: true, alwaysExpand: false, groupPrefix }))}
@@ -7912,7 +7954,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Grid — grid-template-rows 0fr↔1fr animates retract */}
                   <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
                     <div style={{ overflow: "hidden", minHeight: 0 }}>
-                      <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                      <div className="tq-frost" style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                         <div style={{ minWidth: minW }}>
                           {ColHeaders("pm:" + (pm?.id ?? pmLabel))}
                           {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
@@ -7938,7 +7980,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
                   <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>{finishedTasks.length}</span>
                 </div>
-                <div style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                <div className="tq-frost" style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
                   <div style={{ minWidth: minW }}>
                     {ColHeaders("finished-all")}
                     {finishedTasks.map(job => GridRow({ item: job, level: 0, jobColor: "#10b981", isFinished: true }))}
@@ -15265,7 +15307,7 @@ ${jobsCtx || "No jobs found."}`;
   // Filter out admin users from the shop crew display (they don't get assigned tasks)
   const shopPeople = people.filter(p => p.userRole === "user");
 
-  return <TooltipCtx.Provider value={tipCtx}><div className={`traqs-${themeMode}`} style={{ height: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+  return <TooltipCtx.Provider value={tipCtx}><div className={`traqs-${themeMode}${T.adaptive ? " traqs-adaptive" : ""}`} style={{ height: "100vh", background: T.bg, color: T.text, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
     {/* ── Sticky save-failure banner ─ shows the actual server error so the user (and us) know what's wrong ── */}
     {saveError && <div style={{ flexShrink: 0, background: "#dc2626", color: "#fff", padding: "10px 20px", display: "flex", alignItems: "center", gap: 14, fontSize: 13, fontFamily: T.font, fontWeight: 500, zIndex: 200 }}>
       <span style={{ fontSize: 18 }}>⚠</span>
@@ -15279,8 +15321,8 @@ ${jobsCtx || "No jobs found."}`;
       <button onClick={() => setSaveError(null)} style={{ width: 28, height: 28, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
     </div>}
     {/* ── Brand strip — logo + undo/redo + search/ask + save/bell/settings ── */}
-    {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: T.surface, position: "relative", zIndex: 101 }}>
-      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: T.colorScheme === "dark" ? "none" : "brightness(0)", flexShrink: 0, marginLeft: 45 }} />
+    {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: T.surfaceSolid || T.surface, position: "relative", zIndex: 101 }}>
+      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: hexLum(T.surfaceSolid || T.surface) > 0.5 ? "brightness(0)" : "none", flexShrink: 0, marginLeft: 45 }} />
       {/* LEFT: Undo / Redo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
@@ -15377,7 +15419,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Body — sidebar + content ── */}
     <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: T.surface }}>
     {/* ── Left sidebar — chevron + vertical nav + profile ── */}
-    {!isMobile && <aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+    {!isMobile && <aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
@@ -15585,7 +15627,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </aside>}
-    <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", background: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
+    <div style={{ padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", backgroundColor: T.bg, ...(T.bgImage ? { backgroundImage: `linear-gradient(${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat" } : {}), borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
       {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "admin" && isAdmin && <div style={{ flex: 1 }}>{renderAdmin()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
     </div>
     </div>
@@ -15786,8 +15828,9 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 12 }}>Custom Colors</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {[
-                  { key: "bg",     label: "Background", sub: "App background & surfaces" },
-                  { key: "accent", label: "Accent",     sub: "Buttons, highlights & indicators" },
+                  { key: "bg",      label: "Background",    sub: "App background" },
+                  { key: "surface", label: "Lists & Cards", sub: "Tables, lists & panels" },
+                  { key: "accent",  label: "Buttons",       sub: "Buttons, highlights & indicators" },
                 ].map(({ key, label, sub }) => (
                   <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <label style={{ position: "relative", width: 42, height: 42, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block", boxShadow: `0 0 0 1px ${customTheme[key]}44` }}>
@@ -15803,13 +15846,37 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 ))}
               </div>
+              {/* Background image + adaptive card opacity */}
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Background Image</div>
+                {customTheme.bgImage
+                  ? <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+                      <div style={{ width: 64, height: 42, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, backgroundImage: `url(${customTheme.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
+                      <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>Image set · cards adapt to it</div>
+                      <button onClick={() => setCustomTheme(p => ({ ...p, bgImage: null }))} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
+                    </div>
+                  : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", marginBottom: 14, borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                      Upload background image
+                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); setCustomTheme(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
+                    </label>}
+                {customTheme.bgImage && <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 4 }}><span>Background image opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{customTheme.bgOpacity ?? 100}%</span></div>
+                  <input type="range" min="0" max="100" value={customTheme.bgOpacity ?? 100} onChange={e => setCustomTheme(p => ({ ...p, bgOpacity: Number(e.target.value) }))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
+                </div>}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 4 }}><span>Job card opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{customTheme.cardOpacity ?? 100}%</span></div>
+                  <input type="range" min="20" max="100" value={customTheme.cardOpacity ?? 100} onChange={e => setCustomTheme(p => ({ ...p, cardOpacity: Number(e.target.value) }))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 4 }}>Lower = more transparent, letting the background show through cards &amp; lists.</div>
+                </div>
+              </div>
             </div>}
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Saved Presets</div>
             {themePresets.length === 0 && <div style={{ fontSize: 13, color: T.textDim, marginBottom: 14 }}>No saved presets yet. Save your custom theme as a preset below.</div>}
             {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
               {themePresets.map((p, idx) => (
                 <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
-                  onClick={() => { setThemeMode("custom"); setCustomTheme({ bg: p.bg, accent: p.accent }); }}>
+                  onClick={() => { setThemeMode("custom"); setCustomTheme(c => ({ ...c, bg: p.bg, accent: p.accent, text: p.text || c.text, surface: p.surface || c.surface })); }}>
                   <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
                   <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
                   <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }}
@@ -15820,9 +15887,9 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", gap: 8 }}>
               <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)}
                 placeholder="Preset name…"
-                onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent }]); setPresetNameInput(""); } }}
+                onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent, text: customTheme.text, surface: customTheme.surface }]); setPresetNameInput(""); } }}
                 style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
-              <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent }]); setPresetNameInput(""); }}
+              <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: customTheme.bg, accent: customTheme.accent, text: customTheme.text, surface: customTheme.surface }]); setPresetNameInput(""); }}
                 style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
             </div>
             <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>Saves the current custom background &amp; accent as a named preset you can apply later.</div>
