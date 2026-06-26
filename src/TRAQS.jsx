@@ -2491,13 +2491,16 @@ Extraction rules:
   // adaptive = the theme accent for all, custom = a single chosen colour for all.
   const jobBarMode = T.jobBarMode || "system";
   const elColor = c => jobBarMode === "adaptive" ? T.accent : jobBarMode === "custom" ? (T.jobBarColor || T.accent) : c;
-  // Status/priority cells follow the SAME System Elements mode: system = configured
-  // multi-colours, adaptive = shades of the accent by value, custom = shades of the chosen
-  // colour by value (kept as shades so values stay distinguishable).
-  const elShadeBase = jobBarMode === "custom" ? (T.jobBarColor || T.accent) : T.accent;
-  const valShade = (i, n) => blendHex(elShadeBase, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6); // light → strong across the value list
-  const staColorOf = s => jobBarMode === "system" ? (STA_C[s] || T.textDim) : valShade(Math.max(0, STATUSES.indexOf(s)), STATUSES.length);
-  const priColorOf = p => jobBarMode === "system" ? (PRI_C[p] || T.textDim) : valShade(Math.max(0, PRIORITIES.indexOf(p)), PRIORITIES.length);
+  // Jobs-list status/priority cells have their OWN "List Cells" toggle (cellColorMode),
+  // INDEPENDENT of System Elements: system = configured multi-colours, adaptive = shades of
+  // the accent by value (kept as shades so each status/priority stays distinguishable).
+  const cellMode = T.cellColorMode || "system";
+  const valShade = (i, n) => blendHex(T.accent, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6); // light → strong across the value list
+  const staColorOf = s => cellMode === "adaptive" ? valShade(Math.max(0, STATUSES.indexOf(s)), STATUSES.length) : (STA_C[s] || T.textDim);
+  const priColorOf = p => cellMode === "adaptive" ? valShade(Math.max(0, PRIORITIES.indexOf(p)), PRIORITIES.length) : (PRI_C[p] || T.textDim);
+  // Jobs-list CLIENT cell is also a list cell: system = the client's own colour,
+  // adaptive = an accent shade (varied by the client's position) so it follows the theme.
+  const clientCellColor = c => cellMode === "adaptive" ? valShade(Math.max(0, clients.findIndex(x => x.id === c.id)) % 4, 4) : (c.color || T.textDim);
   const [optDraft, setOptDraft] = useState(null); // { key, list } staged Edit Options changes — applied only on Save
   const [optEditSeq, setOptEditSeq] = useState(0); // bumped on each Edit Options open to re-fire the staggered cascade
   const optBaseLenRef = useRef(0); // option count captured at open — rows beyond it (added live) skip the stagger delay
@@ -7577,7 +7580,7 @@ ${jobsCtx || "No jobs found."}`;
             );
             case "client": return (
               <div style={{ ...cellBase }}>
-                {level === 0 && client && <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: elColor(client.color), fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: elColor(client.color), flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span>}
+                {level === 0 && client && <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: clientCellColor(client), fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: clientCellColor(client), flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span>}
                 {level === 0 && !client && <span style={{ fontSize: 12, color: T.textDim }}>—</span>}
                 {level === 1 && <span style={{ fontSize: 11, color: T.textDim }}>{(item.subs || []).length} op{(item.subs || []).length !== 1 ? "s" : ""}</span>}
               </div>
@@ -15867,10 +15870,11 @@ ${jobsCtx || "No jobs found."}`;
       const PRI_PAL = ["#10b981", "#f59e0b", "#f43f5e"];
       const CLIENT_PAL = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16"];
       const pMode = pT.jobBarMode || "system";
-      const pShadeBase = pMode === "custom" ? (pT.jobBarColor || pT.accent) : pT.accent;
-      const pValShade = (i, n) => blendHex(pShadeBase, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6);
-      const pPriColor = i => pMode === "system" ? PRI_PAL[i % PRI_PAL.length] : pValShade(i % 3, 3);
-      const pClientColor = i => pMode === "system" ? CLIENT_PAL[i % CLIENT_PAL.length] : (pMode === "adaptive" ? pT.accent : (pT.jobBarColor || pT.accent));
+      // List Cells (status/priority) preview follows its OWN toggle, independent of System Elements.
+      const pCellMode = pT.cellColorMode || "system";
+      const pCellShade = (i, n) => blendHex(pT.accent, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6);
+      const pPriColor = i => pCellMode === "adaptive" ? pCellShade(i % 3, 3) : PRI_PAL[i % PRI_PAL.length];
+      const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
       const swatch = (key, label, sub) => (
         <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
@@ -15937,7 +15941,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* System Elements — every per-entity color (job bars, avatars, clients, dots) */}
                   <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>System Elements</div>
-                    <div style={{ fontSize: 11, color: T.textDim, margin: "3px 0 10px" }}>All colored elements — job bars, profile avatars, client colors, status &amp; priority cells, dots.</div>
+                    <div style={{ fontSize: 11, color: T.textDim, margin: "3px 0 10px" }}>Job bars, profile avatars, client colors &amp; dots. (Not the jobs-list cells.)</div>
                     <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
                       {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }, { id: "custom", label: "Custom" }].map(o => {
                         const a = (dc.jobBarMode || "system") === o.id;
@@ -15952,7 +15956,17 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>All colored elements use this color.</div>
                       <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc.jobBarColor || dc.accent}</div>
                     </div>}
-                    <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>{(dc.jobBarMode || "system") === "system" ? "Each element keeps its own color · status/priority use their defaults · New Job color wheel enabled." : (dc.jobBarMode === "adaptive" ? "All elements use your accent · status/priority as accent shades · color wheel disabled." : "All elements use your chosen color · status/priority as shades · color wheel disabled.")}</div>
+                  </div>
+                  {/* List Cells — jobs-list status/priority cells ONLY (independent of System Elements) */}
+                  <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>List Cells</div>
+                    <div style={{ fontSize: 11, color: T.textDim, margin: "3px 0 10px" }}>Status, priority &amp; other value-colored cells on the Jobs list page only.</div>
+                    <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                      {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }].map(o => {
+                        const a = (dc.cellColorMode || "system") === o.id;
+                        return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                      })}
+                    </div>
                   </div>
                 </div>
                 {/* ── Background Image ── */}
@@ -16052,7 +16066,11 @@ ${jobsCtx || "No jobs found."}`;
                   {/* rounded content panel with the background image (mirrors the 22px content area) */}
                   <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
                     {pAdaptive && <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: 0, animation: "tqFadeOnly 0.35s ease" }}><div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (dc.bgOpacity ?? 100) / 100 }} /></div>}
-                    {previewView === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16, animation: "tqPreviewFade 0.3s ease" }}>
+                    {/* Single-view fade: only ONE view is mounted at a time and fades in over the
+                        background (pure opacity, no slide). Cross-fading two views overlapped their
+                        semi-transparent frosted cards and washed them out — this avoids that since
+                        the views never overlap. */}
+                    {previewView === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16, animation: "tqFadeOnly 0.28s ease" }}>
                       {/* content toolbar — New Job lives here (on the screen), not in the header */}
                       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                         <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "7px 14px" }}>+ New Job</span>
@@ -16092,7 +16110,7 @@ ${jobsCtx || "No jobs found."}`;
                           </div>
                         </div>;
                       })}
-                    </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12, animation: "tqPreviewFade 0.3s ease" }}>
+                    </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12, animation: "tqFadeOnly 0.28s ease" }}>
                       {/* schedule toolbar — Select / Today + filter + search */}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "6px 14px" }}>Select</span>
