@@ -8969,60 +8969,38 @@ ${jobsCtx || "No jobs found."}`;
                   const ghosts = [];
                   if (teamDragInfo.targetPersonId === p.id && teamDragInfo.translateX != null && (Math.abs(teamDragInfo.translateX) > 4 || Math.abs(teamDragInfo.translateY || 0) > 4)) {
                     const _liveRef = teamDragLiveRef.current;
-                    const _liveSnapDay = _liveRef?.snapStart || snapStart;
-                    const _ghostBarHpd = teamDragInfo.barHpd || 0;
+                    // Draw the ghost at the SNAPPED drop position (snapStart/snapEnd + drop-hour) — the
+                    // exact values the release commits — so the ghost shows precisely where the bar lands.
+                    // (Previously it glided at the raw cursor position, which could sit up to a full column
+                    // off the floored drop day in week/day mode where there's no hour offset to absorb it.)
+                    const _gStart = _liveRef?.snapStart || snapStart;
+                    const _gEnd = _liveRef?.snapEnd || snapEnd;
                     const _dropHour = _liveRef?.dropHour ?? workStartH;
-                    const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
-                    const _ghostVisualDays = (() => {
-                      if (_ghostBarHpd <= 0) return Math.max(1, diffBD(teamDragInfo.origStart, teamDragInfo.origEnd) + 1);
-                      const _ghTotalClockH = productiveHoursPerDay > 0 ? (_ghostBarHpd / productiveHoursPerDay) * totalWorkH : 0;
-                      const _ghFirstDayAvailH = workEndH - _dropHour;
-                      if (_ghTotalClockH <= _ghFirstDayAvailH) return 1;
-                      let _ghRem = _ghTotalClockH - _ghFirstDayAvailH;
-                      let _ghDays = 1;
-                      while (_ghRem > totalWorkH) { _ghRem -= totalWorkH; _ghDays++; }
-                      return _ghDays + 1;
-                    })();
+                    const _ghostBarHpd = teamDragInfo.barHpd || 0;
                     const _oneDayW = 1 / nDays * 100;
+                    const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
                     const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
-                    // Total working-content width of the ghost, in day-units (weekends excluded).
-                    const _ghostWidthDays = _ghostBarHpd > 0 ? Math.max(0.03, _ghostBarHpd / productiveHoursPerDay) : _ghostVisualDays;
-                    // Anchor the ghost to the SMOOTH cursor position (the bar's live left edge), not the
-                    // day-snapped column — that's what lets it glide cleanly instead of stepping per day.
-                    // ghostLeftPct already bakes in the intra-day hour offset; the day-snapped fallback
-                    // (used before the first mouse-move / during auto-scroll) adds it explicitly.
-                    const _ghostLeftPct = _liveRef?.ghostLeftPct != null
-                      ? _liveRef.ghostLeftPct
-                      : ((days.indexOf(_liveSnapDay) >= 0 ? days.indexOf(_liveSnapDay) : diffD(tStart, _liveSnapDay)) / nDays * 100 + _ghostHourOffW);
-                    // Walk forward from the cursor column, laying the width across working-day columns and
-                    // inserting a gap whenever a disabled day (weekend/holiday) falls inside the span — so
-                    // the ghost breaks at weekends and flows into the next week while still tracking the
-                    // cursor smoothly. The committed bar uses the same floor-based day + hour offset, so
-                    // the ghost lands exactly where the bar drops.
-                    let _remDays = _ghostWidthDays;
-                    let _curCol = _ghostLeftPct / _oneDayW;
-                    let _guard = 0;
-                    while (_remDays > 0.001 && _guard++ < 500) {
-                      const _ci = Math.floor(_curCol + 1e-6);
-                      const _dd = (_ci >= 0 && _ci < nDays) ? days[_ci] : null;
-                      if (_dd && !isWorkDay(_dd, orgSettings.workDays)) { _curCol = _ci + 1; continue; }
-                      const _segStart = _curCol;
-                      let _segW = 0;
-                      while (_remDays > 0.001 && _guard++ < 500) {
-                        const _ci2 = Math.floor(_curCol + 1e-6);
-                        const _dd2 = (_ci2 >= 0 && _ci2 < nDays) ? days[_ci2] : null;
-                        if (_dd2 && !isWorkDay(_dd2, orgSettings.workDays)) break;
-                        const _colEnd = _ci2 + 1;
-                        const _take = Math.min(_remDays, _colEnd - _curCol);
-                        _segW += _take; _remDays -= _take; _curCol += _take;
-                        if (_curCol < _colEnd - 1e-6) break;
-                        _curCol = _colEnd;
-                      }
-                      if (_segW > 0) {
-                        const _gi = ghosts.length;
-                        ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${_segStart * _oneDayW}% + 2px)`, width: `calc(${Math.max(_segW * _oneDayW, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
-                      }
-                    }
+                    // Width in working-day units (weekends excluded), matching the committed bar.
+                    const _ghostWidthPct = _ghostBarHpd > 0
+                      ? Math.max(0.03 / nDays * 100, (_ghostBarHpd / productiveHoursPerDay) / nDays * 100)
+                      : (Math.max(diffD(_gStart, _gEnd) + 1, 1) / nDays * 100);
+                    // Split across weekend/holiday gaps the same way the committed bar (and group ghosts) do.
+                    const _segs = weekdaySegments(_gStart, _gEnd, tStart, tEnd, orgSettings.workDays);
+                    let _wRem = _ghostWidthPct;
+                    _segs.forEach((seg, si) => {
+                      const isFirst = si === 0;
+                      const isLast = si === _segs.length - 1;
+                      const _segIdx = days.indexOf(seg.start);
+                      const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _ghostHourOffW : 0);
+                      const _segEndIdx = days.indexOf(seg.end);
+                      const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
+                      const _segAvailW = _segRightPct - segLeft;
+                      const segW = isLast ? Math.max(0, _wRem) : Math.max(0.5, Math.min(_wRem, _segAvailW));
+                      _wRem = Math.max(0, _wRem - segW);
+                      if (segW <= 0) return;
+                      const _gi = ghosts.length;
+                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${Math.max(segW, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                    });
                   }
                   (groupSnaps || []).forEach(gs => {
                     if ((gs.personIds || []).includes(p.id)) {
@@ -9401,37 +9379,30 @@ ${jobsCtx || "No jobs found."}`;
                       let dropHour = null;
                       let snapS = nextBD(addD(os, dx), barBDOpts);
                       if (tMode === "month") {
-                        const _mRect = gridAreaEl?.getBoundingClientRect();
-                        if (_mRect) {
-                          const _mcx = (me.clientX - _grabPx) - _mRect.left;
-                          const _rawDayIdx = _mcx / liveCW;
-                          // Keep the window-independent dx-based `snapS` for the day. Do NOT look it
-                          // up in the closure's `days` array — that's the PRE-glide window, so after
-                          // auto-scroll it maps the cursor back near the start (the bug that made the
-                          // drop "lock near the start"). Only derive the drop hour here from the
-                          // cursor's fractional position within its column.
-                          if (isWorkDay(snapS, barWorkDays)) {
-                            const _colFrac = Math.min(0.9999, Math.max(0, _rawDayIdx - Math.floor(_rawDayIdx)));
-                            // Continuous (no half-hour rounding) so the committed start hour lands
-                            // exactly under the gliding ghost — rounding here shifted the drop a few
-                            // pixels off the ghost. The bar stores this precise hour.
-                            const _rawHour = workStartH + _colFrac * totalWorkH;
-                            dropHour = Math.max(0, _rawHour);
-                          } else {
+                        // Derive the intra-day hour offset from the SAME delta-based column value the
+                        // day snap (dx) uses — NOT a separate absolute-cursor measurement. Using two
+                        // different coordinate bases made the day and hour disagree by a sliver near
+                        // column edges, which jittered the ghost a couple hours back and forth.
+                        const _rawLanding = addD(os, dx);
+                        const _weekendShifted = snapS !== _rawLanding; // dx landed on a weekend → snapped forward
+                        if (_weekendShifted) {
+                          dropHour = workStartH; // bar starts at the snapped workday's beginning
+                        } else {
+                          const _contVal = pxDx / liveCW + _origColOffset;
+                          const _colFrac = Math.min(0.9999, Math.max(0, _contVal - Math.floor(_contVal)));
+                          dropHour = Math.max(0, workStartH + _colFrac * totalWorkH);
+                        }
+                        // Snap-forward: if the drop would leave only a sliver on the first day
+                        // (less than 2h before workEnd) AND the next day is non-working, advance
+                        // to the next workday's start so the bar doesn't begin with a tiny piece
+                        // right before a non-working day gap.
+                        if (dropHour > workEndH - 2) {
+                          let _walk = addD(snapS, 1);
+                          const _max = addD(snapS, 30);
+                          if (!isWorkDay(_walk, barWorkDays)) {
+                            while (_walk <= _max && !isWorkDay(_walk, barWorkDays)) _walk = addD(_walk, 1);
+                            snapS = _walk;
                             dropHour = workStartH;
-                          }
-                          // Snap-forward: if the drop would leave only a sliver on the first day
-                          // (less than 2h before workEnd) AND the next day is non-working, advance
-                          // to the next workday's start so the bar doesn't begin with a tiny piece
-                          // right before a non-working day gap.
-                          if (dropHour > workEndH - 2) {
-                            let _walk = addD(snapS, 1);
-                            const _max = addD(snapS, 30);
-                            if (!isWorkDay(_walk, barWorkDays)) {
-                              while (_walk <= _max && !isWorkDay(_walk, barWorkDays)) _walk = addD(_walk, 1);
-                              snapS = _walk;
-                              dropHour = workStartH;
-                            }
                           }
                         }
                       }
