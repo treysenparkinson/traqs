@@ -676,8 +676,11 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
 /* Adaptive (frosted-glass) mode — when a custom background image is set, every translucent
    popup / menu / card / panel gets a STRONG backdrop blur so text stays readable over the
    image. Gated by the .traqs-adaptive root class (only present when a bg image is active). */
-/* Page content (.tq-frost / .anim-card-wrap) gets a translucent tint so the sharp background
-   image shows through cleanly (no blur). cardOpacity drives the tint. */
+/* Page content (.tq-frost / .anim-card-wrap) gets a translucent tint (cardOpacity-driven)
+   so the surface color shows over the background image. The jobs list uses the <FrostCard>
+   component instead, which paints its own blurred copy of the image (true frosted glass);
+   backdrop-filter can't be used here because the image sits outside the nested scroll
+   containers that wrap the cards. */
 .traqs-adaptive .tq-frost,
 .traqs-adaptive .anim-card-wrap {
   background-color: var(--tq-frost-bg, var(--tq-surface-solid)) !important;
@@ -950,6 +953,27 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
   onMouseLeave={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.glassBorder}`; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = "none"; } : undefined}
   style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.glassBorder}`, padding: 24, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
+// Frosted-glass card for the jobs list. A NON-scrolling wrapper paints its own blurred copy
+// of the background image (aligned to the same fixed/viewport coords as the sharp page-image
+// layer, so the blur lines up with what's behind it) under a translucent tint; the scrolling
+// table lives in an inner layer on top. We can't use backdrop-filter here because the page's
+// background-image sits outside the nested scroll containers that wrap these cards, so the
+// blur would have nothing to sample. Falls back to a plain solid card when no bg image is set.
+const FrostCard = ({ children, onClick, border, style: sx = {} }) => (
+  <div style={{ position: "relative", overflow: "hidden", borderRadius: T.radius, border: border || `1px solid ${T.border}`, minWidth: 0, ...sx }}>
+    {T.adaptive && T.bgImage && <>
+      {/* opaque page-bg base so the sharp image behind the card doesn't leak through the blur */}
+      <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: T.bg, pointerEvents: "none" }} />
+      {/* pre-blurred copy of the bg image — sized to the panel & offset by JS to line up with
+          the (panel-pinned) background behind the card. Uses --tq-bg-blur (baked blur) so there
+          is no heavy runtime filter; JS keeps it aligned (panel-pinned, not viewport-fixed). */}
+      <div className="tq-frost-blur" aria-hidden="true" style={{ position: "absolute", backgroundImage: "var(--tq-bg-blur)", backgroundSize: "cover", backgroundPosition: "center", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />
+    </>}
+    {/* translucent surface tint over the blur (or a solid card when no bg image) */}
+    <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.card, pointerEvents: "none" }} />
+    <div style={{ position: "relative", overflow: "auto", borderRadius: T.radius }} onClick={onClick}>{children}</div>
+  </div>
+);
 const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input id={id} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;// ── Tooltip system ──────────────────────────────────────────────────────────
 const TooltipCtx = createContext(null);
 const Tip = ({ label, children }) => {
@@ -7884,23 +7908,23 @@ ${jobsCtx || "No jobs found."}`;
                     {activeJobs.length === 0 && finishedJobs.length === 0
                       ? <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: T.radius, background: T.card }}>(no jobs)</div>
                       : <>
-                        {activeJobs.length > 0 && <div className="tq-frost" style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                        {activeJobs.length > 0 && <FrostCard onClick={gridOnClick}>
                           <div style={{ minWidth: minW }}>
                             {ColHeaders(sKey + ":a")}
                             {activeJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#94a3b8", isFinished: false, alwaysExpand: false, groupPrefix }))}
                           </div>
-                        </div>}
+                        </FrostCard>}
                         {finishedJobs.length > 0 && <div style={{ marginTop: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px" }}>
                             <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
                             <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>{finishedJobs.length}</span>
                           </div>
-                          <div className="tq-frost" style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                          <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`}>
                             <div style={{ minWidth: minW }}>
                               {ColHeaders(sKey + ":f")}
                               {finishedJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#10b981", isFinished: true, alwaysExpand: false, groupPrefix }))}
                             </div>
-                          </div>
+                          </FrostCard>
                         </div>}
                       </>}
                   </div>
@@ -8020,7 +8044,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Grid — grid-template-rows 0fr↔1fr animates retract */}
                   <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
                     <div style={{ overflow: "hidden", minHeight: 0 }}>
-                      <div className="tq-frost" style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                      <FrostCard onClick={gridOnClick}>
                         <div style={{ minWidth: minW }}>
                           {ColHeaders("pm:" + (pm?.id ?? pmLabel))}
                           {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
@@ -8034,7 +8058,7 @@ ${jobsCtx || "No jobs found."}`;
                             {[...Array(11)].map((_, i) => <div key={i} style={{ borderRight: `1px solid ${T.border}` }} />)}
                           </div>}
                         </div>
-                      </div>
+                      </FrostCard>
                     </div>
                   </div>
                 </div>;
@@ -8046,12 +8070,12 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
                   <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>{finishedTasks.length}</span>
                 </div>
-                <div className="tq-frost" style={{ overflow: "auto", borderRadius: T.radius, border: `1px solid #10b98133`, background: T.card, minWidth: 0 }} onClick={gridOnClick}>
+                <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`}>
                   <div style={{ minWidth: minW }}>
                     {ColHeaders("finished-all")}
                     {finishedTasks.map(job => GridRow({ item: job, level: 0, jobColor: "#10b981", isFinished: true }))}
                   </div>
-                </div>
+                </FrostCard>
               </div>}
             </>;
           })()}
@@ -8286,6 +8310,69 @@ ${jobsCtx || "No jobs found."}`;
   const [tCollapsed, setTCollapsed] = useState({});
   const teamRef = useRef(null);
   const teamContainerRef = useRef(null);
+  const contentPanelRef = useRef(null);
+  // Pre-blur the background image ONCE (downscaled canvas blur) and expose it as the
+  // --tq-bg-blur CSS var. FrostCard paints this pre-blurred image as a
+  // `background-attachment: fixed` layer (no runtime `filter`, which would otherwise
+  // re-anchor the image to each card's own box). `fixed` pins the blur to the viewport on
+  // the compositor — exactly like the sharp page-image layer — so every card blurs the real
+  // region behind it and stays perfectly registered while scrolling, with no per-frame JS.
+  useEffect(() => {
+    if (!T.bgImage || !T.adaptive) { document.documentElement.style.setProperty("--tq-bg-blur", "none"); return; }
+    let cancelled = false;
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      try {
+        const maxEdge = 320;
+        const s = Math.min(1, maxEdge / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * s)), h = Math.max(1, Math.round(img.height * s));
+        const c = document.createElement("canvas"); c.width = w; c.height = h;
+        const ctx = c.getContext("2d");
+        ctx.filter = "blur(6px)";
+        ctx.drawImage(img, 0, 0, w, h);
+        document.documentElement.style.setProperty("--tq-bg-blur", `url("${c.toDataURL("image/jpeg", 0.72)}")`);
+      } catch {
+        document.documentElement.style.setProperty("--tq-bg-blur", `url("${T.bgImage}")`);
+      }
+    };
+    img.onerror = () => { if (!cancelled) document.documentElement.style.setProperty("--tq-bg-blur", `url("${T.bgImage}")`); };
+    img.src = T.bgImage;
+    return () => { cancelled = true; };
+  }, [T.bgImage, T.adaptive]);
+  // Keep each .tq-frost-blur layer sized to the content panel and offset by its card's
+  // position, so each card blurs EXACTLY the region of the (panel-pinned) background behind
+  // it. Runs SYNCHRONOUSLY on scroll (not via rAF) so the blur doesn't lag a frame behind.
+  useEffect(() => {
+    const panel = contentPanelRef.current;
+    if (!panel) return;
+    const sync = () => {
+      const layers = panel.querySelectorAll(".tq-frost-blur");
+      if (!layers.length) return;
+      const pr = panel.getBoundingClientRect();
+      layers.forEach(el => {
+        const card = el.parentElement;
+        if (!card) return;
+        const cr = card.getBoundingClientRect();
+        el.style.width = pr.width + "px";
+        el.style.height = pr.height + "px";
+        el.style.left = (pr.left - cr.left) + "px";
+        el.style.top = (pr.top - cr.top) + "px";
+      });
+    };
+    sync();
+    const t1 = setTimeout(sync, 80), t2 = setTimeout(sync, 260); // catch entrance/collapse animations
+    panel.addEventListener("scroll", sync, { capture: true, passive: true });
+    window.addEventListener("resize", sync);
+    const ro = new ResizeObserver(sync);
+    ro.observe(panel);
+    return () => {
+      panel.removeEventListener("scroll", sync, { capture: true });
+      window.removeEventListener("resize", sync);
+      ro.disconnect();
+      clearTimeout(t1); clearTimeout(t2);
+    };
+  }, [view, T.bgImage, T.adaptive, tasks, pmSectionsCollapsed]); // eslint-disable-line react-hooks/exhaustive-deps
   const [teamWidth, setTeamWidth] = useState(1200);
   const [monthZoom, setMonthZoom] = useState(1);
   useEffect(() => {
@@ -15682,10 +15769,10 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </aside>}
-    <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
+    <div ref={contentPanelRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
       {/* Sharp background-image layer — kept as its own element (not a CSS background on the scroll
           container) so the tq-frost sections' backdrop-filter actually blurs it, like the preview. */}
-      {T.bgImage && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "fixed", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />}
+      {T.bgImage && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />}
       <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px" }}>
         {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "admin" && isAdmin && <div style={{ flex: 1 }}>{renderAdmin()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
       </div>
