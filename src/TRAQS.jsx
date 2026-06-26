@@ -786,6 +786,11 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
     // which can differ in lightness from the card surface. Contrasts bg, not surf.
     bgText: isLight(bg) ? "#0f172a" : "#f1f5f9",
     accent, accentText:accentText(accent), danger:"#f43f5e",
+    // Hover / selection "fade highlight" tints. Accent-hued but shifted in lightness AWAY
+    // from the surface (lighter on dark surfaces, darker on light) so they stay clearly
+    // visible on ANY color combination — not a near-invisible low-alpha accent.
+    hover: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.20 : 0.15),
+    hoverStrong: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.34 : 0.26),
     font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'DM Sans',sans-serif",
     radius:16, radiusSm:12, radiusXs:8, glass:surf, glassBorder:bord,
     blur:"none", glow:"none", colorScheme:dk?"dark":"light",
@@ -800,9 +805,9 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
 }
 
 const THEMES = {
-  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", bgText: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
-  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
-  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", bgText: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
+  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", bgText: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex("#3d7fff", 0.45), 0.2), hoverStrong: hexA(blendHex("#3d7fff", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
+  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
+  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", bgText: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", hover: hexA(blendHex("#0ea5e9", -0.35), 0.14), hoverStrong: hexA(blendHex("#0ea5e9", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
 };
 // Legacy aliases so any existing code referencing "dark"/"light" still resolves
 THEMES.dark  = THEMES.midnight;
@@ -911,11 +916,11 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
       </button>
       <FadeOnClose open={open}>{open && <div onClick={e => e.stopPropagation()} className="anim-drop" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 1500, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", padding: 14, width: 290, fontFamily: T.font }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
-          <button onClick={NAV(1)} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <button onClick={NAV(1)} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
@@ -928,11 +933,11 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
             const isToday = c.iso === todayIso;
             const tooEarly = !!(c.iso && min && c.iso < min);
             const usable = c.inMonth && !tooEarly;
-            return <button key={i} disabled={!usable} onClick={() => { if (c.iso && usable) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusXs, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? T.accent : "transparent", color: !c.inMonth || tooEarly ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: usable ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (usable && !isSel) e.currentTarget.style.background = T.accent + "22"; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>{c.day}</button>;
+            return <button key={i} disabled={!usable} onClick={() => { if (c.iso && usable) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusXs, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? T.accent : "transparent", color: !c.inMonth || tooEarly ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: usable ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (usable && !isSel) e.currentTarget.style.background = T.hoverStrong; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>{c.day}</button>;
           })}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-          <button onClick={() => { onChange(todayIso); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Today</button>
+          <button onClick={() => { onChange(todayIso); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Today</button>
           {value && <button onClick={() => { onChange(""); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Clear</button>}
         </div>
       </div>}</FadeOnClose>
@@ -957,7 +962,7 @@ const Tip = ({ label, children }) => {
     </div>
   );
 };
-function CtxMenuItem({ icon, label, sub, onClick, animIdx }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s", ...(animIdx !== undefined ? { animation: `toolDrop 0.14s ${animIdx * 38}ms both ease-out` } : {}) }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
+function CtxMenuItem({ icon, label, sub, onClick, animIdx }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s", ...(animIdx !== undefined ? { animation: `toolDrop 0.14s ${animIdx * 38}ms both ease-out` } : {}) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
 
 /** Reusable sliding-pill toggle. options=[{value,label}], value=active key */
 function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) {
@@ -1124,7 +1129,7 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
         {(() => { const act = multi ? values.length === 0 : !value; return (
         <div onClick={() => { if (multi) { onChangeMulti([]); } else { onChange(null); setOpen(false); setQ(""); } }}
           style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? T.accent : T.textSec, fontWeight: act ? 600 : 400, background: act ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
-          onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = act ? T.accent + "10" : "transparent"}>
+          onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = act ? T.accent + "10" : "transparent"}>
           <div style={{ width: 10, height: 10, borderRadius: 5, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />{noneLabel}
         </div>); })()}
         {filtered.length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No clients match "{q}"</div>}
@@ -1180,7 +1185,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
         const isOn = value === r;
         return <div key={r} onClick={() => { onChange(r); setOpen(false); }}
           style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${ri * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
-          onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"}
+          onMouseEnter={e => e.currentTarget.style.background = T.hover}
           onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
           <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0, transition: "background 0.12s" }} />
           <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, fontFamily: T.font }}>{r}</span>
@@ -1210,17 +1215,17 @@ function ApprovalTypeDrop({ templateId, templates, onPick, onCreate }) {
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     {open && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", maxHeight: 280, overflowY: "auto" }}>
-      {templates.map((t) => { const isOn = t.id === templateId; return <div key={t.id} onClick={() => { onPick(t.id); setOpen(false); }} style={{ ...rowBase, background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+      {templates.map((t) => { const isOn = t.id === templateId; return <div key={t.id} onClick={() => { onPick(t.id); setOpen(false); }} style={{ ...rowBase, background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
         <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{t.name}</span>
       </div>; })}
-      <div onClick={() => { onPick(""); setOpen(false); }} style={{ ...rowBase, background: !templateId ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = !templateId ? T.accent + "10" : "transparent"}>
+      <div onClick={() => { onPick(""); setOpen(false); }} style={{ ...rowBase, background: !templateId ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = !templateId ? T.accent + "10" : "transparent"}>
         <div style={{ width: 8, height: 8, borderRadius: 4, background: !templateId ? T.accent : T.border, flexShrink: 0 }} />
         <span style={{ fontSize: 13, color: T.textSec }}>Custom (no type)</span>
       </div>
       <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
         {!adding
-          ? <div onClick={() => setAdding(true)} style={{ ...rowBase, color: T.accent, fontWeight: 700, fontSize: 13 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          ? <div onClick={() => setAdding(true)} style={{ ...rowBase, color: T.accent, fontWeight: 700, fontSize: 13 }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New type…
             </div>
           : <div style={{ display: "flex", gap: 6, padding: "8px 12px" }} onClick={e => e.stopPropagation()}>
@@ -1243,7 +1248,7 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…" }) {
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     {open && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
-      {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", transition: "background-color 0.15s ease", background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+      {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", transition: "background-color 0.15s ease", background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
         <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color || (isOn ? T.accent : T.border), flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{o.label}</span>
       </div>; })}
@@ -1351,7 +1356,7 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
       <div style={{ display: "grid", gridTemplateRows: isOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.15s ease", opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? "auto" : "none" }}>
         <div style={{ overflow: "hidden", minHeight: 0 }}>
           <div style={{ padding: "6px 14px 2px" }}>
-            <button onClick={(e) => { e.stopPropagation(); selectAll(); }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent + "66"; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }} style={{ width: "100%", padding: "7px 8px", borderRadius: 9, background: "transparent", border: `1px dashed ${T.border}`, color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background-color 0.2s ease, border-color 0.2s ease" }}>{allSel ? "Deselect all" : "Select all"}</button>
+            <button onClick={(e) => { e.stopPropagation(); selectAll(); }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "66"; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }} style={{ width: "100%", padding: "7px 8px", borderRadius: 9, background: "transparent", border: `1px dashed ${T.border}`, color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background-color 0.2s ease, border-color 0.2s ease" }}>{allSel ? "Deselect all" : "Select all"}</button>
           </div>
           {items.map((o, i) => Row(type, o, i))}
         </div>
@@ -1425,7 +1430,7 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
       <div style={{ maxHeight: 220, overflow: "auto" }}>
         <div onClick={() => { onChange(""); setOpen(false); setQ(""); }}
           style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: !value ? T.accent : T.textSec, fontWeight: !value ? 600 : 400, background: !value ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
-          onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"}
+          onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong}
           onMouseLeave={e => e.currentTarget.style.background = !value ? T.accent + "10" : "transparent"}>
           <div style={{ width: 8, height: 8, borderRadius: 4, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
           (unassigned)
@@ -1470,7 +1475,7 @@ function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
       {templates.map((tpl, ti) => (
         <div key={tpl.id} style={{ display: "flex", alignItems: "center", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}>
           <div onClick={() => { onLoad(tpl); setOpen(false); }} style={{ flex: 1, padding: "9px 14px", cursor: "pointer", fontSize: 13, color: T.text, fontWeight: 500, fontFamily: T.font, borderRadius: "4px 0 0 4px" }}
-            onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"}
+            onMouseEnter={e => e.currentTarget.style.background = T.hover}
             onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             {tpl.name}
           </div>
@@ -6159,11 +6164,11 @@ ${jobsCtx || "No jobs found."}`;
             <FadeOnClose open={filterOpen}><div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Status</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {["All", ...STATUSES].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>; })}
+                {["All", ...STATUSES].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>; })}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Time Period</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
+                {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Client</div>
               <div style={{ marginBottom: 14 }}><SearchSelect multi compact portal values={fClient} onChangeMulti={setFClient} options={clients.map(c => ({ value: c.id, label: c.name, color: elColor(c.color) }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
@@ -6336,7 +6341,7 @@ ${jobsCtx || "No jobs found."}`;
                 const isDragging = ganttDragInfo?.itemId === r.id;
                 const barColor = r.color || T.accent;
                 const barBg = r.level === 1 ? barColor + "cc" : barColor;
-                const barTextColor = isLight(barColor) ? '#000000' : '#ffffff';
+                const barTextColor = accentText(barColor);
                 const ws = deriveWorkedState(r);
                 const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
                 let _workedRemainingDays = ws.workedFraction * _totalCalDays;
@@ -6739,7 +6744,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const Avatar = ({ p, dotColor }) => (
       <div style={{ position: "relative", flexShrink: 0 }}>
-        <div style={{ width: 38, height: 38, borderRadius: "50%", background: elColor(p.color || T.accent), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: isLight(elColor(p.color || T.accent)) ? "#000" : "#fff" }}>
+        <div style={{ width: 38, height: 38, borderRadius: "50%", background: elColor(p.color || T.accent), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: accentText(elColor(p.color || T.accent)) }}>
           {initials(p.name)}
         </div>
         {dotColor && <div style={{ position: "absolute", right: -2, bottom: -2, width: 12, height: 12, borderRadius: "50%", background: dotColor, border: `2px solid ${T.bg}` }} />}
@@ -6957,7 +6962,7 @@ ${jobsCtx || "No jobs found."}`;
               Group: {(groupOpts.find(g => g[0] === approvalGroupBy) || groupOpts[0])[1]}
             </button>
             {approvalGroupOpen && <><div onClick={() => setApprovalGroupOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} /><div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 32px rgba(0,0,0,0.4)", overflow: "hidden", minWidth: 150 }}>
-              {groupOpts.map(([k, lbl]) => <button key={k} onClick={() => { setApprovalGroupBy(k); setApprovalGroupOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: approvalGroupBy === k ? T.accent + "12" : "transparent", border: "none", color: approvalGroupBy === k ? T.accent : T.text, fontSize: 13, fontWeight: approvalGroupBy === k ? 700 : 500, cursor: "pointer", fontFamily: T.font }} onMouseEnter={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = T.accent + "08"; }} onMouseLeave={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = "transparent"; }}>{lbl}</button>)}
+              {groupOpts.map(([k, lbl]) => <button key={k} onClick={() => { setApprovalGroupBy(k); setApprovalGroupOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: approvalGroupBy === k ? T.accent + "12" : "transparent", border: "none", color: approvalGroupBy === k ? T.accent : T.text, fontSize: 13, fontWeight: approvalGroupBy === k ? 700 : 500, cursor: "pointer", fontFamily: T.font }} onMouseEnter={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = "transparent"; }}>{lbl}</button>)}
             </div></>}
           </div>
           <button onClick={() => openApprovalModal(null)} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44` }}>+ New Approval</button>
@@ -7001,7 +7006,7 @@ ${jobsCtx || "No jobs found."}`;
                   };
                   return <div key={e.id} onContextMenu={mkCtx}
                     style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.25px solid ${T.border}`, transition: "background 0.15s", cursor: "context-menu" }}
-                    onMouseEnter={ev => ev.currentTarget.style.background = T.accent + "06"} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
+                    onMouseEnter={ev => ev.currentTarget.style.background = T.hover} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
                     <div style={{ ...cellBase, gap: 4, position: "relative", flexDirection: "column", alignItems: "flex-start", justifyContent: "center" }}>
                       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: bar }} />
                       <div style={{ display: "flex", alignItems: "center", gap: 7, maxWidth: "100%" }}>
@@ -7072,7 +7077,7 @@ ${jobsCtx || "No jobs found."}`;
               const alreadyAdded = customCols.some(c => c.fieldKey === fc.fieldKey);
               return <button key={fc.fieldKey} disabled={alreadyAdded} onClick={() => { if (alreadyAdded) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: fc.label, type: fc.type, fieldKey: fc.fieldKey }]); setColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setColPickerOpen(false); }}
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1, animation: `toolDrop 0.14s ${fci * 38}ms both ease-out` }}
-                onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "15"; }}
+                onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hoverStrong; }}
                 onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = "transparent"; }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{fc.label}</span>
@@ -7099,8 +7104,8 @@ ${jobsCtx || "No jobs found."}`;
                 setEngColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setColPickerOpen(false);
               }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusXs, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
-                onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "18"; }}
-                onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.accent + "08"; }}>
+                onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hoverStrong; }}
+                onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hover; }}>
                 <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 9, color: T.textDim, fontWeight: 600, background: T.surface, padding: "1px 5px", borderRadius: 4, border: `1px solid ${T.border}`, flexShrink: 0 }}>{tpl.type === "select" ? "LIST" : tpl.type === "number" ? "NUM" : "TXT"}</span>
                   <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{tpl.label}</span>
@@ -7225,13 +7230,13 @@ ${jobsCtx || "No jobs found."}`;
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {["All", ...STATUSES].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
+                    {["All", ...STATUSES].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent + "22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
+                    {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
                   </div>
                 </div>
                 <div>
@@ -7276,7 +7281,7 @@ ${jobsCtx || "No jobs found."}`;
               const healthColor = HEALTH_DOT[health];
               return <div key={t.id} onClick={() => { if (jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); } else { setSelTask(isSel ? null : t.id); } }}
                 style={{ background: isSel ? T.accent + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? T.accent + "66" : T.border}`, borderLeft: "4px solid #94a3b8", padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${T.accent}15` : "none" }}
-                onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.accent + "08"; e.currentTarget.style.borderColor = T.accent + "44"; } }}
+                onMouseEnter={e => { if (!isSel) { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "44"; } }}
                 onMouseLeave={e => { if (!isSel) { e.currentTarget.style.background = T.card; e.currentTarget.style.borderColor = jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : T.border; } }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
                   {jobSelectMode && <div style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${selJobs.has(t.id) ? T.accent : T.border}`, background: selJobs.has(t.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>{selJobs.has(t.id) && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
@@ -7801,7 +7806,7 @@ ${jobsCtx || "No jobs found."}`;
                       style={{ ...hdrCell, justifyContent: col.align === "right" ? "flex-end" : col.align === "center" ? "center" : "flex-start", position: "relative", userSelect: "none", cursor: colDragging ? "grabbing" : "pointer", borderLeft: isDragOver ? `2px solid ${T.accent}` : undefined, gap: 4, background: colSort.id === col.id ? T.accent + "12" : undefined }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, color: colSort.id === col.id ? T.accent : undefined }}>{stdColLabel(col)}</span>
                       <span style={{ fontSize: 9, flexShrink: 0, color: colSort.id === col.id ? T.accent : T.textDim, opacity: colSort.id === col.id ? 1 : 0.35, transition: "opacity 0.15s" }}>{colSort.id === col.id ? (colSort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>
-                      <div onMouseDown={e => { e.stopPropagation(); startColResize(e, widthIdx); }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "33"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
+                      <div onMouseDown={e => { e.stopPropagation(); startColResize(e, widthIdx); }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
                     </div>
                   );
                 })}
@@ -7817,7 +7822,7 @@ ${jobsCtx || "No jobs found."}`;
                       style={{ ...hdrCell, position: "relative", userSelect: "none", cursor: colDragging ? "grabbing" : "pointer", gap: 4, borderLeft: isDragOverCustom ? `2px solid ${T.accent}` : undefined, background: colSort.id === c.id ? T.accent + "12" : undefined }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, color: colSort.id === c.id ? T.accent : undefined }}>{c.label}</span>
                       <span style={{ fontSize: 9, flexShrink: 0, color: colSort.id === c.id ? T.accent : T.textDim, opacity: colSort.id === c.id ? 1 : 0.35, transition: "opacity 0.15s" }}>{colSort.id === c.id ? (colSort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>
-                      <div onMouseDown={e => { e.stopPropagation(); startColResize(e, widthIdx); }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "33"} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
+                      <div onMouseDown={e => { e.stopPropagation(); startColResize(e, widthIdx); }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
                     </div>
                   );
                 })}
@@ -7825,7 +7830,7 @@ ${jobsCtx || "No jobs found."}`;
                   <button
                     onMouseDown={e => e.stopPropagation()}
                     onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setColPickerAnchor({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right), maxHeight: Math.max(200, window.innerHeight - r.bottom - 24) }); setColPickerOpen(o => !o); setExportOpen(false); }}
-                    onMouseEnter={e => { if (!colPickerOpen) { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.color = T.accent; } }}
+                    onMouseEnter={e => { if (!colPickerOpen) { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; } }}
                     onMouseLeave={e => { if (!colPickerOpen) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textDim; } }}
                     title="Add column"
                     style={{ width: "100%", height: "100%", background: colPickerOpen ? T.accent + "18" : "transparent", border: "none", color: colPickerOpen ? T.accent : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 400, lineHeight: 1, fontFamily: T.font, padding: 0, transition: "background 0.15s, color 0.15s" }}
@@ -7931,7 +7936,7 @@ ${jobsCtx || "No jobs found."}`;
                   if (!person) return;
                   const color = elColor(person.color || T.textDim);
                   const header = <>
-                    <div style={{ width: 22, height: 22, borderRadius: 6, background: color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: isLight(color) ? "#000" : "#fff", flexShrink: 0 }}>{person.name[0]}</div>
+                    <div style={{ width: 22, height: 22, borderRadius: 6, background: color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: accentText(color), flexShrink: 0 }}>{person.name[0]}</div>
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{person.name}</span>
                   </>;
                   sections.push(renderGroupSection({
@@ -7995,7 +8000,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Section header */}
                   <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [pmId]: !p[pmId] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
                     <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    {pm && <div style={{ width: 22, height: 22, borderRadius: 6, background: elColor(pm.color || pmColor), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: isLight(elColor(pm.color || pmColor)) ? "#000" : "#fff", flexShrink: 0 }}>{pm.name[0]}</div>}
+                    {pm && <div style={{ width: 22, height: 22, borderRadius: 6, background: elColor(pm.color || pmColor), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: accentText(elColor(pm.color || pmColor)), flexShrink: 0 }}>{pm.name[0]}</div>}
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{pmLabel}</span>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{pmJobs.length}</span>
                   </div>
@@ -8007,7 +8012,7 @@ ${jobsCtx || "No jobs found."}`;
                           {ColHeaders("pm:" + (pm?.id ?? pmLabel))}
                           {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
                           {can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
-                            onMouseEnter={e => e.currentTarget.style.background = T.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                             <div />
                             <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, color: T.textDim, fontSize: 12 }}>
                               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -8801,7 +8806,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
-                          <span style={{fontSize:10,color:isLight(bar.color)?'#000000':'#ffffff',fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
+                          <span style={{fontSize:10,color:accentText(bar.color),fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
@@ -10161,7 +10166,7 @@ ${jobsCtx || "No jobs found."}`;
                   let _workedRemainingBudget = _workedCellsTotal;
                   const hasMoveLog = !isPto && bar.task && (bar.task.moveLog || []).length > 0;
                   const bc = bar.color;
-                  const iconColor = isLight(bc) ? '#000000' : '#ffffff';
+                  const iconColor = accentText(bc);
                   const isHighlighted = !isPto && bar.task?.id === scheduleHighlightId;
                   const isDraggingThis = teamDragInfo?.barId === bar.id;
                   const isMultiDragging = !isDraggingThis && !!(teamDragInfo?.multiDragIds?.has(bar.id));
@@ -10207,8 +10212,8 @@ ${jobsCtx || "No jobs found."}`;
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
                     {hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
-                    <span style={{ fontSize: 11, color: isPto ? bar.color : (isLight(bc) ? '#000000' : '#ffffff'), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
-                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: isLight(bc) ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.85)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
+                    <span style={{ fontSize: 11, color: isPto ? bar.color : (accentText(bc)), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
+                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
@@ -10363,7 +10368,7 @@ ${jobsCtx || "No jobs found."}`;
                 return (
                   <div key={person.id} className="tq-frost" style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                      <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: elColor(person.color || T.accent), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: isLight(elColor(person.color || T.accent)) ? "#000" : "#fff" }}>{initials}</div>
+                      <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: elColor(person.color || T.accent), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: accentText(elColor(person.color || T.accent)) }}>{initials}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
                         <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.department || ""}</div>
@@ -10679,7 +10684,7 @@ ${jobsCtx || "No jobs found."}`;
                 return (
                   <div key={p.id} style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 140px", gap: 12, alignItems: "center", padding: "4px 0" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: elColor(p.color || T.accent), color: isLight(elColor(p.color || T.accent)) ? "#000" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
+                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: elColor(p.color || T.accent), color: accentText(elColor(p.color || T.accent)), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
                       <span style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                     </div>
                     <div style={{ position: "relative", height: 20, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
@@ -10808,7 +10813,7 @@ ${jobsCtx || "No jobs found."}`;
             {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
               {(t.subs || []).map(s => {
                 const isActive = selDS >= s.start && selDS <= s.end;
-                return <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 32px", cursor: "pointer", alignItems: "center", opacity: isActive ? 1 : 0.45 }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+                return <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 32px", cursor: "pointer", alignItems: "center", opacity: isActive ? 1 : 0.45 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
                   <div style={{ width: 8, height: 8, borderRadius: 4, background: owner ? owner.color : T.accent, flexShrink: 0, opacity: isActive ? 1 : 0.5 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, color: isActive ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
@@ -10817,7 +10822,7 @@ ${jobsCtx || "No jobs found."}`;
                   <HealthIcon t={s} size={8} />
                 </div>;
               })}
-              <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer", gap: 6 }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+              <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer", gap: 6 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
                 <span style={{ fontSize: 12, color: T.accent, fontWeight: 600 }}>View Full Project</span>
               </div>
             </div>}
@@ -10855,7 +10860,7 @@ ${jobsCtx || "No jobs found."}`;
           <HealthIcon t={t} size={10} />
         </div>
         {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${cardBorder}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
-          {(t.subs || []).map(s => <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 32px", cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+          {(t.subs || []).map(s => <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 32px", cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
             <div style={{ width: 8, height: 8, borderRadius: 4, background: curPerson ? curPerson.color : T.accent, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
@@ -10863,7 +10868,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <HealthIcon t={s} size={8} />
           </div>)}
-          <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer" }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+          <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
             <span style={{ fontSize: 12, color: T.accent, fontWeight: 600 }}>View Full Project</span>
           </div>
         </div>}
@@ -11292,7 +11297,7 @@ ${jobsCtx || "No jobs found."}`;
       <button
         onClick={() => appendPin(String(d))}
         style={{ width: 76, height: 76, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 26, fontWeight: 500, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" }}
-        onMouseDown={e => e.currentTarget.style.background = T.accent + "25"}
+        onMouseDown={e => e.currentTarget.style.background = T.hoverStrong}
         onMouseUp={e => e.currentTarget.style.background = T.surface}
         onMouseLeave={e => e.currentTarget.style.background = T.surface}
       >{d}</button>
@@ -11747,7 +11752,7 @@ ${jobsCtx || "No jobs found."}`;
                             <button
                               onClick={() => toggleJob(section.key, jNode.job.id)}
                               style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: jobOpen ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, cursor: "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s, border-color 0.15s" }}
-                              onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0a"; }}
+                              onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
                               onMouseLeave={e => { e.currentTarget.style.background = T.surface; }}
                             >
                               <div style={{ width: 9, height: 9, borderRadius: "50%", background: jNode.job.color || T.accent, flexShrink: 0 }} />
@@ -11768,7 +11773,7 @@ ${jobsCtx || "No jobs found."}`;
                                   <button
                                     onClick={() => togglePanel(section.key, jNode.job.id, pNode.panel.id)}
                                     style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 14px 8px 26px", background: T.bg, border: `1.5px solid ${T.border}`, borderTop: "none", borderRadius: l2Radius, cursor: "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }}
-                                    onMouseEnter={e => { e.currentTarget.style.background = T.accent + "08"; }}
+                                    onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
                                     onMouseLeave={e => { e.currentTarget.style.background = T.bg; }}
                                   >
                                     <span style={{ fontSize: 13, fontWeight: 600, color: T.textDim, flex: 1 }}>{pNode.panel.title}</span>
@@ -11789,7 +11794,7 @@ ${jobsCtx || "No jobs found."}`;
                                         onClick={() => handleStartJob({ jobId: jNode.job.id, jobTitle: jNode.job.title, panelId: pNode.panel.id, panelTitle: pNode.panel.title, opId: op.id, opTitle: op.title })}
                                         disabled={jobClockLoading}
                                         style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, width: "100%", padding: "8px 14px 8px 40px", background: T.surface, border: `1.5px solid ${T.border}`, borderTop: "none", borderRadius: l3Radius, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s", opacity: jobClockLoading ? 0.6 : 1, animation: `toolDrop 0.14s ${oi * 38}ms both ease-out` }}
-                                        onMouseEnter={e => { if (!jobClockLoading) e.currentTarget.style.background = T.accent + "12"; }}
+                                        onMouseEnter={e => { if (!jobClockLoading) e.currentTarget.style.background = T.hover; }}
                                         onMouseLeave={e => { e.currentTarget.style.background = T.surface; }}
                                       >
                                         <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
@@ -12905,7 +12910,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>}
         </div>
         {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
-          {(t.subs || []).map(s => <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 30px", cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+          {(t.subs || []).map(s => <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 30px", cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
             <div style={{ width: 7, height: 7, borderRadius: 4, background: owner ? owner.color : T.accent, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
@@ -12913,7 +12918,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <HealthIcon t={s} size={8} />
           </div>)}
-          <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer" }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+          <div onClick={() => openDetail(t)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "8px 14px", cursor: "pointer" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
             <span style={{ fontSize: 12, color: T.accent, fontWeight: 600 }}>View Full Project</span>
           </div>
         </div>}
@@ -13038,7 +13043,7 @@ ${jobsCtx || "No jobs found."}`;
             {can("editJobs") && <button onClick={() => setClientModal({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 8, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
             {cTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", marginBottom: 6 }}>Jobs · {cTasks.length}</div>
-              {cTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "8px 10px", marginBottom: 4, background: T.bg, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.bgText, display: "flex", alignItems: "center", gap: 8 }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = T.bg}>
+              {cTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "8px 10px", marginBottom: 4, background: T.bg, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.bgText, display: "flex", alignItems: "center", gap: 8 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.bg}>
                 <HealthIcon t={t} size={8} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
@@ -13094,7 +13099,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {currentTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 5 }}>Working On</div>
-              {currentTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}` }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = T.card}>
+              {currentTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}` }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.card}>
                 <div style={{ width: 6, height: 6, borderRadius: 3, background: T.textDim, flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>
@@ -13102,7 +13107,7 @@ ${jobsCtx || "No jobs found."}`;
             </>}
             {upcoming.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 8, marginBottom: 5 }}>Up Next</div>
-              {upcoming.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}`, opacity: 0.72 }} onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = T.card}>
+              {upcoming.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}`, opacity: 0.72 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.card}>
                 <div style={{ width: 6, height: 6, borderRadius: 3, background: T.textDim, flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
@@ -13163,7 +13168,7 @@ ${jobsCtx || "No jobs found."}`;
     return <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
       {/* Mobile header bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 14, background: elColor(loggedInUser.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: isLight(elColor(loggedInUser.color)) ? "#000" : "#fff", fontWeight: 700, flexShrink: 0 }}>{loggedInUser.name[0]}</div>
+        <div style={{ width: 28, height: 28, borderRadius: 14, background: elColor(loggedInUser.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: accentText(elColor(loggedInUser.color)), fontWeight: 700, flexShrink: 0 }}>{loggedInUser.name[0]}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
           <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
@@ -13405,7 +13410,7 @@ ${jobsCtx || "No jobs found."}`;
                 setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
                 setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
               }} style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start" }}
-                onTouchStart={e => e.currentTarget.style.background = T.accent + "10"} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+                onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 4 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -13475,7 +13480,7 @@ ${jobsCtx || "No jobs found."}`;
           const gId = threadKey.replace("group:", "");
           openThread(threadKey, title, "group", null, null, null, gId);
         }
-      }} style={{ display: "flex", gap: 10, padding: "10px 14px", cursor: "pointer", alignItems: "flex-start", background: isActive ? T.accent + "15" : "transparent", borderLeft: `3px solid ${isActive ? T.accent : "transparent"}`, transition: "all 0.15s" }} onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.accent + "08"; }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
+      }} style={{ display: "flex", gap: 10, padding: "10px 14px", cursor: "pointer", alignItems: "flex-start", background: isActive ? T.accent + "15" : "transparent", borderLeft: `3px solid ${isActive ? T.accent : "transparent"}`, transition: "all 0.15s" }} onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
         <div style={{ width: 36, height: 36, borderRadius: 18, background: isActive ? T.accent + "30" : T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: isActive ? T.accent : T.textSec }}>{icon}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4 }}>
@@ -15204,7 +15209,7 @@ ${jobsCtx || "No jobs found."}`;
                         <HealthIcon t={op} size={12} />
                         <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
                         <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
-                        {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: isLight(person.color) ? "#000" : "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
+                        {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: accentText(person.color), fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
                         {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
                       </div>; })}
                   </div>}
@@ -15455,7 +15460,7 @@ ${jobsCtx || "No jobs found."}`;
                 const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
                 setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
                 setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
-              }} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              }} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 5 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -15476,7 +15481,7 @@ ${jobsCtx || "No jobs found."}`;
     {!isMobile && <aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
-        <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
+        <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
           <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </span>
@@ -15501,10 +15506,10 @@ ${jobsCtx || "No jobs found."}`;
                     if (sidebarMode === "button" && !sidebarExpanded) { setSidebarExpanded(true); setSidebarTimeOpen(true); switchView("timestamp"); setTsSettingsOpen(false); return; }
                     setSidebarTimeOpen(o => { const next = !o; if (next) { switchView("timestamp"); setTsSettingsOpen(false); } return next; });
                   }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
+                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
                   onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
                   onMouseDown={() => tipCtx.hide()}
-                  style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+                  style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
                       <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
                   <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarTimeOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
@@ -15515,9 +15520,9 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
                       {/* Time Sheet — the normal page */}
                       <button onClick={() => { switchView("timestamp"); setTsSettingsOpen(false); }}
-                        onMouseEnter={e => { if (!onSheet) e.currentTarget.style.background = T.accent + "0c"; }}
+                        onMouseEnter={e => { if (!onSheet) e.currentTarget.style.background = T.hover; }}
                         onMouseLeave={e => { if (!onSheet) e.currentTarget.style.background = "transparent"; }}
-                        style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: onSheet ? T.accent + "18" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: onSheet ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
+                        style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: onSheet ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: onSheet ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                         <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: onSheet ? T.text : T.textSec }}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
                         </span>
@@ -15525,9 +15530,9 @@ ${jobsCtx || "No jobs found."}`;
                       </button>
                       {/* Time Settings — opens the Time Clock Settings panel */}
                       <button onClick={openTimeSettings}
-                        onMouseEnter={e => { if (!onSettings) e.currentTarget.style.background = T.accent + "0c"; }}
+                        onMouseEnter={e => { if (!onSettings) e.currentTarget.style.background = T.hover; }}
                         onMouseLeave={e => { if (!onSettings) e.currentTarget.style.background = "transparent"; }}
-                        style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: onSettings ? T.accent + "18" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: onSettings ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
+                        style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: onSettings ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: onSettings ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                         <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: onSettings ? T.text : T.textSec }}>
                           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                         </span>
@@ -15541,8 +15546,8 @@ ${jobsCtx || "No jobs found."}`;
           }
           return (
             <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
-              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
+              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
@@ -15557,10 +15562,10 @@ ${jobsCtx || "No jobs found."}`;
           const active = view === "approvals";
           return (
             <button ref={el => { navBtnRefs.current["approvals"] = el; }} onClick={() => switchView("approvals")}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show("Approval Queue", e.clientX, e.clientY); }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Approval Queue", e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
-              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </span>
@@ -15573,10 +15578,10 @@ ${jobsCtx || "No jobs found."}`;
           const active = view === "admin";
           return (
             <button ref={el => { navBtnRefs.current["admin"] = el; }} onClick={() => switchView("admin")}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.accent + "0c"; if (!sidebarExpanded) tipCtx.show("Admin", e.clientX, e.clientY); }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Admin", e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
-              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.accent + "18" : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </span>
@@ -15586,7 +15591,7 @@ ${jobsCtx || "No jobs found."}`;
         })()}
         {/* Settings parent — collapsible */}
         <button onClick={() => { if (sidebarMode === "button" && !sidebarExpanded) { setSidebarExpanded(true); setSidebarSettingsOpen(true); } else { setSidebarSettingsOpen(o => !o); } }}
-          onMouseEnter={e => { if (!sidebarExpanded) tipCtx.show("Settings", e.clientX, e.clientY); e.currentTarget.style.background = T.accent + "0c"; }}
+          onMouseEnter={e => { if (!sidebarExpanded) tipCtx.show("Settings", e.clientX, e.clientY); e.currentTarget.style.background = T.hover; }}
           onMouseLeave={e => { tipCtx.hide(); e.currentTarget.style.background = "transparent"; }}
           onMouseDown={() => tipCtx.hide()}
           style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
@@ -15602,7 +15607,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
               {/* Design — opens modal */}
               <button onClick={() => setCustomizationOpen(true)}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                 style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
@@ -15612,7 +15617,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>
               {/* Fast TRAQS — opens the upload flow */}
               {can("editJobs") && <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                 style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
@@ -15622,7 +15627,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>}
               {/* Permissions — opens existing modal */}
               {isAdmin && <button onClick={() => { setUsersOpen(true); setSettingsUser(null); }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                 style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
@@ -15632,7 +15637,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>}
               {/* Departments — opens existing modal */}
               {isAdmin && <button onClick={() => setRolesSettingsOpen(true)}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                 style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
@@ -15642,7 +15647,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>}
               {/* Organization — opens modal */}
               {isAdmin && <button onClick={() => setOrgSettingsModalOpen(true)}
-                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "0c"; }}
+                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
                 style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
@@ -15661,7 +15666,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Profile — avatar always; name + logout fade in when expanded */}
       <div style={{ padding: "4px 16px 12px", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ position: "relative", width: 32, height: 32, flexShrink: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 16, background: elColor(loggedInUser.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: isLight(elColor(loggedInUser.color)) ? "#000" : "#fff", fontWeight: 700 }}>{loggedInUser.name[0]}</div>
+          <div style={{ width: 32, height: 32, borderRadius: 16, background: elColor(loggedInUser.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: accentText(elColor(loggedInUser.color)), fontWeight: 700 }}>{loggedInUser.name[0]}</div>
           {!sidebarExpanded && <Tip label={`${loggedInUser.name}${isAdmin ? " · Admin" : " · Crew"}`}>
             <div style={{ position: "absolute", inset: 0 }} />
           </Tip>}
@@ -15782,7 +15787,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", gap: 6 }}>
                 {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
                   const active = themeMode === th.id;
-                  return <button key={th.id} onClick={() => setThemeMode(th.id)} style={{ flex: 1, padding: "8px 8px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.accent + "18" : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
+                  return <button key={th.id} onClick={() => setThemeMode(th.id)} style={{ flex: 1, padding: "8px 8px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
                 })}
               </div>
               {themeMode === "custom" && <button onClick={() => setCustomizationOpen(true)} style={{ width: "100%", marginTop: 10, padding: "8px 10px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Customize colors…</button>}
@@ -15934,7 +15939,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 8 }}>
                   {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
                     const active = draftMode === th.id;
-                    return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.accent + "15" : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
+                    return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
                   })}
                 </div>
               </div>
@@ -16322,7 +16327,7 @@ ${jobsCtx || "No jobs found."}`;
               const stC = staColorOf(job.status) || T.textDim;
               return <div key={job.id} onClick={() => setExportSelRows(prev => { const n = new Set(prev); if (n.has(job.id)) n.delete(job.id); else n.add(job.id); return n; })}
                 style={{ display: "flex", alignItems: "center", gap: 0, cursor: "pointer", borderBottom: `1px solid ${T.border}`, background: isSel ? T.accent + "14" : "transparent", borderLeft: `4px solid ${isSel ? T.accent : "transparent"}`, transition: "background 0.1s, border-left-color 0.1s", userSelect: "none" }}
-                onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = T.accent + "07"; }}
+                onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = T.hover; }}
                 onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
                 {/* Sel indicator */}
                 <div style={{ width: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -16428,7 +16433,7 @@ ${jobsCtx || "No jobs found."}`;
                 {exportTplOpen && <div onClick={() => setExportTplOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />}
                 <FadeOnClose open={exportTplOpen} duration={150}>{exportTplOpen && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, minWidth: 200, maxHeight: 280, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 14px 40px rgba(0,0,0,0.5)", zIndex: 41, padding: 5, fontFamily: T.font }}>
                   {templates.length === 0 && <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim }}>No saved templates yet.</div>}
-                  {templates.map(t => <div key={t.id} onClick={() => { applyTemplate(t); setExportTplOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 9px", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "14"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  {templates.map(t => <div key={t.id} onClick={() => { applyTemplate(t); setExportTplOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 9px", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
                     <button onClick={ev => { ev.stopPropagation(); deleteTemplate(t.id); }} title="Delete template" style={{ border: "none", background: "none", color: T.textDim, cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px" }}>×</button>
                   </div>)}
@@ -16463,7 +16468,7 @@ ${jobsCtx || "No jobs found."}`;
                     {paletteGroups.map(grp => <div key={grp.name} style={{ marginBottom: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: T.textSec, margin: "4px 0 6px", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(grp.items[0]?.i ?? 0, 14) * 0.03}s` }}>{grp.name}</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                        {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }} title="Drag onto the sheet, or click to add" onMouseEnter={ev => { ev.currentTarget.style.borderColor = T.accent; ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; ev.currentTarget.style.background = T.accent + "14"; }} onMouseLeave={ev => { ev.currentTarget.style.borderColor = T.border; ev.currentTarget.style.boxShadow = "none"; ev.currentTarget.style.background = T.bg; }} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 0.03}s` }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
+                        {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }} title="Drag onto the sheet, or click to add" onMouseEnter={ev => { ev.currentTarget.style.borderColor = T.accent; ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { ev.currentTarget.style.borderColor = T.border; ev.currentTarget.style.boxShadow = "none"; ev.currentTarget.style.background = T.bg; }} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 0.03}s` }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
                       </div>
                     </div>)}
                     </div>
@@ -16661,7 +16666,7 @@ ${jobsCtx || "No jobs found."}`;
           const inputBase = { flex: 1, minWidth: 0, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
           const delBtn = (onClick, disabled) => <button onClick={onClick} disabled={disabled} title={disabled ? "At least one option required" : "Delete option"} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: disabled ? T.textDim : "#ef4444", cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1, opacity: disabled ? 0.4 : 1 }} onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = "#ef444415"; e.currentTarget.style.borderColor = "#ef4444"; } }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>×</button>;
           const rowAnim = i => ({ animation: "dropIn 0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 12) * 0.03}s` });
-          const addBtn = (onClick, animIdx) => <button onClick={onClick} style={{ marginTop: 2, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, ...rowAnim(animIdx) }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add option</button>;
+          const addBtn = (onClick, animIdx) => <button onClick={onClick} style={{ marginTop: 2, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, ...rowAnim(animIdx) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add option</button>;
           const lbl = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 2 };
           const base = optBaseLenRef.current; // rows at indices >= base were added live → no stagger delay (appear instantly)
           const draftKey = isStd ? cid : col.id;
@@ -16698,7 +16703,7 @@ ${jobsCtx || "No jobs found."}`;
           return <div>
             <button onClick={() => { if (!open) { setOptEditSeq(s => s + 1); optBaseLenRef.current = source.length; } setColCtxMenu(prev => ({ ...prev, subMenu: open ? null : "edit" })); }}
               style={{ width: "100%", padding: "9px 14px", background: open ? T.accent + "15" : "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: open ? T.accent : T.text, fontFamily: T.font, textAlign: "left" }}
-              onMouseEnter={e => { if (!open) e.currentTarget.style.background = T.accent + "10"; }}
+              onMouseEnter={e => { if (!open) e.currentTarget.style.background = T.hover; }}
               onMouseLeave={e => { if (!open) e.currentTarget.style.background = "transparent"; }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
               Edit Options
@@ -16709,7 +16714,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>;
         })()}
-        {<button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {<button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Rename Column
         </button>}
@@ -16718,7 +16723,7 @@ ${jobsCtx || "No jobs found."}`;
           <div key={side}>
             <button onClick={() => setColCtxMenu(prev => ({ ...prev, subMenu: prev.subMenu === `add${side}` ? null : `add${side}` }))}
               style={{ width: "100%", padding: "9px 14px", background: colCtxMenu.subMenu === `add${side}` ? T.accent + "15" : "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: colCtxMenu.subMenu === `add${side}` ? T.accent : T.text, fontFamily: T.font, textAlign: "left" }}
-              onMouseEnter={e => { if (colCtxMenu.subMenu !== `add${side}`) e.currentTarget.style.background = T.accent + "10"; }}
+              onMouseEnter={e => { if (colCtxMenu.subMenu !== `add${side}`) e.currentTarget.style.background = T.hover; }}
               onMouseLeave={e => { if (colCtxMenu.subMenu !== `add${side}`) e.currentTarget.style.background = "transparent"; }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Add Column {side === "left" ? "Left" : "Right"}
@@ -16758,7 +16763,7 @@ ${jobsCtx || "No jobs found."}`;
                     {[["text","Text"],["number","Number"],["date","Date"],["checkbox","Checkbox"]].map(([t, lbl]) => (
                       <button key={t} onClick={() => doInsert(t, lbl, t === "checkbox" ? [] : [])}
                         style={{ padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}
-                        onMouseEnter={e => { e.currentTarget.style.background = T.accent + "15"; e.currentTarget.style.borderColor = T.accent + "66"; }}
+                        onMouseEnter={e => { e.currentTarget.style.background = T.hoverStrong; e.currentTarget.style.borderColor = T.accent + "66"; }}
                         onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>
                         {lbl}
                       </button>
@@ -16770,7 +16775,7 @@ ${jobsCtx || "No jobs found."}`;
                     {COL_TEMPLATES.map(tpl => (
                       <button key={tpl.label} onClick={() => doInsert(tpl.type, tpl.label, tpl.options)}
                         style={{ padding: "5px 10px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, fontSize: 12, cursor: "pointer", fontFamily: T.font, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}
-                        onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"}
+                        onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <span style={{ fontSize: 9, color: T.textDim, background: T.card, padding: "1px 4px", borderRadius: 3, border: `1px solid ${T.border}` }}>{tpl.type === "select" ? "LIST" : tpl.type === "checkbox" ? "✓" : tpl.type === "number" ? "NUM" : "TXT"}</span>
                         {tpl.label}
@@ -16785,7 +16790,7 @@ ${jobsCtx || "No jobs found."}`;
         {(() => {
           const gKey = colCtxMenu.isCustom ? "_cc_" + colCtxMenu.colId : colCtxMenu.colId;
           const on = isColGroupable(gKey);
-          return <button onClick={() => toggleColGroupable(gKey)} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          return <button onClick={() => toggleColGroupable(gKey)} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <span style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${on ? T.accent : T.border}`, background: on ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
               {on && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </span>
@@ -17282,19 +17287,19 @@ ${jobsCtx || "No jobs found."}`;
     {approvalCtx && <><div onMouseDown={() => setApprovalCtx(null)} style={{ position: "fixed", inset: 0, zIndex: 10040 }} />
       <div className="anim-ctx" style={{ position: "fixed", left: Math.min(approvalCtx.x, window.innerWidth - 200), top: Math.min(approvalCtx.y, window.innerHeight - 110), zIndex: 10041, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, overflow: "hidden", fontFamily: T.font }}>
         {approvalCtx.kind === "standalone" ? <>
-          <button onClick={() => { const a = (orgSettings.approvals || []).find(x => x.id === approvalCtx.approvalId); if (a) openApprovalModal(a); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <button onClick={() => { const a = (orgSettings.approvals || []).find(x => x.id === approvalCtx.approvalId); if (a) openApprovalModal(a); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
           </button>
           <button onClick={() => { deleteApproval(approvalCtx.approvalId); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.danger, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete Approval
           </button>
-        </> : approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        </> : approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit “{approvalCtx.templateName}” Steps
         </button> : <>
-          <button onClick={() => { editPanelApproval(approvalCtx.jobId, approvalCtx.panelId, approvalCtx.headerTitle, approvalCtx.seed); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <button onClick={() => { editPanelApproval(approvalCtx.jobId, approvalCtx.panelId, approvalCtx.headerTitle, approvalCtx.seed); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
           </button>
-          {approvalCtx.hasChain && <button onClick={() => { removePanelChain(approvalCtx.jobId, approvalCtx.panelId); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.textSec, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "10"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          {approvalCtx.hasChain && <button onClick={() => { removePanelChain(approvalCtx.jobId, approvalCtx.panelId); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.textSec, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Reset to default steps
           </button>}
         </>}
@@ -17408,8 +17413,8 @@ ${jobsCtx || "No jobs found."}`;
               ))}
             </div>
             <button onClick={() => setSignOffTemplateEditing({ name: "", steps: [""] })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}44`, background: T.accent + "06", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
-              onMouseEnter={e => { e.currentTarget.style.background = T.accent + "12"; e.currentTarget.style.borderColor = T.accent; }}
-              onMouseLeave={e => { e.currentTarget.style.background = T.accent + "06"; e.currentTarget.style.borderColor = T.accent + "44"; }}>
+              onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "44"; }}>
               + New Template
             </button>
           </> : <>
@@ -17646,7 +17651,7 @@ ${jobsCtx || "No jobs found."}`;
                     {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                       {ADMIN_PERMS.map(({ key, icon, label }) => {
                         const on = permsEnabled(key);
-                        return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, cursor: isAdmin ? "pointer" : "default", transition: "background 0.15s", opacity: isAdmin ? 1 : 0.6 }} onMouseEnter={e => { if (isAdmin) e.currentTarget.style.background = T.accent + "10"; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, cursor: isAdmin ? "pointer" : "default", transition: "background 0.15s", opacity: isAdmin ? 1 : 0.6 }} onMouseEnter={e => { if (isAdmin) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                           <span style={{ fontSize: 13, width: 18, textAlign: "center", flexShrink: 0 }}>{icon}</span>
                           <span style={{ flex: 1, fontSize: 12, color: on ? T.text : T.textDim, fontWeight: on ? 500 : 400 }}>{label}</span>
                           <div style={{ width: 28, height: 16, borderRadius: 8, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
@@ -18154,7 +18159,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>💬 {quickChat.title}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 5 }}>
               {quickChat.participants.slice(0, 7).map(p => (
-                <div key={p.id} title={p.name} style={{ width: 22, height: 22, borderRadius: 11, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: isLight(p.color) ? "#000" : "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+                <div key={p.id} title={p.name} style={{ width: 22, height: 22, borderRadius: 11, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: accentText(p.color), flexShrink: 0 }}>{p.name[0]}</div>
               ))}
               {quickChat.participants.length > 7 && <span style={{ fontSize: 10, color: T.textDim, marginLeft: 2 }}>+{quickChat.participants.length - 7}</span>}
             </div>
@@ -18329,14 +18334,14 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
-              <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
-              {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
+              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+              <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
+              {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); saveTasks(next, getToken, orgCode).catch(console.warn); return next; }); }}
                 title={toggleTitle}
                 style={{ flexShrink: 0, width: 30, height: 30, borderRadius: "50%", border: `1px solid ${toggleBorder}`, background: toggleBg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: toggleColor, transition: "all 0.15s" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.accent + "18"; }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hoverStrong; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = toggleBorder; e.currentTarget.style.color = toggleColor; e.currentTarget.style.background = toggleBg; }}
               >
                 {isFree
@@ -18999,8 +19004,8 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* Optimize full job button */}
           {parentJob && <button onClick={runOptimizeFromReschedule} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "10px 16px", borderRadius: 10, border: `1.5px solid ${T.accent}55`, background: T.accent + "0d", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginBottom: 16, transition: "all 0.15s" }}
-            onMouseEnter={e => { e.currentTarget.style.background = T.accent + "1a"; e.currentTarget.style.borderColor = T.accent; }}
-            onMouseLeave={e => { e.currentTarget.style.background = T.accent + "0d"; e.currentTarget.style.borderColor = T.accent + "55"; }}>
+            onMouseEnter={e => { e.currentTarget.style.background = T.hoverStrong; e.currentTarget.style.borderColor = T.accent; }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "55"; }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             Optimize Entire Job Schedule
           </button>}
@@ -19188,7 +19193,7 @@ ${jobsCtx || "No jobs found."}`;
                   const ghostW = Math.max(80, Math.min(cw * days - 4, 800));
                   const ghost = document.createElement("div");
                   ghost.textContent = item.title || "(untitled)";
-                  ghost.style.cssText = `position:absolute;top:-1000px;left:-1000px;height:34px;width:${ghostW}px;padding:0 12px;background:${item.color};color:${isLight(item.color) ? "#000" : "#fff"};border-radius:6px;font-family:${T.font.split(",")[0]};font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,0.35);border:1.5px solid ${item.color};`;
+                  ghost.style.cssText = `position:absolute;top:-1000px;left:-1000px;height:34px;width:${ghostW}px;padding:0 12px;background:${item.color};color:${accentText(item.color)};border-radius:6px;font-family:${T.font.split(",")[0]};font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,0.35);border:1.5px solid ${item.color};`;
                   document.body.appendChild(ghost);
                   e.dataTransfer.setDragImage(ghost, 14, 17);
                   setTimeout(() => { try { document.body.removeChild(ghost); } catch (_) {} }, 0);
@@ -19421,21 +19426,21 @@ ${jobsCtx || "No jobs found."}`;
                       return (
                         <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
                           {selPm
-                            ? <><div style={{ width: 22, height: 22, borderRadius: 6, background: selPm.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: isLight(selPm.color) ? "#000" : "#fff", flexShrink: 0 }}>{selPm.name[0]}</div><span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: "left" }}>{selPm.name}</span></>
+                            ? <><div style={{ width: 22, height: 22, borderRadius: 6, background: selPm.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: accentText(selPm.color), flexShrink: 0 }}>{selPm.name[0]}</div><span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: "left" }}>{selPm.name}</span></>
                             : <span style={{ flex: 1, fontSize: 14, color: T.textDim, textAlign: "left" }}>— No PM —</span>}
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
                       );
                     })()}
                     <FadeOnClose open={deptDropId === "editJobPM"}>{deptDropId === "editJobPM" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
-                      <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.accent + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, color: T.textDim }}>— No PM —</span>
                       </div>
                       {people.map((p, pi) => {
                         const isOn = ej.projectManagerId === p.id;
                         const fk = `editJob-pm-${p.id}`;
-                        return <div key={p.id} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ projectManagerId: p.id }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${(pi + 1) * 38}ms both ease-out` }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.accent + "12"; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
+                        return <div key={p.id} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ projectManagerId: p.id }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${(pi + 1) * 38}ms both ease-out` }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
                           <div style={{ width: 22, height: 22, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
