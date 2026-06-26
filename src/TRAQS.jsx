@@ -1493,7 +1493,8 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [draftMode, setDraftMode] = useState("custom");
   const [draftCustom, setDraftCustom] = useState({ bg: "#1a1a2e", accent: "#e94560", surface: "#24243e", text: "#f1f5f9", bgImage: null, cardOpacity: 100, bgOpacity: 100 });
   const [draftSidebar, setDraftSidebar] = useState("hover");
-  useEffect(() => { if (customizationOpen) { setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setDraftSidebar(sidebarMode); } }, [customizationOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [previewView, setPreviewView] = useState("jobs"); // which page the Customize mockup shows: jobs | schedule
+  useEffect(() => { if (customizationOpen) { setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setDraftSidebar(sidebarMode); setPreviewView("jobs"); } }, [customizationOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const [themePresets, setThemePresets] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tq_theme_presets") || "null") || []; }
     catch { return []; }
@@ -15842,6 +15843,17 @@ ${jobsCtx || "No jobs found."}`;
       const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px 18px", marginBottom: 16 };
       // Current image first, then the last-5 history — deduped — so the user can switch back.
       const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
+      // Blank Schedule-page mockup data. ROSTER = left roster width; BARC = bar palette
+      // (job-colour-like, fixed); SCHED_GROUPS = departments → person rows → timeline bars
+      // ({ l: left%, w: width%, c: index into BARC }).
+      const ROSTER = 132;
+      const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
+      const SCHED_GROUPS = [
+        [ [{ l: 28, w: 18, c: 0 }], [{ l: 4, w: 14, c: 0 }, { l: 58, w: 20, c: 1 }], [{ l: 42, w: 12, c: 2 }] ],
+        [ [{ l: 10, w: 22, c: 0 }], [{ l: 54, w: 16, c: 3 }] ],
+        [ [{ l: 18, w: 10, c: 1 }, { l: 68, w: 16, c: 4 }] ],
+        [ [], [{ l: 34, w: 24, c: 2 }] ],
+      ];
       const swatch = (key, label, sub) => (
         <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
@@ -15962,7 +15974,15 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {/* Live preview — mirrors the home / jobs-list view (blank placeholder rows) */}
             <div style={{ flex: 1, minWidth: 0, padding: 22, display: "flex", flexDirection: "column", gap: 10, background: T.bg }}>
-              <div style={lbl}>Live Preview · Jobs</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ ...lbl, marginBottom: 0 }}>Live Preview</div>
+                <div style={{ marginLeft: "auto", display: "flex", gap: 3, background: hexA(T.text, 0.06), borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                  {[{ id: "jobs", label: "Jobs" }, { id: "schedule", label: "Schedule" }].map(v => {
+                    const a = previewView === v.id;
+                    return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 14px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
+                  })}
+                </div>
+              </div>
               <div style={{ flex: 1, borderRadius: 16, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 8px 30px rgba(0,0,0,0.25)", background: pSolid }}>
                 {/* full-width solid header (logo + New Job) — sits above sidebar + content, no divider */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
@@ -15988,7 +16008,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* rounded content panel with the background image (mirrors the 22px content area) */}
                   <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
                     {pAdaptive && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (dc.bgOpacity ?? 100) / 100 }} />}
-                    <div style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
+                    {previewView === "jobs" ? <div style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
                       {/* content toolbar — New Job lives here (on the screen), not in the header */}
                       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                         <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "7px 14px" }}>+ New Job</span>
@@ -16026,7 +16046,46 @@ ${jobsCtx || "No jobs found."}`;
                           </div>
                         </div>;
                       })}
-                    </div>
+                    </div> : <div style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12 }}>
+                      {/* schedule toolbar — Select / Today + filter + search */}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "6px 14px" }}>Select</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 8, padding: "6px 12px", opacity: 0.75 }}>Today</span>
+                        <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                          <span style={{ width: 22, height: 22, borderRadius: 6, background: pT.border }} />
+                          <span style={{ width: 22, height: 22, borderRadius: 6, background: pT.border }} />
+                        </span>
+                      </div>
+                      {/* gantt panel (frosted) — left roster + timeline with bars */}
+                      <div style={{ flex: 1, minHeight: 0, background: pFrostBg, backdropFilter: pBlur, WebkitBackdropFilter: pBlur, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                        {/* day-number header */}
+                        <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pT.border}` }}>
+                          <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pT.border}` }} />
+                          <div style={{ flex: 1, display: "flex" }}>
+                            {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pT.border}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>)}
+                          </div>
+                        </div>
+                        {/* department groups → person rows */}
+                        <div style={{ flex: 1, overflow: "hidden" }}>
+                          {SCHED_GROUPS.map((rows, gi) => <div key={gi}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", background: hexA(pT.text, 0.05) }}>
+                              <div style={{ height: 7, width: 54, borderRadius: 3, background: pT.text, opacity: 0.5 }} />
+                              <div style={{ height: 12, width: 20, borderRadius: 6, background: pT.accent + "2e" }} />
+                            </div>
+                            {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pT.border}` }}>
+                              <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pT.border}` }}>
+                                <div style={{ width: 16, height: 16, borderRadius: 5, background: BARC[(gi + ri) % BARC.length], flexShrink: 0 }} />
+                                <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 6, width: `${52 + ((gi + ri) % 4) * 11}%`, borderRadius: 3, background: pT.textDim, opacity: 0.34 }} /></div>
+                                <div style={{ height: 11, width: 22, borderRadius: 5, background: pT.accent + "26", flexShrink: 0 }} />
+                              </div>
+                              <div style={{ flex: 1, position: "relative", height: 32 }}>
+                                {bars.map((b, bi) => <div key={bi} style={{ position: "absolute", top: 7, height: 18, left: `${b.l}%`, width: `${b.w}%`, background: BARC[b.c], borderRadius: 5 }} />)}
+                              </div>
+                            </div>)}
+                          </div>)}
+                        </div>
+                      </div>
+                    </div>}
                   </div>
                 </div>
               </div>
