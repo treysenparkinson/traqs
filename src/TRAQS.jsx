@@ -767,7 +767,7 @@ function accentText(accent) {
 // bgOpacity 0..100 }. A background image flips cards into "adaptive" mode: surfaces/cards become
 // translucent (alpha = cardOpacity) so the image shows through, tinted by the system surface color.
 function buildCustomTheme(bg, accent, surface, opts = {}) {
-  const { bgImage = null, cardOpacity = 100, bgOpacity = 100, jobBarMode = "system", jobBarColor = null, cellColorMode = "system" } = opts;
+  const { bgImage = null, cardOpacity = 100, bgOpacity = 100, jobBarMode = "system", jobBarColor = null, cellColorMode = "system", scheduleGrid = true } = opts;
   const dk = hexLum(bg) < 0.18;
   const surf = surface || blendHex(bg, dk ? 0.07 : -0.03);
   const card = surface || blendHex(bg, dk ? 0.10 : 0);
@@ -801,6 +801,8 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
     // Status/priority cell colouring: system = the configured multi-colours,
     // adaptive = shades of the accent by value.
     cellColorMode,
+    // Schedule-page grid (column/row separators): true = show, false = hide.
+    scheduleGrid,
   };
 }
 
@@ -1504,20 +1506,28 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return (THEMES[saved] || saved === "custom") ? saved : "frost";
   });
   const [customTheme, setCustomTheme] = useState(() => {
-    const def = { bg: "#1a1a2e", accent: "#e94560", text: "#f1f5f9", surface: "#24243e", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system" };
+    const def = { bg: "#1a1a2e", accent: "#e94560", text: "#f1f5f9", surface: "#24243e", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true };
     try { return { ...def, ...(JSON.parse(localStorage.getItem("tq_custom_theme") || "null") || {}) }; }
     catch { return def; }
   });
-  T = themeMode === "custom" ? buildCustomTheme(customTheme.bg, customTheme.accent, customTheme.surface, { bgImage: customTheme.bgImage, cardOpacity: customTheme.cardOpacity, bgOpacity: customTheme.bgOpacity, jobBarMode: customTheme.jobBarMode, jobBarColor: customTheme.jobBarColor, cellColorMode: customTheme.cellColorMode }) : (THEMES[themeMode] || THEMES.midnight);
+  T = themeMode === "custom" ? buildCustomTheme(customTheme.bg, customTheme.accent, customTheme.surface, { bgImage: customTheme.bgImage, cardOpacity: customTheme.cardOpacity, bgOpacity: customTheme.bgOpacity, jobBarMode: customTheme.jobBarMode, jobBarColor: customTheme.jobBarColor, cellColorMode: customTheme.cellColorMode, scheduleGrid: customTheme.scheduleGrid }) : (THEMES[themeMode] || THEMES.midnight);
   useEffect(() => { localStorage.setItem("tq_theme", themeMode); }, [themeMode]);
   useEffect(() => { localStorage.setItem("tq_custom_theme", JSON.stringify(customTheme)); }, [customTheme]);
   const [customizationOpen, setCustomizationOpen] = useState(false);
   // Draft theme edited inside the Customize modal — only applied to the live theme on Save.
   const [draftMode, setDraftMode] = useState("custom");
-  const [draftCustom, setDraftCustom] = useState({ bg: "#1a1a2e", accent: "#e94560", surface: "#24243e", text: "#f1f5f9", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system" });
+  const [draftCustom, setDraftCustom] = useState({ bg: "#1a1a2e", accent: "#e94560", surface: "#24243e", text: "#f1f5f9", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true });
   const [draftSidebar, setDraftSidebar] = useState("hover");
   const [previewView, setPreviewView] = useState("jobs"); // which page the Customize mockup shows: jobs | schedule
-  useEffect(() => { if (customizationOpen) { setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setDraftSidebar(sidebarMode); setPreviewView("jobs"); } }, [customizationOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The view actually RENDERED — lags previewView by one beat so the swap happens at the midpoint
+  // of the dip overlay (while it's fully covering), giving a clean fade-out-then-fade-in.
+  const [displayedPreview, setDisplayedPreview] = useState("jobs");
+  useEffect(() => { if (customizationOpen) { setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setDraftSidebar(sidebarMode); setPreviewView("jobs"); setDisplayedPreview("jobs"); } }, [customizationOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (previewView === displayedPreview) return;
+    const t = setTimeout(() => setDisplayedPreview(previewView), 230); // remove the old (fading) layer once its fade-out finishes
+    return () => clearTimeout(t);
+  }, [previewView, displayedPreview]);
   const [themePresets, setThemePresets] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tq_theme_presets") || "null") || []; }
     catch { return []; }
@@ -8465,7 +8475,10 @@ ${jobsCtx || "No jobs found."}`;
     const _schedDk = hexLum(_schedSurf) < 0.5;
     const schedDisabled = blendHex(_schedSurf, _schedDk ? 0.045 : -0.05); // SLIGHTLY off the surface — just enough to read as a non-working day
     const schedSubBg = blendHex(_schedSurf, _schedDk ? 0.03 : -0.028);    // group/sub rows — very gentle separation shade
-    const schedLine = T.border;
+    // Grid on/off toggle. When on, gridlines are a contrasting shade of the surface — lighter on
+    // dark surfaces, darker on light — so the grid is always visible against the cards color.
+    const gridOn = T.scheduleGrid !== false;
+    const schedLine = blendHex(_schedSurf, _schedDk ? 0.15 : -0.15);
     const rowList = []; roles.forEach(role => {
       if (sFRole.length && !sFRole.map(r => r.toLowerCase()).includes(role?.toLowerCase())) return;
       const isC = !!tCollapsed[role];
@@ -8865,7 +8878,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <div style={{ display: "flex" }}>
               <div style={{ minWidth: lW, maxWidth: lW, height: 28, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15 }} />
-              <div style={{ display: "flex", flex: 1 }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textDim + "66" : T.textDim, fontWeight: isT ? 700 : 400, background: wk ? schedDisabled : "transparent", borderRight: wk ? "none" : `1px solid ${schedLine}`, gap: 0 }}><span style={{ fontSize: 9, opacity: 0.7, lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}</div>
+              <div style={{ display: "flex", flex: 1 }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textDim + "66" : T.textDim, fontWeight: isT ? 700 : 400, background: wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", gap: 0 }}><span style={{ fontSize: 9, opacity: 0.7, lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}</div>
             </div>
           </div>
           {/* Rows */}
@@ -8892,13 +8905,13 @@ ${jobsCtx || "No jobs found."}`;
               const nDays = days.length;
               const sx = (diffD(tStart, sub.start < tStart ? tStart : sub.start) / nDays * 100) + "%";
               const sw = (Math.max(diffD(sub.start < tStart ? tStart : sub.start, sub.end > tEnd ? tEnd : sub.end) + 1, 1) / nDays * 100) + "%";
-              return <div key={`sub-${row.person.id}-${sub.id}`} style={{ display: "flex", height: subH, borderBottom: `1px solid ${schedLine}`, background: schedSubBg }}>
+              return <div key={`sub-${row.person.id}-${sub.id}`} style={{ display: "flex", height: subH, borderBottom: gridOn ? `1px solid ${schedLine}` : "none", background: schedSubBg }}>
                 <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 6, padding: "0 16px 0 56px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: schedSubBg, zIndex: 10 }}>
                   <div style={{ width: 6, height: 6, borderRadius: 3, background: sub.color, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
                 </div>
                 <div style={{ flex: 1, position: "relative", display: "flex" }}>
-                  {days.map(day => { const wk = !orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? schedDisabled : "transparent", borderRight: wk ? "none" : `1px solid ${schedLine}` }} />; })}
+                  {days.map(day => { const wk = !orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay()); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none" }} />; })}
                   {sub.start <= tEnd && sub.end >= tStart && (() => {
                     const subSegs = weekdaySegments(sub.start, sub.end, tStart, tEnd, orgSettings.workDays);
                     return subSegs.map((seg, si) => {
@@ -8953,7 +8966,7 @@ ${jobsCtx || "No jobs found."}`;
             const isBeingDragged = rowDragId === p.id;
             const isDragBefore = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "before";
             const isDragAfter  = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "after";
-            return <div key={p.id} data-rowtype="person" data-rowid={p.id} onClick={teamSelectMode ? () => setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }) : undefined} style={{ display: "flex", height: row.hidden ? 0 : rH, overflow: "hidden", borderBottom: row.hidden ? "none" : `1px solid ${isDrop ? T.accent : schedLine}`, position: "relative", background: teamSelectMode && selPeople.has(p.id) ? T.accent + "18" : isDrop ? T.accent + "08" : "transparent", opacity: row.hidden ? 0 : (isBeingDragged ? 0.35 : 1), transition: "height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.15s, border-color 0.15s", pointerEvents: row.hidden ? "none" : "auto", cursor: teamSelectMode ? "pointer" : "default" }}>
+            return <div key={p.id} data-rowtype="person" data-rowid={p.id} onClick={teamSelectMode ? () => setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }) : undefined} style={{ display: "flex", height: row.hidden ? 0 : rH, overflow: "hidden", borderBottom: row.hidden ? "none" : (isDrop ? `1px solid ${T.accent}` : gridOn ? `1px solid ${schedLine}` : "none"), position: "relative", background: teamSelectMode && selPeople.has(p.id) ? T.accent + "18" : isDrop ? T.accent + "08" : "transparent", opacity: row.hidden ? 0 : (isBeingDragged ? 0.35 : 1), transition: "height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.15s, border-color 0.15s", pointerEvents: row.hidden ? "none" : "auto", cursor: teamSelectMode ? "pointer" : "default" }}>
               {/* Insertion line indicators */}
               {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
               {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
@@ -8972,7 +8985,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
-                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-pending")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }} onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }} onDrop={e => { e.currentTarget.style.boxShadow = "none"; const itemId = e.dataTransfer.getData("application/x-traqs-pending"); if (!itemId) return; e.preventDefault(); handlePendingItemDrop(itemId, p.id, day); }} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? schedDisabled : "transparent", borderRight: wk ? "none" : `1px solid ${schedLine}`, position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
+                {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const pOff = isOff(p.id, day); const offR = pOff ? getOffReason(p.id, day) : null; const offType = pOff ? ((p.timeOff || []).find(to => day >= to.start && day <= to.end) || {}).type || "PTO" : null; const offColor = offType === "UTO" ? "#f59e0b" : "#10b981"; return <div key={day} title={pOff ? `${offType}: ${offR}` : ""} onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-pending")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }} onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }} onDrop={e => { e.currentTarget.style.boxShadow = "none"; const itemId = e.dataTransfer.getData("application/x-traqs-pending"); if (!itemId) return; e.preventDefault(); handlePendingItemDrop(itemId, p.id, day); }} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", position: "relative" }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
                 {/* Ghost: dragged bar + dep-group member previews */}
                 {teamDragInfo && (() => {
                   const nDays = days.length;
@@ -15850,7 +15863,7 @@ ${jobsCtx || "No jobs found."}`;
       const setDc = upd => setDraftCustom(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
       // Preview theme built from the DRAFT (never the live theme), so the mockup shows exactly
       // what Save will apply — colors, background image, frosted-glass cards, auto text contrast.
-      const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode }) : (THEMES[draftMode] || THEMES.midnight);
+      const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }) : (THEMES[draftMode] || THEMES.midnight);
       const pAdaptive = !!(isCustom && dc.bgImage);
       const pFrostBg = pAdaptive ? hexA(pT.surfaceSolid || pT.surface, (dc.cardOpacity ?? 80) / 100) : pT.card;
       const pBlur = pAdaptive ? "blur(18px) saturate(1.4)" : "none";
@@ -15883,6 +15896,9 @@ ${jobsCtx || "No jobs found."}`;
       const pCellMode = pT.cellColorMode || "system";
       const pCellShade = (i, n) => blendHex(pT.accent, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6);
       const pPriColor = i => pCellMode === "adaptive" ? pCellShade(i % 3, 3) : PRI_PAL[i % PRI_PAL.length];
+      // Schedule grid preview (on/off + contrasting line color).
+      const pGridOn = pT.scheduleGrid !== false;
+      const pGridLine = blendHex(pT.surfaceSolid || pT.surface, hexLum(pT.surfaceSolid || pT.surface) < 0.5 ? 0.15 : -0.15);
       const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
       const swatch = (key, label, sub) => (
         <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -15903,9 +15919,11 @@ ${jobsCtx || "No jobs found."}`;
               applies live while editing. Every colored element inside .tq-preview-anim eases
               its color/opacity/shadow changes instead of snapping. */}
           <style>{`
-            .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.3s ease, background 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, fill 0.3s ease, opacity 0.3s ease, filter 0.3s ease, height 0.3s ease, margin-bottom 0.3s ease, transform 0.3s ease !important; }
+            .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.45s ease-out, background 0.45s ease-out, color 0.45s ease-out, border-color 0.45s ease-out, box-shadow 0.45s ease-out, fill 0.45s ease-out, opacity 0.45s ease-out, filter 0.45s ease-out, height 0.3s ease, margin-bottom 0.3s ease, transform 0.3s ease !important; }
             @keyframes tqPreviewFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
             @keyframes tqFadeOnly { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes tqWipe { from { opacity: 1; } to { opacity: 0; } }
+            @keyframes tqDip { 0% { opacity: 0; } 45% { opacity: 1; } 55% { opacity: 1; } 100% { opacity: 0; } }
           `}</style>
           {/* Header */}
           <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
@@ -15974,6 +15992,17 @@ ${jobsCtx || "No jobs found."}`;
                       {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }].map(o => {
                         const a = (dc.cellColorMode || "system") === o.id;
                         return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                      })}
+                    </div>
+                  </div>
+                  {/* Schedule Grid — show/hide the day-column & row gridlines on the Schedule page */}
+                  <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>Schedule Grid</div>
+                    <div style={{ fontSize: 11, color: T.textDim, margin: "3px 0 10px" }}>The day &amp; row separator lines on the Schedule page.</div>
+                    <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                      {[{ id: true, label: "On" }, { id: false, label: "Off" }].map(o => {
+                        const a = (dc.scheduleGrid !== false) === o.id;
+                        return <button key={String(o.id)} onClick={() => { setDc({ scheduleGrid: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
                       })}
                     </div>
                   </div>
@@ -16075,11 +16104,10 @@ ${jobsCtx || "No jobs found."}`;
                   {/* rounded content panel with the background image (mirrors the 22px content area) */}
                   <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
                     {pAdaptive && <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: 0, animation: "tqFadeOnly 0.35s ease" }}><div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (dc.bgOpacity ?? 100) / 100 }} /></div>}
-                    {/* Single-view fade: only ONE view is mounted at a time and fades in over the
-                        background (pure opacity, no slide). Cross-fading two views overlapped their
-                        semi-transparent frosted cards and washed them out — this avoids that since
-                        the views never overlap. */}
-                    {previewView === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16, animation: "tqFadeOnly 0.28s ease" }}>
+                    {/* Cross-fade: the NEW view renders underneath at full frost (no opacity fade →
+                        no frost "pop"), and the OLD view fades out on top of it — so the old fades
+                        out as the new is revealed, simultaneously. */}
+                    {(() => { const renderMock = (which) => which === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
                       {/* content toolbar — New Job lives here (on the screen), not in the header */}
                       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                         <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "7px 14px" }}>+ New Job</span>
@@ -16119,7 +16147,7 @@ ${jobsCtx || "No jobs found."}`;
                           </div>
                         </div>;
                       })}
-                    </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12, animation: "tqFadeOnly 0.28s ease" }}>
+                    </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12 }}>
                       {/* schedule toolbar — Select / Today + filter + search */}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "6px 14px" }}>Select</span>
@@ -16132,10 +16160,10 @@ ${jobsCtx || "No jobs found."}`;
                       {/* gantt panel (frosted) — left roster + timeline with bars */}
                       <div style={{ flex: 1, minHeight: 0, background: pFrostBg, backdropFilter: pBlur, WebkitBackdropFilter: pBlur, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                         {/* day-number header */}
-                        <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pT.border}` }}>
-                          <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pT.border}` }} />
+                        <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pGridOn ? pGridLine : "transparent"}` }}>
+                          <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }} />
                           <div style={{ flex: 1, display: "flex" }}>
-                            {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pT.border}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>)}
+                            {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pGridOn ? pGridLine : "transparent"}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>)}
                           </div>
                         </div>
                         {/* department groups → person rows */}
@@ -16145,13 +16173,14 @@ ${jobsCtx || "No jobs found."}`;
                               <div style={{ height: 7, width: 54, borderRadius: 3, background: pT.text, opacity: 0.5 }} />
                               <div style={{ height: 12, width: 20, borderRadius: 6, background: pT.accent + "2e" }} />
                             </div>
-                            {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pT.border}` }}>
-                              <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pT.border}` }}>
+                            {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
+                              <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                                 <div style={{ width: 16, height: 16, borderRadius: 5, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[(gi + ri) % BARC.length], flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 6, width: `${52 + ((gi + ri) % 4) * 11}%`, borderRadius: 3, background: pT.textDim, opacity: 0.34 }} /></div>
                                 <div style={{ height: 11, width: 22, borderRadius: 5, background: pT.accent + "26", flexShrink: 0 }} />
                               </div>
                               <div style={{ flex: 1, position: "relative", height: 32 }}>
+                                <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(to right, ${pGridLine} 0 1px, transparent 1px calc(100% / 14))`, opacity: pGridOn ? 1 : 0, pointerEvents: "none" }} />
                                 {bars.map((b, bi) => <div key={bi} style={{ position: "absolute", top: 7, height: 18, left: `${b.l}%`, width: `${b.w}%`, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[b.c], borderRadius: 5 }} />)}
                               </div>
                             </div>)}
@@ -16180,7 +16209,12 @@ ${jobsCtx || "No jobs found."}`;
                           })}
                         </div>
                       </div>
-                    </div>}
+                    </div>;
+                    return <>
+                      {renderMock(previewView)}
+                      {displayedPreview !== previewView && <div key={`fadeout-${displayedPreview}`} aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 6, animation: "tqWipe 0.22s ease-out forwards", pointerEvents: "none" }}>{renderMock(displayedPreview)}</div>}
+                    </>;
+                    })()}
                   </div>
                 </div>
               </div>
