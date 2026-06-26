@@ -1495,7 +1495,8 @@ function autoEmail(name, domain) {
 export default function App({ auth0User, getToken, logout, orgCode, orgConfig }) {
   const [themeMode, setThemeMode] = useState(() => {
     const saved = localStorage.getItem("tq_theme");
-    return (THEMES[saved] || saved === "custom") ? saved : "midnight";
+    // First-time users (no saved theme) default to the Light ("frost") theme.
+    return (THEMES[saved] || saved === "custom") ? saved : "frost";
   });
   const [customTheme, setCustomTheme] = useState(() => {
     const def = { bg: "#1a1a2e", accent: "#e94560", text: "#f1f5f9", surface: "#24243e", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system" };
@@ -15927,17 +15928,6 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
             {/* Controls */}
             <div style={{ width: 460, flexShrink: 0, borderRight: `1px solid ${T.border}`, overflowY: "auto", padding: "20px 22px", background: T.surfaceSolid || T.card }}>
-              {/* ── Layout ── */}
-              <div style={card}>
-                <div style={lbl}>Sidebar Behavior</div>
-                <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
-                  {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
-                    const active = draftSidebar === opt.id;
-                    return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
-                  })}
-                </div>
-                <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>Hover expands the sidebar on mouse-over; Button toggles it with a menu icon.</div>
-              </div>
               {/* ── Theme ── */}
               <div style={card}>
                 <div style={lbl}>Theme</div>
@@ -15947,6 +15937,17 @@ ${jobsCtx || "No jobs found."}`;
                     return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.accent + "15" : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
                   })}
                 </div>
+              </div>
+              {/* ── Sidebar Behavior ── */}
+              <div style={card}>
+                <div style={lbl}>Sidebar Behavior</div>
+                <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                  {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
+                    const active = draftSidebar === opt.id;
+                    return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
+                  })}
+                </div>
+                <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>Hover expands the sidebar on mouse-over; Button toggles it with a menu icon.</div>
               </div>
               {isCustom && <>
                 {/* ── Colors ── */}
@@ -16042,12 +16043,11 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {/* Live preview — mirrors the home / jobs-list view (blank placeholder rows) */}
             <div style={{ flex: 1, minWidth: 0, padding: 36, display: "flex", flexDirection: "column", gap: 14, background: T.bg }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ ...lbl, marginBottom: 0 }}>Live Preview</div>
-                <div style={{ marginLeft: "auto", display: "flex", gap: 3, background: hexA(T.text, 0.06), borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ display: "flex", gap: 3, background: hexA(T.text, 0.06), borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
                   {[{ id: "jobs", label: "Jobs" }, { id: "schedule", label: "Schedule" }].map(v => {
                     const a = previewView === v.id;
-                    return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 14px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
+                    return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 16px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
                   })}
                 </div>
               </div>
@@ -16153,6 +16153,28 @@ ${jobsCtx || "No jobs found."}`;
                               </div>
                             </div>)}
                           </div>)}
+                        </div>
+                      </div>
+                      {/* Schedule Status — blank status cards (profile avatars in their colors + colored lines) */}
+                      <div style={{ flexShrink: 0 }}>
+                        <div style={{ height: 7, width: 96, borderRadius: 3, background: pT.textDim, opacity: 0.4, marginBottom: 8 }} />
+                        <div style={{ display: "flex", gap: 10 }}>
+                          {[0, 1, 2, 3, 4].map(i => {
+                            const ac = pMode === "adaptive" ? pT.accent : pMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[i % BARC.length];
+                            return <div key={i} style={{ width: 124, flexShrink: 0, background: pFrostBg, backdropFilter: pBlur, WebkitBackdropFilter: pBlur, border: `1px solid ${pT.border}`, borderRadius: pT.radius, padding: 12, display: "flex", flexDirection: "column", gap: 9 }}>
+                              {/* header: avatar + name + link */}
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <div style={{ width: 24, height: 24, borderRadius: "50%", background: ac, flexShrink: 0 }} />
+                                <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 7, width: "72%", borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>
+                                <div style={{ height: 5, width: 24, borderRadius: 3, background: pT.accent, opacity: 0.7, flexShrink: 0 }} />
+                              </div>
+                              <div style={{ height: 1, background: pT.border }} />
+                              {/* body: job + client + status */}
+                              <div style={{ height: 6, width: "86%", borderRadius: 3, background: pT.textDim, opacity: 0.3 }} />
+                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 3, background: ac, opacity: 0.5 }} /></div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 6, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 3, background: pT.textDim, opacity: 0.25 }} /></div>
+                            </div>;
+                          })}
                         </div>
                       </div>
                     </div>}
