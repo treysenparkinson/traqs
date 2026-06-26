@@ -15914,7 +15914,7 @@ ${jobsCtx || "No jobs found."}`;
               applies live while editing. Every colored element inside .tq-preview-anim eases
               its color/opacity/shadow changes instead of snapping. */}
           <style>{`
-            .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.3s ease, background 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, fill 0.3s ease, opacity 0.3s ease, filter 0.3s ease !important; }
+            .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.3s ease, background 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, fill 0.3s ease, opacity 0.3s ease, filter 0.3s ease, height 0.3s ease, margin-bottom 0.3s ease, transform 0.3s ease !important; }
             @keyframes tqPreviewFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
             @keyframes tqFadeOnly { from { opacity: 0; } to { opacity: 1; } }
           `}</style>
