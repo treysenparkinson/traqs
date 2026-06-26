@@ -1189,9 +1189,20 @@ function AuthGate() {
     } catch (e) {
       const msg = String(e?.error_description || e?.message || e || "");
       const code = e?.error || "";
-      const fatal = code === "login_required" || code === "consent_required" || code === "invalid_grant" || /refresh token/i.test(msg);
+      // A dead/rotated refresh token (403 on /oauth/token) or a failed prompt=none silent
+      // auth (400 on /authorize) means the session can't be renewed and the API is
+      // unreachable. Treat all of these as fatal and send the user through a full
+      // interactive login to recover — guarded by a timestamp so a login that itself keeps
+      // failing doesn't put us in a redirect loop.
+      const fatal = code === "login_required" || code === "consent_required" || code === "invalid_grant"
+        || code === "missing_refresh_token" || code === "access_denied"
+        || /refresh token|forbidden|403|invalid_grant|login required/i.test(msg);
       if (fatal) {
-        try { await loginWithRedirect({ appState: { returnTo: window.location.pathname } }); } catch {}
+        const last = Number(sessionStorage.getItem("tq_reauth_at") || 0);
+        if (Date.now() - last > 15000) {
+          sessionStorage.setItem("tq_reauth_at", String(Date.now()));
+          try { await loginWithRedirect({ appState: { returnTo: window.location.pathname } }); } catch {}
+        }
       }
       throw e;
     }
