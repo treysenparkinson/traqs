@@ -685,6 +685,16 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
 .traqs-adaptive .anim-card-wrap {
   background-color: var(--tq-frost-bg, var(--tq-surface-solid)) !important;
 }
+/* Real frosted glass: blur whatever the card sits over. On the Jobs page the page
+   background is pinned inside the same scroller, so this samples it (true frost). On
+   other views the image is outside the scroller and there's nothing to sample, so the
+   card just shows its translucent tint — same as before, no regression. The schedule
+   scroll surface is excluded (it's a large pannable grid, kept tint-only for perf). */
+.traqs-adaptive .tq-frost:not(.tq-schedule-scroll),
+.traqs-adaptive .anim-card-wrap {
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  backdrop-filter: blur(28px) saturate(1.4);
+}
 /* Smoothly fade text between black/white as the custom surface flips light/dark, so the
    auto-contrast text color (white on dark surfaces, black on light) cross-fades instead of snapping. */
 .traqs-custom * { transition: color 0.3s ease; }
@@ -953,24 +963,20 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
   onMouseLeave={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.glassBorder}`; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = "none"; } : undefined}
   style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.glassBorder}`, padding: 24, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
-// Frosted-glass card for the jobs list. A NON-scrolling wrapper paints its own blurred copy
-// of the background image (aligned to the same fixed/viewport coords as the sharp page-image
-// layer, so the blur lines up with what's behind it) under a translucent tint; the scrolling
-// table lives in an inner layer on top. We can't use backdrop-filter here because the page's
-// background-image sits outside the nested scroll containers that wrap these cards, so the
-// blur would have nothing to sample. Falls back to a plain solid card when no bg image is set.
+// Real frosted glass (same idea as the Customize mockup): a translucent surface tint with a
+// live backdrop-filter blur, so the compositor blurs whatever is painted behind the card in
+// place — zero drift, perfectly aligned by construction. Works because the jobs scroller holds
+// a pinned background layer in the SAME stacking context (the renderTasks sticky bg), so the
+// blur actually has the image to sample. Falls back to a plain solid card when no bg image set.
 const FrostCard = ({ children, onClick, border, style: sx = {} }) => (
-  <div style={{ position: "relative", overflow: "hidden", borderRadius: T.radius, border: border || `1px solid ${T.border}`, minWidth: 0, ...sx }}>
-    {T.adaptive && T.bgImage && <>
-      {/* opaque page-bg base so the sharp image behind the card doesn't leak through the blur */}
-      <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: T.bg, pointerEvents: "none" }} />
-      {/* pre-blurred copy of the bg image — sized to the panel & offset by JS to line up with
-          the (panel-pinned) background behind the card. Uses --tq-bg-blur (baked blur) so there
-          is no heavy runtime filter; JS keeps it aligned (panel-pinned, not viewport-fixed). */}
-      <div className="tq-frost-blur" aria-hidden="true" style={{ position: "absolute", backgroundImage: "var(--tq-bg-blur)", backgroundSize: "cover", backgroundPosition: "center", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />
-    </>}
-    {/* translucent surface tint over the blur (or a solid card when no bg image) */}
-    <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.card, pointerEvents: "none" }} />
+  <div style={{
+    position: "relative", overflow: "hidden", borderRadius: T.radius,
+    border: border || `1px solid ${T.border}`, minWidth: 0,
+    background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.card,
+    backdropFilter: T.adaptive ? "blur(28px) saturate(1.4)" : undefined,
+    WebkitBackdropFilter: T.adaptive ? "blur(28px) saturate(1.4)" : undefined,
+    ...sx,
+  }}>
     <div style={{ position: "relative", overflow: "auto", borderRadius: T.radius }} onClick={onClick}>{children}</div>
   </div>
 );
@@ -7101,7 +7107,20 @@ ${jobsCtx || "No jobs found."}`;
     // _opHrs / _panelHrs / _jobHrs / _opPct / _jobPct are defined at component level
 
 
-    return <div style={{ display: "flex", flexDirection: "column", gap: 12, paddingTop: 6 }}>
+    return <div ref={jobsScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+      {/* Pinned sharp background — lives INSIDE this scroller (the same stacking context as the
+          frosted cards) so their backdrop-filter actually has the image to blur. A zero-height
+          position:sticky wrapper locks to the scrollport (visually static, zero drift) and takes
+          no flow space; the absolute child paints the image at the scrollport's measured height
+          (falling back to 100vh until measured, so it's always visible). Jobs page only. */}
+      {T.adaptive && T.bgImage && <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
+        {/* Dimming is a baked color overlay (NOT element opacity): an opacity<1 layer becomes its
+            own composited layer and the cards' backdrop-filter then samples it WITHOUT blurring
+            (frost goes clear below 100%). Keeping this layer fully opaque and fading toward T.bg
+            via a gradient overlay keeps the blur working at every background-opacity value. */}
+        <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: jobsScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+      </div>}
+      <div style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", gap: 12, padding: "34px 32px 28px" }}>
       {/* ── Column picker (anchored to the "+" cell in column headers) ── */}
       {(colPickerOpen || colPickerExiting) && createPortal(<>
         {colPickerOpen && <div onMouseDown={() => setColPickerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />}
@@ -7830,7 +7849,7 @@ ${jobsCtx || "No jobs found."}`;
             const minW = colWidths.reduce((a, b) => a + b, 0);
             const gridOnClick = () => { if (gridCell) setGridCell(null); setColPickerOpen(false); setExportOpen(false); };
             const ColHeaders = (hdrKey = "main") => (
-              <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.surface, borderBottom: `1.5px solid ${T.border}` }}>
+              <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.surface, borderBottom: `1.5px solid ${T.border}` }}>
                 {orderedStdCols.map((col, displayIdx) => {
                   const widthIdx = 1 + col.i;
                   const isDragOver = colDropIdx === displayIdx && colDragRef.current !== col.id;
@@ -8103,6 +8122,7 @@ ${jobsCtx || "No jobs found."}`;
       })()}
       {/* ── Gantt View ── */}
       {taskSubView === "gantt" && renderGantt()}
+      </div>
     </div>;
   };
 
@@ -8311,68 +8331,22 @@ ${jobsCtx || "No jobs found."}`;
   const teamRef = useRef(null);
   const teamContainerRef = useRef(null);
   const contentPanelRef = useRef(null);
-  // Pre-blur the background image ONCE (downscaled canvas blur) and expose it as the
-  // --tq-bg-blur CSS var. FrostCard paints this pre-blurred image as a
-  // `background-attachment: fixed` layer (no runtime `filter`, which would otherwise
-  // re-anchor the image to each card's own box). `fixed` pins the blur to the viewport on
-  // the compositor — exactly like the sharp page-image layer — so every card blurs the real
-  // region behind it and stays perfectly registered while scrolling, with no per-frame JS.
-  useEffect(() => {
-    if (!T.bgImage || !T.adaptive) { document.documentElement.style.setProperty("--tq-bg-blur", "none"); return; }
-    let cancelled = false;
-    const img = new Image();
-    img.onload = () => {
-      if (cancelled) return;
-      try {
-        const maxEdge = 320;
-        const s = Math.min(1, maxEdge / Math.max(img.width, img.height));
-        const w = Math.max(1, Math.round(img.width * s)), h = Math.max(1, Math.round(img.height * s));
-        const c = document.createElement("canvas"); c.width = w; c.height = h;
-        const ctx = c.getContext("2d");
-        ctx.filter = "blur(6px)";
-        ctx.drawImage(img, 0, 0, w, h);
-        document.documentElement.style.setProperty("--tq-bg-blur", `url("${c.toDataURL("image/jpeg", 0.72)}")`);
-      } catch {
-        document.documentElement.style.setProperty("--tq-bg-blur", `url("${T.bgImage}")`);
-      }
-    };
-    img.onerror = () => { if (!cancelled) document.documentElement.style.setProperty("--tq-bg-blur", `url("${T.bgImage}")`); };
-    img.src = T.bgImage;
-    return () => { cancelled = true; };
-  }, [T.bgImage, T.adaptive]);
-  // Keep each .tq-frost-blur layer sized to the content panel and offset by its card's
-  // position, so each card blurs EXACTLY the region of the (panel-pinned) background behind
-  // it. Runs SYNCHRONOUSLY on scroll (not via rAF) so the blur doesn't lag a frame behind.
-  useEffect(() => {
-    const panel = contentPanelRef.current;
-    if (!panel) return;
-    const sync = () => {
-      const layers = panel.querySelectorAll(".tq-frost-blur");
-      if (!layers.length) return;
-      const pr = panel.getBoundingClientRect();
-      layers.forEach(el => {
-        const card = el.parentElement;
-        if (!card) return;
-        const cr = card.getBoundingClientRect();
-        el.style.width = pr.width + "px";
-        el.style.height = pr.height + "px";
-        el.style.left = (pr.left - cr.left) + "px";
-        el.style.top = (pr.top - cr.top) + "px";
-      });
-    };
-    sync();
-    const t1 = setTimeout(sync, 80), t2 = setTimeout(sync, 260); // catch entrance/collapse animations
-    panel.addEventListener("scroll", sync, { capture: true, passive: true });
-    window.addEventListener("resize", sync);
-    const ro = new ResizeObserver(sync);
-    ro.observe(panel);
-    return () => {
-      panel.removeEventListener("scroll", sync, { capture: true });
-      window.removeEventListener("resize", sync);
-      ro.disconnect();
-      clearTimeout(t1); clearTimeout(t2);
-    };
-  }, [view, T.bgImage, T.adaptive, tasks, pmSectionsCollapsed]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The jobs list scroll container (renderTasks' outer div). We pin a sharp background layer
+  // inside it (position:sticky) so the frosted cards' real backdrop-filter has the image to
+  // sample in the SAME stacking context — true frosted glass, zero scroll drift. We only need
+  // the scroller's pixel height to size that sticky bg (sticky + negative margin = pinned,
+  // zero flow space); measured here (resize only — never per scroll, so nothing can lag).
+  const jobsScrollRef = useRef(null);
+  const [jobsScrollH, setJobsScrollH] = useState(0);
+  useLayoutEffect(() => {
+    const el = jobsScrollRef.current;
+    if (!el) return;
+    const measure = () => setJobsScrollH(el.clientHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [view, T.bgImage, T.adaptive]);
   const [teamWidth, setTeamWidth] = useState(1200);
   const [monthZoom, setMonthZoom] = useState(1);
   useEffect(() => {
@@ -15770,11 +15744,12 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </aside>}
     <div ref={contentPanelRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
-      {/* Sharp background-image layer — kept as its own element (not a CSS background on the scroll
-          container) so the tq-frost sections' backdrop-filter actually blurs it, like the preview. */}
-      {T.bgImage && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />}
-      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: view === "messages" ? "hidden" : "auto", padding: isMobile ? "0" : view === "messages" ? "0" : "28px 32px" }}>
-        {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={view === "messages" ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1 }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "admin" && isAdmin && <div style={{ flex: 1 }}>{renderAdmin()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
+      {/* Sharp background-image layer for non-jobs views. The Jobs page renders its OWN pinned
+          background inside its scroller (so the frosted cards' backdrop-filter can sample it),
+          so we skip this one there to avoid painting the image twice (and stacking opacity). */}
+      {T.bgImage && view !== "tasks" && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />}
+      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: (view === "messages" || view === "tasks") ? "hidden" : "auto", padding: isMobile ? "0" : (view === "messages" || view === "tasks") ? "0" : "28px 32px" }}>
+        {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={(view === "messages" || view === "tasks") ? { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" } : undefined}>{view === "schedule" && renderTeam()}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && <div style={{ flex: 1 }}>{renderApprovalQueue()}</div>}{view === "admin" && isAdmin && <div style={{ flex: 1 }}>{renderAdmin()}</div>}{view === "timestamp" && <div style={{ flex: 1 }}>{renderTimeStamp()}</div>}{view === "analytics" && renderAnalytics()}{view === "clients" && <div style={{ flex: 1 }}>{renderClients()}</div>}{view === "messages" && renderMessages()}</AnimatedView>}
       </div>
     </div>
     </div>
