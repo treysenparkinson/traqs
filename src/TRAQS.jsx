@@ -782,18 +782,27 @@ function accentText(accent) {
   try { return hexLum(accent) > 0.35 ? "#0f172a" : "#ffffff"; } catch { return "#ffffff"; }
 }
 
-// Custom-theme inputs: bg (background), accent (buttons/highlights), surface (lists/cards).
-// Text is AUTOMATIC — it contrasts the surface it sits on. opts: { bgImage, cardOpacity 0..100,
+// Custom-theme inputs: bg (page background / image tint), accent (buttons/highlights),
+// surface (lists/cards), and opts.systemColor (outer chrome: header + sidebar + logo).
+// Text is AUTOMATIC — it contrasts whatever it sits on (surface, system bg, or page bg).
+// opts: { systemColor, bgImage, cardOpacity 0..100,
 // bgOpacity 0..100 }. A background image flips cards into "adaptive" mode: surfaces/cards become
 // translucent (alpha = cardOpacity) so the image shows through, tinted by the system surface color.
 function buildCustomTheme(bg, accent, surface, opts = {}) {
-  const { bgImage = null, cardOpacity = 100, bgOpacity = 100, jobBarMode = "system", jobBarColor = null, cellColorMode = "system", scheduleGrid = true } = opts;
+  const { bgImage = null, cardOpacity = 100, bgOpacity = 100, jobBarMode = "system", jobBarColor = null, cellColorMode = "system", scheduleGrid = true, systemColor = null } = opts;
   const dk = hexLum(bg) < 0.18;
   const surf = surface || blendHex(bg, dk ? 0.07 : -0.03);
   const card = surface || blendHex(bg, dk ? 0.10 : 0);
   const surfDk = hexLum(surf) < 0.5;
   const txt  = surfDk ? "#f1f5f9" : "#0f172a";
   const bord = blendHex(surf, surfDk ? 0.18 : -0.12);
+  // "System Color" — the outer chrome (header + sidebar). Independent of the card surface so the
+  // edge can be its own color; text/logo/borders on it CONTRAST it, not the surface. Falls back to
+  // the surface color when unset (older saved themes) so the chrome looks unchanged until edited.
+  const sysBg = systemColor || surf;
+  const sysDk = hexLum(sysBg) < 0.5;
+  const sysTxt = sysDk ? "#f1f5f9" : "#0f172a";
+  const sysBord = blendHex(sysBg, sysDk ? 0.18 : -0.12);
   // ALL surfaces stay SOLID (popups, dropdowns, buttons, cards) for consistency. The frosted-glass
   // translucency is OPT-IN per element via the `.tq-frost` class (which pulls --tq-frost-bg). adaptive
   // = a background image is set; cardOpacity drives the frost tint via the CSS var (see effect).
@@ -814,6 +823,11 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
     font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'DM Sans',sans-serif",
     radius:16, radiusSm:12, radiusXs:8, glass:surf, glassBorder:bord,
     blur:"none", glow:"none", colorScheme:dk?"dark":"light",
+    // Outer-chrome (header + sidebar) palette — see sysBg above. The chrome reads these via Tc.
+    systemBg: sysBg, systemText: sysTxt, systemBorder: sysBord,
+    systemBorderLight: blendHex(sysBg, sysDk ? 0.24 : -0.09),
+    systemHover: hexA(blendHex(accent, sysDk ? 0.45 : -0.4), sysDk ? 0.20 : 0.15),
+    systemHoverStrong: hexA(blendHex(accent, sysDk ? 0.45 : -0.4), sysDk ? 0.34 : 0.26),
     bgImage, bgOpacity, cardOpacity, adaptive,
     // Schedule-bar ("job card") colouring: system = each job's own colour (multi),
     // adaptive = the theme accent for all, custom = jobBarColor for all.
@@ -1562,17 +1576,23 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return (THEMES[saved] || saved === "custom") ? saved : "frost";
   });
   const [customTheme, setCustomTheme] = useState(() => {
-    const def = { bg: "#1a1a2e", accent: "#e94560", text: "#f1f5f9", surface: "#24243e", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true };
-    try { return { ...def, ...(JSON.parse(localStorage.getItem("tq_custom_theme") || "null") || {}) }; }
-    catch { return def; }
+    const def = { bg: "#1a1a2e", accent: "#e94560", text: "#f1f5f9", surface: "#24243e", systemColor: "#24243e", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true };
+    try {
+      const saved = JSON.parse(localStorage.getItem("tq_custom_theme") || "null") || {};
+      const merged = { ...def, ...saved };
+      // Migration: themes saved before the System Color existed inherit their surface, so the
+      // header/sidebar look exactly as they did (chrome == surface) until the user changes it.
+      if (saved.systemColor == null) merged.systemColor = merged.surface;
+      return merged;
+    } catch { return def; }
   });
-  T = themeMode === "custom" ? buildCustomTheme(customTheme.bg, customTheme.accent, customTheme.surface, { bgImage: customTheme.bgImage, cardOpacity: customTheme.cardOpacity, bgOpacity: customTheme.bgOpacity, jobBarMode: customTheme.jobBarMode, jobBarColor: customTheme.jobBarColor, cellColorMode: customTheme.cellColorMode, scheduleGrid: customTheme.scheduleGrid }) : (THEMES[themeMode] || THEMES.midnight);
+  T = themeMode === "custom" ? buildCustomTheme(customTheme.bg, customTheme.accent, customTheme.surface, { bgImage: customTheme.bgImage, cardOpacity: customTheme.cardOpacity, bgOpacity: customTheme.bgOpacity, jobBarMode: customTheme.jobBarMode, jobBarColor: customTheme.jobBarColor, cellColorMode: customTheme.cellColorMode, scheduleGrid: customTheme.scheduleGrid, systemColor: customTheme.systemColor }) : (THEMES[themeMode] || THEMES.midnight);
   useEffect(() => { localStorage.setItem("tq_theme", themeMode); }, [themeMode]);
   useEffect(() => { localStorage.setItem("tq_custom_theme", JSON.stringify(customTheme)); }, [customTheme]);
   const [customizationOpen, setCustomizationOpen] = useState(false);
   // Draft theme edited inside the Customize modal — only applied to the live theme on Save.
   const [draftMode, setDraftMode] = useState("custom");
-  const [draftCustom, setDraftCustom] = useState({ bg: "#1a1a2e", accent: "#e94560", surface: "#24243e", text: "#f1f5f9", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true });
+  const [draftCustom, setDraftCustom] = useState({ bg: "#1a1a2e", accent: "#e94560", surface: "#24243e", systemColor: "#24243e", text: "#f1f5f9", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true });
   const [draftSidebar, setDraftSidebar] = useState("hover");
   const [previewView, setPreviewView] = useState("jobs"); // which page the Customize mockup shows: jobs | schedule
   // The view actually RENDERED — lags previewView by one beat so the swap happens at the midpoint
@@ -15461,6 +15481,24 @@ ${jobsCtx || "No jobs found."}`;
   // Filter out admin users from the shop crew display (they don't get assigned tasks)
   const shopPeople = people.filter(p => p.userRole === "user");
 
+  // Chrome theme — the outer header + sidebar render through this so they follow the "System Color"
+  // instead of the card surface. Text/border/hover CONTRAST the system bg (sysText etc). Built-in
+  // themes have no system* props, so the fallbacks below keep them identical to today's chrome.
+  const Tc = {
+    ...T,
+    surface: T.systemBg || T.surfaceSolid || T.surface,
+    surfaceSolid: T.systemBg || T.surfaceSolid || T.surface,
+    text: T.systemText || T.text,
+    textSec: T.systemText || T.textSec,
+    textDim: T.systemText || T.textDim,
+    border: T.systemBorder || T.border,
+    borderLight: T.systemBorderLight || T.borderLight,
+    hover: T.systemHover || T.hover,
+    hoverStrong: T.systemHoverStrong || T.hoverStrong,
+    glass: T.systemBg || T.glass,
+    glassBorder: T.systemBorder || T.glassBorder,
+  };
+
   return <TooltipCtx.Provider value={tipCtx}><div className={`traqs-${themeMode}${T.adaptive ? " traqs-adaptive" : ""}`} style={{ height: "100vh", background: T.bg, color: T.bgText, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
     {/* ── Sticky save-failure banner ─ shows the actual server error so the user (and us) know what's wrong ── */}
     {saveError && <div style={{ flexShrink: 0, background: "#dc2626", color: "#fff", padding: "10px 20px", display: "flex", alignItems: "center", gap: 14, fontSize: 13, fontFamily: T.font, fontWeight: 500, zIndex: 200 }}>
@@ -15475,13 +15513,13 @@ ${jobsCtx || "No jobs found."}`;
       <button onClick={() => setSaveError(null)} style={{ width: 28, height: 28, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
     </div>}
     {/* ── Brand strip — logo + undo/redo + search/ask + save/bell/settings ── */}
-    {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: T.surfaceSolid || T.surface, position: "relative", zIndex: 101 }}>
-      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: hexLum(T.surfaceSolid || T.surface) > 0.5 ? "brightness(0)" : "none", flexShrink: 0, marginLeft: 45 }} />
+    {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: Tc.surfaceSolid, position: "relative", zIndex: 101 }}>
+      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: hexLum(Tc.surfaceSolid) > 0.5 ? "brightness(0)" : "none", flexShrink: 0, marginLeft: 45 }} />
       {/* LEFT: Undo / Redo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
-          <Tip label="Undo (Ctrl+Z)"><button onClick={undo} disabled={!canUndo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canUndo ? T.border : "transparent"}`, background: canUndo ? T.bg : "transparent", cursor: canUndo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canUndo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↩</button></Tip>
-          <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canRedo ? T.border : "transparent"}`, background: canRedo ? T.bg : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: T.textSec }}>↪</button></Tip>
+          <Tip label="Undo (Ctrl+Z)"><button onClick={undo} disabled={!canUndo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canUndo ? Tc.border : "transparent"}`, background: canUndo ? Tc.hover : "transparent", cursor: canUndo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canUndo ? 1 : 0.3, transition: "all 0.15s", color: Tc.textSec }}>↩</button></Tip>
+          <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${canRedo ? Tc.border : "transparent"}`, background: canRedo ? Tc.hover : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: Tc.textSec }}>↪</button></Tip>
         </div>
       </div>
       {/* Flex spacer — pushes left cluster (logo + undo/redo) leftward while the center group floats absolutely. */}
@@ -15514,8 +15552,8 @@ ${jobsCtx || "No jobs found."}`;
               ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" style={{ animation: "spin 1s linear infinite", flexShrink: 0 }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
               : saveStatus === "saved"
               ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M20 6L9 17l-5-5"/></svg>
-              : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
-            <span style={{ fontSize: 11, fontWeight: 500, color: saveStatus === "saved" ? "#10b981" : saveStatus === "saving" ? T.accent : T.textSec, display: "inline-block", minWidth: 52 }}>{saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : "Unsaved"}</span>
+              : <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>}
+            <span style={{ fontSize: 11, fontWeight: 500, color: saveStatus === "saved" ? "#10b981" : saveStatus === "saving" ? Tc.accent : Tc.textSec, display: "inline-block", minWidth: 52 }}>{saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Saved" : "Unsaved"}</span>
           </div></Tip>
         </div>
         {/* Enable desktop (Windows) notifications — only on web, until granted */}
@@ -15527,17 +15565,17 @@ ${jobsCtx || "No jobs found."}`;
               await registerAndSubscribe(getToken, orgCode);
               setPushPerm(pushPermission());
               setPushBusy(false);
-            }} disabled={pushBusy} style={{ background: "transparent", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: pushBusy ? "default" : "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font, opacity: pushBusy ? 0.6 : 1 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-              <span style={{ fontSize: 12, fontWeight: 600, color: T.textSec, letterSpacing: "0.01em" }}>{pushBusy ? "Enabling…" : "Enable alerts"}</span>
+            }} disabled={pushBusy} style={{ background: "transparent", border: `1px solid ${Tc.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: pushBusy ? "default" : "pointer", display: "flex", alignItems: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font, opacity: pushBusy ? 0.6 : 1 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span style={{ fontSize: 12, fontWeight: 600, color: Tc.textSec, letterSpacing: "0.01em" }}>{pushBusy ? "Enabling…" : "Enable alerts"}</span>
             </button>
           </Tip>
         )}
         {/* Notification Bell */}
         <div ref={notifRef} style={{ position: "relative" }}>
-          <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            <span style={{ fontSize: 12, fontWeight: 600, color: notifOpen ? T.accent : T.textSec, letterSpacing: "0.01em" }}>Notifications</span>
+          <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : Tc.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span style={{ fontSize: 12, fontWeight: 600, color: notifOpen ? T.accent : Tc.textSec, letterSpacing: "0.01em" }}>Notifications</span>
             {unreadByThread.length > 0 && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px" }}>{unreadByThread.length > 9 ? "9+" : unreadMessages.length}</span>}
           </button>
           <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
@@ -15571,9 +15609,11 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}
     {/* ── Body — sidebar + content ── */}
-    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: T.surface }}>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "row", overflow: "hidden", background: Tc.surfaceSolid }}>
     {/* ── Left sidebar — chevron + vertical nav + profile ── */}
-    {!isMobile && <aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+    {/* Shadow T with the chrome theme so the whole sidebar follows the System Color (bg + contrast
+        text/borders/hover). Nothing inside the sidebar sits on a card, so this is a clean swap. */}
+    {!isMobile && (() => { const T = Tc; return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
@@ -15780,7 +15820,7 @@ ${jobsCtx || "No jobs found."}`;
           </Tip>
         </div>
       </div>
-    </aside>}
+    </aside>); })()}
     <div ref={contentPanelRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
       {/* Sharp background-image layer for views that DON'T provide their own pinned background.
           Every card/grid view (jobs, schedule, clients, analytics, approvals, admin, timestamp)
@@ -15964,11 +16004,13 @@ ${jobsCtx || "No jobs found."}`;
       const setDc = upd => setDraftCustom(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
       // Preview theme built from the DRAFT (never the live theme), so the mockup shows exactly
       // what Save will apply — colors, background image, frosted-glass cards, auto text contrast.
-      const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }) : (THEMES[draftMode] || THEMES.midnight);
+      const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid, systemColor: dc.systemColor }) : (THEMES[draftMode] || THEMES.midnight);
       const pAdaptive = !!(isCustom && dc.bgImage);
       const pFrostBg = pAdaptive ? hexA(pT.surfaceSolid || pT.surface, (dc.cardOpacity ?? 80) / 100) : pT.card;
-      const pBlur = pAdaptive ? "blur(18px) saturate(1.4)" : "none";
-      const pSolid = pT.surfaceSolid || pT.surface;
+      // Preview chrome (mock header + sidebar) follows the System Color, with contrasting text/borders.
+      const pSolid = pT.systemBg || pT.surfaceSolid || pT.surface;
+      const pSysText = pT.systemText || pT.text;
+      const pSysBorder = pT.systemBorder || pT.border;
       const lbl = { fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 };
       // Each control group sits in its own card so the panel reads as distinct, tidy sections.
       // Backed by a subtle tint OF THE SURFACE (not T.bg) so the surface-contrasting text
@@ -16062,7 +16104,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={card}>
                   <div style={lbl}>Colors</div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                    {swatch("bg", "Background", "App background")}
+                    {swatch("systemColor", "System Color", "Header, sidebar & logo")}
                     {swatch("surface", "Lists & Cards", "Tables, lists & panels")}
                     {swatch("accent", "Buttons", "Buttons, highlights & indicators")}
                   </div>
@@ -16111,6 +16153,10 @@ ${jobsCtx || "No jobs found."}`;
                 {/* ── Background Image ── */}
                 <div style={card}>
                   <div style={lbl}>Background Image</div>
+                  {/* Color Hue — the page background color; also tints the image when one is set. */}
+                  <div style={{ marginBottom: 16 }}>
+                    {swatch("bg", "Color Hue", "Page background & image tint")}
+                  </div>
                   {dc.bgImage
                     ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                         <div style={{ width: 64, height: 42, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
@@ -16183,10 +16229,10 @@ ${jobsCtx || "No jobs found."}`;
               <div className="tq-preview-anim" style={{ flex: 1, borderRadius: 16, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.4)", background: pSolid }}>
                 {/* full-width solid header (logo + New Job) — sits above sidebar + content, no divider */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
-                  <span style={{ fontSize: 30, fontWeight: 800, color: pT.text, letterSpacing: "-0.03em", marginLeft: 46 }}>traqs</span>
+                  <span style={{ fontSize: 30, fontWeight: 800, color: pSysText, letterSpacing: "-0.03em", marginLeft: 46 }}>traqs</span>
                   <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                    <span style={{ width: 16, height: 16, borderRadius: 8, background: pT.border }} />
-                    <span style={{ width: 16, height: 16, borderRadius: 8, background: pT.border }} />
+                    <span style={{ width: 16, height: 16, borderRadius: 8, background: pSysBorder }} />
+                    <span style={{ width: 16, height: 16, borderRadius: 8, background: pSysBorder }} />
                   </span>
                 </div>
                 {/* row: sidebar + content */}
@@ -16195,16 +16241,27 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ width: 48, flexShrink: 0, background: pSolid, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14 }}>
                     <div style={{ height: draftSidebar === "button" ? 26 : 0, opacity: draftSidebar === "button" ? 1 : 0, marginBottom: draftSidebar === "button" ? 16 : 0, overflow: "hidden", transition: "height 0.3s ease, opacity 0.3s ease, margin-bottom 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                        {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 1, background: pT.text }} />)}
+                        {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 1, background: pSysText }} />)}
                       </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                      {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 6, background: i === 0 ? pT.accent : pT.border }} />)}
+                      {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 6, background: i === 0 ? pT.accent : pSysBorder }} />)}
                     </div>
                   </div>
                   {/* rounded content panel with the background image (mirrors the 22px content area) */}
                   <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
-                    {pAdaptive && <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: 0, animation: "tqFadeOnly 0.35s ease" }}><div style={{ position: "absolute", inset: 0, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (dc.bgOpacity ?? 100) / 100 }} /></div>}
+                    {pAdaptive && <>
+                      {/* Pre-blurred background image (inset past the edges so the blur doesn't feather in).
+                          We blur the IMAGE here rather than backdrop-filtering each card, so the frosted
+                          cards can be plain-translucent and the hue behind them composites NORMALLY —
+                          backdrop-filter only re-samples a snapshot, so it snaps instead of fading. */}
+                      <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: -40, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", filter: "blur(18px) saturate(1.4)", animation: "tqFadeOnly 0.35s ease" }} />
+                      {/* Color-Hue wash over the image — its OWN element so background-color (the hue) and
+                          opacity (strength = 1 − image opacity) BOTH cross-fade via .tq-preview-anim as you
+                          drag the Color Hue / image-opacity sliders. The translucent cards sit over this,
+                          so the hue shows through them and fades in live, in lockstep with the gaps. */}
+                      <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: pT.bg, opacity: 1 - (dc.bgOpacity ?? 100) / 100 }} />
+                    </>}
                     {/* Cross-fade: the NEW view renders underneath at full frost (no opacity fade →
                         no frost "pop"), and the OLD view fades out on top of it — so the old fades
                         out as the new is revealed, simultaneously. */}
@@ -16222,7 +16279,7 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ height: 15, width: 24, borderRadius: 8, background: pT.accent + "2e" }} />
                           </div>
                           {/* frosted section panel */}
-                          <div style={{ background: pFrostBg, backdropFilter: pBlur, WebkitBackdropFilter: pBlur, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden" }}>
+                          <div style={{ background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden" }}>
                             {/* column-header row (blank) */}
                             <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "8px 14px", borderBottom: `1.5px solid ${pT.border}` }}>
                               {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 3, background: pT.textDim, opacity: 0.45 }} />)}
@@ -16259,7 +16316,7 @@ ${jobsCtx || "No jobs found."}`;
                         </span>
                       </div>
                       {/* gantt panel (frosted) — left roster + timeline with bars */}
-                      <div style={{ flex: 1, minHeight: 0, background: pFrostBg, backdropFilter: pBlur, WebkitBackdropFilter: pBlur, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                      <div style={{ flex: 1, minHeight: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                         {/* day-number header */}
                         <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                           <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }} />
@@ -16294,7 +16351,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ display: "flex", gap: 10 }}>
                           {[0, 1, 2, 3, 4].map(i => {
                             const ac = pMode === "adaptive" ? pT.accent : pMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[i % BARC.length];
-                            return <div key={i} style={{ width: 124, flexShrink: 0, background: pFrostBg, backdropFilter: pBlur, WebkitBackdropFilter: pBlur, border: `1px solid ${pT.border}`, borderRadius: pT.radius, padding: 12, display: "flex", flexDirection: "column", gap: 9 }}>
+                            return <div key={i} style={{ width: 124, flexShrink: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, padding: 12, display: "flex", flexDirection: "column", gap: 9 }}>
                               {/* header: avatar + name + link */}
                               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <div style={{ width: 24, height: 24, borderRadius: "50%", background: ac, flexShrink: 0 }} />
