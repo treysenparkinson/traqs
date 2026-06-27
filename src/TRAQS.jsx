@@ -410,18 +410,6 @@ animStyle.textContent = `
    Snappy press      : cubic-bezier(0.4, 0, 0.2, 1)
 ─────────────────────────────────────────────────────────────────────── */
 
-/* Page transitions are a pure opacity + gentle-scale cross-fade. We deliberately avoid a
-   blur filter and translate here: a blur filter over the pages' backdrop-filter frosted
-   cards flickers, and translating two stacked layers reads as a shutter. Opacity+scale stays
-   on the compositor and is clean. viewExit is the exact mirror so the swap is symmetric. */
-@keyframes viewEnter {
-  0%   { opacity: 0; transform: scale(0.985); }
-  100% { opacity: 1; transform: scale(1); }
-}
-@keyframes viewExit {
-  0%   { opacity: 1; transform: scale(1); }
-  100% { opacity: 0; transform: scale(0.985); }
-}
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
@@ -585,8 +573,6 @@ animStyle.textContent = `
 .select-bubble-in { animation: selectBubbleIn 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 
 /* ── Animation classes ─────────────────────────────────────────────── */
-.anim-view-enter  { animation: viewEnter   0.3s ease both; }
-.anim-view-exit   { animation: viewExit    0.3s ease both; }
 .anim-card        { animation: cardPop     0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-modal-overlay { animation: fadeIn 0.22s ease-out both; }
 .anim-modal-box   { animation: bcPageIn 0.30s cubic-bezier(0.22, 1, 0.36, 1) both; }
@@ -1210,27 +1196,10 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
   </div>;
 }
 function AnimatedView({ viewKey, children, style }) {
-  // Cross-fade between pages: when the view changes, the incoming page pops in (anim-view-enter)
-  // while the OUTGOING page (a snapshot of the previous render's children) pops out on top
-  // (anim-view-exit) over the same 0.45s — so both animate simultaneously, then the old is
-  // dropped. Refs below let us grab the *previous* render's children at the moment view changes.
-  const [outgoing, setOutgoing] = useState(null); // { key, node } of the page fading out
-  const prevKeyRef = useRef(viewKey);
-  const prevNodeRef = useRef(children);
-  useEffect(() => {
-    if (prevKeyRef.current !== viewKey) {
-      setOutgoing({ key: prevKeyRef.current, node: prevNodeRef.current });
-      prevKeyRef.current = viewKey;
-      const t = setTimeout(() => setOutgoing(null), 320);
-      return () => clearTimeout(t);
-    }
-  }, [viewKey]);
-  useEffect(() => { prevNodeRef.current = children; }); // keep latest children for the next switch
-  const layer = { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
+  // No transition — pages switch instantly. Keyed by viewKey so each view mounts fresh on switch.
   return (
-    <div style={{ ...style, position: "relative" }}>
-      <div key={`in-${viewKey}`} className="anim-view-enter" style={layer}>{children}</div>
-      {outgoing && <div key={`out-${outgoing.key}`} className="anim-view-exit" aria-hidden="true" style={{ ...layer, position: "absolute", inset: 0, pointerEvents: "none" }}>{outgoing.node}</div>}
+    <div style={style}>
+      <div key={viewKey} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{children}</div>
     </div>
   );
 }
