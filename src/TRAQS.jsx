@@ -410,6 +410,10 @@ animStyle.textContent = `
    Snappy press      : cubic-bezier(0.4, 0, 0.2, 1)
 ─────────────────────────────────────────────────────────────────────── */
 
+/* Page cross-dissolve — only the OUTGOING snapshot fades (opacity); the incoming page stays at
+   full opacity so its backdrop-filter frost never breaks. The outgoing has frost disabled
+   (.tq-no-frost) so its opacity fade is glitch-free too. */
+@keyframes viewExit { from { opacity: 1; } to { opacity: 0; } }
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
@@ -584,6 +588,8 @@ animStyle.textContent = `
 .anim-badge       { animation: badgeBounce 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-gantt-bar   { animation: ganttBarSlide 0.38s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-spring      { animation: springPop   0.5s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.anim-view-out    { animation: viewExit 0.16s ease forwards; }
+.tq-no-frost, .tq-no-frost * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 
 .anim-tab {
   transition: all 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1196,10 +1202,28 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
   </div>;
 }
 function AnimatedView({ viewKey, children, style }) {
-  // No transition — pages switch instantly. Keyed by viewKey so each view mounts fresh on switch.
+  // Seamless cross-dissolve. The incoming page renders live at FULL opacity, so its backdrop-filter
+  // frost is never broken — animating opacity on a frosted ancestor is the bug that glitched every
+  // earlier attempt. A snapshot of the OUTGOING page fades out on top of it, with frost disabled
+  // (.tq-no-frost) so its opacity fade is glitch-free too. The two overlap, so there's no
+  // backdrop-only middle frame: it reads as one continuous dissolve, not fade-out → wait → fade-in.
+  const [outgoing, setOutgoing] = useState(null);    // { key, node } snapshot of the page dissolving away
+  const prevKeyRef = useRef(viewKey);
+  const prevNodeRef = useRef(children);
+  useEffect(() => {
+    if (prevKeyRef.current !== viewKey) {
+      setOutgoing({ key: prevKeyRef.current, node: prevNodeRef.current });
+      prevKeyRef.current = viewKey;
+      const t = setTimeout(() => setOutgoing(null), 190); // a touch past the 0.16s fade
+      return () => clearTimeout(t);
+    }
+  }, [viewKey]);
+  useEffect(() => { prevNodeRef.current = children; }); // keep the latest content for the next switch
+  const layer = { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
   return (
-    <div style={style}>
-      <div key={viewKey} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{children}</div>
+    <div style={{ ...style, position: "relative" }}>
+      <div key={`in-${viewKey}`} style={{ ...layer, position: "relative", zIndex: 1 }}>{children}</div>
+      {outgoing && <div key={`out-${outgoing.key}`} className="anim-view-out tq-no-frost" aria-hidden="true" style={{ ...layer, position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none" }}>{outgoing.node}</div>}
     </div>
   );
 }
