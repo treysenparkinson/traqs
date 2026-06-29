@@ -14,6 +14,7 @@ enum TIcon: String {
     case person, map, list, cal, sparkle, bell, signOut
     case clients, team
     case select, trash, admin
+    case gantt
 
     var sfName: String {
         switch self {
@@ -51,6 +52,7 @@ enum TIcon: String {
         case .select:    return "checkmark.circle"
         case .trash:     return "trash"
         case .admin:     return "shield.lefthalf.filled"
+        case .gantt:     return "chart.bar.xaxis"
         }
     }
 }
@@ -65,8 +67,42 @@ struct TIconView: View {
     var weight: Font.Weight = .medium
 
     var body: some View {
-        Image(systemName: icon.sfName)
-            .font(.system(size: size, weight: weight))
-            .foregroundStyle(color)
+        // The gantt glyph is hand-drawn: three vertical bars side by side,
+        // nudged up/down so they don't share a baseline. No axis line.
+        if icon == .gantt {
+            GanttGlyph(size: size, color: color)
+        } else {
+            Image(systemName: icon.sfName)
+                .font(.system(size: size, weight: weight))
+                .foregroundStyle(color)
+        }
+    }
+}
+
+// MARK: - Gantt glyph
+// Three equal-length vertical bars set side by side and nudged up/down so they
+// don't line up on a common baseline. No axis line.
+
+struct GanttGlyph: View {
+    var size: CGFloat = 18
+    var color: Color = Color(hex: T.ink)
+
+    /// Vertical offset per bar (fraction of `size`), left → right. Positive is
+    /// down; the gentle stagger keeps the bars from sharing a baseline.
+    private let offsets: [CGFloat] = [0.09, -0.02, -0.11]
+
+    var body: some View {
+        let barW = size * 0.15
+        let barH = size * 0.50
+        let spacing = size * 0.13
+        HStack(spacing: spacing) {
+            ForEach(offsets.indices, id: \.self) { i in
+                Capsule(style: .continuous)
+                    .fill(color)
+                    .frame(width: barW, height: barH)
+                    .offset(y: size * offsets[i])
+            }
+        }
+        .frame(width: size, height: size)
     }
 }

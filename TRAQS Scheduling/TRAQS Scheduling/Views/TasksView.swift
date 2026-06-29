@@ -6,15 +6,13 @@ import SwiftUI
 
 struct TasksView: View {
     @Environment(AppState.self) private var appState
-    @Environment(AppNav.self) private var appNav
 
-    @State private var searchText = ""
+    /// Search query. Owned by the Jobs hub header (JobsHubView) and passed in
+    /// so the list can filter; the hub also owns the search field itself.
+    var searchText: String = ""
+
     @State private var segment: JobsSegment = .today
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
-    @State private var showAddJob = false
-    @State private var showSearch = false
-    @State private var path: [Job] = []
-    @FocusState private var searchFocused: Bool
 
     enum JobsSegment: String, CaseIterable, Hashable { case today, week, month, year
         var label: String { rawValue.capitalized }
@@ -36,92 +34,34 @@ struct TasksView: View {
         )
     }
 
+    // Body is just the scrollable content — the Jobs hub (JobsHubView) supplies
+    // the surrounding NavigationStack, header, search field and add-job sheet.
     var body: some View {
-        NavigationStack(path: $path) {
-        ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
-
+        ScrollView {
             VStack(spacing: 0) {
-                // Sticky header — pinned outside the ScrollView so the menu
-                // button, wordmark, and add button stay visible while the
-                // content scrolls underneath.
-                TRAQSNavHeader {
-                    IconBtn(icon: .search, size: 18) {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            showSearch.toggle()
-                            if !showSearch { searchText = "" }
-                        }
-                        if showSearch { searchFocused = true }
-                    }
-                    if appState.isAdmin {
-                        IconBtn(icon: .plus, size: 18) { showAddJob = true }
-                    }
+                HStack { Spacer()
+                    Segmented(
+                        options: JobsSegment.allCases,
+                        labels: Dictionary(uniqueKeysWithValues: JobsSegment.allCases.map { ($0, $0.label) }),
+                        selection: segmentBinding)
+                    Spacer()
                 }
-                .background(Color(hex: T.bg))
+                .padding(.bottom, 12)
 
-                // Search field — slides in when the search icon is tapped.
-                if showSearch {
-                    SearchBar(text: $searchText,
-                              placeholder: "Search jobs, customers…",
-                              focused: $searchFocused,
-                              onCancel: {
-                                  withAnimation(.easeInOut(duration: 0.18)) {
-                                      showSearch = false
-                                      searchText = ""
-                                  }
-                              })
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                ScrollView {
-                    VStack(spacing: 0) {
-                        HStack { Spacer()
-                            Segmented(
-                                options: JobsSegment.allCases,
-                                labels: Dictionary(uniqueKeysWithValues: JobsSegment.allCases.map { ($0, $0.label) }),
-                                selection: segmentBinding)
-                            Spacer()
-                        }
-                        .padding(.bottom, 12)
-
-                        // Cross-faded content per segment
-                        Group {
-                            switch segment {
-                            case .today: todayView
-                            case .week:  weekView
-                            case .month: monthView
-                            case .year:  yearView
-                            }
-                        }
-                        .id(segment)
-                        .transition(.opacity)
+                // Cross-faded content per segment
+                Group {
+                    switch segment {
+                    case .today: todayView
+                    case .week:  weekView
+                    case .month: monthView
+                    case .year:  yearView
                     }
                 }
-                .scrollIndicators(.hidden)
+                .id(segment)
+                .transition(.opacity)
             }
-            .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
-            .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
         }
-        .toolbar(.hidden, for: .navigationBar)
-        .task { await appState.refreshOrgSettings() }
-        // Resolve a tapped "new job / assigned / step / ready" push to its
-        // job detail. `initial: true` covers a tap that's already pending when
-        // this view first appears; the jobs.count watcher retries once a
-        // cold-start load brings the job in.
-        .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeJobDeepLink() }
-        .onChange(of: appState.jobs.count) { _, _ in consumeJobDeepLink() }
-        }
-    }
-
-    /// Push the job named by a pending `.job` deep link, if it's loaded.
-    /// Leaves the link pending (to retry) when the job isn't here yet.
-    private func consumeJobDeepLink() {
-        guard case let .job(number)? = appNav.pendingDeepLink else { return }
-        guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
-        path = [job]
-        appNav.pendingDeepLink = nil
+        .scrollIndicators(.hidden)
     }
 
     // ── Today: original card stack ─────────────────────────────────────────
@@ -938,7 +878,9 @@ struct TaskAssignment: Identifiable {
 // Task-prominent card. Top row carries the task's department tag + job ID +
 // status. Headline is the TASK title. Subline gives the job/customer context.
 
-private struct TaskCardV1: View {
+// Internal (not private) so the Schedule tab's job-detail popup
+// (ScheduleJobSheet) can reuse it as the log-time hero.
+struct TaskCardV1: View {
     @Environment(AppState.self) private var appState
     let task: TaskAssignment
     @State private var showLogConfirm = false

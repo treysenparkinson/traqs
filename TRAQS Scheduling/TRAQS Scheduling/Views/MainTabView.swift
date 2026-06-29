@@ -5,12 +5,13 @@ import SwiftUI
 // Swipe leftward while open (or tap the scrim / X) → drawer closes.
 
 enum TTab: Int, CaseIterable, Hashable {
-    case jobs, schedule, hours, stats, chat
+    // The Jobs tab now subsumes the old Schedule tab: it toggles between the
+    // list view and the gantt view via `AppNav.jobsMode`.
+    case jobs, hours, stats, chat
 
     var label: String {
         switch self {
         case .jobs:     return "Jobs"
-        case .schedule: return "Schedule"
         case .hours:    return "Hours"
         case .stats:    return "Stats"
         case .chat:     return "Chat"
@@ -19,7 +20,6 @@ enum TTab: Int, CaseIterable, Hashable {
     var icon: TIcon {
         switch self {
         case .jobs:     return .jobs
-        case .schedule: return .schedule
         case .hours:    return .hours
         case .stats:    return .stats
         case .chat:     return .chat
@@ -56,8 +56,9 @@ struct MainTabView: View {
             // Tab content
             Group {
                 switch appNav.selected {
-                case .jobs:     TasksView()
-                case .schedule: GanttView()
+                // Merged Jobs tab: JobsHubView owns the shared header and
+                // cross-fades its body between the list and gantt views.
+                case .jobs:     JobsHubView()
                 case .hours:    TimeClockView()
                 case .stats:    MoreView()
                 case .chat:     MessagesView()
@@ -157,6 +158,23 @@ struct TRAQSMenuButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Jobs view-mode toggle (header "dot" button)
+// A round icon button that sits between the search/calendar button and the add
+// button on the Jobs tab. It shows the icon of the CURRENT view — a list glyph
+// in list mode, a gantt glyph in gantt mode — and flips the mode when tapped.
+
+struct JobsViewToggleButton: View {
+    @Environment(AppNav.self) private var appNav
+
+    var body: some View {
+        IconBtn(icon: appNav.jobsMode == .list ? .list : .gantt, size: 18) {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                appNav.jobsMode.toggle()
+            }
+        }
     }
 }
 

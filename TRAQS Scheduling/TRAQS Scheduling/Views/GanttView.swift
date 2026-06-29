@@ -12,8 +12,8 @@ struct GanttView: View {
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
     @State private var segment: ScheduleSegment = .day
     @State private var now: Date = Date()
-    @State private var showAddJob = false
-    @State private var showDatePicker = false
+    /// Tapping a timeline block sets this, which presents the job-detail popup.
+    @State private var selectedBlock: ScheduleBlock?
     private let cal = Calendar.current
     private let nowTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
@@ -21,88 +21,63 @@ struct GanttView: View {
         var label: String { rawValue.capitalized }
     }
 
+    // Body is just the scrollable timeline content — the Jobs hub (JobsHubView)
+    // supplies the surrounding NavigationStack, header and add-job sheet.
+    // Tapping a block opens ScheduleJobSheet (a popup) rather than pushing.
     var body: some View {
-        NavigationStack {
-        ZStack(alignment: .top) {
-            Color(hex: T.bg).ignoresSafeArea()
-
+        ScrollView {
             VStack(spacing: 0) {
-                // Sticky header.
-                TRAQSNavHeader {
-                    IconBtn(icon: .cal, size: 18) { showDatePicker = true }
-                    if appState.isAdmin {
-                        IconBtn(icon: .plus, size: 18) { showAddJob = true }
-                    }
-                }
-                .background(Color(hex: T.bg))
 
-                ScrollView {
-                    VStack(spacing: 0) {
+            // Segmented Day/Week/Agenda — V1 default is Day
+            HStack { Spacer()
+                Segmented(
+                    options: ScheduleSegment.allCases,
+                    labels: Dictionary(uniqueKeysWithValues: ScheduleSegment.allCases.map { ($0, $0.label) }),
+                    selection: $segment)
+                Spacer()
+            }
+            .padding(.bottom, 10)
 
-                    // Segmented Day/Week/Agenda — V1 default is Day
-                    HStack { Spacer()
-                        Segmented(
-                            options: ScheduleSegment.allCases,
-                            labels: Dictionary(uniqueKeysWithValues: ScheduleSegment.allCases.map { ($0, $0.label) }),
-                            selection: $segment)
-                        Spacer()
-                    }
+            if segment == .day {
+                DateSelector(date: $selectedDate)
                     .padding(.bottom, 10)
-
-                    if segment == .day {
-                        DateSelector(date: $selectedDate)
-                            .padding(.bottom, 10)
-                        statStrip
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
-                        DayTimeline(date: selectedDate,
-                                    now: now,
-                                    blocks: blocks(for: selectedDate),
-                                    workStart: appState.orgSettings.workStartHour,
-                                    workEnd: appState.orgSettings.workEndHour,
-                                    lunchStart: appState.orgSettings.lunchStartHour,
-                                    lunchDurationH: Double(appState.orgSettings.lunch.durationMinutes) / 60)
-                            .transition(.opacity)
-                    } else {
-                        WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 10)
-                        WeekGrid(weekDates: weekDates,
-                                 today: cal.startOfDay(for: Date()),
-                                 now: now,
-                                 workStart: appState.orgSettings.workStartHour,
-                                 workEnd: appState.orgSettings.workEndHour,
-                                 blocksFor: { blocks(for: $0) })
-                            .padding(.horizontal, 12)
-                            .padding(.bottom, 6)
-                        WeekLegendRow(blocks: weekDates.flatMap { blocks(for: $0) })
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 24)
-                            .transition(.opacity)
-                    }
-                    }
-                }
-                .scrollIndicators(.hidden)
+                statStrip
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 8)
+                DayTimeline(date: selectedDate,
+                            now: now,
+                            blocks: blocks(for: selectedDate),
+                            workStart: appState.orgSettings.workStartHour,
+                            workEnd: appState.orgSettings.workEndHour,
+                            lunchStart: appState.orgSettings.lunchStartHour,
+                            lunchDurationH: Double(appState.orgSettings.lunch.durationMinutes) / 60,
+                            onSelect: { selectedBlock = $0 })
+                    .transition(.opacity)
+            } else {
+                WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
+                WeekGrid(weekDates: weekDates,
+                         today: cal.startOfDay(for: Date()),
+                         now: now,
+                         workStart: appState.orgSettings.workStartHour,
+                         workEnd: appState.orgSettings.workEndHour,
+                         blocksFor: { blocks(for: $0) },
+                         onSelect: { selectedBlock = $0 })
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
+                WeekLegendRow(blocks: weekDates.flatMap { blocks(for: $0) })
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                    .transition(.opacity)
+            }
             }
         }
+        .scrollIndicators(.hidden)
         .animation(.easeInOut(duration: 0.18), value: segment)
         .onReceive(nowTimer) { _ in now = Date() }
-        .task { await appState.refreshOrgSettings() }
-        .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
-        .sheet(isPresented: $showDatePicker) {
-            // Jump-to-date picker — wireframe Day view doesn't have an inline
-            // calendar; the calendar icon in the header opens this sheet.
-            DatePickerSheet(selection: $selectedDate)
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-        }
-        .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
-        .navigationDestination(for: ScheduleFocus.self) { focus in
-            JobDetailView(job: focus.job,
-                          highlightPanelId: focus.panelId,
-                          highlightOpId: focus.opId)
-        }
-        .toolbar(.hidden, for: .navigationBar)
+        .sheet(item: $selectedBlock) { block in
+            ScheduleJobSheet(block: block)
         }
     }
 
@@ -475,6 +450,7 @@ private struct DayTimeline: View {
     let workEnd: Double
     let lunchStart: Double
     let lunchDurationH: Double
+    let onSelect: (ScheduleBlock) -> Void
     private let pxPerHour: CGFloat = 56
     private let cal = Calendar.current
 
@@ -525,15 +501,15 @@ private struct DayTimeline: View {
                     .padding(.horizontal, 6)
                     .offset(y: lunchTop)
 
-                // Blocks — tap to push the job detail. Blocks whose start is
-                // already past workEnd are dropped (nothing to show); blocks
+                // Blocks — tap to open the job-detail popup. Blocks whose start
+                // is already past workEnd are dropped (nothing to show); blocks
                 // that overflow workEnd are clamped to the visible lane so the
                 // schedule never bleeds past the configured shift.
                 ForEach(blocks.filter { $0.start < endHour }) { b in
                     let clampedEnd = min(b.end, endHour)
                     let top = CGFloat(b.start - startHour) * pxPerHour + 2
                     let h = max(20, CGFloat(clampedEnd - b.start) * pxPerHour - 4)
-                    NavigationLink(value: ScheduleFocus(job: b.job, panelId: b.panelId, opId: b.opId)) {
+                    Button { onSelect(b) } label: {
                         ScheduleBlockView(block: b, height: h)
                     }
                     .buttonStyle(.plain)
@@ -793,6 +769,7 @@ private struct WeekGrid: View {
     let workStart: Double
     let workEnd: Double
     let blocksFor: (Date) -> [ScheduleBlock]
+    let onSelect: (ScheduleBlock) -> Void
 
     private var startHour: Double { workStart }
     private let pxPerHour: CGFloat = 36
@@ -835,7 +812,8 @@ private struct WeekGrid: View {
                     pxPerHour: pxPerHour,
                     isToday: cal.isDateInToday(d),
                     now: now,
-                    blocks: blocksFor(d))
+                    blocks: blocksFor(d),
+                    onSelect: onSelect)
                 .frame(maxWidth: .infinity)
             }
         }
@@ -895,6 +873,7 @@ private struct WeekDayColumn: View {
     let isToday: Bool
     let now: Date
     let blocks: [ScheduleBlock]
+    let onSelect: (ScheduleBlock) -> Void
     private let cal = Calendar.current
 
     var body: some View {
@@ -921,7 +900,7 @@ private struct WeekDayColumn: View {
                 let clampedEnd = min(b.end, endHour)
                 let top = CGFloat(b.start - startHour) * pxPerHour + 1
                 let h = max(2, CGFloat(clampedEnd - b.start) * pxPerHour - 2)
-                NavigationLink(value: ScheduleFocus(job: b.job, panelId: b.panelId, opId: b.opId)) {
+                Button { onSelect(b) } label: {
                     WeekBlockTile(block: b, height: h)
                 }
                 .buttonStyle(.plain)

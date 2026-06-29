@@ -1,6 +1,14 @@
 import SwiftUI
 import OneSignalFramework
 
+// MARK: - Jobs tab view mode
+// The Jobs tab merges the old Jobs (list) and Schedule (gantt) pages into one.
+// `jobsMode` chooses which view the Jobs tab renders; the header toggle flips it.
+enum JobsViewMode: Hashable {
+    case list, gantt
+    mutating func toggle() { self = self == .list ? .gantt : .list }
+}
+
 // MARK: - App-wide Navigation
 // Holds the selected tab and the side-menu open state. Injected at the App
 // root so the header's hamburger button (anywhere) and the drawer overlay
@@ -12,6 +20,11 @@ import OneSignalFramework
 final class AppNav {
     var selected: TTab = .jobs
     var isMenuOpen: Bool = false
+
+    /// Which view the merged Jobs tab shows — list (TasksView) or gantt (GanttView).
+    /// Persists across tab switches; reset to `.list` for job deep links so the
+    /// list view's deep-link consumer can resolve the tapped job (see below).
+    var jobsMode: JobsViewMode = .list
 
     // MARK: - Push deep links
     //
@@ -38,6 +51,9 @@ final class AppNav {
             pendingDeepLink = .thread(key: key)
         } else if let number = Self.stringValue(data["jobNumber"]), !number.isEmpty {
             selected = .jobs
+            // The job-detail deep-link consumer lives in the list view, so make
+            // sure the merged Jobs tab is showing the list (not gantt) for it.
+            jobsMode = .list
             pendingDeepLink = .job(number: number)
         }
     }
