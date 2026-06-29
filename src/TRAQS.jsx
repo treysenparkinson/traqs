@@ -2386,7 +2386,6 @@ Extraction rules:
   const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
   const [toolbarExpanded, setToolbarExpanded] = useState(false);
   const [cellAlign, setCellAlign] = useState("left");
-  const [customCols, setCustomCols] = useState([]);
   const [colPickerOpen, setColPickerOpen] = useState(false);
   const [colPickerAnchor, setColPickerAnchor] = useState(null);
   const [colPickerExiting, setColPickerExiting] = useState(false);
@@ -2450,6 +2449,18 @@ Extraction rules:
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
     catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; }
   });
+  // Custom job-list columns are ORG-WIDE: stored in orgSettings (synced to S3), so a column an
+  // admin (or anyone) adds shows up for everyone. Per-user prefs (alignment, filters, colors,
+  // widths, order) stay local. setCustomCols writes through to orgSettings.
+  const customCols = useMemo(() => orgSettings.customCols || [], [orgSettings.customCols]);
+  const setCustomCols = useCallback((updater) => setOrgSettings(s => ({ ...s, customCols: typeof updater === "function" ? updater(s.customCols || []) : updater })), []);
+  // Keep the per-user width arrays aligned with the (synced) custom-column count — pad new columns
+  // with a default width, trim removed ones — so the grid never desyncs from the headers/cells.
+  useEffect(() => {
+    const n = customCols.length;
+    setColWidths(prev => { const cur = prev.slice(12, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 12), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
+    setEngColWidths(prev => { const cur = prev.slice(9, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 9), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
+  }, [customCols.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const productiveHoursPerDay = (() => {
     const parseT = t => { const [h, m] = (t || "08:00").split(":").map(Number); return h * 60 + m; };
     const blockMinutes = parseT(orgSettings.workEnd || "17:00") - parseT(orgSettings.workStart || "08:00");
