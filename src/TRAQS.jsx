@@ -1252,31 +1252,53 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
 // so it keeps its open state across the approval modal's re-renders, with the standard dropdown animation.
 function AssigneeDrop({ value, onChange, people }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [anchor, setAnchor] = useState(null); // { left, top, width, maxHeight } — fixed coords
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
   useEffect(() => {
     if (!open) return;
-    const hm = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const hm = e => { if (triggerRef.current?.contains(e.target) || menuRef.current?.contains(e.target)) return; setOpen(false); };
     const hk = e => { if (e.key === "Escape") setOpen(false); };
+    const close = () => setOpen(false);
+    // Close when an ANCESTOR scrolls (the menu would drift), but NOT when scrolling the menu's own
+    // list — otherwise mouse-wheeling the options closes it.
+    const onScroll = e => { if (menuRef.current && menuRef.current.contains(e.target)) return; setOpen(false); };
     document.addEventListener("mousedown", hm);
     document.addEventListener("keydown", hk);
-    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", onScroll, true);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); window.removeEventListener("resize", close); window.removeEventListener("scroll", onScroll, true); };
   }, [open]);
   const sel = value ? people.find(p => p.id === value) : null;
   const opts = [{ id: "", name: "Anyone" }, ...[...people].sort((a, b) => a.name.localeCompare(b.name))];
-  return <div ref={ref} style={{ position: "relative", width: 150, flexShrink: 0 }}>
-    <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
+  const toggle = () => {
+    if (open) { setOpen(false); return; }
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) {
+      const wantH = Math.min(240, opts.length * 36 + 8);
+      const below = window.innerHeight - r.bottom - 12;
+      const openUp = below < wantH && r.top - 12 > below;
+      setAnchor({ left: r.left, width: r.width, top: openUp ? Math.max(8, r.top - 4 - wantH) : r.bottom + 4, maxHeight: openUp ? Math.min(240, r.top - 12) : Math.min(240, below) });
+    }
+    setOpen(true);
+  };
+  return <div style={{ position: "relative", width: 150, flexShrink: 0 }}>
+    <div ref={triggerRef} onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
       <span style={{ fontSize: 12, fontWeight: sel ? 600 : 400, color: sel ? T.bgText : T.textDim, fontFamily: T.font, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.name : "Anyone"}</span>
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 10050, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", maxHeight: 220, overflowY: "auto", animation: "menuIn 0.15s ease-out" }}>
-      {opts.map((p, ri) => { const isOn = (value || "") === p.id; return <div key={p.id || "__any__"} onClick={() => { onChange(p.id); setOpen(false); }}
-        style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
-        onMouseEnter={e => e.currentTarget.style.background = T.hover}
-        onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
-        <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : (p.id ? T.text : T.textDim), fontFamily: T.font, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-      </div>; })}
-    </div></FadeOnClose>
+    {open && anchor && createPortal(
+      <div ref={menuRef} style={{ position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 12px 32px rgba(0,0,0,0.4)", padding: "4px 0", maxHeight: anchor.maxHeight, overflowY: "auto", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
+        {opts.map((p, ri) => { const isOn = (value || "") === p.id; return <div key={p.id || "__any__"} onClick={() => { onChange(p.id); setOpen(false); }}
+          style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+          onMouseEnter={e => e.currentTarget.style.background = T.hover}
+          onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+          <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
+          <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : (p.id ? T.text : T.textDim), fontFamily: T.font, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+        </div>; })}
+      </div>,
+      document.body
+    )}
   </div>;
 }
 // TRAQS-styled Department/Type picker for approvals: pick an existing template, pick "Custom",
