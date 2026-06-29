@@ -462,6 +462,15 @@ animStyle.textContent = `
   60%  { opacity: 1; transform: scale(1.02) translateY(2px);   filter: blur(0);   }
   100% { opacity: 1; transform: scale(1)    translateY(0);     filter: blur(0);   }
 }
+/* Options editor list: keep overflow hidden while the menu/grid expands (so no scrollbar
+   flickers in for a frame), then switch to auto via a delayed discrete keyframe. */
+.tq-opt-scroll { overflow-x: hidden; overflow-y: hidden; animation: tqOptScrollOn 0s 0.42s forwards; }
+@keyframes tqOptScrollOn { to { overflow-y: auto; } }
+/* Color swatch input: the chosen color fills the whole box (no inner browser-default box/padding). */
+.tq-color-swatch { -webkit-appearance: none; -moz-appearance: none; appearance: none; padding: 0; }
+.tq-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
+.tq-color-swatch::-webkit-color-swatch { border: none; border-radius: inherit; }
+.tq-color-swatch::-moz-color-swatch { border: none; border-radius: inherit; }
 @keyframes shake {
   0%,100% { transform: translateX(0); }
   20%     { transform: translateX(-8px); }
@@ -1236,6 +1245,37 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
           <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, fontFamily: T.font }}>{r}</span>
         </div>;
       })}
+    </div></FadeOnClose>
+  </div>;
+}
+// TRAQS-styled, id-based assignee picker for approval steps ("Anyone" + every person). Module-level
+// so it keeps its open state across the approval modal's re-renders, with the standard dropdown animation.
+function AssigneeDrop({ value, onChange, people }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const hm = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const hk = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", hm);
+    document.addEventListener("keydown", hk);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
+  }, [open]);
+  const sel = value ? people.find(p => p.id === value) : null;
+  const opts = [{ id: "", name: "Anyone" }, ...[...people].sort((a, b) => a.name.localeCompare(b.name))];
+  return <div ref={ref} style={{ position: "relative", width: 150, flexShrink: 0 }}>
+    <div onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
+      <span style={{ fontSize: 12, fontWeight: sel ? 600 : 400, color: sel ? T.bgText : T.textDim, fontFamily: T.font, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.name : "Anyone"}</span>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 10050, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", maxHeight: 220, overflowY: "auto", animation: "menuIn 0.15s ease-out" }}>
+      {opts.map((p, ri) => { const isOn = (value || "") === p.id; return <div key={p.id || "__any__"} onClick={() => { onChange(p.id); setOpen(false); }}
+        style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+        onMouseEnter={e => e.currentTarget.style.background = T.hover}
+        onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+        <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
+        <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : (p.id ? T.text : T.textDim), fontFamily: T.font, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+      </div>; })}
     </div></FadeOnClose>
   </div>;
 }
@@ -2473,6 +2513,7 @@ Extraction rules:
   // ── Standalone approvals (live in orgSettings.approvals; independent of jobs) ──
   const [approvalGroupBy, setApprovalGroupBy] = useState("type"); // type | client | dept | status
   const [approvalGroupOpen, setApprovalGroupOpen] = useState(false);
+  const [approvalSearch, setApprovalSearch] = useState("");
   const [approvalModal, setApprovalModal] = useState(null); // { id?, title, clientId, templateId, dept, steps:[{label,done?,byName?,at?}], dueDate }
   const [approvalCtx, setApprovalCtx] = useState(null); // { x, y, id } right-click menu for a standalone approval
   const [soDropPanelId, setSoDropPanelId] = useState(null); // panel id with sign-off dropdown open in new job modal
@@ -5531,7 +5572,14 @@ ${jobsCtx || "No jobs found."}`;
     return { ...s, approvals: list.some(a => a.id === appr.id) ? list.map(a => a.id === appr.id ? { ...a, ...appr } : a) : [...list, appr] };
   });
   const deleteApproval = (id) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).filter(a => a.id !== id) }));
-  const signApprovalStep = (id, idx) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, steps: (a.steps || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }) }));
+  const signApprovalStep = (id, idx) => {
+    // Allowed when you can approve, OR this step is assigned to you (an explicit assignee can sign
+    // their own step even without general approval rights).
+    const step = (orgSettings.approvals || []).find(a => a.id === id)?.steps?.[idx];
+    const mine = !!(step?.assigneeId && String(step.assigneeId) === String(loggedInUser?.id));
+    if (!canApprove && !mine) return;
+    setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, steps: (a.steps || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }) }));
+  };
   const revertApprovalStep = (id, idx) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, steps: (a.steps || []).map((st, i) => i !== idx ? st : { ...st, done: false, by: null, byName: "", at: null }) }) }));
   // Open the create/edit approval modal. Picking a template seeds dept + steps (still editable).
   const openApprovalModal = (existing) => {
@@ -5542,7 +5590,7 @@ ${jobsCtx || "No jobs found."}`;
   //    (including fast-traqs engineering ones) have custom, add/remove-able steps. ──
   const setPanelChain = (jobId, panelId, steps) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: steps }) }));
   const removePanelChain = (jobId, panelId) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => { if (p.id !== panelId) return p; const { apprChain, ...rest } = p; return rest; }) }));
-  const signChainStep = (jobId, panelId, idx) => { if (!canApprove) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }) })); };
+  const signChainStep = (jobId, panelId, idx) => { const step = tasks.find(j => j.id === jobId)?.subs?.find(p => p.id === panelId)?.apprChain?.[idx]; const mine = !!(step?.assigneeId && String(step.assigneeId) === String(loggedInUser?.id)); if (!canApprove && !mine) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }) })); };
   const revertChainStep = (jobId, panelId, idx) => { if (!canApprove) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: false, by: null, byName: "", at: null }) }) })); };
   // Open the modal to edit a job panel's approval steps (chain mode). Seeds from an existing
   // chain, or from the row's current steps (engineering/template) preserving done-state.
@@ -7048,11 +7096,11 @@ ${jobsCtx || "No jobs found."}`;
       const tmpl = signOffTemplates.find(t => t.id === a.templateId);
       const deptLabel = a.dept || tmpl?.name || queueLabel;
       if (!visibleFor(deptLabel)) return;
-      const steps = (a.steps || []).map((st, i) => ({ key: i, label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null }));
+      const steps = (a.steps || []).map((st, i) => ({ key: i, label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null, assigneeId: st.assigneeId || null }));
       const doneCount = steps.filter(s => s.rec).length;
       let lastAt = 0, lastBy = "", lastLabel = "";
       steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
-      entries.push({ id: "appr:" + a.id, kind: "standalone", approvalId: a.id, title: a.title || "Untitled approval", subtitle: a.dueDate ? ("Due " + fm(a.dueDate)) : "", jobNumber: null, clientId: a.clientId || null, deptLabel, typeKey: "__standalone__", typeLabel: "Standalone Approvals", steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: true });
+      entries.push({ id: "appr:" + a.id, kind: "standalone", priority: a.priority || "Medium", approvalId: a.id, title: a.title || "Untitled approval", subtitle: a.dueDate ? ("Due " + fm(a.dueDate)) : "", jobNumber: null, clientId: a.clientId || null, deptLabel, typeKey: "__standalone__", typeLabel: "Standalone Approvals", steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: true });
     });
     tasks.forEach(job => (job.subs || []).forEach(panel => {
       signOffTemplates.forEach(t => {
@@ -7063,24 +7111,30 @@ ${jobsCtx || "No jobs found."}`;
         const doneCount = steps.filter(s => s.rec).length;
         let lastAt = 0, lastBy = "", lastLabel = "";
         steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
-        entries.push({ id: panel.id + ":so:" + t.id, kind: "signoff", job, panel, template: t, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: t.name, typeKey: t.id, typeLabel: t.name, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: false });
+        entries.push({ id: panel.id + ":so:" + t.id, kind: "signoff", priority: job.pri || "Medium", job, panel, template: t, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: t.name, typeKey: t.id, typeLabel: t.name, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: false });
       });
       // A custom per-panel chain supersedes the engineering workflow and is fully editable.
       if (Array.isArray(panel.apprChain) && visibleFor(queueLabel)) {
-        const steps = panel.apprChain.map((st, i) => ({ key: i, label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null }));
+        const steps = panel.apprChain.map((st, i) => ({ key: i, label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null, assigneeId: st.assigneeId || null }));
         const doneCount = steps.filter(s => s.rec).length;
         let lastAt = 0, lastBy = "", lastLabel = "";
         steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
-        entries.push({ id: panel.id + ":chain", kind: "chain", job, panel, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: queueLabel, typeKey: "__eng__", typeLabel: queueLabel, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: true });
+        entries.push({ id: panel.id + ":chain", kind: "chain", priority: job.pri || "Medium", job, panel, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: queueLabel, typeKey: "__eng__", typeLabel: queueLabel, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: true });
       } else if (panel.engineering !== undefined && visibleFor(queueLabel)) {
         const e = panel.engineering || {};
         const steps = approvalSteps.map(s => ({ key: s.key, label: s.label, rec: e[s.key] }));
         const doneCount = steps.filter(s => s.rec).length;
         let lastAt = 0, lastBy = "", lastLabel = "";
         steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
-        entries.push({ id: panel.id + ":eng", kind: "eng", job, panel, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: queueLabel, typeKey: "__eng__", typeLabel: queueLabel, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: doneCount === steps.length, lastAt, lastBy, lastLabel, editable: false });
+        entries.push({ id: panel.id + ":eng", kind: "eng", priority: job.pri || "Medium", job, panel, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: queueLabel, typeKey: "__eng__", typeLabel: queueLabel, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: doneCount === steps.length, lastAt, lastBy, lastLabel, editable: false });
       }
     }));
+    // Search filter — title, panel/subtitle, job number, client, department, priority.
+    const _q = approvalSearch.trim().toLowerCase();
+    const fEntries = !_q ? entries : entries.filter(e => {
+      const cName = e.clientId ? (clients.find(c => c.id === e.clientId)?.name || "") : "";
+      return [e.title, e.subtitle, e.jobNumber, e.deptLabel, e.priority, cName].filter(Boolean).join(" ").toLowerCase().includes(_q);
+    });
     // Group entries by the selected dimension.
     const grpDef = {
       type: e => ({ key: e.typeKey, label: e.typeLabel }),
@@ -7090,25 +7144,39 @@ ${jobsCtx || "No jobs found."}`;
     };
     const gd = grpDef[approvalGroupBy] || grpDef.type;
     const buckets = new Map();
-    entries.forEach(e => { const { key, label, color } = gd(e); if (!buckets.has(key)) buckets.set(key, { key, label, color, items: [] }); buckets.get(key).items.push(e); });
+    fEntries.forEach(e => { const { key, label, color } = gd(e); if (!buckets.has(key)) buckets.set(key, { key, label, color, items: [] }); buckets.get(key).items.push(e); });
     const sections = [...buckets.values()];
     sections.forEach(sec => sec.items.sort((a, b) => (a.isDone !== b.isDone) ? (a.isDone ? 1 : -1) : (b.lastAt - a.lastAt)));
     if (approvalGroupBy === "status") sections.sort((a, b) => a.key === "pending" ? -1 : 1);
     else sections.sort((a, b) => String(a.label).localeCompare(String(b.label)));
-    const total = entries.length;
-    const pending = entries.filter(e => !e.isDone).length;
-    const empty = total === 0;
-    const COLS = "minmax(190px,1.4fr) 120px 120px minmax(220px,1.8fr) 150px minmax(210px,1.7fr)";
+    const empty = fEntries.length === 0;
+    const noMatches = empty && !!_q && entries.length > 0;
+    const COLS = "minmax(190px,1.4fr) 120px 120px 104px minmax(220px,1.8fr) 150px minmax(210px,1.7fr)";
     const cellBase = { padding: "9px 12px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1.25px solid ${T.border}`, display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" };
     const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", padding: "10px 12px", background: T.surface };
     const groupOpts = [["type", "Type"], ["client", "Client"], ["dept", "Department"], ["status", "Status"]];
     const signStep = (e, sIdx) => { if (e.kind === "standalone") signApprovalStep(e.approvalId, sIdx); else if (e.kind === "chain") signChainStep(e.job.id, e.panel.id, sIdx); else if (e.kind === "signoff") signOffStep(e.job.id, e.panel.id, e.template.id, sIdx); else signOffEngineering(e.job.id, e.panel.id, e.steps[sIdx].key); };
     const revertStepFor = (e, sIdx) => { if (e.kind === "standalone") revertApprovalStep(e.approvalId, sIdx); else if (e.kind === "chain") revertChainStep(e.job.id, e.panel.id, sIdx); else if (e.kind === "signoff") revertStep(e.job.id, e.panel.id, e.template.id, sIdx); else revertEngineering(e.job.id, e.panel.id, e.steps[sIdx].key); };
+    // Cycle an approval's priority to the next custom option. Standalone approvals carry their own
+    // priority; job-derived rows reflect (and set) the parent job's priority.
+    const cycleApprovalPri = (e) => {
+      const opts = PRIORITIES.length ? PRIORITIES : ["Medium"];
+      const next = opts[(opts.indexOf(e.priority || "Medium") + 1) % opts.length];
+      if (e.kind === "standalone") setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id === e.approvalId ? { ...a, priority: next } : a) }));
+      else if (e.job) updTask(e.job.id, { pri: next });
+    };
+    // Right-click the Priority header/cell → the shared priority-options editor (same as the jobs
+    // page). approvalMode hides the jobs-grid-only items (rename/add/delete column).
+    const openPriEditor = (ev) => { ev.preventDefault(); ev.stopPropagation(); setColCtxMenu({ x: ev.clientX, y: ev.clientY, colId: "pri", isCustom: false, approvalMode: true }); };
     return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
         <span style={{ lineHeight: 0, color: T.accent }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></span>
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Approval Queue</h2>
-        {!empty && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{pending} pending · {total} total</span>}
+        <div style={{ position: "relative", flex: 1, maxWidth: 320, minWidth: 160 }}>
+          <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} placeholder="Search approvals…" style={{ width: "100%", padding: "8px 28px 8px 30px", borderRadius: T.radiusSm, border: `1px solid ${approvalSearch ? T.accent + "88" : T.border}`, background: approvalSearch ? T.accent + "10" : T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+          {approvalSearch && <button onClick={() => setApprovalSearch("")} title="Clear" style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 18, height: 18, borderRadius: "50%", border: "none", background: T.border, color: T.text, fontSize: 12, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>}
+        </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ position: "relative" }}>
             <button onClick={ev => { ev.stopPropagation(); setApprovalGroupOpen(o => !o); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
@@ -7124,8 +7192,8 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       {empty && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "70px 24px", textAlign: "center", gap: 12 }}>
         <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: T.text }}>Nothing waiting for approval</h3>
-        <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 360, lineHeight: 1.65 }}>Create a standalone approval with “+ New Approval”, or pending job sign-offs will show up here automatically.</p>
+        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: T.text }}>{noMatches ? "No approvals match your search" : "Nothing waiting for approval"}</h3>
+        <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 360, lineHeight: 1.65 }}>{noMatches ? "Try a different search term, or clear the search to see everything." : "Create a standalone approval with “+ New Approval”, or pending job sign-offs will show up here automatically."}</p>
       </div>}
       {!empty && <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
         {sections.map(section => (
@@ -7136,11 +7204,12 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{section.items.length}</span>
             </div>
             <div className="tq-frost" style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto" }}>
-              <div style={{ minWidth: 1130 }}>
+              <div style={{ minWidth: 1234 }}>
                 <div style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
                   <div style={hdrCell}>Approval</div>
                   <div style={hdrCell}>Client</div>
                   <div style={hdrCell}>Department</div>
+                  <div style={{ ...hdrCell, cursor: "context-menu" }} onContextMenu={openPriEditor} title="Right-click to edit priority options">Priority</div>
                   <div style={hdrCell}>Progress</div>
                   <div style={hdrCell}>Last Activity</div>
                   <div style={{ ...hdrCell, borderRight: "none" }}>Comments</div>
@@ -7156,7 +7225,7 @@ ${jobsCtx || "No jobs found."}`;
                     ev.preventDefault();
                     if (e.kind === "standalone") setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "standalone", approvalId: e.approvalId });
                     else if (e.kind === "signoff") setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "signoff", templateId: e.template.id, templateName: e.template.name });
-                    else setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "panel", jobId: e.job.id, panelId: e.panel.id, headerTitle: `${e.title} · ${e.subtitle}`, hasChain: e.kind === "chain", seed: e.steps.map(s => ({ label: s.label, done: !!s.rec, by: s.rec?.by || null, byName: s.rec?.byName || "", at: s.rec?.at || null })) });
+                    else setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "panel", jobId: e.job.id, panelId: e.panel.id, headerTitle: `${e.title} · ${e.subtitle}`, hasChain: e.kind === "chain", seed: e.steps.map(s => ({ label: s.label, done: !!s.rec, by: s.rec?.by || null, byName: s.rec?.byName || "", at: s.rec?.at || null, assigneeId: s.assigneeId || null })) });
                   };
                   return <div key={e.id} onContextMenu={mkCtx}
                     style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.25px solid ${T.border}`, transition: "background 0.15s", cursor: "context-menu" }}
@@ -7172,6 +7241,9 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                     <div style={cellBase}>{client ? <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: elColor(client.color), fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: elColor(client.color), flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span> : <span style={{ fontSize: 12, color: T.textDim }}>—</span>}</div>
                     <div style={cellBase}><span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.deptLabel}</span></div>
+                    <div style={{ ...cellBase, justifyContent: "center", cursor: "pointer" }} title="Click to change · right-click to edit options" onClick={ev => { ev.stopPropagation(); cycleApprovalPri(e); }} onContextMenu={openPriEditor}>
+                      {(() => { const pc = priColorOf(e.priority || "Medium"); return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 8, background: pc + "1a", border: `1px solid ${pc}44`, fontSize: 11, fontWeight: 700, color: pc, userSelect: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.priority || "Medium"}</span>; })()}
+                    </div>
                     <div style={cellBase}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -7180,10 +7252,16 @@ ${jobsCtx || "No jobs found."}`;
                         </div>
                         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
                           {e.steps.map((s, sIdx) => {
+                            const assignee = s.assigneeId ? people.find(p => p.id === s.assigneeId) : null;
+                            const tag = assignee ? ` · ${assignee.name.split(" ")[0]}` : "";
                             if (s.rec) return <Tip key={sIdx} label={`${s.rec.byName || ""}${s.rec.at ? " · " + new Date(s.rec.at).toLocaleDateString() : ""} — click to undo`}><button onClick={() => revertStepFor(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, background: "#10b98112", border: "1px solid #10b98140", fontSize: 11, fontWeight: 700, color: "#10b981", cursor: "pointer", fontFamily: T.font }}>✓ {s.label}</button></Tip>;
                             const isActive = !e.isDone && sIdx === e.activeStepIdx;
-                            if (isActive) return <button key={sIdx} onClick={() => signStep(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>→ {s.label}</button>;
-                            return <span key={sIdx} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>○ {s.label}</span>;
+                            // Who may complete this step: if it has an assignee, only that person (admins may override);
+                            // if unassigned, anyone with approval ability. Otherwise the step is shown locked/greyed.
+                            const canDoThis = s.assigneeId ? (String(loggedInUser?.id) === String(s.assigneeId) || isAdmin) : canApprove;
+                            if (isActive && canDoThis) return <button key={sIdx} onClick={() => signStep(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>→ {s.label}{tag}</button>;
+                            if (isActive) return <Tip key={sIdx} label={s.assigneeId ? `Assigned to ${assignee?.name || "someone else"} — only they can complete this step` : "You don't have approval access for this step"}><span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 11px", borderRadius: 12, background: T.surface, border: `1px solid ${T.border}`, fontSize: 11, fontWeight: 700, color: T.textDim, opacity: 0.85, cursor: "not-allowed" }}><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>{s.label}{tag}</span></Tip>;
+                            return <span key={sIdx} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>○ {s.label}{tag}</span>;
                           })}
                           {e.steps.length === 0 && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>No steps{e.editable ? " — right-click to add" : ""}</span>}
                         </div>
@@ -16940,7 +17018,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}
     {/* ── Column header context menu ── */}
     <FadeOnClose open={!!colCtxMenu}>{colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => { setColCtxMenu(null); setOptDraft(null); }}>
-      <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
+      <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", width: 224, minWidth: 0, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
         {(() => {
           const cid = colCtxMenu.colId;
           const isStd = !colCtxMenu.isCustom && (cid === "status" || cid === "pri");
@@ -16963,6 +17041,9 @@ ${jobsCtx || "No jobs found."}`;
           const save = () => { if (isStd) (cid === "status" ? setStatusOpts : setPriOpts)(draft); else updateCustomCol(col.id, { options: draft }); closeEditor(); };
           const hasIcon = !(isStd && cid === "pri"); // status + custom lists carry an icon; priority is color-only
           const minOne = isStd; // built-in must keep ≥1; custom lists keep their blank/none sentinel instead
+          // Status & priority cells follow the List Cells color mode. In Adaptive mode their colors are
+          // auto-generated from the accent, so the per-option color picker is greyed out / disabled.
+          const adaptiveLock = isStd && cellMode === "adaptive";
           const upd = (i, patch) => setDraft(prev => prev.map((o, j) => j === i ? { ...o, ...patch } : o));
           const del = i => setDraft(prev => prev.filter((_, j) => j !== i));
           const add = () => setDraft(prev => [...prev, { name: `New ${prev.length + 1}`, color: OPT_PALETTE[prev.length % OPT_PALETTE.length], ...(hasIcon ? { icon: "○" } : {}) }]);
@@ -16971,7 +17052,7 @@ ${jobsCtx || "No jobs found."}`;
             {draft.map((o, i) => optName(o) === "—"
               ? <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 7px", fontSize: 11, color: T.textDim, fontStyle: "italic", ...rowAnim(i >= base ? 0 : i + 1) }}>(blank / none)</div>
               : <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, ...rowAnim(i >= base ? 0 : i + 1) }}>
-                  <input type="color" value={o.color || "#94a3b8"} onClick={e => e.stopPropagation()} onChange={e => upd(i, { color: e.target.value })} title="Color" style={{ width: 22, height: 24, padding: 0, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: "transparent", cursor: "pointer", flexShrink: 0 }} />
+                  <input type="color" className="tq-color-swatch" value={o.color || "#94a3b8"} disabled={adaptiveLock} onClick={e => e.stopPropagation()} onChange={e => upd(i, { color: e.target.value })} title={adaptiveLock ? "Colors are auto-generated in Adaptive mode" : "Color"} style={{ width: 24, height: 24, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: "transparent", cursor: adaptiveLock ? "not-allowed" : "pointer", flexShrink: 0, opacity: adaptiveLock ? 0.35 : 1, pointerEvents: adaptiveLock ? "none" : "auto" }} />
                   {hasIcon && <input value={o.icon || ""} onClick={e => e.stopPropagation()} onChange={e => upd(i, { icon: e.target.value.slice(0, 2) })} title="Icon" style={{ width: 26, textAlign: "center", padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", flexShrink: 0, boxSizing: "border-box" }} />}
                   <input value={optName(o)} onClick={e => e.stopPropagation()} onChange={e => upd(i, { name: e.target.value })} onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }} onFocus={e => e.currentTarget.style.borderColor = T.accent} onBlur={e => e.currentTarget.style.borderColor = T.border} style={inputBase} />
                   {delBtn(() => del(i), minOne && draft.length <= 1)}
@@ -16979,7 +17060,7 @@ ${jobsCtx || "No jobs found."}`;
             {addBtn(add, draft.length + 1)}
           </>;
           const body = <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
-            <div key={optEditSeq} style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 280, overflowY: "auto" }}>{rows}</div>
+            <div key={optEditSeq} className="tq-opt-scroll" style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 280 }}>{rows}</div>
             <div style={{ display: "flex", gap: 6, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${T.border}`, ...rowAnim(draft.length + 2) }}>
               <button onClick={closeEditor} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.bg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Cancel</button>
               <button onClick={save} disabled={!dirty} title={dirty ? "Apply changes" : "No changes to save"} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: "none", background: dirty ? T.accent : T.border, color: dirty ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: dirty ? "pointer" : "default", fontFamily: T.font, opacity: dirty ? 1 : 0.7 }}>Save{dirty ? " •" : ""}</button>
@@ -16999,12 +17080,12 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>;
         })()}
-        {<button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {!colCtxMenu.approvalMode && <button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Rename Column
         </button>}
         {/* Add Column Left / Right */}
-        {["left","right"].map(side => (
+        {!colCtxMenu.approvalMode && ["left","right"].map(side => (
           <div key={side}>
             <button onClick={() => setColCtxMenu(prev => ({ ...prev, subMenu: prev.subMenu === `add${side}` ? null : `add${side}` }))}
               style={{ width: "100%", padding: "9px 14px", background: colCtxMenu.subMenu === `add${side}` ? T.accent + "15" : "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: colCtxMenu.subMenu === `add${side}` ? T.accent : T.text, fontFamily: T.font, textAlign: "left" }}
@@ -17072,7 +17153,7 @@ ${jobsCtx || "No jobs found."}`;
             })()}
           </div>
         ))}
-        {(() => {
+        {!colCtxMenu.approvalMode && (() => {
           const gKey = colCtxMenu.isCustom ? "_cc_" + colCtxMenu.colId : colCtxMenu.colId;
           const on = isColGroupable(gKey);
           return <button onClick={() => toggleColGroupable(gKey)} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -17082,14 +17163,14 @@ ${jobsCtx || "No jobs found."}`;
             Use for grouping
           </button>;
         })()}
-        <button onClick={() => {
+        {!colCtxMenu.approvalMode && <button onClick={() => {
           if (colCtxMenu.isCustom) { removeCustomCol(colCtxMenu.colId); }
           else { setColOrder(prev => prev.filter(id => id !== colCtxMenu.colId)); }
           setColCtxMenu(null);
         }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#ef4444", fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = "#ef444415"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           Delete Column
-        </button>
+        </button>}
       </div>
     </div>}</FadeOnClose>
 
@@ -17601,7 +17682,8 @@ ${jobsCtx || "No jobs found."}`;
         return { ...p, templateId: tid, dept: t.name, steps };
       });
       const setStep = (i, label) => setApprovalModal(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? { ...s, label } : s) }));
-      const addStep = () => setApprovalModal(p => ({ ...p, steps: [...(p.steps || []), { label: "", done: false }] }));
+      const setStepAssignee = (i, personId) => setApprovalModal(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? { ...s, assigneeId: personId || null } : s) }));
+      const addStep = () => setApprovalModal(p => ({ ...p, steps: [...(p.steps || []), { label: "", done: false, assigneeId: null }] }));
       const delStep = i => setApprovalModal(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }));
       const isChain = m.target?.kind === "chain";
       const valid = isChain || (m.title || "").trim().length > 0;
@@ -17654,6 +17736,7 @@ ${jobsCtx || "No jobs found."}`;
               {(m.steps || []).map((s, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, background: s.done ? "#10b98118" : T.surface, color: s.done ? "#10b981" : T.textDim, border: `1px solid ${s.done ? "#10b98140" : T.border}` }}>{s.done ? "✓" : i + 1}</span>
                 <input value={s.label} onChange={e => setStep(i, e.target.value)} placeholder={`Step ${i + 1}`} style={{ ...fld, padding: "7px 10px", fontSize: 13 }} />
+                <AssigneeDrop value={s.assigneeId || ""} onChange={pid => setStepAssignee(i, pid)} people={people} />
                 <button onClick={() => delStep(i)} title="Remove step" style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 14, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>)}
               {(m.steps || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim, fontStyle: "italic", padding: "6px 2px" }}>No steps yet — add the approval steps above.</div>}
