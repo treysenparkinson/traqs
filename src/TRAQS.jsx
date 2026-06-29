@@ -410,13 +410,15 @@ animStyle.textContent = `
    Snappy press      : cubic-bezier(0.4, 0, 0.2, 1)
 ─────────────────────────────────────────────────────────────────────── */
 
-/* Page cross-dissolve — only the OUTGOING snapshot fades (opacity); the incoming page stays at
-   full opacity so its backdrop-filter frost never breaks. The outgoing has frost disabled
-   (.tq-no-frost) so its opacity fade is glitch-free too. */
-@keyframes viewExit { from { opacity: 1; } to { opacity: 0; } }
 @keyframes slideInRight {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
+}
+/* "New job" dot on freshly-created schedule bars — a bright-blue dot whose glow pulses in
+   intensity (no expanding ring, which would get clipped by the rows' overflow:hidden). */
+@keyframes tqNewPulse {
+  0%, 100% { box-shadow: 0 0 3px 1px rgba(10,132,255,0.85); }
+  50%      { box-shadow: 0 0 8px 2px rgba(10,132,255,1); }
 }
 @keyframes cardPop {
   0%   { opacity: 0; transform: translateY(16px) scale(0.94); filter: blur(3px); }
@@ -588,8 +590,7 @@ animStyle.textContent = `
 .anim-badge       { animation: badgeBounce 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-gantt-bar   { animation: ganttBarSlide 0.38s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-spring      { animation: springPop   0.5s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.anim-view-out    { animation: viewExit 0.16s ease forwards; }
-.tq-no-frost, .tq-no-frost * { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+.tq-new-pulse     { animation: tqNewPulse 1.6s ease-out infinite; }
 
 .anim-tab {
   transition: all 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1202,30 +1203,9 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
   </div>;
 }
 function AnimatedView({ viewKey, children, style }) {
-  // Seamless cross-dissolve. The incoming page renders live at FULL opacity, so its backdrop-filter
-  // frost is never broken — animating opacity on a frosted ancestor is the bug that glitched every
-  // earlier attempt. A snapshot of the OUTGOING page fades out on top of it, with frost disabled
-  // (.tq-no-frost) so its opacity fade is glitch-free too. The two overlap, so there's no
-  // backdrop-only middle frame: it reads as one continuous dissolve, not fade-out → wait → fade-in.
-  const [outgoing, setOutgoing] = useState(null);    // { key, node } snapshot of the page dissolving away
-  const prevKeyRef = useRef(viewKey);
-  const prevNodeRef = useRef(children);
-  useEffect(() => {
-    if (prevKeyRef.current !== viewKey) {
-      setOutgoing({ key: prevKeyRef.current, node: prevNodeRef.current });
-      prevKeyRef.current = viewKey;
-      const t = setTimeout(() => setOutgoing(null), 190); // a touch past the 0.16s fade
-      return () => clearTimeout(t);
-    }
-  }, [viewKey]);
-  useEffect(() => { prevNodeRef.current = children; }); // keep the latest content for the next switch
-  const layer = { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" };
-  return (
-    <div style={{ ...style, position: "relative" }}>
-      <div key={`in-${viewKey}`} style={{ ...layer, position: "relative", zIndex: 1 }}>{children}</div>
-      {outgoing && <div key={`out-${outgoing.key}`} className="anim-view-out tq-no-frost" aria-hidden="true" style={{ ...layer, position: "absolute", inset: 0, zIndex: 2, pointerEvents: "none" }}>{outgoing.node}</div>}
-    </div>
-  );
+  // No page transition for now — render the active view directly. The cross-fade is being
+  // rebuilt from scratch; keying by viewKey gives each page a clean fresh mount on switch.
+  return <div key={viewKey} style={style}>{children}</div>;
 }
 
 // Generic cascading dropdown — matches deptDrop/soDrop animation style
@@ -5066,7 +5046,7 @@ ${jobsCtx || "No jobs found."}`;
         }) };
     }) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
-    else { const nw = { ...withIds, id: uid() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
+    else { const nw = { ...withIds, id: uid(), createdAt: new Date().toISOString() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
 
     // Notify newly-assigned team members. Collect every personId across the
     // job + its panels + ops, diff against the job's previous team, and push
@@ -8497,14 +8477,14 @@ ${jobsCtx || "No jobs found."}`;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
               const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
-              bars.push({ type: "task", id: op.id, start: op.start, end: op.end, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+              bars.push({ type: "task", id: op.id, start: op.start, end: op.end, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
             // Panel with no sub-ops: render the panel itself so it appears on the schedule
             if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
               if (_visualEnd(panel) >= tStart && panel.start <= tEnd) {
                 const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
                 const tc = panel.color || "#94a3b8";
-                bars.push({ type: "task", id: panel.id, start: panel.start, end: panel.end, title: `${job.title} · ${panel.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+                bars.push({ type: "task", id: panel.id, start: panel.start, end: panel.end, title: `${job.title} · ${panel.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, jobCreatedAt: job.createdAt || null, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
               }
             }
           });
@@ -8516,7 +8496,7 @@ ${jobsCtx || "No jobs found."}`;
             if (!sub.start || !sub.end || _visualEnd(sub) < tStart || sub.start > tEnd) return;
             const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
             const tc = sub.color || "#94a3b8";
-            bars.push({ type: "task", id: sub.id, start: sub.start, end: sub.end, title: `${job.title} · ${sub.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+            bars.push({ type: "task", id: sub.id, start: sub.start, end: sub.end, title: `${job.title} · ${sub.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, jobCreatedAt: job.createdAt || null, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
           });
         }
       });
@@ -10272,7 +10252,6 @@ ${jobsCtx || "No jobs found."}`;
                   // Distributes across multi-segment bars in lockstep with the bar's own width budget.
                   const _workedCellsTotal = ws ? ws.workedFraction * _wBudget : 0;
                   let _workedRemainingBudget = _workedCellsTotal;
-                  const hasMoveLog = !isPto && bar.task && (bar.task.moveLog || []).length > 0;
                   const bc = bar.color;
                   const iconColor = accentText(bc);
                   const isHighlighted = !isPto && bar.task?.id === scheduleHighlightId;
@@ -10302,6 +10281,8 @@ ${jobsCtx || "No jobs found."}`;
                     return Math.round((workStartH + _rem) * 2) / 2;
                   })();
                   let _wRemainingBudget = Math.max(0, _wBudget - _wFirst);
+                  // "NEW" badge — show on bars whose parent job was created within the last 24h.
+                  const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
@@ -10319,10 +10300,13 @@ ${jobsCtx || "No jobs found."}`;
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                    {hasMoveLog && <Tip label="Schedule was changed"><span style={{ width: 6, height: 6, borderRadius: 3, background: "#f59e0b", flexShrink: 0, position: "relative", zIndex: 3, boxShadow: "0 0 4px #f59e0b66" }} /></Tip>}
                     <span style={{ fontSize: 11, color: isPto ? bar.color : (accentText(bc)), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
                     {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
+                  /* "New job" dot — a sibling of the bar (not a child, which the bar's overflow:hidden
+                     would clip). Tucked just inside the bar's top-right corner so it stays fully
+                     visible (no clipping by the rows'/gantt's overflow:hidden edges). */
+                  isNew && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
                     const isLastSeg = si === barSegs.length - 2;
