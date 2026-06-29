@@ -3803,6 +3803,63 @@ Extraction rules:
     return () => clearTimeout(saveTimerRef.current);
   }, [tasks, people, clients]); // Step 1: doSave removed — only real data changes trigger unsaved
 
+  // ── Auto-end stranded job clocks ──────────────────────────────────────────
+  // If a job is moved/restructured/deleted (from desktop OR the iOS app) while a worker is
+  // clocked into one of its ops, that worker is left "stuck on a job that changed under them"
+  // and can't clock into another. Whenever tasks change, clock out anyone whose active op was
+  // REMOVED or MOVED/CHANGED. "Changed" is detected by diffing the op's scheduling fingerprint
+  // against the previous tasks snapshot. Runs in the shared app so it covers both clients;
+  // whichever client sees the change reconciles it (the backend allows ending your own clock,
+  // or anyone's if you're an admin).
+  const jobClockReconcileRef = useRef(new Set());
+  const prevTasksForClockRef = useRef([]);
+  useEffect(() => {
+    if (!dataLoadedRef.current || !tasks.length) return; // never run on the empty pre-load state
+    // Scheduling fingerprint of the op (or panel/job) an active clock points at — null if gone.
+    const fp = (list, jc) => {
+      const job = list.find(j => j.id === jc.jobId);
+      if (!job) return null;                                    // whole job gone
+      const panel = jc.panelId ? (job.subs || []).find(pl => pl.id === jc.panelId) : null;
+      if (jc.panelId && !panel) return null;                    // panel removed/restructured
+      const op = (jc.opId && panel) ? (panel.subs || []).find(o => o.id === jc.opId) : null;
+      if (jc.opId && !op) return null;                          // op removed/moved out
+      const t = op || panel || job;
+      return `${t.start || ""}|${t.end || ""}|${t.startHour ?? ""}|${t.hpd ?? ""}|${jc.panelId || ""}`;
+    };
+    const prev = prevTasksForClockRef.current;
+    const stranded = people.filter(p => {
+      const jc = p.activeJobClock;
+      if (!jc || jobClockReconcileRef.current.has(p.id)) return false;
+      const cur = fp(tasks, jc);
+      if (cur === null) return true;                            // op removed / job deleted
+      const old = fp(prev, jc);
+      return old !== null && old !== cur;                       // op moved / rescheduled / restructured
+    });
+    prevTasksForClockRef.current = tasks;                       // snapshot for the next diff
+    // Only end clocks this client is allowed to: your own always, anyone else only if admin.
+    const toEnd = stranded.filter(p => isAdmin || String(p.id) === String(loggedInUser?.id));
+    if (!toEnd.length) return;
+    toEnd.forEach(p => {
+      jobClockReconcileRef.current.add(p.id);
+      jobClockOutAction({ personId: p.id }, getTokenRef.current, orgCode)
+        .catch(console.warn)
+        .finally(() => jobClockReconcileRef.current.delete(p.id));
+    });
+    setPeople(pp => pp.map(p => toEnd.some(s => s.id === p.id) ? { ...p, activeJobClock: null } : p));
+  }, [tasks, people, isAdmin]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Admin force-end: clock ANY worker out of their active job (the backend allows admins to end
+  // another person's clock). Frees a worker manually when they're stuck on a job — e.g. one that
+  // was moved/restructured out from under them. The backend credits logged hours if the op exists.
+  const adminEndJobClock = async (personId, personName) => {
+    if (!isAdmin) return;
+    if (!window.confirm(`Clock ${personName || "this worker"} out of their active job?`)) return;
+    try {
+      const res = await jobClockOutAction({ personId }, getTokenRef.current, orgCode);
+      if (res?.ok) setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeJobClock: null } : p));
+      else alert(res?.error || "Failed to clock out");
+    } catch { alert("Network error"); }
+  };
 
   const [clientModal, setClientModal] = useState(null);
   const [fClient, setFClient] = useState([]);  // multi-select client IDs; empty = All
@@ -6851,6 +6908,8 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           {/* Bottom: job/op line (for "On a job"), otherwise sublabel */}
           {subLine && <div style={{ fontSize: 12, fontWeight: status === "job" ? 700 : 500, color: status === "job" ? T.text : T.textSec, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{subLine}</div>}
+          {/* Admin: force a worker off their active job — frees anyone stuck on a job that changed. */}
+          {status === "job" && isAdmin && <button onClick={() => adminEndJobClock(p.id, p.name)} title="Force this worker off their active job (use if they're stuck after the job was moved/changed)" style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>End job</button>}
         </div>
       );
     };
@@ -12707,9 +12766,12 @@ ${jobsCtx || "No jobs found."}`;
                               </td>
                               <td style={{ padding: "10px 10px", maxWidth: 200 }}>
                                 {p.activeJobClock ? (
-                                  <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={[p.activeJobClock.opTitle, p.activeJobClock.jobTitle].filter(Boolean).join(" · ")}>
-                                    {p.activeJobClock.opTitle || p.activeJobClock.jobTitle}
-                                    {p.activeJobClock.opTitle && p.activeJobClock.jobTitle && <span style={{ fontWeight: 400, color: T.textDim }}> · {p.activeJobClock.jobTitle}</span>}
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }} title={[p.activeJobClock.opTitle, p.activeJobClock.jobTitle].filter(Boolean).join(" · ")}>
+                                      {p.activeJobClock.opTitle || p.activeJobClock.jobTitle}
+                                      {p.activeJobClock.opTitle && p.activeJobClock.jobTitle && <span style={{ fontWeight: 400, color: T.textDim }}> · {p.activeJobClock.jobTitle}</span>}
+                                    </div>
+                                    {isAdmin && <button onClick={e => { e.stopPropagation(); adminEndJobClock(p.id, p.name); }} title="Force this worker off their active job (e.g. stuck after the job was moved)" style={{ flexShrink: 0, padding: "3px 8px", borderRadius: 8, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>End job</button>}
                                   </div>
                                 ) : clocked && (p.activeClockIn?.jobRefs || []).length > 0 ? (
                                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
