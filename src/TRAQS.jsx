@@ -9294,7 +9294,24 @@ ${jobsCtx || "No jobs found."}`;
                     const _dragWS = deriveWorkedState(bar.task);
                     const _effectiveHpdForDrag = _dragWS.isPartiallyWorked ? _dragWS.remainingHpd : (bar.task?.hpd || 0);
                     const _dragBarHpd = _effectiveHpdForDrag > 0 ? _effectiveHpdForDrag / _dragTeamSz : productiveHoursPerDay;
-                    const _dragOffsetH = Math.max(0, (bar.task?.startHour ?? workStartH) - workStartH);
+                    // When partially worked, the user grabs the REMAINING piece, which begins where the
+                    // worked portion ends. Base the whole drag — ghost AND drop — on that remaining-start
+                    // instead of the full bar's start, so the ghost tracks the cursor (it was sitting a
+                    // worked-width to the left) and the remaining op lands under the cursor. Mirrors the
+                    // split commit's worked-end math so the two stay consistent.
+                    const _osHForDrag = bar.task.startHour ?? workStartH;
+                    const _remOrigin = (() => {
+                      if (!_dragWS.isPartiallyWorked) return { day: os, hour: _osHForDrag };
+                      const _clkH = productiveHoursPerDay > 0 ? (_dragWS.workedHpd / productiveHoursPerDay) * totalWorkH : 0;
+                      const _firstAvail = workEndH - _osHForDrag;
+                      if (_clkH <= _firstAvail) return { day: os, hour: Math.round((_osHForDrag + _clkH) * 2) / 2 };
+                      let _rem = _clkH - _firstAvail, _day = os;
+                      while (_rem > totalWorkH) { _rem -= totalWorkH; _day = sAddBD(_day, 1); }
+                      return { day: sAddBD(_day, 1), hour: Math.round((workStartH + _rem) * 2) / 2 };
+                    })();
+                    const _dragBaseStart = _remOrigin.day;
+                    const _dragBaseHour = _remOrigin.hour;
+                    const _dragOffsetH = Math.max(0, _dragBaseHour - workStartH);
                     // The bar's own start-hour offset as a fraction of a day column. The bar's LEFT edge
                     // sits at (its start day column + this offset), so the day-delta math below must add
                     // it — otherwise an already-hour-positioned bar snaps to a day that disagrees with
@@ -9433,7 +9450,7 @@ ${jobsCtx || "No jobs found."}`;
                           const pxDx2 = lastCX - sx;
                           const pxDy2 = lastCY - sy;
                           const dx2 = Math.floor(pxDx2 / liveCW + _origColOffset);
-                          let snapS2 = nextBD(addD(os, dx2), barBDOpts);
+                          let snapS2 = nextBD(addD(_dragBaseStart, dx2), barBDOpts);
                           const snapE2 = addBD(snapS2, _visualWD - 1, barBDOpts);
                           // CRITICAL: the ghost AND the release-commit both read teamDragLiveRef.
                           // The original only updated teamDragInfo here, so the bar's date stayed
@@ -9494,13 +9511,13 @@ ${jobsCtx || "No jobs found."}`;
                       // day matches the column the bar's left edge (and the ghost) actually sits in.
                       const dx = Math.floor(pxDx / liveCW + _origColOffset);
                       let dropHour = null;
-                      let snapS = nextBD(addD(os, dx), barBDOpts);
+                      let snapS = nextBD(addD(_dragBaseStart, dx), barBDOpts);
                       if (tMode === "month") {
                         // Derive the intra-day hour offset from the SAME delta-based column value the
                         // day snap (dx) uses — NOT a separate absolute-cursor measurement. Using two
                         // different coordinate bases made the day and hour disagree by a sliver near
                         // column edges, which jittered the ghost a couple hours back and forth.
-                        const _rawLanding = addD(os, dx);
+                        const _rawLanding = addD(_dragBaseStart, dx);
                         const _weekendShifted = snapS !== _rawLanding; // dx landed on a weekend → snapped forward
                         if (_weekendShifted) {
                           dropHour = workStartH; // bar starts at the snapped workday's beginning
@@ -9716,7 +9733,7 @@ ${jobsCtx || "No jobs found."}`;
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openDetail(bar.task); } return; }
                       const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
                       const finalDx = Math.floor((me.clientX - sx) / liveCW + _origColOffset);
-                      const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(os, finalDx));
+                      const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(_dragBaseStart, finalDx));
                       const _finalDropH = teamDragLiveRef.current?.dropHour ?? workStartH;
                       const _finalProdOff = Math.max(0, _finalDropH - workStartH) / totalWorkH * productiveHoursPerDay;
                       const _finalVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_finalProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
@@ -9773,10 +9790,14 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                         // ── Auto-split on drag-end for partially-worked ops ──
-                        // If the bar has worked hours and the user moved it, leave the worked portion
-                        // anchored (locked) and spawn a new op for the remaining hours at the drop.
+                        // If the bar has worked hours and the user moved the remaining piece, leave the
+                        // worked portion anchored (locked) and spawn a new op for the remaining hours at
+                        // the drop. The drag is based on the remaining-start (_dragBaseStart), so compare
+                        // against that — and if it didn't actually move, do nothing (don't shift the
+                        // whole bar via the non-split path below).
                         const _splitWS = deriveWorkedState(bar.task);
-                        if (_splitWS.isPartiallyWorked && effStart !== os) {
+                        if (_splitWS.isPartiallyWorked) {
+                          if (effStart === _dragBaseStart && finalHour === _dragBaseHour) return;
                           // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
                           const _calcEnd = (startDate, startHourArg, hpdAmt) => {
                             const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
