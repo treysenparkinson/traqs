@@ -4216,6 +4216,31 @@ Extraction rules:
     });
   }, []);
 
+  // The top-level job id that contains a given node id (job / panel / op), or null.
+  const jobIdOfNode = (id) => {
+    for (const job of tasks) {
+      if (job.id === id) return job.id;
+      for (const panel of (job.subs || [])) {
+        if (panel.id === id) return job.id;
+        if ((panel.subs || []).some(o => o.id === id)) return job.id;
+      }
+    }
+    return null;
+  };
+  // Block moving / restructuring / deleting a job while a worker is actively clocked into it
+  // (their job clock is running — desktop or iOS). Returns true (and shows the warning) when
+  // blocked, so callers can `if (blockedByActiveClock(jobId)) return;`.
+  const blockedByActiveClock = (jobId) => {
+    if (jobId == null) return false;
+    const person = people.find(p => p.activeJobClock && String(p.activeJobClock.jobId) === String(jobId));
+    if (!person) return false;
+    setOverlapError({
+      message: "Worker Clocked Into Job",
+      details: [`${person.name} is logged into this job. Have them "End Job" to proceed with restructuring or deleting.`],
+    });
+    return true;
+  };
+
   // Preview what ops would be pushed if we move an op to new dates (pure, does NOT apply changes)
   const previewPush = (taskList, movedOpId, personId, newStart, newEnd, excludeOpIds = null) => {
     const allOps = [];
@@ -4801,6 +4826,8 @@ Extraction rules:
     }));
   };
   const delTask = (id, pid = null) => {
+    // Can't delete a job/op while someone is actively clocked into that job — they'd be stranded.
+    if (blockedByActiveClock(jobIdOfNode(id))) return;
     // Drop poll protection so a Fast-TRAQS-imported job stays deleted instead of being revived
     // by the 30s S3 refetch (which otherwise rejects fetches missing protected IDs).
     protectedJobIds.current.delete(id);
@@ -5049,6 +5076,9 @@ ${jobsCtx || "No jobs found."}`;
   const saveTask = (ed, parentId) => {
     if (!ed.title.trim()) return;
     if (!parentId && !ed.projectManagerId) { alert("Please select a Project Manager before saving."); return; }
+    // Can't restructure a job while someone is actively clocked into it (only guards edits to an
+    // existing job — a brand-new job has no clock and no id yet).
+    if (ed.id && blockedByActiveClock(jobIdOfNode(ed.id) || ed.id)) return;
     // Check overlaps for all operations in this job against OTHER jobs only
     const opsToCheck = [];
     (ed.subs || []).forEach(sub => {
@@ -9793,6 +9823,8 @@ ${jobsCtx || "No jobs found."}`;
                       document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openDetail(bar.task); } return; }
+                      // Can't move a job while someone is actively clocked into it — they'd be stranded.
+                      if (!isPto && bar.task && blockedByActiveClock(jobIdOfNode(bar.task.id))) return;
                       const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
                       const finalDx = Math.floor((me.clientX - sx) / liveCW + _origColOffset);
                       const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(_dragBaseStart, finalDx));
@@ -19063,7 +19095,7 @@ ${jobsCtx || "No jobs found."}`;
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}>{overlapError.message.includes("Locked") ? <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>}</div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>{overlapError.message}</h3>
-        <p style={{ margin: "0 0 16px", fontSize: 14, color: T.textSec, lineHeight: 1.5 }}>{overlapError.message.includes("Locked") ? "One or more jobs in the path are locked and cannot be moved or pushed forward." : "This action would create a scheduling conflict. Team members cannot work on multiple tasks at the same time."}</p>
+        <p style={{ margin: "0 0 16px", fontSize: 14, color: T.textSec, lineHeight: 1.5 }}>{overlapError.message.includes("Locked") ? "One or more jobs in the path are locked and cannot be moved or pushed forward." : overlapError.message.includes("Clocked") ? "A worker has an active job clock on this job. It can't be moved, restructured, or deleted until they end their job." : "This action would create a scheduling conflict. Team members cannot work on multiple tasks at the same time."}</p>
         <div style={{ textAlign: "left", maxHeight: 200, overflow: "auto", marginBottom: 24 }}>
           {overlapError.details.map((d, i) => <div key={i} style={{ padding: "10px 14px", background: T.danger + "08", borderRadius: T.radiusSm, border: `1px solid ${T.danger}22`, marginBottom: 6, fontSize: 13, color: T.text, lineHeight: 1.5 }}>
             <span style={{ color: T.danger, fontWeight: 700 }}>⛔ </span>{d}
