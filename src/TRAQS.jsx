@@ -2686,13 +2686,16 @@ Extraction rules:
     const est = Math.max(0.0001, op.hpd || orgSettings.hpd);
     if (op.status === "Finished") return { logged: est, est };
     if (op.pendingFinish) return { logged: est * 0.99, est };
-    const logged = timeclock
-      .filter(e => e.jobRefs?.some(r => r.opId === op.id))
-      .reduce((s, e) => s + (e.hours || 0), 0);
-    const activeP = people.find(p => p.activeJobClock?.opId === op.id && p.activeJobClock?.clockIn);
-    const liveElapsed = activeP ? Math.max(0,
-      (Date.now() - new Date(activeP.activeJobClock.clockIn).getTime()) / 3600000
-      - (activeP.activeJobClock.totalPausedMs || 0) / 3600000
+    // Logged = JOB-clock time recorded against THIS op (op.loggedHours, credited by jobClockOut) —
+    // NOT payroll hours. The payroll clock logs a whole session against every job selected at
+    // clock-in, which over-counts and isn't job-specific; this is the precise time the worker
+    // logged into this exact op. Add the live elapsed for anyone currently clocked into it.
+    const logged = Math.max(0, op.loggedHours || 0);
+    const jc = people.find(p => p.activeJobClock?.opId === op.id && p.activeJobClock?.clockIn)?.activeJobClock;
+    const liveElapsed = jc ? Math.max(0,
+      (Date.now() - new Date(jc.clockIn).getTime()) / 3600000
+      - (jc.totalPausedMs || 0) / 3600000
+      - (jc.pausedAt ? (Date.now() - new Date(jc.pausedAt).getTime()) / 3600000 : 0)  // exclude the open pause
     ) : 0;
     return { logged: Math.min(est, logged + liveElapsed), est };
   };
