@@ -32,6 +32,7 @@ private let edgeGrabZone: CGFloat = 24      // px from the leading edge that ini
 
 struct MainTabView: View {
     @Environment(AppNav.self) private var appNav
+    @Environment(ThemeSettings.self) private var themeSettings
     @State private var dragOffset: CGFloat = 0          // additive offset during a live drag
     @State private var isDragging: Bool = false
     @State private var showSettings: Bool = false
@@ -97,7 +98,7 @@ struct MainTabView: View {
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .fullScreenCover(isPresented: $showAdmin) { AdminView() }
-        .preferredColorScheme(.light)
+        .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
         .animation(.easeInOut(duration: 0.22), value: appNav.selected)
         .animation(isDragging ? nil
                               : .spring(response: 0.32, dampingFraction: 0.92),
@@ -184,6 +185,7 @@ private struct SideMenu: View {
     @Environment(AppNav.self) private var appNav
     @Environment(AppState.self) private var appState
     @Environment(AuthManager.self) private var auth
+    @Environment(ThemeSettings.self) private var themeSettings
     let close: () -> Void
     let openSettings: () -> Void
     let openAdmin: () -> Void
@@ -201,27 +203,30 @@ private struct SideMenu: View {
         String(appState.orgName.prefix(1)).uppercased()
     }
 
+    /// Current user's shift status from their time-clock: offline when not
+    /// clocked in, otherwise lunch/break per the latest clock event, else
+    /// just clocked in.
+    private var shiftStatus: ShiftStatus {
+        guard let clock = person?.activeClockIn else { return .offline }
+        switch clock.events.last?.type {
+        case "lunchStart": return .lunch
+        case "breakStart": return .onBreak
+        default:           return .clockedIn
+        }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                // Header inside the drawer — wordmark + close
+                // Header inside the drawer — just the (larger) wordmark, its
+                // left edge aligned with the nav buttons below (which sit at a
+                // 12pt inset via the tab list's horizontal padding).
                 HStack {
-                    TRAQSWordmark(size: 50)
+                    TRAQSWordmark(size: 64)
                     Spacer()
-                    Button { close() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .frame(width: 34, height: 34)
-                            .background(Circle().fill(Color(hex: T.surface)))
-                            .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
-                            .compositingGroup()
-                            .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
-                                    radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
-                    }
-                    .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 20)
+                .padding(.leading, 12)
+                .padding(.trailing, 20)
                 .padding(.top, 24)
                 .padding(.bottom, 18)
 
@@ -231,7 +236,7 @@ private struct SideMenu: View {
                            size: 44, gradient: true)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(appState.orgName.isEmpty ? "TRAQS" : appState.orgName)
-                            .font(.custom(TFontName.bold.rawValue, size: 20))
+                            .font(.custom(TFontName.bold.rawValue, size: 14))
                             .foregroundStyle(Color(hex: T.ink))
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -295,9 +300,8 @@ private struct SideMenu: View {
 
                 // Profile + logout footer (no card border — clean row)
                 ProfileFooter(initials: initials,
-                              orgName: appState.orgName,
                               name: person?.name ?? "—",
-                              email: person?.email,
+                              status: shiftStatus,
                               onLogout: {
                                   auth.logout()
                                   close()
@@ -308,17 +312,26 @@ private struct SideMenu: View {
             .frame(width: drawerWidth)
             .frame(maxHeight: .infinity, alignment: .top)
             .background {
-                // Frosted drawer surface — soft top-to-bottom light wash with a
-                // faint lavender ambient pool bleeding from the upper area,
-                // echoing the revamp's AmbientBackground.
                 ZStack {
-                    LinearGradient(colors: [Color(hex: T.bgGradTop),
-                                            Color(hex: T.surface)],
-                                   startPoint: .top, endPoint: .bottom)
-                    GlowBlob(size: T.glowSize * 0.9, opacity: T.glowOpacity * 0.7)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity,
-                               alignment: .topLeading)
-                        .offset(x: -40, y: 160)
+                    if themeSettings.isLightTheme {
+                        // Light: soft top-to-bottom wash + faint lavender
+                        // ambient pool, echoing the revamp's AmbientBackground.
+                        LinearGradient(colors: [Color(hex: T.bgGradTop),
+                                                Color(hex: T.surface)],
+                                       startPoint: .top, endPoint: .bottom)
+                        GlowBlob(size: T.glowSize * 0.9, opacity: T.glowOpacity * 0.7)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity,
+                                   alignment: .topLeading)
+                            .offset(x: -40, y: 160)
+                    } else {
+                        // Dark: grey → black vertical wash so the white
+                        // wordmark, org name, and nav labels read clearly.
+                        // (The light wash made them vanish at the near-white
+                        // top stop.)
+                        LinearGradient(colors: [Color(hex: "#2C2C2E"),
+                                                Color(hex: "#000000")],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
                 }
                 .ignoresSafeArea()
             }
@@ -380,37 +393,54 @@ private struct SideMenuRow: View {
     }
 }
 
+// MARK: - Worker shift status (drawer pill)
+// Derived from the person's shift time-clock (activeClockIn + its lunch/break
+// events). Shown as a TagPill above the name so people see their current state.
+
+enum ShiftStatus {
+    case offline, clockedIn, lunch, onBreak
+
+    var label: String {
+        switch self {
+        case .offline:   return "Offline"
+        case .clockedIn: return "Clocked in"
+        case .lunch:     return "Lunch"
+        case .onBreak:   return "Break"
+        }
+    }
+    var kind: TagKind {
+        switch self {
+        case .offline:   return .neutral
+        case .clockedIn: return .green
+        case .lunch:     return .indigo
+        case .onBreak:   return .amber
+        }
+    }
+    var dot: Bool { self != .offline }
+}
+
 // MARK: - Profile + Logout footer (drawer, no card border — clean row)
 
 private struct ProfileFooter: View {
     let initials: String
-    let orgName: String
     let name: String
-    let email: String?
+    let status: ShiftStatus
     let onLogout: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
+        // Bottom-align the avatar with the text so the status + name sit lower,
+        // riding the avatar's baseline rather than floating at its center.
+        HStack(alignment: .bottom, spacing: 12) {
             Avatar(initials: initials, size: 40, gradient: true)
 
-            VStack(alignment: .leading, spacing: 1) {
+            // Status pill directly above the name — one tight, left-aligned
+            // unit. Email lives in Settings now, so it's dropped here.
+            VStack(alignment: .leading, spacing: 3) {
+                TagPill(label: status.label, kind: status.kind, dot: status.dot)
                 Text(name)
                     .font(TTypo.smBold(14))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
-                if let email, !email.isEmpty {
-                    Text(email)
-                        .font(TTypo.xs(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                } else if !orgName.isEmpty {
-                    Text(orgName)
-                        .font(TTypo.xs(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
             }
 
             Spacer(minLength: 4)
@@ -425,7 +455,5 @@ private struct ProfileFooter: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(12)
-        .frostedCard(radius: T.cornerMd)
     }
 }

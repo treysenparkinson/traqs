@@ -5,6 +5,7 @@ struct CustomizeView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var customAccentColor: Color = Color(hex: "#3d7fff")
+    @State private var didSave = false
 
     private var presets: [BgPreset] { ThemeSettings.bgPresets }
 
@@ -65,13 +66,14 @@ struct CustomizeView: View {
                     }
 
                     // ── Save ──
-                    // Accent / background changes are already persisted
-                    // live via setAccent / setBgPreset (they write to
-                    // UserDefaults the moment they're picked), so this
-                    // button's job is to commit the version bump that
-                    // forces every open screen to re-render with the new
-                    // T.* tokens and dismiss back to the previous view.
+                    // Accent / background picks are a LIVE preview only
+                    // (setAccent / setBgPreset mutate the in-memory theme
+                    // without persisting). Save persists them and bumps
+                    // `version`, which re-renders the whole app via the
+                    // root's `.id(version)`. Backing out without Save reverts
+                    // (see onDisappear).
                     GradientCTA {
+                        didSave = true
                         theme.commitChanges()
                         dismiss()
                     } label: {
@@ -90,9 +92,11 @@ struct CustomizeView: View {
         .toolbarColorScheme(theme.isLightTheme ? .light : .dark, for: .navigationBar)
         .onAppear {
             customAccentColor = Color(hex: theme.accent)
+            theme.beginPreview()
         }
         .onDisappear {
-            theme.commitChanges()
+            // Dismissed without tapping Save → discard the live preview.
+            if !didSave { theme.cancelPreview() }
         }
     }
 

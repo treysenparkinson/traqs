@@ -36,6 +36,11 @@ struct TasksView: View {
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 14)
+                    // Slide UP into the hero slot when a job is logged into
+                    // (and slide back down on clock-out); the list below closes
+                    // the gap in the same ease-in-out beat.
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(1)
                 }
 
                 // Cross-faded content per segment (range chosen via the title FAB).
@@ -52,6 +57,10 @@ struct TasksView: View {
             }
             .padding(.top, 2)
             .padding(.bottom, 96)   // clear the bottom-right calendar FAB
+            // Smooth slow→fast→slow reorder when the active job changes (pinned
+            // to the top). Keyed on the active task so logging in/out animates
+            // instead of hard-clipping into place.
+            .animation(.easeInOut(duration: 0.42), value: activeTaskId)
         }
         .scrollIndicators(.hidden)
         .animation(.easeInOut(duration: 0.22), value: segment)
@@ -196,17 +205,12 @@ struct TasksView: View {
     }
 
     private func spanSummaryLine(tasks: [TaskAssignment], label: String) -> some View {
-        let totalHours = tasks.reduce(0.0) { $0 + max($1.hpd, 0) }
-        return HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .firstTextBaseline) {
             Text("\(label) · \(tasks.count) task\(tasks.count == 1 ? "" : "s")")
                 .font(TTypo.xsBold(11))
                 .foregroundStyle(Color(hex: T.muted))
                 .tLabel(tracking: 1.4)
             Spacer()
-            Text(String(format: "%.1f h", totalHours))
-                .font(TTypo.xs(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .tnum()
         }
     }
 
@@ -856,9 +860,9 @@ private struct NoJobsPlaceholder: View {
 struct JobsHeaderBar: View {
     var body: some View {
         Text("Jobs")
-            .font(.custom(TFontName.bold.rawValue, size: 64))
+            .font(.custom(TFontName.extrabold.rawValue, size: 64))
             .foregroundStyle(LinearGradient(
-                colors: [Color(hex: T.ink), .clear],
+                colors: [Color(hex: T.muted), .clear],
                 startPoint: .top, endPoint: .bottom))
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
@@ -1102,7 +1106,10 @@ struct TaskCardV1: View {
     }
 
     var body: some View {
-        SBox(size: .lg, active: isActive, frosted: true, liveSheen: task.isMine) {
+        // Keep the rectangular "square" card footprint but round the corners
+        // a lot more so it reads as a soft rounded-square, not a boxy panel.
+        // Uses the shared hero radius so every page's cards match.
+        SBox(size: .lg, radius: T.cornerHero, active: isActive, frosted: true, liveSheen: task.isMine) {
             VStack(alignment: .leading, spacing: 0) {
                 // Top row: bright type + status pills ···· date · chevron
                 HStack(spacing: 6) {
@@ -1140,7 +1147,15 @@ struct TaskCardV1: View {
                         .padding(.top, 1)
                 }
 
-                SLine().padding(.vertical, 12)
+                // Soft divider: a hairline that fades out toward the right so
+                // it reads as a gentle separator melting away from the title,
+                // instead of a hard full-width rule. Same height + spacing as
+                // the old SLine, so nothing else shifts.
+                LinearGradient(
+                    colors: [Color(hex: T.hair), Color(hex: T.hair).opacity(0)],
+                    startPoint: .leading, endPoint: .trailing)
+                    .frame(height: 1)
+                    .padding(.vertical, 12)
 
                 if isActive { activeRow } else { queuedRow }
             }
@@ -1473,12 +1488,6 @@ private struct EndOfDayPlaceholder: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(.clear))
-        .overlay(
-            RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
-                .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-                .foregroundStyle(Color(hex: T.hair))
-        )
     }
 }
 

@@ -21,6 +21,7 @@ enum SBoxSize { case sm, md, lg, pill
 
 struct SBox<Content: View>: View {
     var size: SBoxSize = .md
+    var radius: CGFloat? = nil       // override the size's default corner radius
     var fill: Color? = nil           // nil = white SURFACE
     var stroke: Color? = nil         // nil = hairline T.hair
     var dashed: Bool = false
@@ -33,8 +34,10 @@ struct SBox<Content: View>: View {
     var liveSheen: Bool = false      // whisper-soft ANIMATED brand glow — for "your" cards (drifts/hue-shifts)
     @ViewBuilder var content: () -> Content
 
+    private var effectiveRadius: CGFloat { radius ?? size.radius }
+
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: size.radius, style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: effectiveRadius, style: .continuous)
         // Amber (paused) wins over active/sky so a paused active card reads as
         // on-break. `active` uses the brand indigo; `sky` keeps the legacy accent.
         let highlight: Color? = amber ? Color(hex: T.amber)
@@ -63,7 +66,7 @@ struct SBox<Content: View>: View {
                 .clipShape(shape)
                 .allowsHitTesting(false)
         }
-        if liveSheen { LiveSheen(radius: size.radius) }
+        if liveSheen { LiveSheen(radius: effectiveRadius) }
     }
 
     @ViewBuilder
@@ -556,6 +559,9 @@ struct GlowBlob: View {
 struct AmbientBackground: View {
     @Environment(ThemeSettings.self) private var themeSettings
     var body: some View {
+        // Read accent too so a live Customize accent change (which only
+        // shifts the glow tint, not isLightTheme) still re-renders here.
+        let _ = themeSettings.accent
         let light = themeSettings.isLightTheme
         ZStack {
             if light {
@@ -629,8 +635,13 @@ struct GradientRing: View {
 // ── FrostedCard: glassy white surface — big radius, soft white top-edge ────
 // highlight, diffuse ambient elevation. Opt-in via .frostedCard().
 struct FrostedCard: ViewModifier {
+    @Environment(ThemeSettings.self) private var theme
     var radius: CGFloat = T.cornerHero
     func body(content: Content) -> some View {
+        // Touch the theme so a live Customize background/accent change
+        // re-renders every frosted surface immediately (the T.* tokens it
+        // reads aren't observable on their own).
+        _ = theme.bgPresetId; _ = theme.accent
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return content
             .background(shape.fill(Color(hex: T.surface)))
@@ -652,6 +663,7 @@ extension View {
 
 // ── PageTitle: big bold screen title + optional subtitle (under the header) ─
 struct PageTitle: View {
+    @Environment(ThemeSettings.self) private var theme
     let title: String
     var subtitle: String? = nil
     var size: CGFloat = 64
@@ -659,15 +671,22 @@ struct PageTitle: View {
     /// page, so every screen's title matches. Pass a gradient to override.
     var gradient: LinearGradient? = nil
 
-    private var titleFill: LinearGradient {
-        gradient ?? LinearGradient(colors: [Color(hex: T.ink), .clear],
-                                   startPoint: .top, endPoint: .bottom)
+    private var titleFill: AnyShapeStyle {
+        // Muted gray (same token as the "TUE · JUN 30 · 2 TASKS" line) faded
+        // top→bottom into transparency. Theme-aware so it's always visible but
+        // never shouts. An explicit gradient override still wins.
+        if let gradient { return AnyShapeStyle(gradient) }
+        return AnyShapeStyle(LinearGradient(
+            colors: [Color(hex: T.muted), .clear],
+            startPoint: .top, endPoint: .bottom))
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        // Re-render the title ink on a live Customize background change.
+        _ = theme.bgPresetId
+        return VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font(.custom(TFontName.bold.rawValue, size: size))
+                .font(.custom(TFontName.extrabold.rawValue, size: size))
                 .foregroundStyle(titleFill)
             if let subtitle {
                 Text(subtitle)

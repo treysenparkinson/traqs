@@ -102,7 +102,7 @@ enum T {
     static let presenceIdle  = "#9AA0AC"
 
     // ── New radius + glassy highlight stroke ──
-    static let cornerHero: CGFloat = 26            // hero / large frosted cards
+    static let cornerHero: CGFloat = 30            // hero / large frosted cards (matches the Jobs cards)
     static let highlightStroke = "#FFFFFF"         // used at low alpha as a white→clear top edge
 
     // ── CTA glow shadow (accompanies every gradient pill) ──

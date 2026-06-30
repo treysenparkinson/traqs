@@ -58,6 +58,12 @@ final class ThemeSettings {
     var bgPresetId: Int = ThemeSettings.defaultBgPresetId
     var version: Int = 0
 
+    // Last *saved* theme, captured when the customizer opens (`beginPreview`).
+    // Live edits change `accent`/`bgPresetId` for an immediate preview without
+    // persisting; Save commits them, backing out reverts to these snapshots.
+    private var savedAccent: String = ThemeSettings.defaultAccent
+    private var savedBgPresetId: Int = ThemeSettings.defaultBgPresetId
+
     var currentBgPreset: BgPreset {
         ThemeSettings.bgPresets.first(where: { $0.id == bgPresetId }) ?? ThemeSettings.bgPresets[0]
     }
@@ -76,28 +82,53 @@ final class ThemeSettings {
         } else {
             bgPresetId = ThemeSettings.defaultBgPresetId
         }
+        savedAccent = accent
+        savedBgPresetId = bgPresetId
         applyToT()
     }
 
+    /// Live preview only: update the in-memory accent + T tokens so the
+    /// customizer reflects the change immediately. Does NOT persist — call
+    /// `commitChanges()` (Save) to keep it, or `cancelPreview()` to revert.
     func setAccent(_ hex: String) {
         accent = hex
-        UserDefaults.standard.set(hex, forKey: "themeAccent")
         applyAccentToT()
     }
 
+    /// Live preview only (see `setAccent`). Persists on `commitChanges()`.
     func setBgPreset(_ id: Int) {
         bgPresetId = id
-        UserDefaults.standard.set(id, forKey: "themeBgPreset")
         applyBgToT(currentBgPreset)
     }
 
     func reset() {
         setAccent(ThemeSettings.defaultAccent)
         setBgPreset(ThemeSettings.defaultBgPresetId)
+        commitChanges()
     }
 
-    /// Call when leaving CustomizeView to force the whole app to re-render with new T.* values.
+    /// Snapshot the saved theme before a live-preview session so an
+    /// un-saved exit can be reverted.
+    func beginPreview() {
+        savedAccent = accent
+        savedBgPresetId = bgPresetId
+    }
+
+    /// Revert a live preview back to the last saved theme (customizer closed
+    /// without Save).
+    func cancelPreview() {
+        accent = savedAccent
+        bgPresetId = savedBgPresetId
+        applyToT()
+    }
+
+    /// Save: persist the previewed accent + background, then bump `version`
+    /// so the whole app re-renders with the new T.* values.
     func commitChanges() {
+        UserDefaults.standard.set(accent, forKey: "themeAccent")
+        UserDefaults.standard.set(bgPresetId, forKey: "themeBgPreset")
+        savedAccent = accent
+        savedBgPresetId = bgPresetId
         version += 1
     }
 

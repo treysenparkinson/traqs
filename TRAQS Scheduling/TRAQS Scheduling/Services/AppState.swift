@@ -629,30 +629,36 @@ class AppState {
         }
     }
 
+    /// Synchronously set/clear the current person's active job clock so the UI
+    /// reorders on the SAME frame (no MainActor hop). Mirrors setLocalBreak /
+    /// markJobClockedOutLocally.
+    private func setLocalJobClock(personId: String, _ value: ActiveJobClock?) {
+        guard let idx = people.firstIndex(where: { $0.id == personId }) else { return }
+        var newPeople = people
+        newPeople[idx].activeJobClock = value
+        people = newPeople
+        clockChangeAt = Date()
+    }
+
     func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
                     jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
         guard let api, let personId = currentPersonId else { return }
 
+        // Optimistically set the active job clock BEFORE the network round-trip
+        // so the card slides up to the hero slot IMMEDIATELY instead of waiting
+        // on the server. The STARTING… button already signals the tap; a 409
+        // means we're already in (= success), and a genuine failure reverts.
+        let previousClock = people.first(where: { $0.id == personId })?.activeJobClock
+        let optimistic = ActiveJobClock(
+            clockIn: ISO8601DateFormatter().string(from: Date()),
+            jobId: jobId, panelId: panelId, opId: opId,
+            jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle
+        )
+        setLocalJobClock(personId: personId, optimistic)
+
         do {
             try await api.jobClockIn(personId: personId, jobId: jobId, panelId: panelId, opId: opId,
                                      jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle)
-
-            // Update local state AFTER the server confirms. Doing it
-            // before meant the card flipped to "TRACKING" before the
-            // server actually accepted the clock-in — when the server
-            // then failed, we had to revert, and the user saw a flash.
-            // Now we only show TRACKING when the server says we're in.
-            let optimistic = ActiveJobClock(
-                clockIn: ISO8601DateFormatter().string(from: Date()),
-                jobId: jobId, panelId: panelId, opId: opId,
-                jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle
-            )
-            if let idx = people.firstIndex(where: { $0.id == personId }) {
-                var newPeople = people
-                newPeople[idx].activeJobClock = optimistic
-                people = newPeople
-            }
-            clockChangeAt = Date()
 
             // Refresh jobs (op status → "In Progress" lands here) and
             // pick up the server's canonical clockIn timestamp via the
@@ -668,11 +674,14 @@ class AppState {
             // rare, but we still treat it as success.
             await loadAll()
         } catch APIError.httpError(401) {
-            // Use the bare 401 message rather than the "Failed to start:"
+            // Genuine failure → undo the optimistic clock so the card slides
+            // back. Use the bare 401 message rather than the "Failed to start:"
             // prefix so the banner reads "Error: 401 (Log out, and log
             // back in)" instead of stacking labels.
+            setLocalJobClock(personId: personId, previousClock)
             clockError = APIError.httpError(401).localizedDescription
         } catch {
+            setLocalJobClock(personId: personId, previousClock)
             clockError = "Failed to start: \(error.localizedDescription)"
         }
     }
