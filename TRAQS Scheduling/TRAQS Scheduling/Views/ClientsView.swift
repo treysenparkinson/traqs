@@ -6,65 +6,70 @@ struct ClientsView: View {
     @State private var searchText = ""
     @State private var selectedClient: Client? = nil
     @State private var showAddClient = false
+    @State private var showSearch = false
+    @FocusState private var searchFocused: Bool
 
     var filteredClients: [Client] {
         guard !searchText.isEmpty else { return appState.clients }
         return appState.clients.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
     }
 
+    // Count subtitle, e.g. "8 clients · 3 active jobs" — matches the Team
+    // header's "5 on the clock · 2 on a job" language.
+    private var clientSubtitle: String {
+        let count = appState.clients.count
+        let active = appState.jobs.filter { $0.status == .inProgress }.count
+        let clientWord = count == 1 ? "client" : "clients"
+        if active > 0 {
+            return "\(count) \(clientWord) · \(active) active"
+        }
+        return "\(count) \(clientWord)"
+    }
+
     var body: some View {
         NavigationSplitView {
             ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
+                AmbientBackground()
 
                 VStack(spacing: 0) {
-                    TRAQSNavHeader(tabName: "Clients")
-
-                    // ── Sub-header: Add ──
-                    HStack {
-                        Spacer()
-                        Button { showAddClient = true } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundColor(Color(hex: T.accent))
-                                .frame(width: 32, height: 32)
-                                .background(Color(hex: T.accent).opacity(0.12))
-                                .clipShape(Circle())
-                                .overlay(Circle().stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(hex: T.surface))
-
-                    // Search bar
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(Color(hex: T.muted))
-                        TextField("Search clients…", text: $searchText)
-                            .textFieldStyle(.plain)
-                            .foregroundColor(Color(hex: T.text))
-                        if !searchText.isEmpty {
-                            Button { searchText = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(Color(hex: T.muted))
+                    // Persistent header — search slides in below it; add lives in the trailing slot.
+                    TRAQSNavHeader {
+                        IconBtn(icon: .search, size: 18) {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showSearch.toggle()
+                                if !showSearch { searchText = "" }
                             }
-                            .buttonStyle(.plain)
+                            if showSearch { searchFocused = true }
                         }
+                        IconBtn(icon: .plus, size: 18) { showAddClient = true }
                     }
-                    .padding(10)
-                    .background(Color(hex: T.surface))
-                    .cornerRadius(10)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    .background(Color(hex: T.bg))
+
+                    PageTitle(title: "Clients", subtitle: clientSubtitle)
+                        .padding(.bottom, 14)
+
+                    // Search field — slides in under the title.
+                    if showSearch {
+                        SearchBar(text: $searchText,
+                                  placeholder: "Search clients…",
+                                  focused: $searchFocused,
+                                  onCancel: {
+                                      withAnimation(.easeInOut(duration: 0.18)) {
+                                          showSearch = false
+                                          searchText = ""
+                                      }
+                                  })
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
 
                     List(filteredClients, selection: $selectedClient) { client in
                         ClientRow(client: client)
                             .tag(client)
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                            .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
                     }
                     .listStyle(.plain)
                     .scrollContentBackground(.hidden)
@@ -77,7 +82,7 @@ struct ClientsView: View {
                 ClientDetailView(client: client)
             } else {
                 ZStack {
-                    Color(hex: T.bg).ignoresSafeArea()
+                    AmbientBackground()
                     ContentUnavailableView("Select a Client", systemImage: "building.2", description: Text("Choose a client to view details."))
                 }
             }
@@ -99,38 +104,43 @@ struct ClientRow: View {
         appState.jobs.filter { $0.clientId == client.id && $0.status == .inProgress }.count
     }
 
+    // Leading subtitle line: prefer a contact person, fall back to email.
+    private var subtitle: String {
+        client.contact.isEmpty ? client.email : client.contact
+    }
+
     var body: some View {
         HStack(spacing: 12) {
-            Circle()
-                .fill(Color(hex: client.color))
-                .frame(width: 36, height: 36)
-                .overlay(
-                    Text(String(client.name.prefix(1)).uppercased())
-                        .font(.headline.bold())
-                        .foregroundColor(.white)
-                )
+            Avatar(initials: String(client.name.prefix(1)).uppercased(),
+                   size: 44,
+                   gradient: true)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(client.name).font(.subheadline.bold()).foregroundColor(Color(hex: T.text))
-                Text(client.contact.isEmpty ? client.email : client.contact)
-                    .font(.caption).foregroundColor(Color(hex: T.muted))
+                Text(client.name)
+                    .font(TTypo.smBold(15))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(TTypo.sm(13))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                }
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(jobCount) jobs").font(.caption).foregroundColor(Color(hex: T.muted))
-                if activeCount > 0 {
-                    Text("\(activeCount) active")
-                        .font(.caption2.bold())
-                        .foregroundColor(Color(hex: T.statusInProgress))
-                }
+            if activeCount > 0 {
+                TagPill(label: "\(activeCount) active", kind: .green)
+            } else if jobCount > 0 {
+                TagPill(label: "\(jobCount) \(jobCount == 1 ? "job" : "jobs")", kind: .neutral)
             }
+
+            TIconView(icon: .chev, size: 14, color: Color(hex: T.muted))
         }
-        .padding(12)
-        .background(Color(hex: T.card))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frostedCard(radius: T.cornerMd)
     }
 }
 
@@ -142,81 +152,106 @@ struct ClientDetailView: View {
     var clientJobs: [Job] {
         appState.jobs.filter { $0.clientId == client.id }
     }
+    private var activeJobs: Int {
+        clientJobs.filter { $0.status == .inProgress }.count
+    }
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Header card
-                    HStack(spacing: 16) {
-                        Circle()
-                            .fill(Color(hex: client.color))
-                            .frame(width: 64, height: 64)
-                            .overlay(
-                                Text(String(client.name.prefix(1)).uppercased())
-                                    .font(.largeTitle.bold())
-                                    .foregroundColor(.white)
-                            )
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(client.name).font(.title2.bold()).foregroundColor(Color(hex: T.text))
-                            if !client.contact.isEmpty {
-                                Text(client.contact).foregroundColor(Color(hex: T.muted))
+                VStack(alignment: .leading, spacing: 16) {
+                    // ── Header (hero) card ──
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 16) {
+                            Avatar(initials: String(client.name.prefix(1)).uppercased(),
+                                   size: 64,
+                                   gradient: true)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(client.name)
+                                    .font(.custom(TFontName.bold.rawValue, size: 22))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                if !client.contact.isEmpty {
+                                    Text(client.contact)
+                                        .font(TTypo.sm(14))
+                                        .foregroundStyle(Color(hex: T.muted))
+                                }
+                            }
+                            Spacer()
+                        }
+
+                        // Status pills summarizing the client's workload.
+                        HStack(spacing: 8) {
+                            TagPill(label: "\(clientJobs.count) \(clientJobs.count == 1 ? "job" : "jobs")",
+                                    kind: .indigo)
+                            if activeJobs > 0 {
+                                TagPill(label: "\(activeJobs) active", kind: .green, dot: true)
                             }
                         }
-                        Spacer()
                     }
-                    .padding()
-                    .background(Color(hex: T.card))
-                    .cornerRadius(12)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                    .padding(18)
+                    .frostedCard(radius: T.cornerHero)
 
-                    // Contact info
+                    // ── Contact info ──
                     if !client.email.isEmpty || !client.phone.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Contact").font(.headline).foregroundColor(Color(hex: T.text))
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Contact")
+                                .font(TTypo.h3(18))
+                                .foregroundStyle(Color(hex: T.ink))
                             if !client.email.isEmpty {
-                                Label(client.email, systemImage: "envelope")
-                                    .font(.subheadline)
-                                    .foregroundColor(Color(hex: T.muted))
+                                HStack(spacing: 12) {
+                                    IconChip(icon: .chat, color: Color(hex: T.pillIndigoFg), size: 38)
+                                    Text(client.email)
+                                        .font(TTypo.sm(14))
+                                        .foregroundStyle(Color(hex: T.ink))
+                                }
                             }
                             if !client.phone.isEmpty {
-                                Label(client.phone, systemImage: "phone")
-                                    .font(.subheadline)
-                                    .foregroundColor(Color(hex: T.muted))
+                                HStack(spacing: 12) {
+                                    IconChip(icon: .bell, color: Color(hex: T.pillGreenFg), size: 38)
+                                    Text(client.phone)
+                                        .font(TTypo.sm(14))
+                                        .foregroundStyle(Color(hex: T.ink))
+                                }
                             }
                         }
-                        .padding()
-                        .background(Color(hex: T.card))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                        .frostedCard(radius: T.cornerMd)
                     }
 
-                    // Jobs
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Jobs (\(clientJobs.count))").font(.headline).foregroundColor(Color(hex: T.text))
+                    // ── Jobs ──
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Jobs (\(clientJobs.count))")
+                            .font(TTypo.h3(18))
+                            .foregroundStyle(Color(hex: T.ink))
                         ForEach(clientJobs) { job in
                             JobRow(job: job)
                         }
                         if clientJobs.isEmpty {
-                            Text("No jobs yet").foregroundColor(Color(hex: T.muted)).font(.subheadline)
+                            Text("No jobs yet")
+                                .font(TTypo.sm(14))
+                                .foregroundStyle(Color(hex: T.muted))
                         }
                     }
 
-                    // Notes
+                    // ── Notes ──
                     if !client.notes.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Notes").font(.headline).foregroundColor(Color(hex: T.text))
-                            Text(client.notes).foregroundColor(Color(hex: T.muted))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Notes")
+                                .font(TTypo.h3(18))
+                                .foregroundStyle(Color(hex: T.ink))
+                            Text(client.notes)
+                                .font(TTypo.sm(14))
+                                .foregroundStyle(Color(hex: T.muted))
                         }
-                        .padding()
-                        .background(Color(hex: T.card))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(18)
+                        .frostedCard(radius: T.cornerMd)
                     }
                 }
-                .padding()
+                .padding(16)
             }
         }
         .navigationTitle(client.name)

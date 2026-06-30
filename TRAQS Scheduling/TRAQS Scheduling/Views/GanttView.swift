@@ -95,14 +95,13 @@ struct GanttView: View {
     }
 
     private func statCard(_ label: String, _ value: String) -> some View {
-        SBox(size: .sm, raised: true) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted)).tLabel(tracking: 1.0)
-                Text(value).font(TTypo.h3(18)).foregroundStyle(Color(hex: T.ink)).tnum()
-            }
-            .padding(.horizontal, 12).padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted)).tLabel(tracking: 1.0)
+            Text(value).font(TTypo.h3(18)).foregroundStyle(Color(hex: T.ink)).tnum()
         }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frostedCard(radius: T.cornerMd)
     }
 
     // MARK: Week dates (Mon→Sun around selectedDate, filtered to work days)
@@ -628,9 +627,28 @@ private struct ScheduleBlockView: View {
     }
     private enum Density { case tiny, compact, full }
 
+    /// Maps a department/type label to a bright revamp TagPill kind so the
+    /// Day-view bars carry the wireframe's tinted status pills. Purely a styling
+    /// lookup on the existing label text — no data change.
+    private var tagKind: TagKind {
+        let k = block.typeLabel.lowercased()
+        switch k {
+        case _ where k.contains("repair"), _ where k.contains("callback"): return .amber
+        case _ where k.contains("contract"): return .green
+        case _ where k.contains("wire"):    return .sky
+        case _ where k.contains("layout"), _ where k.contains("install"): return .magenta
+        default: return .indigo
+        }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            Rectangle().fill(block.color).frame(width: 5)
+            // Dept rail — vertical gradient of the department color so the bar
+            // reads as belonging to its department in the revamp language.
+            Rectangle()
+                .fill(LinearGradient(colors: [block.color, block.color.opacity(0.65)],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(width: 5)
             content
                 .padding(.horizontal, 10)
                 .padding(.vertical, density == .tiny ? 4 : 8)
@@ -638,17 +656,29 @@ private struct ScheduleBlockView: View {
         }
         .frame(height: height, alignment: .top)
         .background(
-            // Surface fill + a top-anchored worked stripe behind the content, so
-            // the dept rail and labels stay legible on top of it.
+            // White surface with a faint diagonal dept-color wash + a top-anchored
+            // worked stripe behind the content, so the rail and labels stay legible.
             ZStack(alignment: .top) {
-                RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).fill(Color(hex: T.surface))
+                RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous)
+                    .fill(Color(hex: T.surface))
+                RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous)
+                    .fill(LinearGradient(colors: [block.color.opacity(0.10), block.color.opacity(0.02)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
                 if block.workedFraction > 0.001 {
                     WorkedStripe(cornerRadius: T.cornerBlock, onLight: true)
                         .frame(height: max(0, height * block.workedFraction))
                 }
             }
         )
-        .overlay(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+        // Soft dept-tinted hairline instead of the neutral one — ties the bar to
+        // its department color while staying subtle.
+        .overlay(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous)
+            .stroke(block.color.opacity(0.28), lineWidth: 1))
+        // Diffuse ambient lift so blocks float on the ambient canvas like the
+        // revamp's frosted cards.
+        .compositingGroup()
+        .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
+                radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
         // Clip so any subview that doesn't measure exactly to height can't bleed
         // into the row below.
         .clipShape(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous))
@@ -674,7 +704,7 @@ private struct ScheduleBlockView: View {
             }
         case .compact:
             VStack(alignment: .leading, spacing: 2) {
-                JobTypeTag(label: block.typeLabel, color: block.color)
+                TagPill(label: block.typeLabel, kind: tagKind)
                 Text(block.title)
                     .font(TTypo.smBold(13))
                     .foregroundStyle(Color(hex: T.ink))
@@ -689,7 +719,7 @@ private struct ScheduleBlockView: View {
             }
         case .full:
             VStack(alignment: .leading, spacing: 3) {
-                JobTypeTag(label: block.typeLabel, color: block.color)
+                TagPill(label: block.typeLabel, kind: tagKind)
                 Text(block.title)
                     .font(TTypo.smBold(13))
                     .foregroundStyle(Color(hex: T.ink))
@@ -986,7 +1016,8 @@ private struct WeekBlockTile: View {
         .background(
             ZStack(alignment: .top) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(block.color.opacity(0.92))
+                    .fill(LinearGradient(colors: [block.color, block.color.opacity(0.78)],
+                                         startPoint: .top, endPoint: .bottom))
                 if block.workedFraction > 0.001 {
                     WorkedStripe(cornerRadius: 2, onLight: false)
                         .frame(height: max(0, height * block.workedFraction))
@@ -1033,7 +1064,7 @@ private struct DatePickerSheet: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
             VStack(spacing: 16) {
                 Text("Jump to date")
                     .font(TTypo.xsBold(11))
@@ -1046,21 +1077,14 @@ private struct DatePickerSheet: View {
                     .labelsHidden()
                     .tint(Color(hex: T.sky))
                     .padding(.horizontal, 16)
+                    .frostedCard(radius: T.cornerLg)
+                    .padding(.horizontal, 16)
 
-                Button {
-                    dismiss()
-                } label: {
+                GradientCTA(action: { dismiss() }) {
                     Text("DONE")
                         .font(TTypo.xsBold(13))
                         .tLabel(tracking: 0.8)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Capsule().fill(Color(hex: T.sky)))
-                        .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                                radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                 }
-                .buttonStyle(.plain)
                 .padding(.horizontal, 24)
                 .padding(.bottom, 24)
             }

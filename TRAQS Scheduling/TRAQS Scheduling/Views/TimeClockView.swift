@@ -1,14 +1,13 @@
 import SwiftUI
 import Combine
 
-// MARK: - Hours V1 (Pay period) · TRAQS Light
+// MARK: - Hours V2 (Pay period) · TRAQS Revamp
 // Lives in TimeClockView.swift / struct TimeClockView for back-compat.
 // Per-job time tracking; no payroll clock-in on mobile (desktop-only).
+// Visual: gradient progress ring hero + gradient weekly bars + frosted recent
+// rows — matched to the Hours wireframe. All compute logic is unchanged.
 
-// One shared ISO8601 formatter for the whole Hours tab. The view recomputes
-// every second from the ticker, so freshly allocating a formatter on every
-// elapsed-label tick or weekHours pass was both wasteful and (under load on
-// older devices) a likely cause of the intermittent stalls/errors on this tab.
+// One shared ISO8601 formatter for the whole Hours tab.
 private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 
 struct TimeClockView: View {
@@ -20,27 +19,26 @@ struct TimeClockView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             VStack(spacing: 0) {
-                // Sticky header.
+                // Sticky header (unchanged structure).
                 TRAQSNavHeader {
                     IconBtn(icon: .settings, size: 18) { showSettings = true }
                 }
-                .background(Color(hex: T.bg))
 
                 ScrollView {
                     VStack(spacing: 0) {
 
-                    HeroPayPeriodCard(totalHours: weekHours,
-                                      target: weeklyTarget,
-                                      onPace: onPace,
-                                      now: now,
-                                      settings: appState.orgSettings)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
+                    PageTitle(title: "Hours", subtitle: periodLabel)
+                        .padding(.bottom, 10)
 
-                    DailyBarsCard(days: dailyBars)
+                    HeroRingCard(totalHours: weekHours,
+                                 target: weeklyTarget,
+                                 onPace: onPace)
+                        .padding(.horizontal, 16)
+
+                    WeekBarsCard(days: dailyBars)
                         .padding(.horizontal, 16)
                         .padding(.top, 14)
 
@@ -60,9 +58,9 @@ struct TimeClockView: View {
                         .padding(.bottom, 4)
                     }
 
-                    TSectionTitle(title: "Recent entries")
+                    TSectionTitle(title: "Recent")
 
-                    VStack(spacing: 14) {
+                    VStack(spacing: 12) {
                         ForEach(groupedEntries) { group in
                             EntryGroupCard(group: group)
                         }
@@ -82,19 +80,11 @@ struct TimeClockView: View {
         .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
-    // MARK: Compute
+    // MARK: Compute (unchanged)
 
     private var activeJobClock: ActiveJobClock? { appState.myActiveJobClock }
 
-    /// Total hours billed this calendar week (sum of job.loggedHours that the
-    /// current user worked on — currently we don't have per-entry breakdown,
-    /// so this is a best-effort: sum each job's loggedHours that the user is
-    /// a member of. Plus live running clock.)
     private var weekHours: Double {
-        // Safe optional binding instead of `me!` force unwraps inside escaping
-        // closures — the previous short-circuit pattern (`me == nil || … me! …`)
-        // was logically sound but fragile, and the most likely candidate for
-        // the intermittent runtime errors on this tab.
         let totalLogged = appState.jobs.reduce(0.0) { acc, job in
             let onJob: Bool
             if let me = appState.currentPersonId {
@@ -121,8 +111,6 @@ struct TimeClockView: View {
         return max(0, ms / 1000 / 3600)
     }
 
-    /// Weekly target = org's hours-per-day × number of work days. Falls back to 40 if the
-    /// org config is malformed.
     private var weeklyTarget: Double {
         let s = appState.orgSettings
         let target = s.hpd * Double(max(1, s.workDays.count))
@@ -131,8 +119,6 @@ struct TimeClockView: View {
 
     private var onPace: Bool { weekHours <= weeklyTarget }
 
-    /// Last 8 days of activity, today highlighted in sky.
-    /// Until we track per-day entries we approximate with the running clock placed today.
     private var dailyBars: [DailyBar] {
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
@@ -146,8 +132,6 @@ struct TimeClockView: View {
         return out
     }
 
-    /// Grouped entries — derived from any active job clock for now.
-    /// A real per-entry data feed would replace this.
     private var groupedEntries: [EntryGroup] {
         guard let jc = activeJobClock,
               let s = Date.fromFlexibleISO8601(jc.clockIn) else { return [] }
@@ -168,26 +152,15 @@ struct TimeClockView: View {
                            label: df.string(from: s),
                            entries: [entry])]
     }
-}
 
-// MARK: - Hero card (ink-filled, paper text)
+    // MARK: Pay-period window (moved up so it titles the page) — logic unchanged
 
-private struct HeroPayPeriodCard: View {
-    let totalHours: Double
-    let target: Double
-    let onPace: Bool
-    let now: Date
-    let settings: OrgSettings
-
-    /// Window for the current pay period.
-    /// - weekly: Mon → Sun containing today (or aligned to payPeriodStart day-of-week if set).
-    /// - biweekly: 14-day window anchored on payPeriodStart (falls back to two weeks back).
-    /// - semimonthly: 1st → 15th or 16th → end-of-month.
     private var periodWindow: (start: Date, end: Date) {
+        let s = appState.orgSettings
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
-        let anchor = settings.payPeriodStart.flatMap(parseISO) ?? today
-        switch settings.payPeriodType {
+        let anchor = s.payPeriodStart.flatMap(parseISO) ?? today
+        switch s.payPeriodType {
         case "weekly":
             let weekday = cal.component(.weekday, from: today)
             let toMonday = weekday == 1 ? -6 : -(weekday - 2)
@@ -226,45 +199,57 @@ private struct HeroPayPeriodCard: View {
         let f = DateFormatter(); f.dateFormat = "MMM d"
         return "Pay period · \(f.string(from: w.start)) – \(f.string(from: w.end))"
     }
+}
 
-    private var leftLabel: String {
-        String(format: "%.1f left to weekly target", max(0, target - totalHours))
+// MARK: - Hero: gradient progress ring + status
+
+private struct HeroRingCard: View {
+    let totalHours: Double
+    let target: Double
+    let onPace: Bool
+
+    private var pct: Double { target > 0 ? min(100, totalHours / target * 100) : 0 }
+    private var deltaLabel: String {
+        let diff = abs(target - totalHours)
+        return onPace ? String(format: "%.1fh left", diff)
+                      : String(format: "%.1fh over", diff)
     }
 
     var body: some View {
-        SBox(size: .lg, fill: Color(hex: T.ink), stroke: Color(hex: T.ink)) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(periodLabel)
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.paper).opacity(0.7))
-                    .tLabel(tracking: 1.4)
-
-                HStack(alignment: .lastTextBaseline, spacing: 10) {
-                    Text(String(format: "%.2f", totalHours))
-                        .font(.custom(TFontName.bold.rawValue, size: 48))
-                        .foregroundStyle(Color(hex: T.paper))
+        HStack(spacing: 18) {
+            ZStack {
+                GradientRing(pct: pct, lineWidth: 12)
+                    .frame(width: 116, height: 116)
+                VStack(spacing: 0) {
+                    Text(String(format: "%.1f", totalHours))
+                        .font(.custom(TFontName.bold.rawValue, size: 30))
+                        .foregroundStyle(Color(hex: T.ink))
                         .tnum()
-                    Text("hours")
-                        .font(TTypo.h3(18))
-                        .foregroundStyle(Color(hex: T.paper).opacity(0.7))
-                }
-
-                HStack(spacing: 12) {
-                    Text(leftLabel)
+                    Text(String(format: "/ %.0f h", target))
                         .font(TTypo.xs(11))
-                        .foregroundStyle(Color(hex: T.paper).opacity(0.7))
-                    Text(onPace ? "· on pace" : "· behind")
-                        .font(TTypo.xsBold(11))
-                        .foregroundStyle(Color(hex: onPace ? T.sky : T.orange))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tnum()
                 }
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("THIS PERIOD")
+                    .font(TTypo.xsBold(11))
+                    .tLabel(tracking: 1.4)
+                    .foregroundStyle(Color(hex: T.muted))
+                Text(onPace ? "On track" : "Behind")
+                    .font(.custom(TFontName.bold.rawValue, size: 22))
+                    .foregroundStyle(Color(hex: T.ink))
+                TagPill(label: deltaLabel, kind: onPace ? .green : .amber, dot: false)
+            }
+            Spacer(minLength: 0)
         }
+        .padding(18)
+        .frostedCard()
     }
 }
 
-// MARK: - Daily bars card
+// MARK: - This week bars (gradient)
 
 struct DailyBar: Identifiable {
     var id: Date { date }
@@ -274,51 +259,49 @@ struct DailyBar: Identifiable {
     let isToday: Bool
 }
 
-private struct DailyBarsCard: View {
+private struct WeekBarsCard: View {
     let days: [DailyBar]
     private let maxValue: Double = 9
 
     var body: some View {
-        SBox(size: .md, raised: true) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("Daily")
-                        .font(TTypo.xsBold(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .tLabel(tracking: 1.2)
-                    Spacer()
-                    Text("last 8 days")
-                        .font(TTypo.xs(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                }
-                HStack(alignment: .bottom, spacing: 8) {
-                    ForEach(days) { d in
-                        VStack(spacing: 6) {
-                            GeometryReader { _ in
-                                VStack {
-                                    Spacer()
-                                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                        .fill(d.isToday ? Color(hex: T.sky)
-                                              : (d.hours == 0 ? Color(hex: T.hair) : Color(hex: T.ink)))
-                                        .frame(height: max(2, min(1, d.hours / maxValue) * 88))
-                                }
-                            }
-                            .frame(height: 88)
-                            Text(d.dow)
-                                .font(TTypo.xs(11))
-                                .foregroundStyle(d.isToday ? Color(hex: T.ink) : Color(hex: T.muted))
-                                .fontWeight(d.isToday ? .bold : .medium)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("This week")
+                    .font(.custom(TFontName.bold.rawValue, size: 17))
+                    .foregroundStyle(Color(hex: T.ink))
+                Spacer()
+                Text("last 8 days")
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(days) { d in
+                    VStack(spacing: 6) {
+                        VStack {
+                            Spacer(minLength: 0)
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(d.hours > 0 || d.isToday
+                                      ? AnyShapeStyle(T.brandGradient(start: .bottom, end: .top))
+                                      : AnyShapeStyle(Color(hex: T.progressTrack)))
+                                .frame(height: max(8, min(1, d.hours / maxValue) * 96))
+                                .frame(minHeight: d.hours == 0 && !d.isToday ? 8 : nil)
                         }
-                        .frame(maxWidth: .infinity)
+                        .frame(height: 96)
+                        Text(d.dow)
+                            .font(TTypo.xs(11))
+                            .foregroundStyle(d.isToday ? Color(hex: T.ink) : Color(hex: T.muted))
+                            .fontWeight(d.isToday ? .bold : .medium)
                     }
+                    .frame(maxWidth: .infinity)
                 }
             }
-            .padding(14)
         }
+        .padding(16)
+        .frostedCard()
     }
 }
 
-// MARK: - Running entry card (sky chip + live elapsed)
+// MARK: - Running entry card (frosted, gradient STOP)
 
 private struct RunningEntryCard: View {
     let jobClock: ActiveJobClock
@@ -338,48 +321,38 @@ private struct RunningEntryCard: View {
     }
 
     var body: some View {
-        SBox(size: .md, sky: true) {
-            HStack(spacing: 10) {
-                Circle().fill(Color(hex: T.sky)).frame(width: 10, height: 10)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(jobClock.jobTitle ?? "Job")
-                        .font(TTypo.smBold(13))
+        HStack(spacing: 12) {
+            IconChip(icon: .hours, color: Color(hex: T.accentGradientStart))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(jobClock.jobTitle ?? "Job")
+                    .font(TTypo.smBold(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    TagPill(label: "RUNNING", kind: .indigo, dot: true)
+                    Text(elapsedLabel)
+                        .font(TTypo.monoBold(13))
                         .foregroundStyle(Color(hex: T.ink))
-                        .lineLimit(1)
-                    HStack(spacing: 8) {
-                        Chip(label: "RUNNING",
-                             fill: Color(hex: T.sky).opacity(0.12),
-                             stroke: Color(hex: T.sky),
-                             color: Color(hex: T.sky))
-                        Text(elapsedLabel)
-                            .font(TTypo.monoBold(13))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .tnum()
-                    }
+                        .tnum()
                 }
-                Spacer()
-                Button(action: onStop) {
-                    HStack(spacing: 5) {
-                        if isStopping {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .tint(.white)
-                                .scaleEffect(0.6)
-                            Text("STOPPING…").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
-                        } else {
-                            Image(systemName: "stop.fill")
-                            Text("STOP").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
-                        }
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(Capsule().fill(Color(hex: T.sky)))
-                }
-                .buttonStyle(.plain)
-                .disabled(isStopping)
             }
-            .padding(12)
+            Spacer(minLength: 8)
+            GradientCTA(disabled: isStopping, dimmed: false, fullWidth: false,
+                        verticalPadding: 8, action: onStop) {
+                HStack(spacing: 5) {
+                    if isStopping {
+                        ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.6)
+                        Text("STOPPING…").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
+                    } else {
+                        Image(systemName: "stop.fill")
+                        Text("STOP").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
+                    }
+                }
+            }
+            .fixedSize()
         }
+        .padding(14)
+        .frostedCard()
     }
 }
 
@@ -405,24 +378,20 @@ private struct EntryGroupCard: View {
     let group: EntryGroup
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(group.label)
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.4)
-                Spacer()
-            }
-            SBox(size: .md, raised: true) {
-                VStack(spacing: 0) {
-                    ForEach(group.entries.indices, id: \.self) { i in
-                        EntryRow(entry: group.entries[i])
-                        if i < group.entries.count - 1 {
-                            SLine().padding(.leading, 22)
-                        }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(group.label)
+                .font(TTypo.xsBold(11))
+                .foregroundStyle(Color(hex: T.muted))
+                .tLabel(tracking: 1.4)
+            VStack(spacing: 0) {
+                ForEach(group.entries.indices, id: \.self) { i in
+                    EntryRow(entry: group.entries[i])
+                    if i < group.entries.count - 1 {
+                        SLine().padding(.leading, 60)
                     }
                 }
             }
+            .frostedCard(radius: T.cornerMd)
         }
     }
 }
@@ -438,24 +407,21 @@ private struct EntryRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Rectangle().fill(entry.deptColor).frame(width: 4, height: 28).cornerRadius(2)
+        HStack(spacing: 12) {
+            IconChip(icon: .hours, color: entry.deptColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text(timeRange)
-                    .font(TTypo.mono(11))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .tnum()
                 Text(entry.jobTitle)
-                    .font(TTypo.smBold(13))
+                    .font(TTypo.smBold(14))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
+                Text(timeRange)
+                    .font(TTypo.mono(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tnum()
             }
-            Spacer()
+            Spacer(minLength: 8)
             if entry.running {
-                Chip(label: "● LIVE",
-                     fill: Color(hex: T.sky).opacity(0.10),
-                     stroke: Color(hex: T.sky),
-                     color: Color(hex: T.sky))
+                TagPill(label: "LIVE", kind: .indigo, dot: true)
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
@@ -464,18 +430,17 @@ private struct EntryRow: View {
 
 private struct HoursEmptyState: View {
     var body: some View {
-        SBox(size: .md, dashed: true) {
-            VStack(spacing: 8) {
-                TIconView(icon: .hours, size: 24, color: Color(hex: T.muted))
-                Text("No recent entries")
-                    .font(TTypo.smBold(13))
-                    .foregroundStyle(Color(hex: T.muted))
-                Text("Log time against a job to start tracking.")
-                    .font(TTypo.xs(11))
-                    .foregroundStyle(Color(hex: T.muted))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(20)
+        VStack(spacing: 8) {
+            TIconView(icon: .hours, size: 24, color: Color(hex: T.muted))
+            Text("No recent entries")
+                .font(TTypo.smBold(13))
+                .foregroundStyle(Color(hex: T.muted))
+            Text("Log time against a job to start tracking.")
+                .font(TTypo.xs(11))
+                .foregroundStyle(Color(hex: T.muted))
         }
+        .frame(maxWidth: .infinity)
+        .padding(22)
+        .frostedCard()
     }
 }

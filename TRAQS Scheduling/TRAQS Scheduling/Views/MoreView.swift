@@ -1,6 +1,6 @@
 import SwiftUI
 
-// MARK: - Stats V1 (KPI overview) · TRAQS Light
+// MARK: - Stats V1 (KPI overview) · TRAQS Light · Revamp
 // Lives in MoreView.swift / struct MoreView for back-compat (MainTabView routes
 // the Stats tab here). Admin/dispatcher view; non-admins see a friendly empty state.
 
@@ -10,7 +10,7 @@ struct MoreView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             VStack(spacing: 0) {
                 // Sticky header. Period chip cycles through the available
@@ -34,21 +34,24 @@ struct MoreView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                .background(Color(hex: T.bg))
 
                 ScrollView {
                     VStack(spacing: 0) {
                         if appState.isAdmin {
-                            kpiGrid
-                                .padding(.horizontal, 16).padding(.top, 8)
+                            PageTitle(title: "Stats", subtitle: period.label)
+                                .padding(.top, 6)
+                                .padding(.bottom, 16)
 
-                            TSectionTitle(title: "Hours billed", action: "14 DAYS")
+                            kpiGrid
+                                .padding(.horizontal, 16)
+
                             HeroTrendCard(points: hoursTrend, total: hoursTrendTotal, delta: hoursTrendDelta)
                                 .padding(.horizontal, 16)
+                                .padding(.top, 16)
 
-                            TSectionTitle(title: "Job mix")
-                            JobMixCard(mix: jobMix)
+                            TeamUtilizationCard(mix: jobMix)
                                 .padding(.horizontal, 16)
+                                .padding(.top, 16)
                                 .padding(.bottom, 24)
                         } else {
                             NonAdminEmpty()
@@ -64,15 +67,15 @@ struct MoreView: View {
     // MARK: KPI grid
 
     private var kpiGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-            KPICard(label: "Hours billed", value: String(format: "%.1f", hoursThisWeek), sub: "this wk",
-                    delta: "+12%", up: true, color: Color(hex: T.sky))
-            KPICard(label: "Jobs done", value: "\(jobsFinishedThisWeek)", sub: "this wk",
-                    delta: "+4", up: true, color: Color(hex: T.ink))
-            KPICard(label: "On-time rate", value: "92%", sub: "rolling 30d",
-                    delta: "−3%", up: false, color: Color(hex: T.red))
-            KPICard(label: "Utilization", value: "\(utilization)%", sub: "team avg",
-                    delta: "+5%", up: true, color: Color(hex: T.green))
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            KPICard(label: "Hours billed", value: String(format: "%.1f", hoursThisWeek),
+                    delta: "+12%", up: true)
+            KPICard(label: "Jobs done", value: "\(jobsFinishedThisWeek)",
+                    delta: "+4", up: true)
+            KPICard(label: "On-time rate", value: "92%",
+                    delta: "−3%", up: false)
+            KPICard(label: "Utilization", value: "\(utilization)%",
+                    delta: "+5%", up: true)
         }
     }
 
@@ -137,47 +140,33 @@ struct MoreView: View {
     }
 }
 
-// MARK: - KPI card
+// MARK: - KPI card (frosted: muted tracked label + big bold number + delta pill)
 
 private struct KPICard: View {
     let label: String
     let value: String
-    let sub: String
     let delta: String
     let up: Bool
-    let color: Color
 
     var body: some View {
-        SBox(size: .md, raised: true) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(label.uppercased())
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.2)
-                HStack(alignment: .lastTextBaseline, spacing: 4) {
-                    Text(value)
-                        .font(.custom(TFontName.bold.rawValue, size: 32))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .tnum()
-                    Text(sub)
-                        .font(TTypo.xs(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                }
-                HStack(spacing: 4) {
-                    Image(systemName: up ? "arrow.up" : "arrow.down")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(color)
-                    Text(delta).font(TTypo.xsBold(11)).foregroundStyle(color).tnum()
-                    Text("vs last").font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        VStack(alignment: .leading, spacing: 10) {
+            Text(label.uppercased())
+                .font(TTypo.xsBold(11))
+                .foregroundStyle(Color(hex: T.muted))
+                .tLabel(tracking: 1.2)
+            Text(value)
+                .font(.custom(TFontName.bold.rawValue, size: 34))
+                .foregroundStyle(Color(hex: T.ink))
+                .tnum()
+            TagPill(label: (up ? "↑ " : "↓ ") + delta, kind: up ? .green : .amber)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+        .frostedCard(radius: T.cornerMd)
     }
 }
 
-// MARK: - Hero trend (sparkline) card
+// MARK: - Hero trend (sparkline) card · frosted
 
 private struct HeroTrendCard: View {
     let points: [Double]
@@ -185,38 +174,42 @@ private struct HeroTrendCard: View {
     let delta: String
 
     var body: some View {
-        SBox(size: .md, raised: true) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .lastTextBaseline) {
-                    HStack(alignment: .lastTextBaseline, spacing: 8) {
-                        Text("\(total)")
-                            .font(.custom(TFontName.bold.rawValue, size: 28))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .tnum()
-                        Text("hours total")
-                            .font(TTypo.xs(11))
-                            .foregroundStyle(Color(hex: T.muted))
-                    }
-                    Spacer()
-                    Chip(label: delta,
-                         fill: Color(hex: T.sky).opacity(0.10),
-                         stroke: Color(hex: T.sky),
-                         color: Color(hex: T.sky))
-                }
-                Sparkline(points: points, stroke: Color(hex: T.sky),
-                          fill: Color(hex: T.sky).opacity(0.12), height: 84)
-                HStack {
-                    Text("14 days ago").font(TTypo.mono(10)).foregroundStyle(Color(hex: T.muted)).tnum()
-                    Spacer()
-                    Text("today").font(TTypo.mono(10)).foregroundStyle(Color(hex: T.muted)).tnum()
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .lastTextBaseline) {
+                Text("HOURS BILLED")
+                    .font(TTypo.xsBold(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tLabel(tracking: 1.2)
+                Spacer()
+                TagPill(label: "↑ " + delta, kind: .green)
             }
-            .padding(14)
+            HStack(alignment: .lastTextBaseline, spacing: 8) {
+                Text("\(total)")
+                    .font(.custom(TFontName.bold.rawValue, size: 30))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .tnum()
+                Text("hours total")
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+            Sparkline(points: points,
+                      stroke: Color(hex: T.accentGradientStart),
+                      fill: Color(hex: T.accentGradientStart).opacity(0.12), height: 84)
+            HStack {
+                Text("14 days ago").font(TTypo.mono(10)).foregroundStyle(Color(hex: T.muted)).tnum()
+                Spacer()
+                Text("today").font(TTypo.mono(10)).foregroundStyle(Color(hex: T.muted)).tnum()
+            }
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frostedCard(radius: T.cornerHero)
     }
 }
 
-// MARK: - Job mix card
+// MARK: - Team utilization card
+// Frosted hero card. Each row = gradient Avatar(initials) + name + gradient Bar(pct)
+// + right % label. Rows are driven by the existing job-mix computation.
 
 struct JobMixEntry: Identifiable {
     var id: String { label }
@@ -225,40 +218,45 @@ struct JobMixEntry: Identifiable {
     let color: Color
 }
 
-private struct JobMixCard: View {
+private struct TeamUtilizationCard: View {
     let mix: [JobMixEntry]
-    var body: some View {
-        SBox(size: .md, raised: true) {
-            VStack(alignment: .leading, spacing: 12) {
-                // Stacked bar
-                HStack(spacing: 0) {
-                    ForEach(mix) { m in
-                        Rectangle().fill(m.color).frame(maxWidth: .infinity)
-                            .frame(height: 14)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
 
-                // Legend rows
-                VStack(spacing: 8) {
-                    ForEach(mix) { m in
-                        HStack(spacing: 8) {
-                            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                .fill(m.color).frame(width: 10, height: 10)
-                            Text(m.label)
-                                .font(TTypo.smBold(13))
-                                .foregroundStyle(Color(hex: T.ink))
-                            Spacer()
-                            Text("\(m.pct)%")
-                                .font(TTypo.mono(11))
-                                .foregroundStyle(Color(hex: T.ink))
-                                .tnum()
+    private func initials(_ label: String) -> String {
+        let trimmed = label.trimmingCharacters(in: .whitespaces)
+        guard let first = trimmed.first else { return "—" }
+        return String(first).uppercased()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Team utilization")
+                .font(TTypo.h3(18))
+                .foregroundStyle(Color(hex: T.ink))
+
+            VStack(spacing: 16) {
+                ForEach(mix) { m in
+                    HStack(spacing: 12) {
+                        Avatar(initials: initials(m.label), size: 38, gradient: true)
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(m.label.capitalized)
+                                    .font(TTypo.smBold(14))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                Spacer()
+                                Text("\(m.pct)%")
+                                    .font(TTypo.smBold(13))
+                                    .foregroundStyle(Color(hex: T.muted))
+                                    .tnum()
+                            }
+                            Bar(pct: Double(m.pct), height: 8, gradient: T.brandGradient())
                         }
                     }
                 }
             }
-            .padding(14)
         }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frostedCard(radius: T.cornerHero)
     }
 }
 

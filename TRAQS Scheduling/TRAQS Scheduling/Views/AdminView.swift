@@ -41,7 +41,7 @@ struct AdminView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             VStack(spacing: 0) {
                 // Sticky header
@@ -147,8 +147,15 @@ struct AdminView: View {
                             .foregroundStyle(on ? .white : Color(hex: T.ink))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
-                            .background(Capsule().fill(on ? Color(hex: T.accent) : Color(hex: T.surface)))
+                            .background(
+                                Capsule().fill(
+                                    on ? AnyShapeStyle(T.brandGradient())
+                                       : AnyShapeStyle(Color(hex: T.surface))
+                                )
+                            )
                             .overlay(Capsule().stroke(on ? Color.clear : Color(hex: T.hair), lineWidth: 1))
+                            .shadow(color: on ? Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity) : .clear,
+                                    radius: on ? T.ctaGlowRadius : 0, x: 0, y: on ? T.ctaGlowY : 0)
                     }
                     .buttonStyle(.plain)
                 }
@@ -275,9 +282,8 @@ private struct StatTile: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 4)
-        .padding(.vertical, 10)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.hair), lineWidth: 1))
+        .padding(.vertical, 12)
+        .frostedCard(radius: T.cornerMd)
     }
 }
 
@@ -316,16 +322,10 @@ private struct PersonAvatar: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottomTrailing) {
-            Avatar(initials: initials, size: 36, fill: Color(hex: person.color))
-            if statusColor != .clear {
-                Circle()
-                    .fill(statusColor)
-                    .frame(width: 11, height: 11)
-                    .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 2))
-                    .offset(x: 2, y: 2)
-            }
-        }
+        Avatar(initials: initials,
+               size: 38,
+               gradient: true,
+               presence: statusColor == .clear ? nil : statusColor)
     }
 }
 
@@ -349,7 +349,7 @@ private struct OnJobCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                PersonAvatar(person: person, statusColor: Color(hex: T.green))
+                PersonAvatar(person: person, statusColor: Color(hex: T.presenceWork))
                 VStack(alignment: .leading, spacing: 1) {
                     Text(person.name)
                         .font(TTypo.smBold(14))
@@ -363,6 +363,7 @@ private struct OnJobCard: View {
                     }
                 }
                 Spacer(minLength: 0)
+                TagPill(label: "On job", kind: .indigo)
             }
 
             HStack(spacing: 6) {
@@ -392,8 +393,7 @@ private struct OnJobCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.hair), lineWidth: 1))
+        .frostedCard(radius: T.cornerMd)
     }
 }
 
@@ -403,7 +403,7 @@ private struct OnBreakCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PersonAvatar(person: person, statusColor: Color(hex: T.orange))
+            PersonAvatar(person: person, statusColor: Color(hex: T.presenceBreak))
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(person.name)
@@ -430,10 +430,10 @@ private struct OnBreakCard: View {
                 }
             }
             Spacer(minLength: 0)
+            TagPill(label: "Break", kind: .amber)
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.hair), lineWidth: 1))
+        .frostedCard(radius: T.cornerMd)
     }
 
     private func breakLabel(at now: Date) -> String {
@@ -477,10 +477,10 @@ private struct OnLunchCard: View {
                 }
             }
             Spacer(minLength: 0)
+            TagPill(label: "Lunch", kind: .amber)
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.hair), lineWidth: 1))
+        .frostedCard(radius: T.cornerMd)
     }
 }
 
@@ -490,7 +490,7 @@ private struct IdleOrOfflineCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            PersonAvatar(person: person, statusColor: Color(hex: T.muted))
+            PersonAvatar(person: person, statusColor: Color(hex: T.presenceIdle))
             VStack(alignment: .leading, spacing: 2) {
                 Text(person.name)
                     .font(TTypo.smBold(14))
@@ -508,8 +508,7 @@ private struct IdleOrOfflineCard: View {
                 .lineLimit(1)
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.hair), lineWidth: 1))
+        .frostedCard(radius: T.cornerMd)
     }
 }
 

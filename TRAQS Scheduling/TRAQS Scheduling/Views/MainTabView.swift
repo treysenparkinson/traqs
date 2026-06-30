@@ -197,6 +197,10 @@ private struct SideMenu: View {
         return parts.joined()
     }
 
+    private var orgInitial: String {
+        String(appState.orgName.prefix(1)).uppercased()
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -208,15 +212,48 @@ private struct SideMenu: View {
                         Image(systemName: "xmark")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(Color(hex: T.muted))
-                            .frame(width: 32, height: 32)
+                            .frame(width: 34, height: 34)
                             .background(Circle().fill(Color(hex: T.surface)))
                             .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                            .compositingGroup()
+                            .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
+                                    radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
                     }
                     .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 24)
-                .padding(.bottom, 24)
+                .padding(.bottom, 18)
+
+                // Org card — gradient avatar + org name + plan/subtitle.
+                HStack(spacing: 12) {
+                    Avatar(initials: orgInitial.isEmpty ? "—" : orgInitial,
+                           size: 44, gradient: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(appState.orgName.isEmpty ? "TRAQS" : appState.orgName)
+                            .font(.custom(TFontName.bold.rawValue, size: 20))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        if let role = person?.role, !role.isEmpty {
+                            Text(role)
+                                .font(TTypo.xs(11))
+                                .foregroundStyle(Color(hex: T.muted))
+                                .tLabel(tracking: 0.8)
+                                .lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 18)
+
+                // Divider — separates the org card from the nav list.
+                Rectangle()
+                    .fill(Color(hex: T.hair))
+                    .frame(height: 1)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
 
                 // Tab list — primary 5 wireframe tabs.
                 VStack(spacing: 4) {
@@ -270,11 +307,33 @@ private struct SideMenu: View {
             }
             .frame(width: drawerWidth)
             .frame(maxHeight: .infinity, alignment: .top)
-            .background(Color(hex: T.surface))
+            .background {
+                // Frosted drawer surface — soft top-to-bottom light wash with a
+                // faint lavender ambient pool bleeding from the upper area,
+                // echoing the revamp's AmbientBackground.
+                ZStack {
+                    LinearGradient(colors: [Color(hex: T.bgGradTop),
+                                            Color(hex: T.surface)],
+                                   startPoint: .top, endPoint: .bottom)
+                    GlowBlob(size: T.glowSize * 0.9, opacity: T.glowOpacity * 0.7)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity,
+                               alignment: .topLeading)
+                        .offset(x: -40, y: 160)
+                }
+                .ignoresSafeArea()
+            }
+            .overlay(alignment: .top) {
+                // Glassy white top-edge highlight along the trailing seam.
+                LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.5), .clear],
+                               startPoint: .top, endPoint: .bottom)
+                    .frame(width: 1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .allowsHitTesting(false)
+            }
             .overlay(alignment: .trailing) {
                 Rectangle().fill(Color(hex: T.hair)).frame(width: 1)
             }
-            .shadow(color: Color.black.opacity(0.18), radius: 22, x: 4, y: 0)
+            .shadow(color: Color.black.opacity(0.18), radius: 24, x: 6, y: 0)
 
             Spacer(minLength: 0)
         }
@@ -291,32 +350,30 @@ private struct SideMenuRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                ZStack {
-                    Capsule()
-                        .fill(isOn ? Color(hex: T.sky).opacity(0.16) : .clear)
-                        .frame(width: 36, height: 28)
-                    if isOn {
-                        Capsule()
-                            .stroke(Color(hex: T.sky).opacity(0.24), lineWidth: 1)
-                            .frame(width: 36, height: 28)
-                    }
-                    TIconView(icon: icon, size: 18,
-                              color: isOn ? Color(hex: T.sky) : Color(hex: T.muted),
-                              weight: isOn ? .semibold : .regular)
-                }
+            HStack(spacing: 14) {
+                TIconView(icon: icon, size: 19,
+                          color: isOn ? .white : Color(hex: T.muted),
+                          weight: isOn ? .semibold : .regular)
+                    .frame(width: 22)
                 Text(label)
-                    .font(.custom(isOn ? TFontName.bold.rawValue : TFontName.medium.rawValue, size: 15))
-                    .foregroundStyle(isOn ? Color(hex: T.ink) : Color(hex: T.muted))
-                Spacer()
+                    .font(.custom(isOn ? TFontName.bold.rawValue : TFontName.medium.rawValue, size: 16))
+                    .foregroundStyle(isOn ? .white : Color(hex: T.muted))
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
-            .background(
-                RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
-                    .fill(isOn ? Color(hex: T.sky).opacity(0.06) : .clear)
-            )
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Capsule())
+            .background {
+                // Active row → full-width indigo→magenta gradient pill + CTA glow.
+                // Inactive rows stay transparent (muted glyph + label).
+                if isOn {
+                    Capsule()
+                        .fill(T.brandGradient())
+                        .shadow(color: Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity),
+                                radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+                }
+            }
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.18), value: isOn)
@@ -333,20 +390,12 @@ private struct ProfileFooter: View {
     let onLogout: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Avatar(initials: initials, size: 38, fill: Color(hex: T.magenta))
+        HStack(spacing: 12) {
+            Avatar(initials: initials, size: 40, gradient: true)
 
             VStack(alignment: .leading, spacing: 1) {
-                if !orgName.isEmpty {
-                    Text(orgName)
-                        .font(TTypo.xsBold(10))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .tLabel(tracking: 0.8)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
                 Text(name)
-                    .font(TTypo.smBold(13))
+                    .font(TTypo.smBold(14))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                 if let email, !email.isEmpty {
@@ -355,20 +404,28 @@ private struct ProfileFooter: View {
                         .foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
                         .truncationMode(.middle)
+                } else if !orgName.isEmpty {
+                    Text(orgName)
+                        .font(TTypo.xs(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
 
             Spacer(minLength: 4)
 
             Button(action: onLogout) {
-                TIconView(icon: .signOut, size: 14,
+                TIconView(icon: .signOut, size: 15,
                           color: Color(hex: T.red),
                           weight: .semibold)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 36, height: 36)
                     .background(Circle().fill(Color(hex: T.red).opacity(0.10)))
                     .overlay(Circle().stroke(Color(hex: T.red).opacity(0.30), lineWidth: 1))
             }
             .buttonStyle(.plain)
         }
+        .padding(12)
+        .frostedCard(radius: T.cornerMd)
     }
 }

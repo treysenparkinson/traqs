@@ -140,7 +140,7 @@ struct MessagesView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
+                AmbientBackground()
 
                 VStack(spacing: 0) {
                     // Sticky header.
@@ -203,20 +203,15 @@ struct MessagesView: View {
                                 }
                                 if showSearch { searchFocused = true }
                             }
-                            Button {
+                            IconBtn(icon: .plus, size: 18) {
                                 showNewGroup = true   // default to group creation; DM is in sheet
-                            } label: {
-                                TIconView(icon: .plus, size: 18, color: .white, weight: .bold)
-                                    .padding(9)
-                                    .background(Circle().fill(Color(hex: T.sky)))
-                                    .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
-                    .background(Color(hex: T.bg))
                     .animation(.easeInOut(duration: 0.18), value: selectMode)
+
+                    PageTitle(title: "Chat")
+                        .padding(.bottom, 6)
 
                     if showSearch {
                         SearchBar(text: $searchText,
@@ -246,16 +241,10 @@ struct MessagesView: View {
                                 TSectionTitle(title: "Inbox",
                                               action: "MARK ALL READ",
                                               onAction: { appState.markAllThreadsRead() })
-                                VStack(spacing: 0) {
-                                    SBox(size: .md, raised: true) {
-                                        VStack(spacing: 0) {
-                                            ForEach(Array(filteredThreads.enumerated()), id: \.element.id) { (i, t) in
-                                                threadRow(t)
-                                                if i < filteredThreads.count - 1 {
-                                                    SLine().padding(.leading, 60)
-                                                }
-                                            }
-                                        }
+                                VStack(spacing: 12) {
+                                    ForEach(filteredThreads) { t in
+                                        threadRow(t)
+                                            .frostedCard(radius: T.cornerMd)
                                     }
                                 }
                                 .padding(.horizontal, 16)
@@ -418,8 +407,14 @@ private struct ChannelRow: View {
         return ordered
     }
 
+    /// Short relative time for the last message ("2m", "1h", …), shown
+    /// top-right of the row to match the wireframe.
+    private var timeLabel: String {
+        thread.lastMessage?.timestamp.shortTimestamp ?? ""
+    }
+
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 12) {
             if selectMode {
                 // The checkmark fades + slides in from the leading edge
                 // when the user enters select mode, and the rest of the
@@ -433,37 +428,37 @@ private struct ChannelRow: View {
             }
 
             if thread.isDM {
-                Avatar(initials: initials, size: 40, fill: avatarColor)
+                Avatar(initials: initials, size: 46, gradient: true)
             } else if !participants.isEmpty {
                 ParticipantStack(people: participants,
-                                 avatarSize: 22,
-                                 overlap: 9,
+                                 avatarSize: 26,
+                                 overlap: 10,
                                  maxShown: 3)
-                    .frame(width: 40, alignment: .leading)
+                    .frame(width: 46, alignment: .leading)
             } else {
                 // Fallback for a thread with no decodable participants
                 // (e.g. server returned messages whose authorIds don't
                 // match any person we know about — shouldn't normally
                 // happen, but keeps the row from rendering blank).
-                ZStack {
-                    RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous)
-                        .fill(Color(hex: T.surface))
-                    RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous)
-                        .stroke(Color(hex: T.hair), lineWidth: 1)
-                    Text("#").font(.custom(TFontName.bold.rawValue, size: 18))
-                        .foregroundStyle(Color(hex: T.muted))
-                }
-                .frame(width: 40, height: 40)
+                Avatar(initials: "#", size: 46, gradient: true)
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text(thread.displayTitle)
-                    .font(TTypo.smBold(14))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(thread.displayTitle)
+                        .font(TTypo.smBold(15))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    if !timeLabel.isEmpty {
+                        Text(timeLabel)
+                            .font(TTypo.xs(11))
+                            .foregroundStyle(Color(hex: T.muted))
+                            .lineLimit(1)
+                    }
+                }
                 HStack(spacing: 6) {
                     Text(subtitle)
-                        .font(TTypo.xs(12))
+                        .font(TTypo.xs(13))
                         .foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
                     Spacer(minLength: 4)
@@ -472,15 +467,15 @@ private struct ChannelRow: View {
                             .font(TTypo.xsBold(11))
                             .foregroundStyle(.white)
                             .tnum()
-                            .padding(.horizontal, 6)
-                            .frame(minWidth: 18, minHeight: 18)
-                            .background(Capsule().fill(Color(hex: T.sky)))
+                            .padding(.horizontal, 7)
+                            .frame(minWidth: 20, minHeight: 20)
+                            .background(Capsule().fill(T.brandGradient()))
                     }
                 }
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.vertical, 14)
         .contentShape(Rectangle())
     }
 }
@@ -637,7 +632,7 @@ struct ThreadDetailView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             VStack(spacing: 0) {
                 ThreadHeader(title: displayTitle,
@@ -676,27 +671,30 @@ struct ThreadDetailView: View {
                 HStack(spacing: 10) {
                     TextField("Message…", text: $newText, axis: .vertical)
                         .textFieldStyle(.plain)
-                        .foregroundColor(Color(hex: T.text))
-                        .padding(10)
-                        .background(Color(hex: T.surface))
-                        .cornerRadius(20)
-                        .overlay(Capsule().stroke(Color(hex: T.border), lineWidth: 1))
+                        .font(TTypo.sm(14))
+                        .foregroundColor(Color(hex: T.ink))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(Capsule().fill(Color(hex: T.surface)))
+                        .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
                         .lineLimit(1...5)
 
+                    let sendDisabled = newText.trimmingCharacters(in: .whitespaces).isEmpty || isSending
                     Button {
                         Task { await sendMessage() }
                     } label: {
-                        Image(systemName: "arrow.up.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(newText.trimmingCharacters(in: .whitespaces).isEmpty ? Color(hex: T.muted) : Color(hex: T.accent))
+                        TIconView(icon: .send, size: 18, color: .white, weight: .bold)
+                            .frame(width: 44, height: 44)
+                            .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
+                            .shadow(color: Color(hex: T.ctaGlowColor).opacity(sendDisabled ? 0 : T.ctaGlowOpacity),
+                                    radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+                            .opacity(sendDisabled ? 0.5 : 1)
                     }
                     .buttonStyle(.plain)
-                    .disabled(newText.trimmingCharacters(in: .whitespaces).isEmpty || isSending)
+                    .disabled(sendDisabled)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .traqsToolbar()
                 .padding(.horizontal, 12)
+                .padding(.top, 8)
                 .padding(.bottom, 6)
 
                 if let err = sendError {
@@ -843,10 +841,8 @@ struct MessageBubble: View {
             if isMe { Spacer(minLength: 40) }
 
             if !isMe {
-                Circle()
-                    .fill(Color(hex: message.authorColor))
-                    .frame(width: 28, height: 28)
-                    .overlay(Text(String(message.authorName.prefix(1))).font(.caption2.bold()).foregroundColor(.white))
+                Avatar(initials: String(message.authorName.prefix(1)).uppercased(),
+                       size: 28, gradient: true)
             }
 
             VStack(alignment: isMe ? .trailing : .leading, spacing: 2) {
@@ -854,16 +850,28 @@ struct MessageBubble: View {
                     Text(message.authorName).font(.caption2).foregroundColor(Color(hex: T.muted))
                 }
                 Text(message.text)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(isMe ? Color(hex: T.accent) : Color(hex: T.card))
-                    .foregroundColor(isMe ? .white : Color(hex: T.text))
-                    .cornerRadius(18)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18)
-                            .stroke(isMe ? Color.clear : Color(hex: T.border), lineWidth: 1)
-                    )
-                    .contentShape(RoundedRectangle(cornerRadius: 18))
+                    .font(TTypo.sm(14))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(isMe ? .white : Color(hex: T.ink))
+                    .background {
+                        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        if isMe {
+                            shape.fill(T.brandGradient())
+                                .shadow(color: Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity * 0.7),
+                                        radius: T.ctaGlowRadius * 0.6, x: 0, y: T.ctaGlowY * 0.6)
+                        } else {
+                            shape.fill(Color(hex: T.surface))
+                                .overlay(shape.strokeBorder(
+                                    LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
+                                                   startPoint: .top, endPoint: .bottom),
+                                    lineWidth: 1))
+                                .compositingGroup()
+                                .shadow(color: .black.opacity(T.ambientShadowOpacity),
+                                        radius: T.ambientShadowRadius * 0.6, x: 0, y: T.ambientShadowY * 0.6)
+                        }
+                    }
+                    .contentShape(RoundedRectangle(cornerRadius: 20))
                     .onTapGesture { toggleTimestamp() }
                     // Overlay rather than a sibling view so the timestamp
                     // doesn't grow the VStack — otherwise the HStack's
@@ -937,7 +945,6 @@ private struct ThreadHeader: View {
         .padding(.horizontal, 16)
         .padding(.top, 18)
         .padding(.bottom, 14)
-        .background(Color(hex: T.bg))
     }
 }
 
@@ -954,8 +961,8 @@ private struct ParticipantStack: View {
             ForEach(Array(people.prefix(maxShown).enumerated()), id: \.element.id) { _, p in
                 Avatar(initials: initials(p.name),
                        size: avatarSize,
-                       fill: Color(hex: p.color))
-                    .overlay(Circle().stroke(Color(hex: T.bg), lineWidth: 2))
+                       gradient: true)
+                    .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 2))
             }
             if people.count > maxShown {
                 ZStack {
@@ -966,7 +973,7 @@ private struct ParticipantStack: View {
                         .tnum()
                 }
                 .frame(width: avatarSize, height: avatarSize)
-                .overlay(Circle().stroke(Color(hex: T.bg), lineWidth: 2))
+                .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 2))
             }
         }
     }

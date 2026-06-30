@@ -55,12 +55,12 @@ enum T {
     static let priMedium = "#EAB308"
     static let priHigh   = "#EF4444"
 
-    // ── Corner radii ───────────────────────────────────────────────────────
-    static let cornerXs: CGFloat = 6
-    static let cornerSm: CGFloat = 8     // chips, small pills
-    static let cornerMd: CGFloat = 12    // body cards, list rows
-    static let cornerLg: CGFloat = 14    // hero cards, large surfaces
-    static let cornerXl: CGFloat = 18    // very large surfaces
+    // ── Corner radii (revamp: rounder, softer everywhere) ───────────────────
+    static let cornerXs: CGFloat = 7
+    static let cornerSm: CGFloat = 10    // chips, small pills
+    static let cornerMd: CGFloat = 16    // body cards, list rows
+    static let cornerLg: CGFloat = 20    // hero cards, large surfaces
+    static let cornerXl: CGFloat = 24    // very large surfaces
     static let cornerPill: CGFloat = 9999
     static let cornerBlock: CGFloat = 3  // schedule-timeline bars — nearly square per spec
 
@@ -72,4 +72,59 @@ enum T {
     static let skyShadowOpacity:    Double  = 0.22
     static let skyShadowRadius:     CGFloat = 12
     static let skyShadowY:          CGFloat = 4
+
+    // ── Revamp · signature gradient (DERIVED from accent — never hardcode at call sites) ──
+    // The default accent maps to the wireframe indigo→magenta brand pair. A custom
+    // accent keeps its own start and derives an intentional end-stop (see ThemeSettings).
+    static let brandGradStartDefault = "#6D5BE8"   // indigo
+    static let brandGradEndDefault   = "#D63AC8"   // hot magenta
+    static var accentGradientStart   = "#6D5BE8"
+    static var accentGradientEnd     = "#D63AC8"
+
+    // ── Canvas gradient + ambient glow (light-mode only; gated by isLightTheme) ──
+    static let bgGradTop    = "#F4F5F9"
+    static let bgGradBottom = "#E7E9F1"
+    static var glowBlob     = "#E9E2F7"            // lavender ambient pool (mirrors accent end for custom accents)
+    static let glowOpacity: Double  = 0.22
+    static let glowBlur:    CGFloat = 80
+    static let glowSize:    CGFloat = 260
+
+    // ── Bright semantic pills (tint bg + same-hue text) ──
+    static let pillIndigoBg = "#E7E3FB"; static let pillIndigoFg = "#6B5BE0"
+    static let pillAmberBg  = "#FBEFD6"; static let pillAmberFg  = "#C9881F"
+    static let pillGreenBg  = "#D8F2DE"; static let pillGreenFg  = "#2F9E54"
+    static let pillNeutralBg = "#ECEDF2"; static let pillNeutralFg = "#8A8A95"
+
+    // ── Progress track + presence dots ──
+    static let progressTrack = "#E6E8EF"
+    static let presenceWork  = "#3B82F6"
+    static let presenceBreak = "#F5A623"
+    static let presenceIdle  = "#9AA0AC"
+
+    // ── New radius + glassy highlight stroke ──
+    static let cornerHero: CGFloat = 26            // hero / large frosted cards
+    static let highlightStroke = "#FFFFFF"         // used at low alpha as a white→clear top edge
+
+    // ── CTA glow shadow (accompanies every gradient pill) ──
+    static var ctaGlowColor   = "#7B5BE8"          // mirrors accent end for custom accents
+    static let ctaGlowOpacity: Double  = 0.35
+    static let ctaGlowRadius:  CGFloat = 20
+    static let ctaGlowY:       CGFloat = 8
+
+    // ── Ambient (hero) elevation — softer + larger than `raised` ──
+    static let ambientShadowOpacity: Double  = 0.10
+    static let ambientShadowRadius:  CGFloat = 24
+    static let ambientShadowY:       CGFloat = 12
+}
+
+// MARK: - Signature gradient
+// THE brand gradient. Reads the derived accent stops so the Customize accent
+// picker stays coherent (default accent → wireframe indigo→magenta).
+extension T {
+    static func brandGradient(start: UnitPoint = .leading,
+                              end: UnitPoint = .trailing) -> LinearGradient {
+        LinearGradient(
+            colors: [Color(hex: accentGradientStart), Color(hex: accentGradientEnd)],
+            startPoint: start, endPoint: end)
+    }
 }

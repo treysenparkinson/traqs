@@ -35,112 +35,163 @@ struct AnalyticsView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Summary cards
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        StatCard(label: "Total Jobs", value: "\(appState.jobs.count)", color: Color(hex: T.accent))
-                        StatCard(label: "Completion", value: String(format: "%.0f%%", completionRate), color: Color(hex: T.statusFinished))
-                        StatCard(label: "In Progress", value: "\(appState.jobs.filter { $0.status == .inProgress }.count)", color: Color(hex: T.statusInProgress))
-                        StatCard(label: "Eng Queue", value: "\(appState.engineeringQueue.count)", color: Color(hex: T.statusOnHold))
-                    }
+            VStack(spacing: 0) {
+                TRAQSNavHeader()
 
-                    // Status breakdown
-                    if !statusCounts.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Jobs by Status").font(.headline).foregroundColor(Color(hex: T.text))
-                            Chart(statusCounts, id: \.status) { item in
-                                BarMark(
-                                    x: .value("Count", item.count),
-                                    y: .value("Status", item.status.rawValue)
-                                )
-                                .foregroundStyle(item.status.color)
-                                .cornerRadius(4)
-                                .annotation(position: .trailing) {
-                                    Text("\(item.count)").font(.caption).foregroundColor(Color(hex: T.muted))
-                                }
-                            }
-                            .chartXAxis(.hidden)
-                            .chartYAxis {
-                                AxisMarks { _ in
-                                    AxisValueLabel().foregroundStyle(Color(hex: T.muted))
-                                }
-                            }
-                            .frame(height: CGFloat(statusCounts.count * 44))
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        PageTitle(title: "Stats", subtitle: "Overview")
+                            .padding(.bottom, 4)
+
+                        // Summary cards — frosted stat tiles
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                            AnalyticsStatTile(label: "Total Jobs",
+                                              value: "\(appState.jobs.count)",
+                                              accent: Color(hex: T.accentGradientStart))
+                            AnalyticsStatTile(label: "Completion",
+                                              value: String(format: "%.0f%%", completionRate),
+                                              accent: Color(hex: T.statusFinished))
+                            AnalyticsStatTile(label: "In Progress",
+                                              value: "\(appState.jobs.filter { $0.status == .inProgress }.count)",
+                                              accent: Color(hex: T.statusInProgress))
+                            AnalyticsStatTile(label: "Eng Queue",
+                                              value: "\(appState.engineeringQueue.count)",
+                                              accent: Color(hex: T.statusOnHold))
                         }
-                        .padding()
-                        .background(Color(hex: T.card))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
-                    }
+                        .padding(.horizontal, 16)
 
-                    // Priority breakdown
-                    if !priorityCounts.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Jobs by Priority").font(.headline).foregroundColor(Color(hex: T.text))
-                            Chart(priorityCounts, id: \.priority) { item in
-                                SectorMark(
-                                    angle: .value("Count", item.count),
-                                    innerRadius: .ratio(0.5),
-                                    angularInset: 2
-                                )
-                                .foregroundStyle(item.priority.color)
-                                .annotation(position: .overlay) {
-                                    Text("\(item.count)").font(.caption.bold()).foregroundColor(.white)
+                        // Status breakdown
+                        if !statusCounts.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Jobs by Status")
+                                    .font(TTypo.h3(18))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                Chart(statusCounts, id: \.status) { item in
+                                    BarMark(
+                                        x: .value("Count", item.count),
+                                        y: .value("Status", item.status.rawValue)
+                                    )
+                                    .foregroundStyle(item.status.color)
+                                    .cornerRadius(6)
+                                    .annotation(position: .trailing) {
+                                        Text("\(item.count)").font(.caption).foregroundColor(Color(hex: T.muted))
+                                    }
                                 }
+                                .chartXAxis(.hidden)
+                                .chartYAxis {
+                                    AxisMarks { _ in
+                                        AxisValueLabel().foregroundStyle(Color(hex: T.muted))
+                                    }
+                                }
+                                .frame(height: CGFloat(statusCounts.count * 44))
                             }
-                            .frame(height: 200)
-                            HStack(spacing: 16) {
-                                ForEach(priorityCounts, id: \.priority) { item in
-                                    HStack(spacing: 4) {
-                                        Circle().fill(item.priority.color).frame(width: 8, height: 8)
-                                        Text(item.priority.rawValue).font(.caption).foregroundColor(Color(hex: T.muted))
+                            .padding(18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frostedCard(radius: T.cornerHero)
+                            .padding(.horizontal, 16)
+                        }
+
+                        // Priority breakdown
+                        if !priorityCounts.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Jobs by Priority")
+                                    .font(TTypo.h3(18))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                Chart(priorityCounts, id: \.priority) { item in
+                                    SectorMark(
+                                        angle: .value("Count", item.count),
+                                        innerRadius: .ratio(0.5),
+                                        angularInset: 2
+                                    )
+                                    .foregroundStyle(item.priority.color)
+                                    .annotation(position: .overlay) {
+                                        Text("\(item.count)").font(.caption.bold()).foregroundColor(.white)
+                                    }
+                                }
+                                .frame(height: 200)
+                                HStack(spacing: 16) {
+                                    ForEach(priorityCounts, id: \.priority) { item in
+                                        HStack(spacing: 5) {
+                                            Circle().fill(item.priority.color).frame(width: 8, height: 8)
+                                            Text(item.priority.rawValue).font(.caption).foregroundColor(Color(hex: T.muted))
+                                        }
                                     }
                                 }
                             }
+                            .padding(18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frostedCard(radius: T.cornerHero)
+                            .padding(.horizontal, 16)
                         }
-                        .padding()
-                        .background(Color(hex: T.card))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
-                    }
 
-                    // Team workload
-                    if !teamWorkload.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Team Workload (Active Ops)").font(.headline).foregroundColor(Color(hex: T.text))
-                            Chart(teamWorkload, id: \.name) { item in
-                                BarMark(
-                                    x: .value("Name", item.name),
-                                    y: .value("Tasks", item.count)
-                                )
-                                .foregroundStyle(Color(hex: T.accent))
-                                .cornerRadius(4)
-                                .annotation(position: .top) {
-                                    Text("\(item.count)").font(.caption).foregroundColor(Color(hex: T.muted))
+                        // Team workload
+                        if !teamWorkload.isEmpty {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Team Workload (Active Ops)")
+                                    .font(TTypo.h3(18))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                Chart(teamWorkload, id: \.name) { item in
+                                    BarMark(
+                                        x: .value("Name", item.name),
+                                        y: .value("Tasks", item.count)
+                                    )
+                                    .foregroundStyle(T.brandGradient(start: .bottom, end: .top))
+                                    .cornerRadius(6)
+                                    .annotation(position: .top) {
+                                        Text("\(item.count)").font(.caption).foregroundColor(Color(hex: T.muted))
+                                    }
                                 }
-                            }
-                            .chartXAxis {
-                                AxisMarks { _ in
-                                    AxisValueLabel().foregroundStyle(Color(hex: T.muted))
+                                .chartXAxis {
+                                    AxisMarks { _ in
+                                        AxisValueLabel().foregroundStyle(Color(hex: T.muted))
+                                    }
                                 }
+                                .chartYAxis(.hidden)
+                                .frame(height: 180)
                             }
-                            .chartYAxis(.hidden)
-                            .frame(height: 180)
+                            .padding(18)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .frostedCard(radius: T.cornerHero)
+                            .padding(.horizontal, 16)
                         }
-                        .padding()
-                        .background(Color(hex: T.card))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
                     }
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
                 }
-                .padding()
             }
         }
         .navigationTitle("Analytics")
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+    }
+}
+
+// MARK: - AnalyticsStatTile (private)
+// Frosted summary card matching the Stats wireframe: uppercase muted label,
+// large bold value, and a bright tinted accent bar at the bottom. Styling-only
+// helper local to this file.
+private struct AnalyticsStatTile: View {
+    let label: String
+    let value: String
+    var accent: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(label.uppercased())
+                .font(TTypo.xsBold(11))
+                .tLabel(tracking: 1.0)
+                .foregroundStyle(Color(hex: T.muted))
+            Text(value)
+                .font(.custom(TFontName.bold.rawValue, size: 30))
+                .foregroundStyle(Color(hex: T.ink))
+            Capsule()
+                .fill(accent)
+                .frame(width: 32, height: 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .frostedCard(radius: T.cornerMd)
     }
 }

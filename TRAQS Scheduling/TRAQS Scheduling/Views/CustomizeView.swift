@@ -10,46 +10,57 @@ struct CustomizeView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             ScrollView {
                 VStack(spacing: 24) {
 
+                    PageTitle(title: "Customize", subtitle: "Make TRAQS your own")
+                        .padding(.bottom, 2)
+
                     // ── Accent Color ──
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "Accent Color")
+                        SectionLabel("Accent Color")
 
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 12) {
-                            ForEach(ThemeSettings.accentPresets, id: \.self) { hex in
-                                AccentSwatch(hex: hex, isSelected: theme.accent == hex) {
-                                    theme.setAccent(hex)
-                                    customAccentColor = Color(hex: hex)
+                        VStack(alignment: .leading, spacing: 14) {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 14) {
+                                ForEach(ThemeSettings.accentPresets, id: \.self) { hex in
+                                    AccentSwatch(hex: hex, isSelected: theme.accent == hex) {
+                                        theme.setAccent(hex)
+                                        customAccentColor = Color(hex: hex)
+                                    }
                                 }
+
+                                // Custom color picker
+                                ColorPicker("", selection: $customAccentColor, supportsOpacity: false)
+                                    .labelsHidden()
+                                    .frame(width: 36, height: 36)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1.5))
+                                    .onChange(of: customAccentColor) { _, newColor in
+                                        theme.setAccent(newColor.hexString)
+                                    }
                             }
-
-                            // Custom color picker
-                            ColorPicker("", selection: $customAccentColor, supportsOpacity: false)
-                                .labelsHidden()
-                                .frame(width: 36, height: 36)
-                                .clipShape(Circle())
-                                .overlay(Circle().stroke(Color(hex: T.border), lineWidth: 1.5))
-                                .onChange(of: customAccentColor) { _, newColor in
-                                    theme.setAccent(newColor.hexString)
-                                }
                         }
+                        .padding(16)
+                        .frostedCard(radius: T.cornerMd)
                         .padding(.horizontal, 16)
                     }
 
                     // ── Background ──
                     VStack(alignment: .leading, spacing: 12) {
-                        SectionHeader(title: "Background")
-                        VStack(spacing: 8) {
-                            ForEach(presets) { preset in
+                        SectionLabel("Background")
+                        VStack(spacing: 0) {
+                            ForEach(Array(presets.enumerated()), id: \.element.id) { index, preset in
                                 BgPresetRow(preset: preset, isSelected: theme.bgPresetId == preset.id) {
                                     theme.setBgPreset(preset.id)
                                 }
+                                if index < presets.count - 1 {
+                                    SLine().padding(.leading, 70)
+                                }
                             }
                         }
+                        .frostedCard(radius: T.cornerMd)
                         .padding(.horizontal, 16)
                     }
 
@@ -60,21 +71,13 @@ struct CustomizeView: View {
                     // button's job is to commit the version bump that
                     // forces every open screen to re-render with the new
                     // T.* tokens and dismiss back to the previous view.
-                    Button {
+                    GradientCTA {
                         theme.commitChanges()
                         dismiss()
                     } label: {
                         Text("Save")
-                            .font(.subheadline.bold())
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Color(hex: T.accent))
-                            .cornerRadius(12)
-                            .shadow(color: Color(hex: T.accent).opacity(T.skyShadowOpacity),
-                                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                            .font(TTypo.smBold(15))
                     }
-                    .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 24)
                 }
@@ -97,12 +100,16 @@ struct CustomizeView: View {
 
 // MARK: - Subviews
 
-private struct SectionHeader: View {
+// Uppercase, letter-spaced section label — matches the wireframe's
+// "PREFERENCES" / "ACCOUNT" group headers.
+private struct SectionLabel: View {
     let title: String
+    init(_ title: String) { self.title = title }
     var body: some View {
-        Text(title)
-            .font(.subheadline.bold())
-            .foregroundColor(Color(hex: T.text))
+        Text(title.uppercased())
+            .font(TTypo.xsBold(11))
+            .foregroundStyle(Color(hex: T.muted))
+            .tLabel(tracking: 1.4)
             .padding(.horizontal, 16)
     }
 }
@@ -126,8 +133,10 @@ private struct AccentSwatch: View {
                 )
                 .overlay(
                     Circle()
-                        .stroke(isSelected ? Color.white.opacity(0.6) : Color(hex: T.border), lineWidth: isSelected ? 2 : 1)
+                        .stroke(isSelected ? Color.white.opacity(0.6) : Color(hex: T.hair), lineWidth: isSelected ? 2 : 1)
                 )
+                .shadow(color: isSelected ? Color(hex: hex).opacity(T.skyShadowOpacity) : .clear,
+                        radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
         }
         .buttonStyle(.plain)
     }
@@ -146,40 +155,38 @@ private struct BgPresetRow: View {
                     ForEach([preset.bg, preset.surface, preset.card, preset.border], id: \.self) { hex in
                         RoundedRectangle(cornerRadius: 3)
                             .fill(Color(hex: hex))
-                            .frame(width: 18, height: 32)
+                            .frame(width: 8, height: 30)
                     }
                 }
-                .cornerRadius(6)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: T.border), lineWidth: 1))
+                .padding(5)
+                .background(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous).fill(Color(hex: T.bg)))
+                .overlay(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(preset.name)
-                        .font(.subheadline.bold())
-                        .foregroundColor(Color(hex: T.text))
+                        .font(TTypo.smBold(15))
+                        .foregroundColor(Color(hex: T.ink))
                     Text(preset.isLight ? "Light" : "Dark")
-                        .font(.caption2)
+                        .font(TTypo.xs(12))
                         .foregroundColor(Color(hex: T.muted))
                 }
 
                 Spacer()
 
                 if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(Color(hex: T.accent))
-                        .font(.title3)
+                    TIconView(icon: .check, size: 13, color: .white)
+                        .padding(5)
+                        .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
+                        .shadow(color: Color(hex: T.ctaGlowColor).opacity(0.35), radius: 6, x: 0, y: 2)
                 } else {
                     Circle()
-                        .stroke(Color(hex: T.border), lineWidth: 1.5)
-                        .frame(width: 22, height: 22)
+                        .stroke(Color(hex: T.hair), lineWidth: 1.5)
+                        .frame(width: 24, height: 24)
                 }
             }
-            .padding(12)
-            .background(Color(hex: T.card))
-            .cornerRadius(12)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color(hex: T.accent) : Color(hex: T.border), lineWidth: isSelected ? 1.5 : 1)
-            )
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

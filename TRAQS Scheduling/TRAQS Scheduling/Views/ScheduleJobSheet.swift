@@ -34,7 +34,7 @@ struct ScheduleJobSheet: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             VStack(spacing: 0) {
                 topBar

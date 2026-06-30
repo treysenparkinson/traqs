@@ -108,7 +108,13 @@ struct EndJobPhotoOverlay: View {
             }
 
             // End Job — enabled once a photo is attached. Uploads, then ends.
-            Button { endJob(withPhoto: true) } label: {
+            // Restyled to the signature gradient CTA; dims (not greyed) until a
+            // photo is attached, stays vivid with the "Ending…" spinner while
+            // uploading. Action / disabled gating unchanged.
+            GradientCTA(disabled: !hasPhoto || isWorking,
+                        dimmed: !hasPhoto,
+                        verticalPadding: 13,
+                        action: { endJob(withPhoto: true) }) {
                 HStack(spacing: 7) {
                     if isWorking {
                         ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.8)
@@ -119,14 +125,7 @@ struct EndJobPhotoOverlay: View {
                     }
                 }
                 .font(TTypo.bodyBold(15))
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-                .background(RoundedRectangle(cornerRadius: T.cornerMd)
-                    .fill(Color(hex: T.accent).opacity(hasPhoto ? 1 : 0.35)))
             }
-            .buttonStyle(.plain)
-            .disabled(!hasPhoto || isWorking)
 
             // Bypass — optional for now.
             Button("Skip — end without photo") { endJob(withPhoto: false) }
@@ -136,8 +135,7 @@ struct EndJobPhotoOverlay: View {
         }
         .padding(20)
         .frame(maxWidth: 320)
-        .background(RoundedRectangle(cornerRadius: T.cornerLg).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerLg).stroke(Color(hex: T.border), lineWidth: 1))
+        .frostedCard(radius: T.cornerHero)
         .padding(.horizontal, 32)
     }
 
@@ -147,7 +145,7 @@ struct EndJobPhotoOverlay: View {
         Button { showSourceDialog = true } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: T.cornerMd)
-                    .fill(Color(hex: T.bg))
+                    .fill(Color(hex: T.pillIndigoBg).opacity(0.6))
                 RoundedRectangle(cornerRadius: T.cornerMd)
                     .strokeBorder(Color(hex: T.border),
                                   style: StrokeStyle(lineWidth: 2, dash: hasPhoto ? [] : [6]))

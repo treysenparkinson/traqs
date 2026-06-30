@@ -13,64 +13,77 @@ struct JobDetailView: View {
 
     var client: Client? { appState.client(for: job) }
 
+    /// Department tag styling for this job, mapped to a bright revamp pill kind.
+    private var dept: (label: String, kind: TagKind) {
+        let key = (job.jobType ?? "").lowercased()
+        if key.contains("repair") || key.contains("break") { return (job.jobType?.uppercased() ?? "REPAIR", .amber) }
+        if key.contains("inspect") || key.contains("install") { return (job.jobType?.uppercased() ?? "INSTALL", .indigo) }
+        if key.contains("layout")  { return ("LAYOUT", .magenta) }
+        if key.contains("wire")    { return ("WIRE", .sky) }
+        if key.contains("contract") { return ("CONTRACT", .green) }
+        let label = (job.jobType?.uppercased()).flatMap { $0.isEmpty ? nil : $0 } ?? "JOB"
+        return (label, .indigo)
+    }
+
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Header card
+                    // Hero card — dept pill, job title, address/number, progress context
                     let jobProgress = appState.jobPct(job)
-                    HStack(alignment: .top) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(hex: job.color))
-                            .frame(width: 6, height: 60)
-
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(job.title)
-                                .font(.title2.bold())
-                                .foregroundColor(Color(hex: T.text))
-                            HStack(spacing: 8) {
-                                if let num = job.jobNumber {
-                                    Text("Job #\(num)").foregroundColor(Color(hex: T.muted))
-                                }
-                                if let po = job.poNumber {
-                                    Text("PO: \(po)").foregroundColor(Color(hex: T.muted))
-                                }
-                                StatusBadge(status: job.status)
-                                PriorityDot(priority: job.pri)
-                                Text(job.pri.rawValue).font(.caption).foregroundColor(job.pri.color)
-                            }
-                            .font(.subheadline)
-
-                            // Hours-weighted progress: total logged ÷ total estimated
-                            // across every op in the job. Matches the desktop Jobs page.
-                            HStack(spacing: 8) {
-                                Bar(pct: Double(jobProgress), height: 6,
-                                    fill: progressFill(jobProgress))
-                                Text("\(jobProgress)%")
-                                    .font(.caption.bold().monospacedDigit())
-                                    .foregroundColor(progressFill(jobProgress))
-                            }
-                            .padding(.top, 4)
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 10) {
+                            TagPill(label: dept.label, kind: dept.kind)
+                            Spacer()
+                            StatusBadge(status: job.status)
                         }
-                        Spacer()
+
+                        Text(job.title)
+                            .font(.custom(TFontName.bold.rawValue, size: 26))
+                            .foregroundStyle(Color(hex: T.ink))
+
+                        HStack(spacing: 8) {
+                            if let num = job.jobNumber {
+                                Text("Job #\(num)")
+                                    .font(TTypo.mono(12)).tnum()
+                                    .foregroundStyle(Color(hex: T.muted))
+                            }
+                            if let po = job.poNumber {
+                                Text("PO: \(po)")
+                                    .font(TTypo.mono(12)).tnum()
+                                    .foregroundStyle(Color(hex: T.muted))
+                            }
+                            PriorityDot(priority: job.pri)
+                            Text(job.pri.rawValue)
+                                .font(TTypo.xsBold(11))
+                                .foregroundStyle(job.pri.color)
+                        }
+
+                        // Hours-weighted progress: total logged ÷ total estimated
+                        // across every op in the job. Matches the desktop Jobs page.
+                        HStack(spacing: 10) {
+                            Bar(pct: Double(jobProgress), height: 7, gradient: T.brandGradient())
+                            Text("\(jobProgress)%")
+                                .font(TTypo.monoBold(12)).tnum()
+                                .foregroundStyle(Color(hex: T.accentGradientStart))
+                        }
+                        .padding(.top, 2)
                     }
-                    .padding()
-                    .background(Color(hex: T.card))
-                    .cornerRadius(12)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                    .padding(18)
+                    .frostedCard(radius: T.cornerHero)
 
                     // Info grid
                     infoGrid
 
                     // Panels
                     if !job.subs.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
+                        VStack(alignment: .leading, spacing: 10) {
                             Text("Panels (\(job.subs.count))")
-                                .font(.headline)
-                                .foregroundColor(Color(hex: T.text))
+                                .font(TTypo.h3(18))
+                                .foregroundStyle(Color(hex: T.ink))
                             ForEach(job.subs) { panel in
                                 PanelCard(job: job,
                                           panel: panel,
@@ -83,16 +96,17 @@ struct JobDetailView: View {
 
                     // Notes
                     if !job.notes.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Notes").font(.headline).foregroundColor(Color(hex: T.text))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Notes")
+                                .font(TTypo.h3(18))
+                                .foregroundStyle(Color(hex: T.ink))
                             Text(job.notes)
-                                .font(.body)
-                                .foregroundColor(Color(hex: T.muted))
+                                .font(TTypo.body(15))
+                                .foregroundStyle(Color(hex: T.muted))
                         }
-                        .padding()
-                        .background(Color(hex: T.card))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .frostedCard(radius: T.cornerMd)
                     }
                 }
                 .padding()
@@ -117,12 +131,12 @@ struct JobDetailView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("Edit") { showEdit = true }
-                    .foregroundColor(Color(hex: T.accent))
+                    .foregroundColor(Color(hex: T.accentGradientStart))
             }
             ToolbarItem {
                 Button(role: .destructive) { showDeleteConfirm = true } label: {
                     Image(systemName: "trash")
-                        .foregroundColor(Color(hex: T.danger))
+                        .foregroundColor(Color(hex: T.red))
                 }
             }
         }
@@ -170,20 +184,30 @@ struct InfoCell: View {
     let icon: String
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .foregroundColor(Color(hex: T.muted))
-                .frame(width: 20)
+        HStack(spacing: 10) {
+            // Rounded-square tinted icon chip (matches IconChip styling, but with
+            // an SF Symbol since these glyphs aren't in the TIcon set).
+            RoundedRectangle(cornerRadius: 34 * 0.30, style: .continuous)
+                .fill(Color(hex: T.pillIndigoFg).opacity(0.14))
+                .frame(width: 34, height: 34)
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Color(hex: T.pillIndigoFg))
+                )
             VStack(alignment: .leading, spacing: 2) {
-                Text(label).font(.caption).foregroundColor(Color(hex: T.muted))
-                Text(value).font(.subheadline.bold()).foregroundColor(Color(hex: T.text))
+                Text(label)
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                Text(value)
+                    .font(TTypo.smBold(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
             }
             Spacer()
         }
-        .padding(10)
-        .background(Color(hex: T.card))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+        .padding(12)
+        .frostedCard(radius: T.cornerMd)
     }
 }
 
@@ -210,32 +234,29 @@ struct PanelCard: View {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Text(panel.title).font(.subheadline.bold()).foregroundColor(Color(hex: T.text))
+                            Text(panel.title)
+                                .font(TTypo.smBold(14))
+                                .foregroundStyle(Color(hex: T.ink))
                             if highlighted {
-                                Text("YOU")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .kerning(0.6)
-                                    .foregroundColor(.white)
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Capsule().fill(Color(hex: T.sky)))
+                                TagPill(label: "YOU", kind: .sky)
                             }
                         }
                         HStack(spacing: 6) {
                             Text(panel.start.shortDate + " → " + panel.end.shortDate)
-                                .font(.caption).foregroundColor(Color(hex: T.muted))
+                                .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
                             StatusBadge(status: panel.status)
                         }
                         // Hours-weighted panel progress: aggregate of child ops'
                         // logged vs. estimated hours.
                         let pPct = appState.panelPct(panel)
                         HStack(spacing: 6) {
-                            Bar(pct: Double(pPct), height: 5, fill: progressFill(pPct))
+                            Bar(pct: Double(pPct), height: 6, gradient: T.brandGradient())
                                 .frame(maxWidth: 120)
                             Text("\(pPct)%")
-                                .font(.caption2.bold().monospacedDigit())
-                                .foregroundColor(progressFill(pPct))
+                                .font(TTypo.monoBold(11)).tnum()
+                                .foregroundStyle(Color(hex: T.accentGradientStart))
                         }
                         .padding(.top, 2)
                     }
@@ -244,21 +265,19 @@ struct PanelCard: View {
                     HStack(spacing: 4) {
                         ForEach([EngStep.designed, .verified, .sentToPerforex], id: \.self) { step in
                             Circle()
-                                .fill(stepDone(step) ? Color(hex: T.statusFinished) : Color(hex: T.border))
+                                .fill(stepDone(step) ? Color(hex: T.statusFinished) : Color(hex: T.hair))
                                 .frame(width: 8, height: 8)
                         }
                     }
                     Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption).foregroundColor(Color(hex: T.muted))
+                        .font(.caption).foregroundStyle(Color(hex: T.muted))
                 }
-                .padding(12)
+                .padding(14)
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                Rectangle()
-                    .fill(Color(hex: T.border))
-                    .frame(height: 1)
+                SLine()
                 // Operations
                 ForEach(panel.subs) { op in
                     OperationRow(op: op, job: job, panel: panel,
@@ -271,17 +290,22 @@ struct PanelCard: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(highlighted ? Color(hex: T.sky).opacity(0.06) : Color(hex: T.card))
+            RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
+                .fill(highlighted ? Color(hex: T.sky).opacity(0.06) : Color(hex: T.surface))
         )
-        .cornerRadius(12)
+        .clipShape(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12).stroke(
-                highlighted ? Color(hex: T.sky) : Color(hex: T.border),
+            RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).strokeBorder(
+                highlighted
+                    ? AnyShapeStyle(Color(hex: T.sky))
+                    : AnyShapeStyle(LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
+                                                   startPoint: .top, endPoint: .bottom)),
                 lineWidth: highlighted ? 1.5 : 1)
         )
-        .shadow(color: highlighted ? Color(hex: T.sky).opacity(T.skyShadowOpacity) : .clear,
-                radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+        .compositingGroup()
+        .shadow(color: highlighted ? Color(hex: T.sky).opacity(T.skyShadowOpacity) : .black.opacity(T.ambientShadowOpacity),
+                radius: highlighted ? T.skyShadowRadius : T.ambientShadowRadius,
+                x: 0, y: highlighted ? T.skyShadowY : T.ambientShadowY)
         .onAppear {
             if highlighted { isExpanded = true }
         }
@@ -325,43 +349,40 @@ struct OperationRow: View {
                     .padding(.leading, 16)
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
-                        Text(op.title).font(.subheadline).foregroundColor(Color(hex: T.text))
+                        Text(op.title)
+                            .font(TTypo.sm(14))
+                            .foregroundStyle(Color(hex: T.ink))
                         if depsBlocked {
                             Image(systemName: "lock.fill")
                                 .font(.caption2)
-                                .foregroundColor(Color(hex: T.muted))
+                                .foregroundStyle(Color(hex: T.muted))
                         }
                         if op.pendingFinish == true {
-                            Text("Finish Requested")
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(Color.yellow.opacity(0.18))
-                                .foregroundColor(.orange)
-                                .cornerRadius(6)
+                            TagPill(label: "Finish Requested", kind: .amber)
                         }
                     }
                     Text(op.start.shortDate + " → " + op.end.shortDate)
-                        .font(.caption).foregroundColor(Color(hex: T.muted))
+                        .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
                     if !depTitles.isEmpty {
                         Text("After: " + depTitles.joined(separator: ", "))
-                            .font(.caption2)
-                            .foregroundColor(Color(hex: T.muted))
+                            .font(TTypo.xs(10))
+                            .foregroundStyle(Color(hex: T.muted))
                     }
                     // Op-level hours-weighted progress (logged ÷ est.hpd).
                     let oPct = appState.opPct(op)
                     HStack(spacing: 6) {
-                        Bar(pct: Double(oPct), height: 4, fill: progressFill(oPct))
+                        Bar(pct: Double(oPct), height: 5, gradient: T.brandGradient())
                             .frame(maxWidth: 100)
                         Text("\(oPct)%")
-                            .font(.system(size: 10, weight: .bold).monospacedDigit())
-                            .foregroundColor(progressFill(oPct))
+                            .font(TTypo.monoBold(10)).tnum()
+                            .foregroundStyle(Color(hex: T.accentGradientStart))
                     }
                     .padding(.top, 2)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 6) {
                     Text(op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
-                        .font(.caption).foregroundColor(Color(hex: T.muted))
+                        .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
                     if appState.clockedInPersonId != nil && op.pendingFinish != true {
                         Button {
@@ -371,21 +392,20 @@ struct OperationRow: View {
                             }
                         } label: {
                             Text("Request Finish")
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 8).padding(.vertical, 4)
-                                .background(Color(hex: T.accent).opacity(0.12))
-                                .foregroundColor(Color(hex: T.accent))
-                                .cornerRadius(6)
-                                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color(hex: T.accent).opacity(0.3), lineWidth: 1))
+                                .font(TTypo.xsBold(11))
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(Capsule().fill(Color(hex: T.accentGradientStart).opacity(0.12)))
+                                .foregroundStyle(Color(hex: T.accentGradientStart))
+                                .overlay(Capsule().stroke(Color(hex: T.accentGradientStart).opacity(0.3), lineWidth: 1))
                         }
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(.trailing, 12)
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, 10)
         }
-        .background(highlighted ? Color(hex: T.sky).opacity(0.10) : Color(hex: T.card))
+        .background(highlighted ? Color(hex: T.sky).opacity(0.10) : Color.clear)
         .overlay(alignment: .leading) {
             // 3pt accent stripe down the leading edge of the user's task row.
             // The panel header already shows the "YOU" pill, so we don't repeat
@@ -405,20 +425,19 @@ struct EngSignOffRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Rectangle()
-                .fill(Color(hex: T.border))
-                .frame(height: 1)
+            SLine()
             Text("Engineering Sign-Off")
-                .font(.caption.bold())
-                .foregroundColor(Color(hex: T.muted))
-                .padding(.horizontal, 12)
+                .font(TTypo.xsBold(11))
+                .tLabel(tracking: 0.8)
+                .foregroundStyle(Color(hex: T.muted))
+                .padding(.horizontal, 14)
             HStack(spacing: 8) {
                 ForEach(EngStep.allCases, id: \.self) { step in
                     EngStepButton(job: job, panel: panel, step: step)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 12)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
         }
     }
 }
@@ -450,47 +469,44 @@ struct EngStepButton: View {
             if let s = signOff {
                 VStack(spacing: 2) {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(Color(hex: T.statusFinished))
-                    Text(step.label).font(.system(size: 9)).foregroundColor(Color(hex: T.muted))
-                    Text(s.byName).font(.system(size: 9).bold()).foregroundColor(Color(hex: T.text))
+                        .foregroundStyle(Color(hex: T.statusFinished))
+                    Text(step.label).font(TTypo.xs(9)).foregroundStyle(Color(hex: T.muted))
+                    Text(s.byName).font(TTypo.xsBold(9)).foregroundStyle(Color(hex: T.ink))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(6)
-                .background(Color(hex: T.statusFinished).opacity(0.1))
-                .cornerRadius(8)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: T.statusFinished).opacity(0.3), lineWidth: 1))
+                .background(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous).fill(Color(hex: T.statusFinished).opacity(0.1)))
+                .overlay(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous).stroke(Color(hex: T.statusFinished).opacity(0.3), lineWidth: 1))
 
                 Button("Undo") {
                     appState.revertSignOff(jobId: job.id, panelId: panel.id, step: step)
                 }
-                .font(.system(size: 9))
-                .foregroundColor(Color(hex: T.danger))
+                .font(TTypo.xs(9))
+                .foregroundStyle(Color(hex: T.red))
             } else if previousDone, let person = appState.currentPerson {
                 Button {
                     appState.signOff(jobId: job.id, panelId: panel.id, step: step, personId: person.id, personName: person.name)
                 } label: {
                     VStack(spacing: 2) {
                         Image(systemName: "circle")
-                            .foregroundColor(Color(hex: T.eng))
-                        Text(step.label).font(.system(size: 9)).foregroundColor(Color(hex: T.text))
+                            .foregroundStyle(Color(hex: T.eng))
+                        Text(step.label).font(TTypo.xs(9)).foregroundStyle(Color(hex: T.ink))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(6)
-                    .background(Color(hex: T.eng).opacity(0.1))
-                    .cornerRadius(8)
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: T.eng).opacity(0.3), lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous).fill(Color(hex: T.eng).opacity(0.1)))
+                    .overlay(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous).stroke(Color(hex: T.eng).opacity(0.3), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
             } else {
                 VStack(spacing: 2) {
                     Image(systemName: "circle")
-                        .foregroundColor(Color(hex: T.muted))
-                    Text(step.label).font(.system(size: 9)).foregroundColor(Color(hex: T.muted))
+                        .foregroundStyle(Color(hex: T.muted))
+                    Text(step.label).font(TTypo.xs(9)).foregroundStyle(Color(hex: T.muted))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(6)
-                .background(Color(hex: T.border).opacity(0.3))
-                .cornerRadius(8)
+                .background(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous).fill(Color(hex: T.hair).opacity(0.3)))
             }
         }
     }

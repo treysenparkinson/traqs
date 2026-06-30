@@ -2,7 +2,9 @@ import SwiftUI
 
 // MARK: - TRAQS Primitives
 // SwiftUI ports of the wireframe primitives in screens/shared.jsx.
-// Light, hairlined, sometimes raised — never gradient, never playful.
+// Light, hairlined, frosted, sometimes raised. The signature indigo→magenta
+// gradient (T.brandGradient) is a first-class brand element — reserved for
+// identity, progress, active, and primary-action states only.
 
 // ── SBox: a light card with a hairline border, optional soft shadow ────────
 
@@ -24,36 +26,97 @@ struct SBox<Content: View>: View {
     var dashed: Bool = false
     var raised: Bool = false         // adds soft raised shadow
     var sky: Bool = false            // adds active sky-tinted shadow + 1px sky ring
-    var amber: Bool = false          // paused/on-break state — amber ring + tint, takes precedence over sky
+    var active: Bool = false         // like `sky` but uses the brand gradient START (indigo) — for the active hero card
+    var amber: Bool = false          // paused/on-break state — amber ring + tint, takes precedence over sky/active
+    var frosted: Bool = false        // glassy white top-edge highlight + softer/larger ambient elevation
+    var heroGlow: Bool = false       // lavender corner glow blob bleeding from the upper-right (clipped)
+    var liveSheen: Bool = false      // whisper-soft ANIMATED brand glow — for "your" cards (drifts/hue-shifts)
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: size.radius, style: .continuous)
-        // Amber (paused) wins over sky (active) so a paused active card
-        // reads as on-break, not running.
-        let highlight: Color? = amber ? Color(hex: T.amber) : (sky ? Color(hex: T.sky) : nil)
+        // Amber (paused) wins over active/sky so a paused active card reads as
+        // on-break. `active` uses the brand indigo; `sky` keeps the legacy accent.
+        let highlight: Color? = amber ? Color(hex: T.amber)
+            : (active ? Color(hex: T.accentGradientStart)
+                      : (sky ? Color(hex: T.sky) : nil))
         let f = fill ?? (amber ? Color(hex: T.amber).opacity(0.06) : Color(hex: T.surface))
         let s = stroke ?? Color(hex: T.hair)
 
+        // Broken into typed sub-views/helpers so the type-checker stays fast.
         return content()
             .background(shape.fill(f))
-            .overlay(
-                shape.strokeBorder(
-                    style: StrokeStyle(lineWidth: 1, dash: dashed ? [4, 3] : [])
-                )
-                .foregroundStyle(s)
-            )
-            .overlay(
-                highlight.map { c in AnyView(shape.strokeBorder(c.opacity(0.35), lineWidth: 1)) } ?? AnyView(EmptyView())
-            )
+            .overlay { glowOverlay(shape) }
+            .overlay { strokeOverlay(shape, hairline: s, highlight: highlight) }
             .compositingGroup()
-            .shadow(
-                color: highlight.map { $0.opacity(T.skyShadowOpacity) }
-                    ?? (raised ? Color.black.opacity(T.raisedShadowOpacity) : .clear),
-                radius: highlight != nil ? T.skyShadowRadius : T.raisedShadowRadius,
-                x: 0,
-                y: highlight != nil ? T.skyShadowY : T.raisedShadowY
-            )
+            .shadow(color: shadowColor(highlight),
+                    radius: shadowRadius(highlight),
+                    x: 0, y: shadowY(highlight))
+    }
+
+    @ViewBuilder
+    private func glowOverlay(_ shape: RoundedRectangle) -> some View {
+        if heroGlow {
+            GlowBlob(size: T.glowSize * 0.85, opacity: 0.24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .offset(x: 34, y: -28)
+                .clipShape(shape)
+                .allowsHitTesting(false)
+        }
+        if liveSheen { LiveSheen(radius: size.radius) }
+    }
+
+    @ViewBuilder
+    private func strokeOverlay(_ shape: RoundedRectangle, hairline: Color, highlight: Color?) -> some View {
+        ZStack {
+            shape.strokeBorder(style: StrokeStyle(lineWidth: 1, dash: dashed ? [4, 3] : []))
+                .foregroundStyle(hairline)
+            if frosted {                     // glassy white top-edge highlight
+                shape.strokeBorder(
+                    LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 1)
+            }
+            if let highlight {               // active/sky/amber ring
+                shape.strokeBorder(highlight.opacity(0.35), lineWidth: 1)
+            }
+        }
+    }
+
+    private func shadowColor(_ highlight: Color?) -> Color {
+        highlight.map { $0.opacity(T.skyShadowOpacity) }
+            ?? (frosted ? Color.black.opacity(T.ambientShadowOpacity)
+                        : (raised ? Color.black.opacity(T.raisedShadowOpacity) : .clear))
+    }
+    private func shadowRadius(_ highlight: Color?) -> CGFloat {
+        highlight != nil ? T.skyShadowRadius : (frosted ? T.ambientShadowRadius : T.raisedShadowRadius)
+    }
+    private func shadowY(_ highlight: Color?) -> CGFloat {
+        highlight != nil ? T.skyShadowY : (frosted ? T.ambientShadowY : T.raisedShadowY)
+    }
+}
+
+// ── LiveSheen: static, minimal brand-gradient glow for "your" cards ────────
+// A fixed indigo→magenta radial pool in the top-right corner — present at all
+// times on assigned cards, no animation. Clipped to the card; never hit-tests.
+struct LiveSheen: View {
+    var radius: CGFloat = T.cornerLg
+    var body: some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(Color.clear)
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .fill(RadialGradient(
+                        colors: [Color(hex: T.accentGradientEnd).opacity(0.22),
+                                 Color(hex: T.accentGradientStart).opacity(0.10),
+                                 .clear],
+                        center: .center, startRadius: 0, endRadius: 95))
+                    .frame(width: 190, height: 190)
+                    .blur(radius: 28)
+                    .offset(x: 30, y: -28)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+            .allowsHitTesting(false)
     }
 }
 
@@ -105,13 +168,18 @@ struct Avatar: View {
     var fill: Color? = nil      // nil = neutral white circle with hairline
     var stroke: Color? = nil
     var textColor: Color? = nil
+    var gradient: Bool = false  // fill with the signature brand gradient (wins over fill)
+    var presence: Color? = nil  // optional bottom-right presence dot (work/break/idle)
 
-    private var isColored: Bool { fill != nil }
+    private var isColored: Bool { fill != nil || gradient }
 
     var body: some View {
         ZStack {
-            Circle()
-                .fill(fill ?? Color(hex: T.surface))
+            if gradient {
+                Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing))
+            } else {
+                Circle().fill(fill ?? Color(hex: T.surface))
+            }
             if !isColored {
                 Circle()
                     .strokeBorder(stroke ?? Color(hex: T.hair), lineWidth: 1)
@@ -121,6 +189,13 @@ struct Avatar: View {
                 .foregroundStyle(textColor ?? (isColored ? .white : Color(hex: T.ink)))
         }
         .frame(width: size, height: size)
+        .overlay(alignment: .bottomTrailing) {
+            if let presence {
+                Circle().fill(presence)
+                    .frame(width: size * 0.28, height: size * 0.28)
+                    .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: max(1.5, size * 0.05)))
+            }
+        }
     }
 }
 
@@ -130,13 +205,16 @@ struct Bar: View {
     var pct: Double          // 0 ... 100
     var height: CGFloat = 6
     var fill: Color = Color(hex: T.sky)
-    var track: Color = Color(hex: T.hair)
+    /// When set, the filled portion paints with this gradient instead of `fill`.
+    var gradient: LinearGradient? = nil
+    var track: Color = Color(hex: T.hair)   // theme-aware; stays correct on dark bg presets
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
                 Capsule().fill(track)
-                Capsule().fill(fill)
+                Capsule()
+                    .fill(gradient.map { AnyShapeStyle($0) } ?? AnyShapeStyle(fill))
                     .frame(width: max(0, min(1, pct / 100)) * geo.size.width)
             }
         }
@@ -170,6 +248,7 @@ struct PillBtn<Leading: View, Trailing: View>: View {
     var textColor: Color? = nil
     var raised: Bool = true
     var sky: Bool = false             // true → filled-sky CTA with sky-tinted shadow
+    var gradient: Bool = false        // true → signature brand-gradient CTA with glow (wins over sky)
     var compact: Bool = false
     var action: () -> Void = {}
     @ViewBuilder var leading: () -> Leading
@@ -184,23 +263,27 @@ struct PillBtn<Leading: View, Trailing: View>: View {
             }
             .padding(.horizontal, compact ? 10 : 14)
             .padding(.vertical, compact ? 6 : 8)
-            .foregroundStyle(textColor ?? (sky ? .white : Color(hex: T.ink)))
+            .foregroundStyle(textColor ?? ((sky || gradient) ? .white : Color(hex: T.ink)))
             .background(
-                Capsule().fill(sky ? Color(hex: T.sky) : (fill ?? Color(hex: T.surface)))
+                Capsule().fill(
+                    gradient ? AnyShapeStyle(T.brandGradient())
+                             : AnyShapeStyle(sky ? Color(hex: T.sky) : (fill ?? Color(hex: T.surface)))
+                )
             )
             .overlay(
                 Capsule().stroke(
-                    sky ? Color(hex: T.sky) : (stroke ?? Color(hex: T.hair)),
+                    gradient ? Color.clear : (sky ? Color(hex: T.sky) : (stroke ?? Color(hex: T.hair))),
                     lineWidth: 1
                 )
             )
             .compositingGroup()
             .shadow(
-                color: sky ? Color(hex: T.sky).opacity(T.skyShadowOpacity)
-                           : (raised ? Color.black.opacity(T.raisedShadowOpacity) : .clear),
-                radius: sky ? T.skyShadowRadius : T.raisedShadowRadius,
+                color: gradient ? Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity)
+                    : (sky ? Color(hex: T.sky).opacity(T.skyShadowOpacity)
+                           : (raised ? Color.black.opacity(T.raisedShadowOpacity) : .clear)),
+                radius: gradient ? T.ctaGlowRadius : (sky ? T.skyShadowRadius : T.raisedShadowRadius),
                 x: 0,
-                y: sky ? T.skyShadowY : T.raisedShadowY
+                y: gradient ? T.ctaGlowY : (sky ? T.skyShadowY : T.raisedShadowY)
             )
         }
         .buttonStyle(.plain)
@@ -214,6 +297,7 @@ extension PillBtn where Leading == EmptyView, Trailing == EmptyView {
          textColor: Color? = nil,
          raised: Bool = true,
          sky: Bool = false,
+         gradient: Bool = false,
          compact: Bool = false,
          action: @escaping () -> Void = {}) {
         self.title = title
@@ -222,6 +306,7 @@ extension PillBtn where Leading == EmptyView, Trailing == EmptyView {
         self.textColor = textColor
         self.raised = raised
         self.sky = sky
+        self.gradient = gradient
         self.compact = compact
         self.action = action
         self.leading = { EmptyView() }
@@ -311,6 +396,9 @@ struct Segmented<Value: Hashable>: View {
     let options: [Value]
     let labels: [Value: String]
     @Binding var selection: Value
+    /// Active pill paints with the signature brand gradient (default). Set false
+    /// to fall back to a flat sky pill.
+    var gradient: Bool = true
 
     private var selectedIndex: Int { options.firstIndex(of: selection) ?? 0 }
 
@@ -324,7 +412,7 @@ struct Segmented<Value: Hashable>: View {
             GeometryReader { geo in
                 let segW = geo.size.width / CGFloat(max(options.count, 1))
                 Capsule()
-                    .fill(Color(hex: T.sky))
+                    .fill(gradient ? AnyShapeStyle(T.brandGradient()) : AnyShapeStyle(Color(hex: T.sky)))
                     .frame(width: segW, height: geo.size.height)
                     .offset(x: CGFloat(selectedIndex) * segW)
             }
@@ -444,3 +532,261 @@ struct TSectionTitle: View {
         .padding(.bottom, 8)
     }
 }
+
+// MARK: - Revamp · ambient canvas, glow, gradient CTA, ring, frosted card
+
+// ── GlowBlob: soft blurred radial pool of brand color ──────────────────────
+struct GlowBlob: View {
+    var color: Color = Color(hex: T.glowBlob)
+    var size: CGFloat = T.glowSize
+    var opacity: Double = T.glowOpacity
+    var body: some View {
+        Circle()
+            .fill(RadialGradient(colors: [color.opacity(opacity), .clear],
+                                 center: .center, startRadius: 0, endRadius: size / 2))
+            .frame(width: size, height: size)
+            .blur(radius: T.glowBlur)
+            .allowsHitTesting(false)
+    }
+}
+
+// ── AmbientBackground: tinted vertical canvas + faint glow blobs ───────────
+// Replaces the flat `Color(hex: T.bg)` page paint. Glows show only on light bg
+// presets (they'd muddy a dark canvas), gated by ThemeSettings.isLightTheme.
+struct AmbientBackground: View {
+    @Environment(ThemeSettings.self) private var themeSettings
+    var body: some View {
+        let light = themeSettings.isLightTheme
+        ZStack {
+            if light {
+                LinearGradient(colors: [Color(hex: T.bgGradTop), Color(hex: T.bgGradBottom)],
+                               startPoint: .top, endPoint: .bottom)
+            } else {
+                Color(hex: T.bg)
+            }
+            if light {
+                GlowBlob().offset(x: 130, y: -210)                          // upper-right
+                GlowBlob(size: T.glowSize * 0.8, opacity: T.glowOpacity * 0.6)
+                    .offset(x: -150, y: 260)                                // lower-left, fainter
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+// ── GradientCTA: the primary action button (Stop / Start Timer / End Job) ──
+// Generic over its label so existing spinner/icon HStacks drop straight in.
+// `disabled` blocks taps; `dimmed` controls the 0.5 fade independently (so a
+// busy-but-full-color "STOPPING…/Ending…" state stays vivid while non-tappable).
+struct GradientCTA<Label: View>: View {
+    var disabled: Bool = false
+    var dimmed: Bool = false
+    var fullWidth: Bool = true
+    var verticalPadding: CGFloat = 13
+    var action: () -> Void
+    @ViewBuilder var label: () -> Label
+    @State private var pressed = false
+
+    var body: some View {
+        Button(action: action) {
+            label()
+                .foregroundStyle(.white)
+                .frame(maxWidth: fullWidth ? .infinity : nil)
+                .padding(.vertical, verticalPadding)
+                .padding(.horizontal, fullWidth ? 0 : 20)
+                .background(Capsule().fill(T.brandGradient()))
+                .opacity(dimmed ? 0.5 : 1)
+                .scaleEffect(pressed && !disabled ? 0.97 : 1)
+                .shadow(color: Color(hex: T.ctaGlowColor)
+                            .opacity(dimmed ? 0 : (pressed ? T.ctaGlowOpacity * 0.7 : T.ctaGlowOpacity)),
+                        radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .simultaneousGesture(DragGesture(minimumDistance: 0)
+            .onChanged { _ in if !disabled { pressed = true } }
+            .onEnded { _ in pressed = false })
+        .animation(.easeOut(duration: 0.12), value: pressed)
+    }
+}
+
+// ── GradientRing: circular progress with the signature gradient ────────────
+struct GradientRing: View {
+    var pct: Double            // 0...100
+    var lineWidth: CGFloat = 14
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color(hex: T.progressTrack), lineWidth: lineWidth)
+            Circle().trim(from: 0, to: max(0, min(1, pct / 100)))
+                .stroke(T.brandGradient(start: .topLeading, end: .bottomTrailing),
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .shadow(color: Color(hex: T.ctaGlowColor).opacity(0.25), radius: 6)
+        }
+    }
+}
+
+// ── FrostedCard: glassy white surface — big radius, soft white top-edge ────
+// highlight, diffuse ambient elevation. Opt-in via .frostedCard().
+struct FrostedCard: ViewModifier {
+    var radius: CGFloat = T.cornerHero
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return content
+            .background(shape.fill(Color(hex: T.surface)))
+            .overlay(shape.strokeBorder(
+                LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
+                               startPoint: .top, endPoint: .bottom),
+                lineWidth: 1))
+            .compositingGroup()
+            .shadow(color: .black.opacity(T.ambientShadowOpacity),
+                    radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
+    }
+}
+
+extension View {
+    func frostedCard(radius: CGFloat = T.cornerHero) -> some View {
+        modifier(FrostedCard(radius: radius))
+    }
+}
+
+// ── PageTitle: big bold screen title + optional subtitle (under the header) ─
+struct PageTitle: View {
+    let title: String
+    var subtitle: String? = nil
+    var size: CGFloat = 30
+    var color: Color = Color(hex: T.ink)
+    /// When set, the title text is filled with this gradient instead of `color`.
+    var gradient: LinearGradient? = nil
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.custom(TFontName.bold.rawValue, size: size))
+                .foregroundStyle(gradient.map { AnyShapeStyle($0) } ?? AnyShapeStyle(color))
+            if let subtitle {
+                Text(subtitle)
+                    .font(TTypo.sm(13))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 16)
+    }
+}
+
+// ── TagPill: bright semantic tag / status pill (tint bg + same-hue text) ───
+// The wireframe's Install / Repair / Inspect / Up-next / On-job / Break / Idle
+// pills. Bright non-brand color lives ONLY here.
+enum TagKind {
+    case indigo, amber, green, sky, magenta, neutral
+    var bg: Color {
+        switch self {
+        case .indigo:  return Color(hex: T.pillIndigoBg)
+        case .amber:   return Color(hex: T.pillAmberBg)
+        case .green:   return Color(hex: T.pillGreenBg)
+        case .sky:     return Color(hex: "#DCEAFD")
+        case .magenta: return Color(hex: "#FBE0F2")
+        case .neutral: return Color(hex: T.pillNeutralBg)
+        }
+    }
+    var fg: Color {
+        switch self {
+        case .indigo:  return Color(hex: T.pillIndigoFg)
+        case .amber:   return Color(hex: T.pillAmberFg)
+        case .green:   return Color(hex: T.pillGreenFg)
+        case .sky:     return Color(hex: "#2F74E0")
+        case .magenta: return Color(hex: "#C026A6")
+        case .neutral: return Color(hex: T.pillNeutralFg)
+        }
+    }
+}
+
+struct TagPill: View {
+    let label: String
+    var kind: TagKind = .indigo
+    var dot: Bool = false
+    var body: some View {
+        HStack(spacing: 5) {
+            if dot { Circle().fill(kind.fg).frame(width: 6, height: 6) }
+            Text(label)
+                .font(TTypo.xsBold(11))
+                .tLabel(tracking: 0.4)
+                .foregroundStyle(kind.fg)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(kind.bg))
+    }
+}
+
+// ── IconChip: rounded-square tinted chip with a centered line icon ─────────
+// The Hours "recent" rows and Settings rows use these as leading glyphs.
+struct IconChip: View {
+    let icon: TIcon
+    var color: Color = Color(hex: T.pillIndigoFg)
+    var size: CGFloat = 38
+    var body: some View {
+        RoundedRectangle(cornerRadius: size * 0.30, style: .continuous)
+            .fill(color.opacity(0.14))
+            .frame(width: size, height: size)
+            .overlay(TIconView(icon: icon, size: size * 0.46, color: color, weight: .semibold))
+    }
+}
+
+// ── GradientToggleStyle: capsule that fills with the brand gradient when ON ─
+struct GradientToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                configuration.isOn.toggle()
+            }
+        } label: {
+            ZStack {
+                Capsule()
+                    .fill(configuration.isOn ? AnyShapeStyle(T.brandGradient())
+                                             : AnyShapeStyle(Color(hex: T.hair)))
+                    .frame(width: 48, height: 29)
+                    .shadow(color: configuration.isOn ? Color(hex: T.ctaGlowColor).opacity(0.35) : .clear,
+                            radius: 8, x: 0, y: 3)
+                Circle()
+                    .fill(.white)
+                    .frame(width: 23, height: 23)
+                    .shadow(color: .black.opacity(0.18), radius: 2, x: 0, y: 1)
+                    .offset(x: configuration.isOn ? 9.5 : -9.5)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// ── FadingBlur: a backdrop blur that ramps in via a gradient mask ──────────
+// Used to softly blur content behind a floating menu: sharp at the top (near
+// the title), easing into full blur lower down — no hard edge, and not every
+// pixel is blurred.
+#if canImport(UIKit)
+import UIKit
+
+final class _GradientBlurView: UIVisualEffectView {
+    private let maskLayer = CAGradientLayer()
+    init() {
+        super.init(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+        maskLayer.colors = [UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
+        maskLayer.locations = [0.0, 0.34, 1.0]
+        maskLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        maskLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        layer.mask = maskLayer
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        maskLayer.frame = bounds
+        CATransaction.commit()
+    }
+}
+
+struct FadingBlur: UIViewRepresentable {
+    func makeUIView(context: Context) -> _GradientBlurView { _GradientBlurView() }
+    func updateUIView(_ uiView: _GradientBlurView, context: Context) {}
+}
+#endif

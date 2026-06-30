@@ -11,7 +11,9 @@ struct TasksView: View {
     /// so the list can filter; the hub also owns the search field itself.
     var searchText: String = ""
 
-    @State private var segment: JobsSegment = .today
+    /// Selected range. Owned by the Jobs hub (JobsHubView) so the calendar
+    /// picker can live in the title row; passed in here.
+    @Binding var segment: JobsSegment
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
 
     enum JobsSegment: String, CaseIterable, Hashable { case today, week, month, year
@@ -20,35 +22,23 @@ struct TasksView: View {
 
     private let cal = Calendar.current
 
-    /// Wrap segment changes so the content cross-fade animates with a known curve.
-    /// When the user moves to Week / Month, also recenter `selectedDate` to today.
-    private var segmentBinding: Binding<JobsSegment> {
-        Binding(
-            get: { segment },
-            set: { new in
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    segment = new
-                    selectedDate = Calendar.current.startOfDay(for: Date())
-                }
-            }
-        )
-    }
-
     // Body is just the scrollable content — the Jobs hub (JobsHubView) supplies
-    // the surrounding NavigationStack, header, search field and add-job sheet.
+    // the surrounding NavigationStack, header, title + range picker, and sheets.
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                HStack { Spacer()
-                    Segmented(
-                        options: JobsSegment.allCases,
-                        labels: Dictionary(uniqueKeysWithValues: JobsSegment.allCases.map { ($0, $0.label) }),
-                        selection: segmentBinding)
-                    Spacer()
+                // The job being worked on right now sits at the top as a pinned
+                // hero; excluded from the lists below so it isn't shown twice.
+                if let activeTask {
+                    NavigationLink(value: activeTask.job) {
+                        TaskCardV1(task: activeTask)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 14)
                 }
-                .padding(.bottom, 12)
 
-                // Cross-faded content per segment
+                // Cross-faded content per segment (range chosen via the title FAB).
                 Group {
                     switch segment {
                     case .today: todayView
@@ -60,9 +50,27 @@ struct TasksView: View {
                 .id(segment)
                 .transition(.opacity)
             }
+            .padding(.top, 2)
+            .padding(.bottom, 96)   // clear the bottom-right calendar FAB
         }
         .scrollIndicators(.hidden)
+        .animation(.easeInOut(duration: 0.22), value: segment)
+        // Recenter the week/month/year picker to today when the range changes.
+        .onChange(of: segment) { _, _ in
+            selectedDate = Calendar.current.startOfDay(for: Date())
+        }
     }
+
+    /// The task the current user is actively clocked into, resolved to a
+    /// TaskAssignment so it can render as the pinned hero above the toggle.
+    private var activeTask: TaskAssignment? {
+        guard let jc = appState.myActiveJobClock,
+              let job = appState.jobs.first(where: { $0.id == jc.jobId }),
+              let panel = job.subs.first(where: { $0.id == jc.panelId }) else { return nil }
+        let op = jc.opId.flatMap { oid in panel.subs.first(where: { $0.id == oid }) }
+        return TaskAssignment(job: job, panel: panel, op: op)
+    }
+    private var activeTaskId: String? { activeTask?.id }
 
     // ── Today: original card stack ─────────────────────────────────────────
 
@@ -180,27 +188,11 @@ struct TasksView: View {
     /// there are other jobs, so a fully-personal view keeps its old look.
     @ViewBuilder
     private func rangeContent(_ range: Range<Date>, label: String) -> some View {
+        // Only the current user's own scheduled / assigned work — no ALL JOBS.
         let mine = tasks(in: range)
-        let others = otherJobs(in: range)
-
-        if !others.isEmpty {
-            sectionHeader("YOUR TASKS")
-                .padding(.horizontal, 16).padding(.bottom, 12)
-        }
         spanSummaryLine(tasks: mine, label: label)
             .padding(.horizontal, 16).padding(.bottom, 8)
         taskList(mine)
-
-        if !others.isEmpty {
-            sectionHeader("ALL JOBS")
-                .padding(.horizontal, 16).padding(.top, 28).padding(.bottom, 12)
-            VStack(spacing: 12) {
-                ForEach(others) { job in
-                    AllJobsCard(job: job, panels: panelsInWindow(job, in: range))
-                }
-            }
-            .padding(.horizontal, 16)
-        }
     }
 
     private func spanSummaryLine(tasks: [TaskAssignment], label: String) -> some View {
@@ -220,22 +212,26 @@ struct TasksView: View {
 
     @ViewBuilder
     private func taskList(_ tasks: [TaskAssignment]) -> some View {
-        if tasks.isEmpty {
-            VStack(spacing: 6) {
-                NoJobsPlaceholder(text: "No jobs scheduled")
-                diagnosticLine
-            }
-            .padding(.horizontal, 16).padding(.top, 8)
-        } else {
-            VStack(spacing: 12) {
-                ForEach(tasks) { task in
-                    NavigationLink(value: task.job) {
-                        TaskCardV1(task: task)
-                    }
-                    .buttonStyle(.plain)
+        // The active task is pinned as the hero above the toggle, so drop it here.
+        let rows = tasks.filter { $0.id != activeTaskId }
+        return Group {
+            if rows.isEmpty {
+                VStack(spacing: 6) {
+                    NoJobsPlaceholder(text: "No jobs scheduled")
+                    diagnosticLine
                 }
+                .padding(.horizontal, 16).padding(.top, 8)
+            } else {
+                VStack(spacing: 12) {
+                    ForEach(rows) { task in
+                        NavigationLink(value: task.job) {
+                            TaskCardV1(task: task)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
             }
-            .padding(.horizontal, 16)
         }
     }
 
@@ -852,6 +848,91 @@ private struct NoJobsPlaceholder: View {
     }
 }
 
+// MARK: - JobsHeaderBar
+// The Jobs title row: big "Jobs" wordmark on the left, a calendar button on the
+// right (list mode only). Tapping the button slides the four range options out
+// horizontally from the right edge, one-by-one, lined up under the title.
+
+struct JobsHeaderBar: View {
+    var body: some View {
+        Text("Jobs")
+            .font(.custom(TFontName.bold.rawValue, size: 64))
+            .foregroundStyle(LinearGradient(
+                colors: [Color(hex: T.ink), .clear],
+                startPoint: .top, endPoint: .bottom))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+    }
+}
+
+// The calendar range-picker FAB — lives at the bottom-right of the Jobs list.
+struct CalendarFab: View {
+    @Binding var open: Bool
+    var body: some View {
+        Button {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { open.toggle() }
+        } label: {
+            CalendarDateIcon(size: 30)
+                .frame(width: 62, height: 62)
+                .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
+                .shadow(color: Color(hex: T.ctaGlowColor).opacity(0.5), radius: 16, x: 0, y: 8)
+                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                .scaleEffect(open ? 1.06 : 1)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// Reusable range-option pill (Today / Week / Month / Year) for the picker
+// dropdown. Floats over the blurred cards, so it carries a stronger shadow.
+struct RangePill: View {
+    let label: String
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(TTypo.smBold(14))
+                .foregroundStyle(selected ? .white : Color(hex: T.ink))
+                .frame(minWidth: 104)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .background(
+                    Capsule().fill(selected ? AnyShapeStyle(T.brandGradient())
+                                            : AnyShapeStyle(Color(hex: T.surface)))
+                )
+                .overlay(Capsule().stroke(selected ? Color.clear : Color(hex: T.hair), lineWidth: 1))
+                .shadow(color: .black.opacity(selected ? 0 : 0.12), radius: 10, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// TODAY's date for the FAB: short month above, big day number centered,
+// white-on-gradient. Month uses the abbreviated name (Dec, Sep, …).
+private struct CalendarDateIcon: View {
+    var size: CGFloat = 32
+    private var month: String {
+        let f = DateFormatter(); f.dateFormat = "MMM"   // already short: Dec / Sep / …
+        return f.string(from: Date()).uppercased()
+    }
+    private var day: String {
+        let f = DateFormatter(); f.dateFormat = "d"
+        return f.string(from: Date())
+    }
+    var body: some View {
+        VStack(spacing: -2) {
+            Text(month)
+                .font(.system(size: size * 0.30, weight: .heavy, design: .rounded))
+                .tracking(0.8)
+                .foregroundStyle(.white.opacity(0.95))
+            Text(day)
+                .font(.system(size: size * 0.66, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+        }
+    }
+}
+
 // MARK: - TaskAssignment
 // One scheduled task — the canonical unit of work shown in the Jobs list.
 // `op == nil` means the user is on `panel.team` but no specific op.
@@ -965,6 +1046,46 @@ struct TaskCardV1: View {
         return "\(f.string(from: s)) – \(f.string(from: e))"
     }
 
+    // Wireframe-style card pieces: a big NAME headline, the task as subline, a
+    // bright type pill, and a bright status pill.
+    private var headline: String {
+        clientName ?? (task.job.title.isEmpty ? task.title : task.job.title)
+    }
+
+    private var subline: String {
+        var parts: [String] = []
+        if !task.title.isEmpty { parts.append(task.title) }
+        if clientName != nil, !task.job.title.isEmpty, task.job.title != task.title {
+            parts.append(task.job.title)
+        }
+        if task.op != nil, !task.panel.title.isEmpty { parts.append(task.panel.title) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Maps the dept label onto a bright TagPill color family.
+    private var deptKind: TagKind {
+        let k = dept.label.lowercased()
+        if k.contains("repair") || k.contains("cut") { return .amber }
+        if k.contains("inspect") || k.contains("wire") { return .sky }
+        if k.contains("callback") { return .magenta }
+        if k.contains("contract") { return .green }
+        return .indigo   // install / layout / default
+    }
+
+    @ViewBuilder private var statusPill: some View {
+        if busyByOther {
+            TagPill(label: "In progress", kind: .amber, dot: true)
+        } else {
+            switch task.status {
+            case .notStarted: TagPill(label: "Up next", kind: .green)
+            case .pending:    TagPill(label: "Pending", kind: .neutral)
+            case .inProgress: TagPill(label: "Active", kind: .indigo, dot: true)
+            case .onHold:     TagPill(label: "On hold", kind: .amber)
+            case .finished:   TagPill(label: "Done", kind: .green)
+            }
+        }
+    }
+
     /// Format the elapsed time against the active job clock at the given
     /// reference date. Returns "—" if no clock is running. Format is
     /// "0h 0m 5s" — explicit unit letters so the user can read it at a glance.
@@ -981,69 +1102,43 @@ struct TaskCardV1: View {
     }
 
     var body: some View {
-        SBox(size: .lg, sky: isActive) {
+        SBox(size: .lg, active: isActive, frosted: true, liveSheen: task.isMine) {
             VStack(alignment: .leading, spacing: 0) {
-                // Top row: dept tag + #ID  ·······  status badge
-                HStack(spacing: 10) {
-                    JobTypeTag(label: dept.label, color: dept.color)
-                    if let n = task.job.jobNumber, !n.isEmpty {
-                        Text("#\(n)")
-                            .font(TTypo.mono(11))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .tnum()
-                    }
-                    if !task.isMine {
-                        Text("NOT ASSIGNED")
-                            .font(TTypo.xsBold(8))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .tLabel(tracking: 0.5)
-                            .lineLimit(1)
-                            .fixedSize()
-                            .padding(.horizontal, 5).padding(.vertical, 2)
-                            .background(Capsule().fill(Color(hex: T.ink).opacity(0.05)))
-                            .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                    }
-                    Spacer()
-                    StatusBadge(status: busyByOther ? .inProgress : task.status)
-                }
-
-                // Headline: TASK title — what the user is actually doing
-                Text(task.title)
-                    .font(TTypo.h3(20))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .lineLimit(2)
-                    .padding(.top, 8)
-
-                // Sub-line: customer + job title
-                if !contextLine.isEmpty {
-                    Text(contextLine)
-                        .font(TTypo.sm(13))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .lineLimit(1)
-                }
-
-                // Panel + date row
+                // Top row: bright type + status pills ···· date · chevron
                 HStack(spacing: 6) {
-                    if task.op != nil, !task.panel.title.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "square.stack.3d.up")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(Color(hex: T.muted))
-                            Text(task.panel.title)
-                                .font(TTypo.xs(11))
-                                .foregroundStyle(Color(hex: T.muted))
-                                .lineLimit(1)
-                        }
+                    TagPill(label: dept.label, kind: deptKind)
+                    if !task.isMine {
+                        TagPill(label: "NOT ASSIGNED", kind: .neutral)
+                    } else {
+                        statusPill
                     }
-                    Spacer()
+                    Spacer(minLength: 6)
                     if !dateRange.isEmpty {
                         Text(dateRange)
                             .font(TTypo.mono(11))
                             .foregroundStyle(Color(hex: T.muted))
                             .tnum()
                     }
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(hex: T.muted).opacity(0.45))
                 }
-                .padding(.top, 8)
+
+                // Headline: customer / job name (big, like the wireframe).
+                Text(headline)
+                    .font(.custom(TFontName.bold.rawValue, size: 22))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                    .padding(.top, 10)
+
+                // Sub-line: the specific task (+ panel).
+                if !subline.isEmpty {
+                    Text(subline)
+                        .font(TTypo.sm(13))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                        .padding(.top, 1)
+                }
 
                 SLine().padding(.vertical, 12)
 
@@ -1153,7 +1248,7 @@ struct TaskCardV1: View {
             }
 
             // Progress
-            Bar(pct: pct, height: 6, fill: Color(hex: T.sky))
+            Bar(pct: pct, height: 7, gradient: T.brandGradient())
 
             // Break + Stop, side by side under the bar. Each opens a
             // confirmation to guard against accidental taps.
@@ -1177,15 +1272,19 @@ struct TaskCardV1: View {
                 .buttonStyle(.plain)
                 .disabled(isBreakBusy || isStopping)
 
-                Button {
-                    // Open the photo step first; the overlay performs the
-                    // actual clock-out after a photo is attached (or skipped).
-                    endJobTarget = PanelPhotoTarget(
-                        jobId: task.job.id,
-                        panelId: task.panel.id,
-                        panelTitle: task.panel.title,
-                        opId: task.op?.id)
-                } label: {
+                // STOP → opens the end-job photo step (which performs the actual
+                // clock-out). Restyled to the signature gradient CTA; the action,
+                // STOPPING… spinner, and mutual lockout are unchanged.
+                GradientCTA(disabled: isStopping || isBreakBusy,
+                            dimmed: false,
+                            verticalPadding: 10,
+                            action: {
+                                endJobTarget = PanelPhotoTarget(
+                                    jobId: task.job.id,
+                                    panelId: task.panel.id,
+                                    panelTitle: task.panel.title,
+                                    opId: task.op?.id)
+                            }) {
                     HStack(spacing: 6) {
                         if isStopping {
                             ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
@@ -1195,15 +1294,7 @@ struct TaskCardV1: View {
                             Text("STOP").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
                         }
                     }
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color(hex: T.sky)))
-                    .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                 }
-                .buttonStyle(.plain)
-                .disabled(isStopping || isBreakBusy)
             }
         }
     }
@@ -1243,7 +1334,7 @@ struct TaskCardV1: View {
                         .foregroundStyle(Color(hex: T.muted))
                         .tnum()
                 }
-                Bar(pct: pct, height: 6, fill: busyByOther ? Color(hex: T.statusInProgress) : dept.color)
+                Bar(pct: pct, height: 7, fill: busyByOther ? Color(hex: T.statusInProgress) : dept.color)
             }
             if busyByOther {
                 // Someone else is clocked into this work — block logging and
@@ -1258,31 +1349,26 @@ struct TaskCardV1: View {
                 .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
                 .opacity(0.55)
             } else {
-                Button {
-                    guard !isStarting else { return }
-                    showLogConfirm = true
-                } label: {
+                // Purple-gradient "Start" CTA. Action / race-guard unchanged.
+                GradientCTA(disabled: isStarting, dimmed: false, fullWidth: false,
+                            verticalPadding: 9, action: {
+                                guard !isStarting else { return }
+                                showLogConfirm = true
+                            }) {
                     HStack(spacing: 6) {
                         if isStarting {
                             ProgressView()
                                 .progressViewStyle(.circular)
-                                .tint(Color(hex: T.ink))
+                                .tint(.white)
                                 .scaleEffect(0.7)
-                            Text("STARTING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                            Text("Starting…").font(TTypo.smBold(14))
                         } else {
                             Image(systemName: "play.fill")
-                            Text("LOG TIME").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+                            Text("Start").font(TTypo.smBold(14))
                         }
                     }
-                    .foregroundStyle(Color(hex: T.ink))
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(Capsule().fill(Color(hex: T.surface)))
-                    .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                    .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
-                            radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
                 }
-                .buttonStyle(.plain)
-                .disabled(isStarting)
+                .fixedSize()
             }
         }
     }
@@ -1434,7 +1520,7 @@ private struct LogTimeConfirmSheet: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             VStack(alignment: .leading, spacing: 0) {
                 Spacer().frame(height: 24)
@@ -1482,10 +1568,7 @@ private struct LogTimeConfirmSheet: View {
                     }
                 }
                 .padding(18)
-                .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(Color(hex: T.surface)))
-                .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
-                .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
-                        radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
+                .frostedCard(radius: T.cornerHero)
                 .padding(.horizontal, 24)
 
                 Spacer(minLength: 0)
@@ -1504,24 +1587,17 @@ private struct LogTimeConfirmSheet: View {
                     }
                     .buttonStyle(.plain)
 
-                    Button {
+                    GradientCTA(verticalPadding: 14, action: {
                         onConfirm()
                         dismiss()
-                    } label: {
+                    }) {
                         HStack(spacing: 6) {
                             Image(systemName: "play.fill")
                             Text("START TIMER")
                                 .font(TTypo.xsBold(13))
                                 .tLabel(tracking: 0.8)
                         }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Capsule().fill(Color(hex: T.sky)))
-                        .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                                radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                     }
-                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 28)

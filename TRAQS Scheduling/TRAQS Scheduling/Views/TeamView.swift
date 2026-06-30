@@ -1,6 +1,108 @@
 import SwiftUI
 
-// MARK: - TeamView
+// MARK: - TeamView · TRAQS Revamp
+// Frosted team roster matched to the Team wireframe: AmbientBackground canvas,
+// TRAQSNavHeader + PageTitle, a presence filter chip row (All / On job / Break /
+// Idle), and frosted rows with gradient avatars (+ presence dot) and a bright
+// status TagPill. STYLING ONLY — every @State, binding, action closure, sheet,
+// swipe action and toggle is preserved exactly; presence/status is *derived from
+// existing Person fields* for display, mirroring AdminView's read-only convention.
+
+// ── Presence derivation (read-only, mirrors AdminView.statusFor) ──────────────
+private enum TeamPresence {
+    case onJob, onBreak, idle, offline
+
+    /// Read-only classification from already-loaded Person fields. No data is
+    /// created or mutated — this is purely how the row presents itself.
+    static func of(_ p: Person) -> TeamPresence {
+        if p.activeBreak != nil { return .onBreak }
+        if p.activeJobClock != nil { return .onJob }
+        if p.activeClockIn != nil { return .idle }
+        return .offline
+    }
+
+    /// Presence dot color per the design kit tokens.
+    var dot: Color {
+        switch self {
+        case .onJob:   return Color(hex: T.presenceWork)
+        case .onBreak: return Color(hex: T.presenceBreak)
+        case .idle, .offline: return Color(hex: T.presenceIdle)
+        }
+    }
+
+    var pillLabel: String {
+        switch self {
+        case .onJob:   return "On job"
+        case .onBreak: return "Break"
+        case .idle:    return "Idle"
+        case .offline: return "Offline"
+        }
+    }
+
+    var pillKind: TagKind {
+        switch self {
+        case .onJob:   return .indigo
+        case .onBreak: return .amber
+        case .idle, .offline: return .neutral
+        }
+    }
+}
+
+// ── Filter chip identity (presentation-only; not persisted) ───────────────────
+private enum TeamFilter: CaseIterable {
+    case all, onJob, onBreak, idle
+    var label: String {
+        switch self {
+        case .all:     return "All"
+        case .onJob:   return "On job"
+        case .onBreak: return "Break"
+        case .idle:    return "Idle"
+        }
+    }
+    /// Whether a person with the given presence passes this filter.
+    func matches(_ presence: TeamPresence) -> Bool {
+        switch self {
+        case .all:     return true
+        case .onJob:   return presence == .onJob
+        case .onBreak: return presence == .onBreak
+        case .idle:    return presence == .idle || presence == .offline
+        }
+    }
+}
+
+// ── A frosted filter chip: active = gradient pill, inactive = white pill ──────
+private struct TeamFilterChip: View {
+    let label: String
+    let active: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(TTypo.smBold(13))
+                .foregroundStyle(active ? .white : Color(hex: T.ink))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    Capsule().fill(
+                        active ? AnyShapeStyle(T.brandGradient())
+                               : AnyShapeStyle(Color(hex: T.surface))
+                    )
+                )
+                .overlay(
+                    Capsule().stroke(active ? Color.clear : Color(hex: T.hair), lineWidth: 1)
+                )
+                .compositingGroup()
+                .shadow(
+                    color: active ? Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity * 0.6)
+                                  : Color.black.opacity(T.raisedShadowOpacity),
+                    radius: active ? T.ctaGlowRadius * 0.6 : T.raisedShadowRadius,
+                    x: 0, y: active ? 4 : T.raisedShadowY
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
 
 struct TeamView: View {
     @Environment(AppState.self) private var appState
@@ -8,48 +110,82 @@ struct TeamView: View {
     @State private var personToEdit: Person? = nil
     @State private var personToDelete: Person? = nil
     @State private var showDeleteConfirm = false
+    // Presentation-only client-side filter (no business logic touched).
+    @State private var filter: TeamFilter = .all
+
+    // Count subtitle from already-loaded data (display only).
+    private var onClockCount: Int {
+        appState.people.filter { TeamPresence.of($0) != .offline }.count
+    }
+    private var onJobCount: Int {
+        appState.people.filter { TeamPresence.of($0) == .onJob }.count
+    }
+    private var subtitle: String {
+        "\(onClockCount) on the clock · \(onJobCount) on a job"
+    }
+
+    private var filteredPeople: [Person] {
+        appState.people.filter { filter.matches(TeamPresence.of($0)) }
+    }
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
-            List {
-                ForEach(appState.people) { person in
-                    PersonRow(person: person)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if appState.isAdmin {
-                                Button(role: .destructive) {
-                                    personToDelete = person
-                                    showDeleteConfirm = true
-                                } label: { Label("Delete", systemImage: "trash") }
-
-                                Button { personToEdit = person } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                                .tint(Color(hex: T.accent))
-                            }
-                        }
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-        }
-        .navigationTitle("Team")
-        .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        .toolbar {
-            if appState.isAdmin {
-                ToolbarItem(placement: .primaryAction) {
-                    Button { showAddPerson = true } label: {
-                        Image(systemName: "plus")
-                            .foregroundColor(Color(hex: T.accent))
+            VStack(spacing: 0) {
+                // Sticky revamp header (wordmark + optional add action).
+                TRAQSNavHeader {
+                    if appState.isAdmin {
+                        IconBtn(icon: .plus, size: 18) { showAddPerson = true }
                     }
                 }
+
+                ScrollView {
+                    VStack(spacing: 0) {
+
+                        PageTitle(title: "Team", subtitle: subtitle)
+                            .padding(.bottom, 14)
+
+                        // ── Filter chip row (active = gradient, inactive = white) ──
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(TeamFilter.allCases, id: \.self) { f in
+                                    TeamFilterChip(label: f.label, active: filter == f) {
+                                        filter = f
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
+                        .padding(.bottom, 14)
+
+                        // ── Roster ──
+                        LazyVStack(spacing: 12) {
+                            ForEach(filteredPeople) { person in
+                                PersonRow(person: person)
+                                    .contextMenu {
+                                        if appState.isAdmin {
+                                            Button { personToEdit = person } label: {
+                                                Label("Edit", systemImage: "pencil")
+                                            }
+                                            Button(role: .destructive) {
+                                                personToDelete = person
+                                                showDeleteConfirm = true
+                                            } label: { Label("Delete", systemImage: "trash") }
+                                        }
+                                    }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                    }
+                }
+                .scrollIndicators(.hidden)
+                .refreshable { await appState.loadAll() }
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
+        .navigationTitle("Team")
         .sheet(isPresented: $showAddPerson) { PersonEditView(person: nil) }
         .sheet(item: $personToEdit) { person in PersonEditView(person: person) }
         .confirmationDialog(
@@ -87,6 +223,11 @@ struct PersonRow: View {
         return all.filter { $0.team.contains(person.id) && $0.status != .finished }.count
     }
 
+    private func initials(_ name: String) -> String {
+        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        return parts.isEmpty ? "?" : parts.joined()
+    }
+
     var body: some View {
         VStack(spacing: 0) {
 
@@ -96,72 +237,52 @@ struct PersonRow: View {
             } label: {
                 // Use live data so tags update immediately when toggled
                 let live = appState.people.first(where: { $0.id == person.id }) ?? person
+                let presence = TeamPresence.of(live)
                 HStack(spacing: 12) {
-                    Circle()
-                        .fill(Color(hex: live.color))
-                        .frame(width: 40, height: 40)
-                        .overlay(
-                            Text(String(live.name.prefix(1)).uppercased())
-                                .font(.headline.bold()).foregroundColor(.white)
-                        )
+                    Avatar(initials: initials(live.name),
+                           size: 44,
+                           gradient: true,
+                           presence: presence.dot)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 6) {
                             Text(live.name)
-                                .font(.subheadline.bold())
-                                .foregroundColor(Color(hex: T.text))
+                                .font(TTypo.smBold(15))
+                                .foregroundStyle(Color(hex: T.ink))
                             if live.isAdmin {
-                                Text("Admin").font(.caption2.bold())
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Color(hex: T.eng).opacity(0.2))
-                                    .foregroundColor(Color(hex: T.eng))
-                                    .cornerRadius(4)
+                                TagPill(label: "Admin", kind: .magenta)
                             }
                             if live.isEngineer == true {
-                                Text("Eng").font(.caption2.bold())
-                                    .padding(.horizontal, 6).padding(.vertical, 2)
-                                    .background(Color(hex: T.statusInProgress).opacity(0.2))
-                                    .foregroundColor(Color(hex: T.statusInProgress))
-                                    .cornerRadius(4)
+                                TagPill(label: "Eng", kind: .sky)
                             }
                         }
-                        Text(live.role)
-                            .font(.caption)
-                            .foregroundColor(Color(hex: T.muted))
+                        Text(live.role.isEmpty ? "\(assignedOps) active tasks" : live.role)
+                            .font(TTypo.sm(13))
+                            .foregroundStyle(Color(hex: T.muted))
                     }
 
                     Spacer()
 
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("\(assignedOps) tasks")
-                            .font(.caption)
-                            .foregroundColor(Color(hex: T.muted))
-                        Text("\(Int(live.cap))h/day")
-                            .font(.caption2)
-                            .foregroundColor(Color(hex: T.muted))
-                    }
+                    TagPill(label: presence.pillLabel, kind: presence.pillKind)
 
-                    Image(systemName: "chevron.down")
-                        .font(.caption2)
-                        .foregroundColor(Color(hex: T.muted))
-                        .frame(width: 20)
+                    TIconView(icon: .chevDown, size: 12, color: Color(hex: T.muted))
+                        .frame(width: 16)
                         .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
-                .padding(12)
+                .padding(14)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
             // ── Expanded permissions ──
             if isExpanded {
-                Divider().padding(.horizontal, 12)
+                SLine().padding(.horizontal, 14)
 
                 VStack(spacing: 0) {
 
                     // Admin
                     HStack {
-                        Label("Admin", systemImage: "shield.fill")
-                            .font(.subheadline).foregroundColor(Color(hex: T.text))
+                        permLabel("Admin", icon: "shield.fill", tint: Color(hex: T.magenta))
                         Spacer()
                         Toggle("", isOn: Binding(
                             get: { appState.people.first(where: { $0.id == person.id })?.isAdmin ?? false },
@@ -172,16 +293,15 @@ struct PersonRow: View {
                                     appState.updatePeople(list)
                                 }
                             }
-                        )).tint(Color(hex: T.eng)).labelsHidden()
+                        )).toggleStyle(GradientToggleStyle()).labelsHidden()
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 10)
 
-                    Divider().padding(.leading, 44)
+                    SLine().padding(.leading, 48)
 
                     // Engineer
                     HStack {
-                        Label("Engineer", systemImage: "wrench.and.screwdriver.fill")
-                            .font(.subheadline).foregroundColor(Color(hex: T.text))
+                        permLabel("Engineer", icon: "wrench.and.screwdriver.fill", tint: Color(hex: T.accent))
                         Spacer()
                         Toggle("", isOn: Binding(
                             get: { appState.people.first(where: { $0.id == person.id })?.isEngineer ?? false },
@@ -192,16 +312,15 @@ struct PersonRow: View {
                                     appState.updatePeople(list)
                                 }
                             }
-                        )).tint(Color(hex: T.statusInProgress)).labelsHidden()
+                        )).toggleStyle(GradientToggleStyle()).labelsHidden()
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 10)
 
-                    Divider().padding(.leading, 44)
+                    SLine().padding(.leading, 48)
 
                     // Auto-Scheduling
                     HStack {
-                        Label("Auto-Scheduling", systemImage: "brain")
-                            .font(.subheadline).foregroundColor(Color(hex: T.text))
+                        permLabel("Auto-Scheduling", icon: "brain", tint: Color(hex: T.lavender))
                         Spacer()
                         Toggle("", isOn: Binding(
                             get: { appState.people.first(where: { $0.id == person.id })?.autoSchedule ?? true },
@@ -212,20 +331,31 @@ struct PersonRow: View {
                                     appState.updatePeople(list)
                                 }
                             }
-                        )).tint(Color(hex: T.accent)).labelsHidden()
+                        )).toggleStyle(GradientToggleStyle()).labelsHidden()
                     }
-                    .padding(.vertical, 8)
+                    .padding(.vertical, 10)
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 4)
+                .padding(.bottom, 6)
                 .clipped()
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isExpanded)
-        .background(Color(hex: T.card))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+        .frostedCard(radius: T.cornerMd)
+    }
+
+    // Leading-glyph + label for an expanded permission row.
+    private func permLabel(_ title: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 38 * 0.30, style: .continuous)
+                .fill(tint.opacity(0.14))
+                .frame(width: 36, height: 36)
+                .overlay(Image(systemName: icon).font(.system(size: 15, weight: .semibold)).foregroundStyle(tint))
+            Text(title)
+                .font(TTypo.sm(14))
+                .foregroundStyle(Color(hex: T.ink))
+        }
     }
 
 }
@@ -248,31 +378,31 @@ struct PersonDetailView: View {
         .sorted { $0.op.start < $1.op.start }
     }
 
+    private func initials(_ name: String) -> String {
+        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        return parts.isEmpty ? "?" : parts.joined()
+    }
+
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 16) {
-                        Circle()
-                            .fill(Color(hex: person.color))
-                            .frame(width: 64, height: 64)
-                            .overlay(
-                                Text(String(person.name.prefix(1)).uppercased())
-                                    .font(.largeTitle.bold()).foregroundColor(.white)
-                            )
+                        Avatar(initials: initials(person.name),
+                               size: 64,
+                               gradient: true,
+                               presence: TeamPresence.of(person).dot)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(person.name).font(.title2.bold()).foregroundColor(Color(hex: T.text))
-                            Text(person.role).foregroundColor(Color(hex: T.muted))
-                            Text(person.email).font(.caption).foregroundColor(Color(hex: T.muted))
+                            Text(person.name).font(TTypo.h2(22)).foregroundStyle(Color(hex: T.ink))
+                            Text(person.role).font(TTypo.sm(14)).foregroundStyle(Color(hex: T.muted))
+                            Text(person.email).font(TTypo.sm(12)).foregroundStyle(Color(hex: T.muted))
                         }
                         Spacer()
                     }
-                    .padding()
-                    .background(Color(hex: T.card))
-                    .cornerRadius(12)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                    .padding(18)
+                    .frostedCard(radius: T.cornerLg)
 
                     HStack(spacing: 12) {
                         StatCard(label: "Active Tasks", value: "\(assignedOps.filter { $0.op.status == .inProgress }.count)", color: Color(hex: T.statusInProgress))
@@ -281,51 +411,48 @@ struct PersonDetailView: View {
                     }
 
                     if !person.timeOff.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Time Off").font(.headline).foregroundColor(Color(hex: T.text))
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Time Off").font(TTypo.h3(18)).foregroundStyle(Color(hex: T.ink))
                             ForEach(person.timeOff) { entry in
-                                HStack {
+                                HStack(spacing: 8) {
                                     Circle()
                                         .fill(entry.type == "PTO" ? Color(hex: T.statusInProgress) : Color(hex: T.statusOnHold))
                                         .frame(width: 8, height: 8)
-                                    Text(entry.type).font(.caption.bold()).foregroundColor(Color(hex: T.text))
+                                    Text(entry.type).font(TTypo.smBold(13)).foregroundStyle(Color(hex: T.ink))
                                     Text(entry.start.shortDate + " → " + entry.end.shortDate)
-                                        .font(.caption).foregroundColor(Color(hex: T.muted))
+                                        .font(TTypo.sm(13)).foregroundStyle(Color(hex: T.muted))
                                     if let reason = entry.reason {
-                                        Text("(\(reason))").font(.caption).foregroundColor(Color(hex: T.muted))
+                                        Text("(\(reason))").font(TTypo.sm(13)).foregroundStyle(Color(hex: T.muted))
                                     }
                                 }
                             }
                         }
-                        .padding()
-                        .background(Color(hex: T.card))
-                        .cornerRadius(12)
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                        .padding(18)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .frostedCard(radius: T.cornerLg)
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Assigned Work (\(assignedOps.count))").font(.headline).foregroundColor(Color(hex: T.text))
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Assigned Work (\(assignedOps.count))").font(TTypo.h3(18)).foregroundStyle(Color(hex: T.ink))
                         ForEach(assignedOps, id: \.op.id) { item in
-                            HStack {
+                            HStack(spacing: 10) {
                                 Circle().fill(item.op.status.color).frame(width: 8, height: 8)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("\(item.job.title) / \(item.panel.title) / \(item.op.title)")
-                                        .font(.subheadline)
-                                        .foregroundColor(Color(hex: T.text))
+                                        .font(TTypo.sm(14))
+                                        .foregroundStyle(Color(hex: T.ink))
                                     Text(item.op.start.shortDate + " → " + item.op.end.shortDate)
-                                        .font(.caption).foregroundColor(Color(hex: T.muted))
+                                        .font(TTypo.sm(12)).foregroundStyle(Color(hex: T.muted))
                                 }
                                 Spacer()
                                 StatusBadge(status: item.op.status)
                             }
-                            .padding(10)
-                            .background(Color(hex: T.card))
-                            .cornerRadius(8)
-                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(hex: T.border), lineWidth: 1))
+                            .padding(12)
+                            .frostedCard(radius: T.cornerMd)
                         }
                     }
                 }
-                .padding()
+                .padding(16)
             }
         }
         .navigationTitle(person.name)
@@ -357,14 +484,12 @@ struct StatCard: View {
 
     var body: some View {
         VStack(spacing: 4) {
-            Text(value).font(.title2.bold()).foregroundColor(color)
-            Text(label).font(.caption).foregroundColor(Color(hex: T.muted))
+            Text(value).font(TTypo.h2(22)).foregroundStyle(color)
+            Text(label).font(TTypo.sm(12)).foregroundStyle(Color(hex: T.muted))
         }
         .frame(maxWidth: .infinity)
-        .padding(12)
-        .background(color.opacity(0.1))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(color.opacity(0.25), lineWidth: 1))
+        .padding(.vertical, 16)
+        .frostedCard(radius: T.cornerMd)
     }
 }
 
@@ -438,13 +563,11 @@ struct PersonEditView: View {
                                 .foregroundColor(Color(hex: T.statusFinished))
                         }
                         Text("Saved")
-                            .font(.headline.bold())
-                            .foregroundColor(Color(hex: T.text))
+                            .font(TTypo.h3(18))
+                            .foregroundStyle(Color(hex: T.ink))
                     }
                     .padding(32)
-                    .background(Color(hex: T.card))
-                    .cornerRadius(20)
-                    .shadow(color: .black.opacity(0.3), radius: 20)
+                    .frostedCard(radius: T.cornerLg)
                     .transition(.scale.combined(with: .opacity))
                 }
             }

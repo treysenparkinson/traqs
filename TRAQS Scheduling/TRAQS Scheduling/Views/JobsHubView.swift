@@ -18,11 +18,13 @@ struct JobsHubView: View {
     @State private var showSearch = false
     @State private var searchText = ""
     @FocusState private var searchFocused: Bool
+    @State private var jobsSegment: TasksView.JobsSegment = .today   // list range (Today/Week/Month/Year)
+    @State private var pickerOpen = false                            // range-picker dropdown open?
 
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
+                AmbientBackground()
 
                 VStack(spacing: 0) {
                     // Persistent header. The leading trailing-button is mode
@@ -45,7 +47,11 @@ struct JobsHubView: View {
                             IconBtn(icon: .plus, size: 18) { showAddJob = true }
                         }
                     }
-                    .background(Color(hex: T.bg))
+
+                    JobsHeaderBar()
+                        .padding(.top, 2)
+                        .padding(.bottom, 2)
+                        .zIndex(1)   // keep the title above the blurred content
 
                     // Search field — slides in under the header, list mode only.
                     if appNav.jobsMode == .list && showSearch {
@@ -63,20 +69,53 @@ struct JobsHubView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
-                    // The only part that swaps. Overlaid in a ZStack so the
-                    // outgoing view fades out while the incoming one fades in.
-                    ZStack {
-                        switch appNav.jobsMode {
-                        case .list:
-                            TasksView(searchText: searchText)
-                                .transition(.opacity)
-                        case .gantt:
-                            GanttView()
-                                .transition(.opacity)
+                    // Content area. When the range picker is open the cards
+                    // blur behind the floating options — they don't move. The
+                    // blur ramps in via a gradient (sharp near the title, full
+                    // lower down), so there's no hard edge.
+                    ZStack(alignment: .topTrailing) {
+                        ZStack {
+                            switch appNav.jobsMode {
+                            case .list:
+                                TasksView(searchText: searchText, segment: $jobsSegment)
+                                    .transition(.opacity)
+                            case .gantt:
+                                GanttView()
+                                    .transition(.opacity)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
+                        .allowsHitTesting(!pickerOpen)
+
+                        // Fading backdrop blur + tap-anywhere-to-dismiss. Always
+                        // mounted and driven by opacity so it eases AWAY (not
+                        // snaps) when the picker collapses.
+                        FadingBlur()
+                            .ignoresSafeArea()
+                            .opacity(pickerOpen ? 1 : 0)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
+                                    pickerOpen = false
+                                }
+                            }
+                            .allowsHitTesting(pickerOpen)
+                            .animation(.easeInOut(duration: 0.28), value: pickerOpen)
+
+                        // Bottom-right: the calendar FAB with the range options
+                        // stacked ABOVE it (they float over the blurred cards).
+                        if appNav.jobsMode == .list {
+                            VStack(alignment: .trailing, spacing: 12) {
+                                rangeOptions
+                                CalendarFab(open: $pickerOpen)
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 26)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
                 }
                 .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
             }
@@ -89,6 +128,30 @@ struct JobsHubView: View {
             // cold-start load brings the job in.
             .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeJobDeepLink() }
             .onChange(of: appState.jobs.count) { _, _ in consumeJobDeepLink() }
+        }
+    }
+
+    /// Floating range-picker options — stacked vertically under the calendar
+    /// button, dropping in one-by-one. Empty (zero-size) when closed.
+    @ViewBuilder private var rangeOptions: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            if pickerOpen {
+                // Stacked ABOVE the FAB: Today nearest the button, rising up
+                // one-by-one (nearest the FAB reveals first).
+                let opts = Array(TasksView.JobsSegment.allCases.reversed())   // [year, month, week, today]
+                ForEach(Array(opts.enumerated()), id: \.element) { idx, opt in
+                    let fromFab = opts.count - 1 - idx   // 0 = nearest the FAB (today)
+                    RangePill(label: opt.label, selected: opt == jobsSegment) {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                            jobsSegment = opt
+                            pickerOpen = false
+                        }
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.spring(response: 0.32, dampingFraction: 0.74)
+                                .delay(Double(fromFab) * 0.05), value: pickerOpen)
+                }
+            }
         }
     }
 

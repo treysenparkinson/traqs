@@ -17,23 +17,27 @@ struct OrgCodeView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
-            VStack(spacing: 32) {
+            VStack(spacing: 28) {
                 Spacer()
+
+                // Brand mark — gradient avatar tile, echoing the wireframe's
+                // gradient identity language.
+                Avatar(initials: "T", size: 72, gradient: true)
 
                 VStack(spacing: 8) {
                     Text("Enter Org Code")
-                        .font(.title.bold())
-                        .foregroundColor(Color(hex: T.text))
+                        .font(.custom(TFontName.bold.rawValue, size: 30))
+                        .foregroundStyle(Color(hex: T.ink))
                     if let msg = autoLinkError {
                         Text(msg)
-                            .font(.subheadline)
+                            .font(TTypo.sm(14))
                             .foregroundColor(Color(hex: T.muted))
                             .multilineTextAlignment(.center)
                     } else {
                         Text("Enter your organization's TRAQS code to continue.")
-                            .font(.subheadline)
+                            .font(TTypo.sm(14))
                             .foregroundColor(Color(hex: T.muted))
                             .multilineTextAlignment(.center)
                     }
@@ -44,14 +48,23 @@ struct OrgCodeView: View {
                     }
                 }
 
-                VStack(spacing: 12) {
+                // Frosted input card — frosted hero surface holds the code field,
+                // any inline error, and the gradient CTA.
+                VStack(spacing: 14) {
                     TextField("Org Code", text: $code)
                         .textFieldStyle(.plain)
-                        .padding()
-                        .background(Color(hex: T.surface))
-                        .cornerRadius(12)
-                        .foregroundColor(Color(hex: T.text))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                        .font(.custom(TFontName.bold.rawValue, size: 17))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
+                                .fill(Color(hex: T.bg))
+                        )
+                        .foregroundColor(Color(hex: T.ink))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
+                                .stroke(Color(hex: T.hair), lineWidth: 1)
+                        )
                         .autocorrectionDisabled()
                         .onChange(of: code) { code = code.uppercased() }
                         #if os(iOS)
@@ -63,39 +76,39 @@ struct OrgCodeView: View {
                         Text(error)
                             .font(.caption)
                             .foregroundColor(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    Button {
-                        Task { await submit() }
-                    } label: {
-                        Group {
-                            if isChecking {
-                                ProgressView().tint(.white)
-                            } else {
+                    GradientCTA(
+                        disabled: code.trimmingCharacters(in: .whitespaces).isEmpty || isChecking,
+                        dimmed: code.trimmingCharacters(in: .whitespaces).isEmpty || isChecking,
+                        verticalPadding: 15,
+                        action: { Task { await submit() } }
+                    ) {
+                        if isChecking {
+                            ProgressView().tint(.white)
+                        } else {
+                            HStack(spacing: 8) {
                                 Text("Continue")
-                                    .fontWeight(.semibold)
+                                    .font(.custom(TFontName.bold.rawValue, size: 16))
+                                TIconView(icon: .chev, size: 15, color: .white, weight: .bold)
                             }
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Color(hex: T.accent))
-                        .foregroundColor(.white)
-                        .cornerRadius(14)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(code.trimmingCharacters(in: .whitespaces).isEmpty || isChecking)
                 }
+                .padding(20)
+                .frostedCard(radius: T.cornerHero)
 
                 Spacer()
 
                 Button("Sign Out") {
                     auth.logout()
                 }
-                .foregroundColor(Color(hex: T.muted))
-                .font(.caption)
+                .foregroundColor(.red)
+                .font(TTypo.smBold(13))
                 .padding(.bottom, 24)
             }
-            .padding(.horizontal, 32)
+            .padding(.horizontal, 28)
         }
         #if os(macOS)
         .frame(minWidth: 400, minHeight: 400)

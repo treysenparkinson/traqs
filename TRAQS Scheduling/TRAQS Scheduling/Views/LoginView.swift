@@ -5,12 +5,13 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            AmbientBackground()
 
             VStack(spacing: 28) {
                 Spacer()
 
-                VStack(spacing: 12) {
+                // ── Brand lockup ──────────────────────────────────────────
+                VStack(spacing: 14) {
                     TRAQSWordmark(size: 80)
                     Text("Scheduling & Production Management")
                         .font(TTypo.sm(13))
@@ -20,13 +21,16 @@ struct LoginView: View {
 
                 Spacer()
 
+                // ── Frosted sign-in panel ─────────────────────────────────
                 VStack(spacing: 16) {
                     if auth.isLoading {
                         ProgressView()
                             .tint(Color(hex: T.sky))
                             .scaleEffect(1.2)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 8)
                     } else {
-                        Button {
+                        GradientCTA(verticalPadding: 16) {
                             Task { await auth.login() }
                         } label: {
                             HStack(spacing: 10) {
@@ -35,14 +39,7 @@ struct LoginView: View {
                                 Text("Sign in with Auth0")
                                     .font(TTypo.smBold(15))
                             }
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Capsule().fill(Color(hex: T.sky)))
-                            .foregroundStyle(.white)
-                            .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                         }
-                        .buttonStyle(.plain)
                     }
 
                     if let error = auth.error {
@@ -52,7 +49,9 @@ struct LoginView: View {
                             .multilineTextAlignment(.center)
                     }
                 }
-                .padding(.horizontal, 32)
+                .padding(24)
+                .frostedCard(radius: T.cornerHero)
+                .padding(.horizontal, 28)
                 .padding(.bottom, 48)
             }
         }

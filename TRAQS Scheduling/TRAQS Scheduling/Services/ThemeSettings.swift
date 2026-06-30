@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 // MARK: - Background Presets
 
@@ -79,7 +82,7 @@ final class ThemeSettings {
     func setAccent(_ hex: String) {
         accent = hex
         UserDefaults.standard.set(hex, forKey: "themeAccent")
-        T.accent = hex
+        applyAccentToT()
     }
 
     func setBgPreset(_ id: Int) {
@@ -99,12 +102,45 @@ final class ThemeSettings {
     }
 
     private func applyToT() {
-        T.accent = accent
+        applyAccentToT()
         applyBgToT(currentBgPreset)
+    }
+
+    /// Set `T.accent` AND the derived signature-gradient stops + glow tints so the
+    /// whole gradient system stays coherent with whatever accent is chosen.
+    /// Default accent → the wireframe indigo→magenta brand pair; any custom accent
+    /// keeps its own start and derives an intentional end (hue +40°, +8% brightness).
+    private func applyAccentToT() {
+        T.accent = accent
+        if accent.caseInsensitiveCompare(ThemeSettings.defaultAccent) == .orderedSame {
+            T.accentGradientStart = T.brandGradStartDefault
+            T.accentGradientEnd   = T.brandGradEndDefault
+        } else {
+            T.accentGradientStart = accent
+            T.accentGradientEnd   = ThemeSettings.derivedEnd(from: accent)
+        }
+        T.glowBlob     = T.accentGradientEnd
+        T.ctaGlowColor = T.accentGradientStart
     }
 
     private func applyBgToT(_ p: BgPreset) {
         T.bg = p.bg; T.surface = p.surface; T.card = p.card; T.border = p.border
         T.text = p.text; T.muted = p.muted
+    }
+
+    /// Derive a gradient end-stop from a custom accent: rotate hue +40° and lift
+    /// brightness ~8% so a single-color accent still yields an intentional two-stop
+    /// gradient. iOS-only (UIColor HSB); returns the input unchanged if conversion fails.
+    static func derivedEnd(from hex: String) -> String {
+        #if canImport(UIKit)
+        let ui = UIColor(Color(hex: hex))
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard ui.getHue(&h, saturation: &s, brightness: &b, alpha: &a) else { return hex }
+        h = (h + 40.0 / 360.0).truncatingRemainder(dividingBy: 1.0)
+        b = min(1.0, b + 0.08)
+        return Color(UIColor(hue: h, saturation: s, brightness: b, alpha: 1)).toHex() ?? hex
+        #else
+        return hex
+        #endif
     }
 }
