@@ -380,6 +380,16 @@ struct APIService {
         return try decoder.decode([TimeclockEntry].self, from: data)
     }
 
+    /// Timestamped per-session job-clock log (jobsessions.json) for pay-period
+    /// job-hours reporting. Scoped to the person server-side (non-admins → self).
+    func fetchJobSessions(personId: String? = nil) async throws -> [JobSession] {
+        var path = "timeclock?dataset=jobsessions"
+        if let personId { path += "&personId=\(personId)" }
+        let req = try await request(path)
+        let data = try await perform(req)
+        return try decoder.decode([JobSession].self, from: data)
+    }
+
     // MARK: - Job Clock (Bearer-only, no PIN)
 
     private struct JobClockInPayload: Encodable {

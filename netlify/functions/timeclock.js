@@ -67,6 +67,10 @@ export async function handler(event) {
   const peopleKey = `orgs/${orgCode}/people.json`;
   const clockKey = `orgs/${orgCode}/timeclock.json`;
   const tasksKey = `orgs/${orgCode}/tasks.json`;
+  // Timestamped per-session job-clock log (one row per jobClockOut) so the app
+  // can report job hours within a pay period — separate from the cumulative
+  // loggedHours totals kept on each job/op in tasks.json.
+  const jobSessionsKey = `orgs/${orgCode}/jobsessions.json`;
 
   // ── GET ──────────────────────────────────────────────────────────────────
   // Payroll-grade PII. Membership required, AND non-admins can only see
@@ -77,11 +81,14 @@ export async function handler(event) {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
-      const data = await readJson(clockKey);
-      const entries = Array.isArray(data) ? data : [];
-      const { personId } = Object.fromEntries(
+      const { personId, dataset } = Object.fromEntries(
         (event.queryStringParameters ? Object.entries(event.queryStringParameters) : [])
       );
+      // `dataset=jobsessions` returns the timestamped job-clock log instead of
+      // the payroll clock entries. Both are payroll-grade PII, scoped the same.
+      const key = dataset === "jobsessions" ? jobSessionsKey : clockKey;
+      const data = await readJson(key);
+      const entries = Array.isArray(data) ? data : [];
       // Admin: optional personId filter. Non-admin: force-filter to self,
       // regardless of what `personId` they asked for.
       const scopeId = member.isAdmin ? personId : member.personId;
@@ -391,6 +398,31 @@ export async function handler(event) {
             return { ...job, loggedHours: newJobHours, subs: newSubs };
           });
           await writeJson(tasksKey, tasks);
+        } catch { /* non-fatal */ }
+      }
+
+      // Append a timestamped job-session row so pay-period job hours can be
+      // reported per person (the loggedHours totals above are cumulative only).
+      if (jcoHours > 0 && jcoJobId) {
+        try {
+          const { jobTitle: jcoJobTitle, panelTitle: jcoPanelTitle, opTitle: jcoOpTitle } = jcoPerson.activeJobClock || {};
+          let sessions = await readJson(jobSessionsKey) ?? [];
+          if (!Array.isArray(sessions)) sessions = [];
+          sessions.push({
+            id: `js_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            personId: jcoPId,
+            jobId: jcoJobId,
+            panelId: jcoPanelId ?? null,
+            opId: jcoOpId ?? null,
+            jobTitle: jcoJobTitle ?? null,
+            panelTitle: jcoPanelTitle ?? null,
+            opTitle: jcoOpTitle ?? null,
+            clockIn: jcoClockIn,
+            clockOut: jcoClockOut,
+            hours: jcoHours,
+            date: jcoClockIn.slice(0, 10),
+          });
+          await writeJson(jobSessionsKey, sessions);
         } catch { /* non-fatal */ }
       }
 

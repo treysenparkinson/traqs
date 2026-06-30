@@ -673,8 +673,8 @@ struct PageTitle: View {
 
     private var titleFill: AnyShapeStyle {
         // Muted gray (same token as the "TUE · JUN 30 · 2 TASKS" line) faded
-        // top→bottom into transparency. Theme-aware so it's always visible but
-        // never shouts. An explicit gradient override still wins.
+        // top→bottom into transparency. Theme-aware. An explicit gradient
+        // override still wins if a caller passes one.
         if let gradient { return AnyShapeStyle(gradient) }
         return AnyShapeStyle(LinearGradient(
             colors: [Color(hex: T.muted), .clear],

@@ -367,6 +367,40 @@ struct TimeclockEntry: Codable, Equatable, Identifiable {
     }
 }
 
+/// One completed job-clock session (timestamped) from the server's
+/// jobsessions.json. Lets the app report job hours within a pay period —
+/// the `loggedHours` totals on each job/op are cumulative (all-time) only.
+struct JobSession: Codable, Equatable, Identifiable {
+    var id: String
+    var personId: String
+    var jobId: String
+    var panelId: String?
+    var opId: String?
+    var jobTitle: String?
+    var panelTitle: String?
+    var opTitle: String?
+    var clockIn: String?
+    var clockOut: String?
+    var hours: Double?
+    var date: String?           // "YYYY-MM-DD"
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id         = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        personId   = (try? c.decodeFlexID(forKey: .personId)) ?? ""
+        jobId      = (try? c.decodeFlexID(forKey: .jobId)) ?? ""
+        panelId    = try? c.decodeFlexID(forKey: .panelId)
+        opId       = try? c.decodeFlexID(forKey: .opId)
+        jobTitle   = try? c.decodeIfPresent(String.self, forKey: .jobTitle)
+        panelTitle = try? c.decodeIfPresent(String.self, forKey: .panelTitle)
+        opTitle    = try? c.decodeIfPresent(String.self, forKey: .opTitle)
+        clockIn    = try? c.decodeIfPresent(String.self, forKey: .clockIn)
+        clockOut   = try? c.decodeIfPresent(String.self, forKey: .clockOut)
+        hours      = try? c.decodeIfPresent(Double.self, forKey: .hours)
+        date       = try? c.decodeIfPresent(String.self, forKey: .date)
+    }
+}
+
 // MARK: - Active Job Clock (single in-progress job per person, separate from payroll clock)
 
 struct ActiveJobClock: Codable, Equatable {

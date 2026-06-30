@@ -16,6 +16,10 @@ class AppState {
     /// server's timeclock.json. Loaded on demand because the dataset
     /// can be large; views that need it call `refreshTimeclock()`.
     var timeclockEntries: [TimeclockEntry] = []
+    /// Timestamped per-session job-clock log (per-person) from the server's
+    /// jobsessions.json. Loaded on demand via `refreshJobSessions()` for the
+    /// Hours page's JOB HOURS section.
+    var jobSessions: [JobSession] = []
     /// Org-level settings (hpd, workStart/End, lunch, breaks, payPeriod, …).
     /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
     var orgSettings: OrgSettings = .default
@@ -368,6 +372,15 @@ class AppState {
         guard let api else { return }
         if let entries = try? await api.fetchTimeclock(personId: personId) {
             timeclockEntries = entries
+        }
+    }
+
+    /// Pull the timestamped job-clock sessions (per-person) for the Hours
+    /// page's JOB HOURS section. Same scoping as `refreshTimeclock`.
+    func refreshJobSessions(personId: String? = nil) async {
+        guard let api else { return }
+        if let sessions = try? await api.fetchJobSessions(personId: personId) {
+            jobSessions = sessions
         }
     }
 
