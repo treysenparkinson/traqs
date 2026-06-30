@@ -628,6 +628,40 @@ export async function removePushSubscription(endpoint, getToken, orgCode) {
   return res.json();
 }
 
+// ─── Time Off Requests ─────────────────────────────────────────────────────────
+// Approval workflow on top of person.timeOff. Members submit; admins decide.
+// GET → { requests: [...] } (members see only their own; admins see all).
+export async function fetchTimeOffRequests(getToken, orgCode) {
+  const res = await fetch(`${BASE}/timeoff`, { headers: await authReadHeaders(getToken, orgCode) });
+  if (!res.ok) throw new Error(`fetchTimeOffRequests failed: ${res.status}`);
+  return res.json(); // { requests: [...] }
+}
+
+// Submit a new request. payload: { type: "PTO"|"UTO", start, end, note? }
+export async function submitTimeOffRequest(payload, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/timeoff`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw await saveError("submitTimeOffRequest", res.status, res);
+  return res.json(); // { request }
+}
+
+// Decide / withdraw a request. payload: { id, action: "approve"|"deny"|"cancel", reason? }
+// approve writes the entry into person.timeOff (schedule + export pick it up).
+export async function decideTimeOffRequest(payload, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/timeoff`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw await saveError("decideTimeOffRequest", res.status, res);
+  return res.json(); // { request }
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 // payload: { type, jobTitle, panelTitle, stepLabel, jobTeamIds, jobNumber }
 export async function callNotify(payload, getToken, orgCode) {

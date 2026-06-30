@@ -16,7 +16,7 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "264"
             endingLineNumber = "264"
-            landmarkName = "periodWindow"
+            landmarkName = "jobSessionsInPeriod"
             landmarkType = "24">
          </BreakpointContent>
       </BreakpointProxy>
@@ -32,8 +32,38 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "286"
             endingLineNumber = "286"
-            landmarkName = "periodWindow"
+            landmarkName = "jobSessionGroups"
             landmarkType = "24">
+            <Locations>
+               <Location
+                  uuid = "329261DB-05B7-4726-B5F9-9A81AC75494A - a75e23497b266766"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "TRAQS_Scheduling.TimeClockView.periodWindow.getter : (start: Foundation.Date, end: Foundation.Date)"
+                  moduleName = "TRAQS Scheduling.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/treysenparkinson/traqs/TRAQS%20Scheduling/TRAQS%20Scheduling/Views/TimeClockView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "287"
+                  endingLineNumber = "287">
+               </Location>
+               <Location
+                  uuid = "329261DB-05B7-4726-B5F9-9A81AC75494A - 755af383b35a915a"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 (TRAQS_Scheduling.JobSession) -&gt; TRAQS_Scheduling.TimeEntry in closure #2 (Foundation.Date) -&gt; TRAQS_Scheduling.EntryGroup in TRAQS_Scheduling.TimeClockView.jobSessionGroups.getter : Swift.Array&lt;TRAQS_Scheduling.EntryGroup&gt;"
+                  moduleName = "TRAQS Scheduling.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/treysenparkinson/traqs/TRAQS%20Scheduling/TRAQS%20Scheduling/Views/TimeClockView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "286"
+                  endingLineNumber = "286">
+               </Location>
+            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
       <BreakpointProxy
@@ -48,8 +78,38 @@
             endingColumnNumber = "9223372036854775807"
             startingLineNumber = "216"
             endingLineNumber = "216"
-            landmarkName = "liveJobHours"
-            landmarkType = "24">
+            landmarkName = "TimeClockView"
+            landmarkType = "14">
+            <Locations>
+               <Location
+                  uuid = "D2D7A6C4-5725-472F-B737-91D57D69D825 - 1f1080752fd4701c"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "closure #1 (TRAQS_Scheduling.JobSession) -&gt; Swift.Bool in TRAQS_Scheduling.TimeClockView.jobSessionsInPeriod.getter : Swift.Array&lt;TRAQS_Scheduling.JobSession&gt;"
+                  moduleName = "TRAQS Scheduling.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/treysenparkinson/traqs/TRAQS%20Scheduling/TRAQS%20Scheduling/Views/TimeClockView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "216"
+                  endingLineNumber = "216">
+               </Location>
+               <Location
+                  uuid = "D2D7A6C4-5725-472F-B737-91D57D69D825 - f6a047d85979b34f"
+                  shouldBeEnabled = "Yes"
+                  ignoreCount = "0"
+                  continueAfterRunningActions = "No"
+                  symbolName = "TRAQS_Scheduling.TimeClockView.periodTarget.getter : Swift.Double"
+                  moduleName = "TRAQS Scheduling.debug.dylib"
+                  usesParentBreakpointCondition = "Yes"
+                  urlString = "file:///Users/treysenparkinson/traqs/TRAQS%20Scheduling/TRAQS%20Scheduling/Views/TimeClockView.swift"
+                  startingColumnNumber = "9223372036854775807"
+                  endingColumnNumber = "9223372036854775807"
+                  startingLineNumber = "217"
+                  endingLineNumber = "217">
+               </Location>
+            </Locations>
          </BreakpointContent>
       </BreakpointProxy>
       <BreakpointProxy

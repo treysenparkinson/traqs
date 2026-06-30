@@ -21,6 +21,10 @@ class AppState {
     /// jobsessions.json. Loaded on demand via `refreshJobSessions()` for the
     /// Hours page's JOB HOURS section.
     var jobSessions: [JobSession] = []
+    /// This person's time-off requests (PTO/UTO) with approval status. Loaded
+    /// on the Hours page via `refreshTimeOffRequests()`. The member endpoint
+    /// returns only the caller's own requests.
+    var timeOffRequests: [TimeOffRequest] = []
     /// Org-level settings (hpd, workStart/End, lunch, breaks, payPeriod, …).
     /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
     var orgSettings: OrgSettings = .default
@@ -395,6 +399,32 @@ class AppState {
         if let sessions = try? await api.fetchJobSessions(personId: personId) {
             withoutAnimation { jobSessions = sessions }
         }
+    }
+
+    /// Pull this person's time-off requests for the Hours page Time Off section.
+    func refreshTimeOffRequests() async {
+        guard let api else { return }
+        if let reqs = try? await api.fetchTimeOffRequests() {
+            withoutAnimation { timeOffRequests = reqs }
+        }
+    }
+
+    /// Submit a new PTO/UTO request, then refresh the list so it appears as
+    /// pending. Throws on failure so the sheet can surface the error.
+    @discardableResult
+    func submitTimeOff(type: String, start: String, end: String, note: String) async throws -> TimeOffRequest {
+        guard let api else { throw APIError.noOrgCode }
+        let created = try await api.submitTimeOff(type: type, start: start, end: end, note: note)
+        await refreshTimeOffRequests()
+        return created
+    }
+
+    /// Withdraw a request (any status — "cancel anytime"). If it was already
+    /// approved, the server also pulls the entry back out of person.timeOff.
+    func cancelTimeOff(id: String) async {
+        guard let api else { return }
+        _ = try? await api.cancelTimeOff(id: id)
+        await refreshTimeOffRequests()
     }
 
     /// Pull just the org settings. Views like the Schedule and Tasks

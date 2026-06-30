@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -2549,6 +2549,13 @@ Extraction rules:
   const [approvalSearch, setApprovalSearch] = useState("");
   const [approvalModal, setApprovalModal] = useState(null); // { id?, title, clientId, templateId, dept, steps:[{label,done?,byName?,at?}], dueDate }
   const [approvalCtx, setApprovalCtx] = useState(null); // { x, y, id } right-click menu for a standalone approval
+  // Time-off request approval inbox (admin-only). Pending requests come from iOS
+  // (or anyone via the API); approving writes the entry into person.timeOff so the
+  // schedule + accountant export pick it up automatically.
+  const [timeOffRequests, setTimeOffRequests] = useState([]);
+  const [toDeny, setToDeny] = useState(null);        // request id being denied (shows the reason input)
+  const [toDenyReason, setToDenyReason] = useState("");
+  const [toBusy, setToBusy] = useState(null);        // request id currently being decided
   const [soDropPanelId, setSoDropPanelId] = useState(null); // panel id with sign-off dropdown open in new job modal
   const [deptDropId, setDeptDropId] = useState(null); // id of panel or sub-op with dept dropdown open
   const [deptAddInput, setDeptAddInput] = useState(""); // text in the inline "add department" field
@@ -3181,8 +3188,11 @@ Extraction rules:
         const offEntry = (p.timeOff || []).find(to => ds >= to.start && ds <= to.end);
         const isPto = !!offEntry && isWorkday;
         const ptoType = offEntry ? (offEntry.type || "PTO") : null;
-        // Holidays auto-highlight blue; PTO/UTO yellow takes precedence over the holiday blue.
-        const autoColor = isPto ? "yellow" : isHoliday ? "blue" : null;
+        // Only PAID time off (PTO) auto-highlights yellow for the accountant; UNPAID
+        // time off (UTO) is left blank per accounting's convention. Manual cell colors
+        // in the designer still override (see blocksHtml). Holidays auto-highlight blue;
+        // PTO yellow takes precedence over the holiday blue.
+        const autoColor = (isPto && ptoType !== "UTO") ? "yellow" : isHoliday ? "blue" : null;
         return { date: ds, weekday, hours, isWorkday, isHoliday, isPto, ptoType, autoColor };
       });
 
@@ -3656,6 +3666,54 @@ Extraction rules:
     const id = setInterval(() => fetchMessages(getToken, orgCode).then(setMessages).catch(() => {}), 15000);
     return () => clearInterval(id);
   }, [view, orgCode]);
+
+  // Time-off requests: admins load + poll the inbox (members submit from iOS).
+  useEffect(() => {
+    if (!orgCode || !isAdmin) return;
+    let cancelled = false;
+    const load = () => fetchTimeOffRequests(getToken, orgCode)
+      .then(r => { if (!cancelled) setTimeOffRequests(r.requests || []); })
+      .catch(() => {});
+    load();
+    const id = setInterval(() => { if (!document.hidden) load(); }, 30000);
+    return () => { cancelled = true; clearInterval(id); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgCode, isAdmin]);
+
+  // Approve / deny / cancel a time-off request. Approve & cancel mutate
+  // person.timeOff on the server, so we pull fresh people afterward (guarding
+  // pollUpdateRef like the poll does) — the schedule + export then reflect it
+  // without the admin's stale local people state clobbering it on next save.
+  const decideTimeOff = async (id, action, reason = "") => {
+    setToBusy(id);
+    try {
+      await decideTimeOffRequest({ id, action, reason }, getToken, orgCode);
+      try { const r = await fetchTimeOffRequests(getToken, orgCode); setTimeOffRequests(r.requests || []); } catch {}
+      // Pull fresh people so the schedule + export reflect the new person.timeOff
+      // entry — but only when there's no unsaved local edit to clobber (same guard
+      // the poll uses). If skipped, the 30s poll reconciles once the admin is clean.
+      if ((action === "approve" || action === "cancel")
+          && saveStatusRef.current !== "saving" && saveStatusRef.current !== "unsaved") {
+        try {
+          const np = await fetchPeople(getToken, orgCode);
+          if (saveStatusRef.current !== "saving" && saveStatusRef.current !== "unsaved") {
+            pollUpdateRef.current = true;
+            setPeople(prev => {
+              const norm = normalizePeople(np);
+              if (JSON.stringify(prev) === JSON.stringify(norm)) { pollUpdateRef.current = false; return prev; }
+              return norm;
+            });
+          }
+        } catch {}
+      }
+    } catch (e) {
+      alert(e?.serverMessage || e?.message || "Failed to update the request.");
+    } finally {
+      setToBusy(null);
+      setToDeny(null);
+      setToDenyReason("");
+    }
+  };
 
   // Desktop Web Push: once the user is logged in, either re-sync the existing
   // subscription (permission already granted) or automatically prompt for
@@ -7223,7 +7281,46 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={() => openApprovalModal(null)} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44` }}>+ New Approval</button>
         </div>
       </div>
-      {empty && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "70px 24px", textAlign: "center", gap: 12 }}>
+      {isAdmin && timeOffRequests.length > 0 && (() => {
+        const pending = timeOffRequests.filter(r => r.status === "pending").sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        const decided = timeOffRequests.filter(r => r.status !== "pending").sort((a, b) => new Date(b.decidedAt || b.createdAt) - new Date(a.decidedAt || a.createdAt)).slice(0, 8);
+        const typeColor = t => t === "UTO" ? "#f59e0b" : "#10b981";
+        const fmtD = ds => { try { return new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ds; } };
+        const range = r => r.start === r.end ? fmtD(r.start) : `${fmtD(r.start)} – ${fmtD(r.end)}`;
+        return <div style={{ marginBottom: 22 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <span style={{ fontSize: 18, lineHeight: 1 }}>🌴</span>
+            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Time Off Requests</h3>
+            {pending.length > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", borderRadius: 10, padding: "2px 10px" }}>{pending.length} pending</span>}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {pending.map(r => <div key={r.id} className="tq-frost" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", padding: "12px 16px", borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{r.personName}</span>
+                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", color: typeColor(r.type), background: typeColor(r.type) + "1f", borderRadius: 8, padding: "2px 8px" }}>{r.type}</span>
+                </div>
+                <div style={{ fontSize: 13, color: T.textSec, marginTop: 3 }}>{range(r)}{r.note ? <span style={{ color: T.textDim }}> · {r.note}</span> : null}</div>
+              </div>
+              {toDeny === r.id ? <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 240 }}>
+                <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(r.id, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
+                <button disabled={toBusy === r.id} onClick={() => decideTimeOff(r.id, "deny", toDenyReason)} style={{ padding: "7px 12px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === r.id ? 0.6 : 1 }}>Confirm deny</button>
+                <button onClick={() => { setToDeny(null); setToDenyReason(""); }} style={{ padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              </div> : <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <button disabled={toBusy === r.id} onClick={() => decideTimeOff(r.id, "approve")} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === r.id ? 0.6 : 1 }}>Approve</button>
+                <button disabled={toBusy === r.id} onClick={() => { setToDeny(r.id); setToDenyReason(""); }} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Deny</button>
+              </div>}
+            </div>)}
+            {decided.map(r => <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 16px", fontSize: 12.5, color: T.textDim, flexWrap: "wrap" }}>
+              <span style={{ color: r.status === "approved" ? "#10b981" : r.status === "denied" ? "#ef4444" : T.textDim, fontWeight: 700, textTransform: "capitalize", minWidth: 70 }}>{r.status}</span>
+              <span style={{ color: T.textSec }}>{r.personName}</span>
+              <span>{r.type} · {range(r)}</span>
+              {r.status === "denied" && r.denialReason ? <span style={{ fontStyle: "italic" }}>“{r.denialReason}”</span> : null}
+            </div>)}
+          </div>
+        </div>;
+      })()}
+      {empty && !(isAdmin && timeOffRequests.some(r => r.status === "pending")) && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "70px 24px", textAlign: "center", gap: 12 }}>
         <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
         <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: T.text }}>{noMatches ? "No approvals match your search" : "Nothing waiting for approval"}</h3>
         <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 360, lineHeight: 1.65 }}>{noMatches ? "Try a different search term, or clear the search to see everything." : "Create a standalone approval with “+ New Approval”, or pending job sign-offs will show up here automatically."}</p>

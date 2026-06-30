@@ -401,6 +401,41 @@ struct JobSession: Codable, Equatable, Identifiable {
     }
 }
 
+// MARK: - Time Off Request (PTO/UTO approval workflow → person.timeOff on approve)
+
+struct TimeOffRequest: Codable, Equatable, Identifiable {
+    var id: String
+    var personId: String
+    var personName: String
+    var type: String        // "PTO" (paid) | "UTO" (unpaid)
+    var start: String       // "YYYY-MM-DD"
+    var end: String         // "YYYY-MM-DD"
+    var note: String
+    var status: String      // "pending" | "approved" | "denied" | "cancelled"
+    var createdAt: String?
+    var decidedBy: String?
+    var decidedByName: String?
+    var decidedAt: String?
+    var denialReason: String?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id            = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        personId      = (try? c.decodeFlexID(forKey: .personId)) ?? ""
+        personName    = (try? c.decodeIfPresent(String.self, forKey: .personName)) ?? ""
+        type          = (try? c.decodeIfPresent(String.self, forKey: .type)) ?? "PTO"
+        start         = (try? c.decodeIfPresent(String.self, forKey: .start)) ?? ""
+        end           = (try? c.decodeIfPresent(String.self, forKey: .end)) ?? ""
+        note          = (try? c.decodeIfPresent(String.self, forKey: .note)) ?? ""
+        status        = (try? c.decodeIfPresent(String.self, forKey: .status)) ?? "pending"
+        createdAt     = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+        decidedBy     = try? c.decodeFlexID(forKey: .decidedBy)
+        decidedByName = try? c.decodeIfPresent(String.self, forKey: .decidedByName)
+        decidedAt     = try? c.decodeIfPresent(String.self, forKey: .decidedAt)
+        denialReason  = try? c.decodeIfPresent(String.self, forKey: .denialReason)
+    }
+}
+
 // MARK: - Active Job Clock (single in-progress job per person, separate from payroll clock)
 
 struct ActiveJobClock: Codable, Equatable {

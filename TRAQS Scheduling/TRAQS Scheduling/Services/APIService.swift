@@ -194,6 +194,40 @@ struct APIService {
         _ = try await perform(req)
     }
 
+    // MARK: - Time Off Requests
+    // Approval workflow on top of person.timeOff. Members submit + cancel their
+    // own; admins decide on the desktop. GET returns only the caller's own
+    // requests for a member (server-filtered).
+
+    private struct TimeOffListResponse: Decodable { let requests: [TimeOffRequest] }
+    private struct TimeOffOneResponse: Decodable { let request: TimeOffRequest }
+
+    func fetchTimeOffRequests() async throws -> [TimeOffRequest] {
+        let req = try await request("timeoff")
+        let data = try await perform(req)
+        return try decoder.decode(TimeOffListResponse.self, from: data).requests
+    }
+
+    @discardableResult
+    func submitTimeOff(type: String, start: String, end: String, note: String) async throws -> TimeOffRequest {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "type": type, "start": start, "end": end, "note": note,
+        ])
+        let req = try await request("timeoff", method: "POST", body: body)
+        let data = try await perform(req)
+        return try decoder.decode(TimeOffOneResponse.self, from: data).request
+    }
+
+    @discardableResult
+    func cancelTimeOff(id: String) async throws -> TimeOffRequest {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "id": id, "action": "cancel",
+        ])
+        let req = try await request("timeoff", method: "PATCH", body: body)
+        let data = try await perform(req)
+        return try decoder.decode(TimeOffOneResponse.self, from: data).request
+    }
+
     // MARK: - Attachments
 
     /// Upload a single binary attachment. `data` should be raw bytes;
