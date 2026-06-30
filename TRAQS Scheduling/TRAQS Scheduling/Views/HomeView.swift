@@ -207,6 +207,14 @@ private struct HoursTodayHero: View {
     let periodHours: Double
     let periodTarget: Double
 
+    /// Over the configured pay-period cap → overtime.
+    private var overCap: Bool { periodHours > periodTarget }
+    private var periodPillLabel: String {
+        overCap
+            ? String(format: "%.1f / %.0f h · +%.1f OT", periodHours, periodTarget, periodHours - periodTarget)
+            : String(format: "%.1f / %.0f h this period", periodHours, periodTarget)
+    }
+
     var body: some View {
         HStack(spacing: 18) {
             ZStack {
@@ -230,8 +238,8 @@ private struct HoursTodayHero: View {
                 Text(hoursToday > 0 ? "On the clock" : "Not started")
                     .font(.custom(TFontName.bold.rawValue, size: 22))
                     .foregroundStyle(Color(hex: T.ink))
-                TagPill(label: String(format: "%.1f / %.0f h this period", periodHours, periodTarget),
-                        kind: .indigo, dot: false)
+                TagPill(label: periodPillLabel,
+                        kind: overCap ? .amber : .indigo, dot: false)
             }
             Spacer(minLength: 0)
         }

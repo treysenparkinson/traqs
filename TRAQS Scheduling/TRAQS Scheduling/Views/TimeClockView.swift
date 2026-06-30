@@ -168,21 +168,12 @@ struct TimeClockView: View {
         return paused
     }
 
-    /// Pay-period target = hpd × work days falling inside the period window.
+    /// Pay-period target = the soft hours cap configured on the desktop's Time
+    /// Clock settings (`orgSettings.payPeriodHourCap`, default 80). Hours past
+    /// this read as overtime. Set per-org on the web so every device matches.
     private var periodTarget: Double {
-        let s = appState.orgSettings
-        let w = periodWindow
-        let cal = Calendar.current
-        var count = 0
-        var d = cal.startOfDay(for: w.start)
-        let end = cal.startOfDay(for: w.end)
-        while d <= end {
-            if s.workDays.contains(cal.component(.weekday, from: d) - 1) { count += 1 }
-            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
-            d = next
-        }
-        let t = s.hpd * Double(count)
-        return t > 0 ? t : 40
+        let cap = appState.orgSettings.payPeriodHourCap
+        return cap > 0 ? cap : 80
     }
 
     /// Pay-clock hours per day for the last 8 days (the bar chart).
@@ -318,7 +309,7 @@ private struct HeroRingCard: View {
     private var deltaLabel: String {
         let diff = abs(target - totalHours)
         return onPace ? String(format: "%.1fh left", diff)
-                      : String(format: "%.1fh over", diff)
+                      : String(format: "+%.1fh overtime", diff)
     }
 
     var body: some View {
@@ -343,7 +334,7 @@ private struct HeroRingCard: View {
                     .font(TTypo.xsBold(11))
                     .tLabel(tracking: 1.4)
                     .foregroundStyle(Color(hex: T.muted))
-                Text(onPace ? "On track" : "Over")
+                Text(onPace ? "On track" : "Overtime")
                     .font(.custom(TFontName.bold.rawValue, size: 22))
                     .foregroundStyle(Color(hex: T.ink))
                 TagPill(label: deltaLabel, kind: onPace ? .green : .amber, dot: false)

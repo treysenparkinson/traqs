@@ -683,6 +683,7 @@ struct OrgSettings: Codable, Equatable {
     var trackBreaks: Bool
     var payPeriodType: String             // "weekly" | "biweekly" | "semimonthly"
     var payPeriodStart: String?           // ISO date
+    var payPeriodHourCap: Double          // soft cap of pay-clock hours per pay period (default 80); over = overtime
     var breaks: [OrgBreak]
     var lunch: OrgBreak
 
@@ -704,6 +705,7 @@ struct OrgSettings: Codable, Equatable {
             trackBreaks: false,
             payPeriodType: "biweekly",
             payPeriodStart: nil,
+            payPeriodHourCap: 80,
             breaks: [OrgBreak(time: "10:00", durationMinutes: 15)],
             lunch: OrgBreak(time: "12:00", durationMinutes: 30)
         )
@@ -713,7 +715,8 @@ struct OrgSettings: Codable, Equatable {
          holidays: [String], roles: [String], approvalQueueLabel: String,
          approvalSteps: [String], approverLabel: String, payDates: [Int],
          payMode: String, payAnchor: String?, trackLunch: Bool, trackBreaks: Bool,
-         payPeriodType: String, payPeriodStart: String?, breaks: [OrgBreak], lunch: OrgBreak) {
+         payPeriodType: String, payPeriodStart: String?, payPeriodHourCap: Double,
+         breaks: [OrgBreak], lunch: OrgBreak) {
         self.hpd = hpd; self.workStart = workStart; self.workEnd = workEnd
         self.workDays = workDays; self.holidays = holidays; self.roles = roles
         self.approvalQueueLabel = approvalQueueLabel
@@ -721,6 +724,7 @@ struct OrgSettings: Codable, Equatable {
         self.payDates = payDates; self.payMode = payMode; self.payAnchor = payAnchor
         self.trackLunch = trackLunch; self.trackBreaks = trackBreaks
         self.payPeriodType = payPeriodType; self.payPeriodStart = payPeriodStart
+        self.payPeriodHourCap = payPeriodHourCap
         self.breaks = breaks; self.lunch = lunch
     }
 
@@ -743,6 +747,7 @@ struct OrgSettings: Codable, Equatable {
         trackBreaks        = (try? c.decode(Bool.self,      forKey: .trackBreaks))        ?? d.trackBreaks
         payPeriodType      = (try? c.decode(String.self,    forKey: .payPeriodType))      ?? d.payPeriodType
         payPeriodStart     = try? c.decodeIfPresent(String.self, forKey: .payPeriodStart)
+        payPeriodHourCap   = (try? c.decode(Double.self,    forKey: .payPeriodHourCap))   ?? d.payPeriodHourCap
         breaks             = (try? c.decode([OrgBreak].self,forKey: .breaks))             ?? d.breaks
         lunch              = (try? c.decode(OrgBreak.self,  forKey: .lunch))              ?? d.lunch
     }

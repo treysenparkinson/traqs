@@ -1097,21 +1097,13 @@ extension AppState {
         return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
     }
 
-    /// hpd × work-days inside the period; falls back to 40.
+    /// The pay-period hours cap (soft limit) configured in the desktop's Time
+    /// Clock settings — the denominator the period ring fills toward, and the
+    /// threshold past which hours count as overtime. Mirrors the web's
+    /// `orgSettings.payPeriodHourCap || 80`. Falls back to 80 if unset.
     func payPeriodTarget(now: Date) -> Double {
-        let s = orgSettings
-        let w = payPeriodWindow(now: now)
-        let cal = Calendar.current
-        var count = 0
-        var d = cal.startOfDay(for: w.start)
-        let end = cal.startOfDay(for: w.end)
-        while d <= end {
-            if s.workDays.contains(cal.component(.weekday, from: d) - 1) { count += 1 }
-            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
-            d = next
-        }
-        let t = s.hpd * Double(count)
-        return t > 0 ? t : 40
+        let cap = orgSettings.payPeriodHourCap
+        return cap > 0 ? cap : 80
     }
 
     /// My completed pay-clock spans (any date).
