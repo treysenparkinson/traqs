@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 import OneSignalFramework
 
 @MainActor
@@ -121,6 +122,16 @@ class AppState {
     /// does.
     private(set) var clockChangeAt: Date? = nil
 
+    /// Apply a state change WITHOUT animating the resulting view update. Used by
+    /// the data-load paths so values arriving after the first render (fresh
+    /// launch once the splash fades, or returning from background) snap in
+    /// cleanly instead of animating / "stretching" into place.
+    private func withoutAnimation(_ work: () -> Void) {
+        var txn = Transaction()
+        txn.disablesAnimations = true
+        withTransaction(txn, work)
+    }
+
     func loadAll() async {
         guard let api, !isLoading else { return }
         isLoading = true
@@ -133,7 +144,7 @@ class AppState {
         // Real "everything deleted" cases are handled by user-driven refreshes
         // and will catch up once the array is empty on both sides.
         if let r = try? await api.fetchJobs(), !r.isEmpty || jobs.isEmpty {
-            jobs = r
+            withoutAnimation { jobs = r }
         }
         if let r = try? await api.fetchPeople(), !r.isEmpty || people.isEmpty {
             // Capture the optimistic clock IMMEDIATELY before overwriting
@@ -146,23 +157,25 @@ class AppState {
                       let p = currentPerson else { return nil }
                 return (p.id, p.activeJobClock, p.activeBreak)
             }()
-            people = r
-            if let snap, let idx = people.firstIndex(where: { $0.id == snap.personId }) {
-                people[idx].activeJobClock = snap.clock
-                people[idx].activeBreak = snap.brk
+            withoutAnimation {
+                people = r
+                if let snap, let idx = people.firstIndex(where: { $0.id == snap.personId }) {
+                    people[idx].activeJobClock = snap.clock
+                    people[idx].activeBreak = snap.brk
+                }
             }
         }
         if let r = try? await api.fetchClients(), !r.isEmpty || clients.isEmpty {
-            clients = r
+            withoutAnimation { clients = r }
         }
         if let r = try? await api.fetchMessages(), !r.isEmpty || messages.isEmpty {
-            messages = r
+            withoutAnimation { messages = r }
         }
         if let r = try? await api.fetchGroups(), !r.isEmpty || groups.isEmpty {
-            groups = r
+            withoutAnimation { groups = r }
         }
-        if let r = try? await api.fetchOrgSettings() { orgSettings = r }
-        autoMatchPerson()
+        if let r = try? await api.fetchOrgSettings() { withoutAnimation { orgSettings = r } }
+        withoutAnimation { autoMatchPerson() }
     }
 
     // MARK: - Jobs
@@ -360,7 +373,7 @@ class AppState {
     func refreshMessages() async {
         guard let api else { return }
         if let msgs = try? await api.fetchMessages() {
-            messages = msgs
+            withoutAnimation { messages = msgs }
         }
     }
 
@@ -371,7 +384,7 @@ class AppState {
     func refreshTimeclock(personId: String? = nil) async {
         guard let api else { return }
         if let entries = try? await api.fetchTimeclock(personId: personId) {
-            timeclockEntries = entries
+            withoutAnimation { timeclockEntries = entries }
         }
     }
 
@@ -380,7 +393,7 @@ class AppState {
     func refreshJobSessions(personId: String? = nil) async {
         guard let api else { return }
         if let sessions = try? await api.fetchJobSessions(personId: personId) {
-            jobSessions = sessions
+            withoutAnimation { jobSessions = sessions }
         }
     }
 
@@ -391,7 +404,7 @@ class AppState {
     /// global auto-refresh.
     func refreshOrgSettings() async {
         guard let api else { return }
-        if let s = try? await api.fetchOrgSettings() { orgSettings = s }
+        if let s = try? await api.fetchOrgSettings() { withoutAnimation { orgSettings = s } }
     }
 
     /// Create a new chat group and persist it to the server. Before this
@@ -638,7 +651,7 @@ class AppState {
     private func refreshJobsQuietly() async {
         guard let api else { return }
         if let r = try? await api.fetchJobs(), !r.isEmpty || jobs.isEmpty {
-            jobs = r
+            withoutAnimation { jobs = r }
         }
     }
 
@@ -1033,5 +1046,194 @@ enum EngStep: String, CaseIterable {
     }
     static func from(index: Int) -> EngStep? {
         switch index { case 0: return .designed; case 1: return .verified; case 2: return .sentToPerforex; default: return nil }
+    }
+}
+
+// MARK: - Home / pay-clock helpers
+// Shared math for the Home and Hours screens, computed per the current person.
+// The pay-period window comes from the org's time-clock settings. `now` is
+// passed in so the caller's 1s ticker drives live values. (Hours/TimeClockView
+// still keep their own copies for now; these power the Home screen.)
+extension AppState {
+
+    /// Pay-period boundaries from the time-clock settings (weekly / biweekly /
+    /// semimonthly), matching TimeClockView's `periodWindow`.
+    func payPeriodWindow(now: Date) -> (start: Date, end: Date) {
+        let s = orgSettings
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        let anchor = s.payPeriodStart.flatMap(Self.fullISODate) ?? today
+        switch s.payPeriodType {
+        case "weekly":
+            let weekday = cal.component(.weekday, from: today)
+            let toMonday = weekday == 1 ? -6 : -(weekday - 2)
+            let start = cal.date(byAdding: .day, value: toMonday, to: today) ?? today
+            let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
+            return (start, end)
+        case "semimonthly":
+            let day = cal.component(.day, from: today)
+            let comps = cal.dateComponents([.year, .month], from: today)
+            let monthStart = cal.date(from: comps) ?? today
+            if day <= 15 {
+                let end = cal.date(byAdding: .day, value: 14, to: monthStart) ?? today
+                return (monthStart, end)
+            } else {
+                let start = cal.date(byAdding: .day, value: 15, to: monthStart) ?? today
+                let nextMonth = cal.date(byAdding: .month, value: 1, to: monthStart) ?? today
+                let end = cal.date(byAdding: .day, value: -1, to: nextMonth) ?? today
+                return (start, end)
+            }
+        default: // biweekly
+            let days = cal.dateComponents([.day], from: anchor, to: today).day ?? 0
+            let cycles = days / 14
+            let start = cal.date(byAdding: .day, value: cycles * 14, to: anchor) ?? today
+            let end = cal.date(byAdding: .day, value: 13, to: start) ?? today
+            return (start, end)
+        }
+    }
+
+    private static func fullISODate(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
+        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    }
+
+    /// hpd × work-days inside the period; falls back to 40.
+    func payPeriodTarget(now: Date) -> Double {
+        let s = orgSettings
+        let w = payPeriodWindow(now: now)
+        let cal = Calendar.current
+        var count = 0
+        var d = cal.startOfDay(for: w.start)
+        let end = cal.startOfDay(for: w.end)
+        while d <= end {
+            if s.workDays.contains(cal.component(.weekday, from: d) - 1) { count += 1 }
+            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
+            d = next
+        }
+        let t = s.hpd * Double(count)
+        return t > 0 ? t : 40
+    }
+
+    /// My completed pay-clock spans (any date).
+    private var myCompletedPayEntries: [TimeclockEntry] {
+        timeclockEntries.filter { e in
+            e.eventType == nil && e.clockIn != nil && e.clockOut != nil
+                && (currentPersonId == nil || e.personId == currentPersonId)
+        }
+    }
+
+    /// Total pay-clock hours this period (completed spans, already net of
+    /// lunch/break) + the live current shift.
+    func payPeriodHours(now: Date) -> Double {
+        let w = payPeriodWindow(now: now)
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
+        let completed = myCompletedPayEntries.reduce(0.0) { acc, e in
+            guard let d = e.clockIn.flatMap(Date.fromFlexibleISO8601) ?? e.date.flatMap(Self.fullISODate)
+            else { return acc }
+            return (d >= w.start && d < end) ? acc + (e.hours ?? 0) : acc
+        }
+        return completed + liveShiftHours(now: now)
+    }
+
+    /// Today's clocked-in pay hours: completed spans dated today + the live
+    /// shift if it started today.
+    func hoursToday(now: Date) -> Double {
+        let cal = Calendar.current
+        let completed = myCompletedPayEntries.reduce(0.0) { acc, e in
+            guard let d = e.clockIn.flatMap(Date.fromFlexibleISO8601) else { return acc }
+            return cal.isDate(d, inSameDayAs: now) ? acc + (e.hours ?? 0) : acc
+        }
+        var live = 0.0
+        if let c = currentPerson?.activeClockIn,
+           let s = Date.fromFlexibleISO8601(c.clockIn),
+           cal.isDate(s, inSameDayAs: now) {
+            live = liveShiftHours(now: now)
+        }
+        return completed + live
+    }
+
+    /// Live hours for the current pay shift — counts while clocked in, pauses
+    /// for lunch/break (mirrors the server's hoursElapsedMinusPauses).
+    func liveShiftHours(now: Date) -> Double {
+        guard let c = currentPerson?.activeClockIn,
+              let s = Date.fromFlexibleISO8601(c.clockIn) else { return 0 }
+        let totalMs = now.timeIntervalSince(s) * 1000
+        return max(0, (totalMs - Self.payPausedMs(c.events, end: now)) / 3_600_000)
+    }
+
+    private static func payPausedMs(_ events: [ClockEvent], end: Date) -> Double {
+        var paused = 0.0
+        var lunchOpen: Date?
+        var breakOpen: Date?
+        for ev in events {
+            guard let t = Date.fromFlexibleISO8601(ev.ts) else { continue }
+            switch ev.type {
+            case "lunchStart": lunchOpen = t
+            case "lunchEnd":   if let l = lunchOpen { paused += max(0, t.timeIntervalSince(l) * 1000); lunchOpen = nil }
+            case "breakStart": breakOpen = t
+            case "breakEnd":   if let b = breakOpen { paused += max(0, t.timeIntervalSince(b) * 1000); breakOpen = nil }
+            default: break
+            }
+        }
+        if let l = lunchOpen { paused += max(0, end.timeIntervalSince(l) * 1000) }
+        if let b = breakOpen { paused += max(0, end.timeIntervalSince(b) * 1000) }
+        return paused
+    }
+
+    /// Current user's shift status from their time-clock (offline / clocked in
+    /// / lunch / break). Same derivation the drawer status pill uses.
+    var myShiftStatus: ShiftStatus {
+        guard let clock = currentPerson?.activeClockIn else { return .offline }
+        switch clock.events.last?.type {
+        case "lunchStart": return .lunch
+        case "breakStart": return .onBreak
+        default:           return .clockedIn
+        }
+    }
+
+    // ── Assigned tasks (mirrors TasksView.myTasks, no search filter) ──
+
+    /// Every (job → panel → op) the current user is on the team for.
+    var myAssignments: [TaskAssignment] {
+        guard let me = currentPersonId else { return [] }
+        var out: [TaskAssignment] = []
+        for job in jobs {
+            for panel in job.subs {
+                let myOps = panel.subs.filter { $0.team.contains(me) }
+                if !myOps.isEmpty {
+                    for op in myOps { out.append(TaskAssignment(job: job, panel: panel, op: op)) }
+                } else if panel.team.contains(me) {
+                    out.append(TaskAssignment(job: job, panel: panel, op: nil))
+                }
+            }
+        }
+        return out
+    }
+
+    /// My assignments whose date range overlaps `range`, sorted by start.
+    func assignments(in range: Range<Date>) -> [TaskAssignment] {
+        myAssignments.filter {
+            guard let s = $0.startDate, let e = $0.endDate else { return false }
+            return s < range.upperBound && e >= range.lowerBound
+        }
+        .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
+    }
+
+    /// My assignments scheduled for today.
+    func todayTasks(now: Date) -> [TaskAssignment] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: now)
+        let end = cal.date(byAdding: .day, value: 1, to: start) ?? start
+        return assignments(in: start..<end)
+    }
+
+    /// The task the current user is actively clocked into, resolved to a
+    /// TaskAssignment (mirrors TasksView.activeTask).
+    var activeTaskAssignment: TaskAssignment? {
+        guard let jc = myActiveJobClock,
+              let job = jobs.first(where: { $0.id == jc.jobId }),
+              let panel = job.subs.first(where: { $0.id == jc.panelId }) else { return nil }
+        let op = jc.opId.flatMap { oid in panel.subs.first(where: { $0.id == oid }) }
+        return TaskAssignment(job: job, panel: panel, op: op)
     }
 }

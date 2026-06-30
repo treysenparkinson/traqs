@@ -31,6 +31,7 @@ struct TimeClockView: View {
                     VStack(spacing: 0) {
 
                         PageTitle(title: "Hours", subtitle: periodLabel)
+                            .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 10)
 
                         // ── Pay-clock hours (the hero) ──
@@ -85,6 +86,7 @@ struct TimeClockView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                .topFadeMask()
                 .refreshable { await reload() }
             }
             .onReceive(ticker) { now = $0 }

@@ -254,6 +254,7 @@ struct MessagesView: View {
                         .animation(.easeInOut(duration: 0.18), value: filter)
                     }
                     .scrollIndicators(.hidden)
+                    .topFadeMask()
                 }
             }
             .toolbar(.hidden, for: .navigationBar)

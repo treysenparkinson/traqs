@@ -230,4 +230,22 @@ extension View {
             .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Color(hex: T.surface)))
             .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
     }
+
+    /// Soft top edge for a page's ScrollView — content fades into the header
+    /// instead of cutting off on a hard line. Used app-wide for a consistent
+    /// fading header. Pages give their title ~`pageTitleTopInset` of top padding
+    /// so it stays crisp at rest (the fade band is the top ~4.5% of the scroll).
+    func topFadeMask() -> some View {
+        // No-op. Every fade we tried fought the gradient background: a
+        // full-height `.mask` left a hard bottom edge ("footer"), and a flat
+        // top overlay left a hard top line (a flat color can't match the
+        // gradient). The page title now scrolls inside the content, so there's
+        // no sticky-header seam to hide at rest — so we don't fade at all.
+        // Kept as a no-op so the call sites don't need to churn.
+        self
+    }
 }
+
+/// Small top breathing room above each page's title, just below the header
+/// (no more fade band to clear, so this is tight on purpose).
+let pageTitleTopInset: CGFloat = 6

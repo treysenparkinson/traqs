@@ -5,12 +5,13 @@ import SwiftUI
 // Swipe leftward while open (or tap the scrim / X) → drawer closes.
 
 enum TTab: Int, CaseIterable, Hashable {
-    // The Jobs tab now subsumes the old Schedule tab: it toggles between the
-    // list view and the gantt view via `AppNav.jobsMode`.
-    case jobs, hours, stats, chat
+    // Home is the default landing tab (a daily debrief). The Jobs tab subsumes
+    // the old Schedule tab: it toggles between list and gantt via `AppNav.jobsMode`.
+    case home, jobs, hours, stats, chat
 
     var label: String {
         switch self {
+        case .home:     return "Home"
         case .jobs:     return "Jobs"
         case .hours:    return "Hours"
         case .stats:    return "Stats"
@@ -19,6 +20,7 @@ enum TTab: Int, CaseIterable, Hashable {
     }
     var icon: TIcon {
         switch self {
+        case .home:     return .home
         case .jobs:     return .jobs
         case .hours:    return .hours
         case .stats:    return .stats
@@ -57,6 +59,7 @@ struct MainTabView: View {
             // Tab content
             Group {
                 switch appNav.selected {
+                case .home:     HomeView()
                 // Merged Jobs tab: JobsHubView owns the shared header and
                 // cross-fades its body between the list and gantt views.
                 case .jobs:     JobsHubView()
@@ -203,17 +206,9 @@ private struct SideMenu: View {
         String(appState.orgName.prefix(1)).uppercased()
     }
 
-    /// Current user's shift status from their time-clock: offline when not
-    /// clocked in, otherwise lunch/break per the latest clock event, else
-    /// just clocked in.
-    private var shiftStatus: ShiftStatus {
-        guard let clock = person?.activeClockIn else { return .offline }
-        switch clock.events.last?.type {
-        case "lunchStart": return .lunch
-        case "breakStart": return .onBreak
-        default:           return .clockedIn
-        }
-    }
+    /// Current user's shift status — single source of truth on AppState
+    /// (shared with the Home screen).
+    private var shiftStatus: ShiftStatus { appState.myShiftStatus }
 
     var body: some View {
         HStack(spacing: 0) {

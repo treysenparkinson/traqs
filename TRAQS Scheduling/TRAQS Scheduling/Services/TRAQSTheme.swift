@@ -76,10 +76,10 @@ enum T {
     // ── Revamp · signature gradient (DERIVED from accent — never hardcode at call sites) ──
     // The default accent maps to the wireframe indigo→magenta brand pair. A custom
     // accent keeps its own start and derives an intentional end-stop (see ThemeSettings).
-    static let brandGradStartDefault = "#6D5BE8"   // indigo
-    static let brandGradEndDefault   = "#D63AC8"   // hot magenta
-    static var accentGradientStart   = "#6D5BE8"
-    static var accentGradientEnd     = "#D63AC8"
+    static let brandGradStartDefault = "#4FACFE"   // light blue
+    static let brandGradEndDefault   = "#1E40AF"   // dark blue
+    static var accentGradientStart   = "#4FACFE"
+    static var accentGradientEnd     = "#1E40AF"
 
     // ── Canvas gradient + ambient glow (light-mode only; gated by isLightTheme) ──
     static let bgGradTop    = "#F4F5F9"

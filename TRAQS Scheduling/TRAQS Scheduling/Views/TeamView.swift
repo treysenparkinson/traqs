@@ -144,6 +144,7 @@ struct TeamView: View {
                     VStack(spacing: 0) {
 
                         PageTitle(title: "Team", subtitle: subtitle)
+                            .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 14)
 
                         // ── Filter chip row (active = gradient, inactive = white) ──
@@ -181,6 +182,7 @@ struct TeamView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                .topFadeMask()
                 .refreshable { await appState.loadAll() }
             }
         }

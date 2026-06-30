@@ -6,6 +6,7 @@ import SwiftUI
 // custom Path shapes later if specific glyphs need exact parity.
 
 enum TIcon: String {
+    case home
     case jobs, schedule, hours, stats, chat
     case search, plus, chev, chevDown, filter
     case pin, bolt, play, pause
@@ -18,6 +19,7 @@ enum TIcon: String {
 
     var sfName: String {
         switch self {
+        case .home:      return "house.fill"
         case .jobs:      return "briefcase"
         case .schedule:  return "calendar"
         case .hours:     return "clock"

@@ -27,6 +27,13 @@ struct TasksView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
+                // Page title — now part of the scrolling content (the nav header
+                // above holds only the menu + action buttons), so it scrolls
+                // away with the list and leaves no fixed-vs-scroll seam.
+                JobsHeaderBar()
+                    .padding(.top, pageTitleTopInset)   // clear the fade band at rest
+                    .padding(.bottom, 10)
+
                 // The job being worked on right now sits at the top as a pinned
                 // hero; excluded from the lists below so it isn't shown twice.
                 if let activeTask {
@@ -63,6 +70,7 @@ struct TasksView: View {
             .animation(.easeInOut(duration: 0.42), value: activeTaskId)
         }
         .scrollIndicators(.hidden)
+        .topFadeMask()   // app-wide soft fading header
         .animation(.easeInOut(duration: 0.22), value: segment)
         // Recenter the week/month/year picker to today when the range changes.
         .onChange(of: segment) { _, _ in
@@ -198,20 +206,10 @@ struct TasksView: View {
     @ViewBuilder
     private func rangeContent(_ range: Range<Date>, label: String) -> some View {
         // Only the current user's own scheduled / assigned work — no ALL JOBS.
+        // (The "TUE · JUN 30 · N TASKS" summary line was removed; `label` is
+        // kept on the signature so the segment callers don't need changing.)
         let mine = tasks(in: range)
-        spanSummaryLine(tasks: mine, label: label)
-            .padding(.horizontal, 16).padding(.bottom, 8)
         taskList(mine)
-    }
-
-    private func spanSummaryLine(tasks: [TaskAssignment], label: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            Text("\(label) · \(tasks.count) task\(tasks.count == 1 ? "" : "s")")
-                .font(TTypo.xsBold(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .tLabel(tracking: 1.4)
-            Spacer()
-        }
     }
 
     @ViewBuilder

@@ -39,7 +39,9 @@ struct RootView: View {
             ErrorBanner()
                 .zIndex(2)
 
-            if showSplash {
+            // The logo loadup only plays once the user is authenticated — an
+            // unauthenticated launch goes straight to the login screen.
+            if showSplash && auth.isAuthenticated {
                 SplashView(isShowing: $showSplash)
                     .transition(.opacity)
                     .zIndex(3)

@@ -48,10 +48,9 @@ struct JobsHubView: View {
                         }
                     }
 
-                    JobsHeaderBar()
-                        .padding(.top, 2)
-                        .padding(.bottom, 2)
-                        .zIndex(1)   // keep the title above the blurred content
+                    // (The "Jobs" title now scrolls inside the list content —
+                    // see TasksView — so the header is just the buttons and
+                    // there's no fixed-vs-scrolling seam line under it.)
 
                     // Search field — slides in under the header, list mode only.
                     if appNav.jobsMode == .list && showSearch {

@@ -571,9 +571,10 @@ struct AmbientBackground: View {
                 Color(hex: T.bg)
             }
             if light {
-                GlowBlob().offset(x: 130, y: -210)                          // upper-right
-                GlowBlob(size: T.glowSize * 0.8, opacity: T.glowOpacity * 0.6)
-                    .offset(x: -150, y: 260)                                // lower-left, fainter
+                // Upper-right glow only. The lower glow pooled a soft color
+                // band at the bottom of pages with empty space (e.g. Home),
+                // which read as a "footer" — removed so the bottom stays clean.
+                GlowBlob().offset(x: 130, y: -210)
             }
         }
         .ignoresSafeArea()

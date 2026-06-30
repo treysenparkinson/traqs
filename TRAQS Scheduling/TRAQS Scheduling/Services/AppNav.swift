@@ -18,7 +18,7 @@ enum JobsViewMode: Hashable {
 @Observable
 @MainActor
 final class AppNav {
-    var selected: TTab = .jobs
+    var selected: TTab = .home
     var isMenuOpen: Bool = false
 
     /// Which view the merged Jobs tab shows — list (TasksView) or gantt (GanttView).

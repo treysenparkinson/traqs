@@ -39,7 +39,7 @@ struct MoreView: View {
                     VStack(spacing: 0) {
                         if appState.isAdmin {
                             PageTitle(title: "Stats", subtitle: period.label)
-                                .padding(.top, 6)
+                                .padding(.top, pageTitleTopInset)
                                 .padding(.bottom, 16)
 
                             kpiGrid
@@ -60,6 +60,7 @@ struct MoreView: View {
                     }
                 }
                 .scrollIndicators(.hidden)
+                .topFadeMask()
             }
         }
     }
