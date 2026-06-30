@@ -654,15 +654,21 @@ extension View {
 struct PageTitle: View {
     let title: String
     var subtitle: String? = nil
-    var size: CGFloat = 30
-    var color: Color = Color(hex: T.ink)
-    /// When set, the title text is filled with this gradient instead of `color`.
+    var size: CGFloat = 64
+    /// Title fill. Defaults to the big dark→transparent fade used on the Jobs
+    /// page, so every screen's title matches. Pass a gradient to override.
     var gradient: LinearGradient? = nil
+
+    private var titleFill: LinearGradient {
+        gradient ?? LinearGradient(colors: [Color(hex: T.ink), .clear],
+                                   startPoint: .top, endPoint: .bottom)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.custom(TFontName.bold.rawValue, size: size))
-                .foregroundStyle(gradient.map { AnyShapeStyle($0) } ?? AnyShapeStyle(color))
+                .foregroundStyle(titleFill)
             if let subtitle {
                 Text(subtitle)
                     .font(TTypo.sm(13))
