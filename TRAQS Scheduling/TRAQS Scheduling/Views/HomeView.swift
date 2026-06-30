@@ -41,11 +41,9 @@ struct HomeView: View {
                         TodayDateCard(now: now)
                             .padding(.horizontal, 16)
 
-                        // Hours today (hero) — pay-period total as a secondary stat.
+                        // Hours today (hero) — just today's pay-clock total.
                         HoursTodayHero(hoursToday: appState.hoursToday(now: now),
-                                       dayPct: dayPct,
-                                       periodHours: appState.payPeriodHours(now: now),
-                                       periodTarget: appState.payPeriodTarget(now: now))
+                                       dayPct: dayPct)
                             .padding(.horizontal, 16)
                             .padding(.top, 14)
 
@@ -204,16 +202,6 @@ private struct TodayDateCard: View {
 private struct HoursTodayHero: View {
     let hoursToday: Double
     let dayPct: Double
-    let periodHours: Double
-    let periodTarget: Double
-
-    /// Over the configured pay-period cap → overtime.
-    private var overCap: Bool { periodHours > periodTarget }
-    private var periodPillLabel: String {
-        overCap
-            ? String(format: "%.1f / %.0f h · +%.1f OT", periodHours, periodTarget, periodHours - periodTarget)
-            : String(format: "%.1f / %.0f h this period", periodHours, periodTarget)
-    }
 
     var body: some View {
         HStack(spacing: 18) {
@@ -230,18 +218,10 @@ private struct HoursTodayHero: View {
                         .foregroundStyle(Color(hex: T.muted))
                 }
             }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("TODAY")
-                    .font(TTypo.xsBold(11))
-                    .tLabel(tracking: 1.4)
-                    .foregroundStyle(Color(hex: T.muted))
-                Text(hoursToday > 0 ? "On the clock" : "Not started")
-                    .font(.custom(TFontName.bold.rawValue, size: 22))
-                    .foregroundStyle(Color(hex: T.ink))
-                TagPill(label: periodPillLabel,
-                        kind: overCap ? .amber : .indigo, dot: false)
-            }
             Spacer(minLength: 0)
+            Text("Today's hours")
+                .font(.custom(TFontName.bold.rawValue, size: 22))
+                .foregroundStyle(Color(hex: T.ink))
         }
         .padding(18)
         .frostedCard()

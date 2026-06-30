@@ -34,6 +34,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		2E5081922FF32F1600CF33DB /* WIREFRAME_UPDATE_BRIEF.md */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = WIREFRAME_UPDATE_BRIEF.md;
+			sourceTree = "<group>";
+		};
 		2E9225EA2F5A32E200B64A2E /* TRAQS Scheduling */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = "TRAQS Scheduling";
@@ -80,6 +85,7 @@
 		2E9225DF2F5A32E200B64A2E = {
 			isa = PBXGroup;
 			children = (
+				2E5081922FF32F1600CF33DB /* WIREFRAME_UPDATE_BRIEF.md */,
 				2E9225EA2F5A32E200B64A2E /* TRAQS Scheduling */,
 				2E9225FA2F5A32E400B64A2E /* TRAQS SchedulingTests */,
 				2E9226042F5A32E400B64A2E /* TRAQS SchedulingUITests */,
@@ -121,6 +127,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				2E5081922FF32F1600CF33DB /* WIREFRAME_UPDATE_BRIEF.md */,
 				2E9225EA2F5A32E200B64A2E /* TRAQS Scheduling */,
 			);
 			name = "TRAQS Scheduling";
@@ -410,7 +417,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = "TRAQS Scheduling/TRAQS Scheduling.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = AT8N877SPR;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -434,7 +441,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.0.21;
+				MARKETING_VERSION = 1.0.27;
 				PRODUCT_BUNDLE_IDENTIFIER = "TRAQS.TRAQS-Scheduling";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -460,7 +467,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = "TRAQS Scheduling/TRAQS Scheduling.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 27;
 				DEVELOPMENT_TEAM = AT8N877SPR;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -484,7 +491,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.0.21;
+				MARKETING_VERSION = 1.0.27;
 				PRODUCT_BUNDLE_IDENTIFIER = "TRAQS.TRAQS-Scheduling";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
