@@ -615,16 +615,32 @@ struct Message: Codable, Identifiable {
     var participantIds: [String]
     var attachments: [Attachment]
     var timestamp: String
+    // Extra fields the server attaches to special message types (e.g. a
+    // time-off request delivered to admins). Optional so ordinary chat
+    // messages decode/encode unchanged.
+    var type: String?
+    var timeOffRequestId: String?
+    var toType: String?
+    var toStart: String?
+    var toEnd: String?
+    var toNote: String?
+    var toPersonName: String?
 
     init(id: String, threadKey: String, scope: String,
          jobId: String?, panelId: String?, opId: String?,
          text: String, authorId: String, authorName: String, authorColor: String,
-         participantIds: [String], attachments: [Attachment], timestamp: String) {
+         participantIds: [String], attachments: [Attachment], timestamp: String,
+         type: String? = nil, timeOffRequestId: String? = nil,
+         toType: String? = nil, toStart: String? = nil, toEnd: String? = nil,
+         toNote: String? = nil, toPersonName: String? = nil) {
         self.id = id; self.threadKey = threadKey; self.scope = scope
         self.jobId = jobId; self.panelId = panelId; self.opId = opId
         self.text = text; self.authorId = authorId; self.authorName = authorName
         self.authorColor = authorColor; self.participantIds = participantIds
         self.attachments = attachments; self.timestamp = timestamp
+        self.type = type; self.timeOffRequestId = timeOffRequestId
+        self.toType = toType; self.toStart = toStart; self.toEnd = toEnd
+        self.toNote = toNote; self.toPersonName = toPersonName
     }
 
     init(from decoder: Decoder) throws {
@@ -642,6 +658,13 @@ struct Message: Codable, Identifiable {
         participantIds = (try? c.decode([String].self, forKey: .participantIds)) ?? c.decodeFlexIDs(forKey: .participantIds)
         attachments    = (try? c.decode([Attachment].self, forKey: .attachments)) ?? []
         timestamp      = (try? c.decode(String.self, forKey: .timestamp)) ?? ""
+        type             = try? c.decodeIfPresent(String.self, forKey: .type)
+        timeOffRequestId = try? c.decodeIfPresent(String.self, forKey: .timeOffRequestId)
+        toType           = try? c.decodeIfPresent(String.self, forKey: .toType)
+        toStart          = try? c.decodeIfPresent(String.self, forKey: .toStart)
+        toEnd            = try? c.decodeIfPresent(String.self, forKey: .toEnd)
+        toNote           = try? c.decodeIfPresent(String.self, forKey: .toNote)
+        toPersonName     = try? c.decodeIfPresent(String.self, forKey: .toPersonName)
     }
 }
 

@@ -427,6 +427,15 @@ class AppState {
         await refreshTimeOffRequests()
     }
 
+    /// Approve/deny a request from the chat bubble (admin only). On approve the
+    /// server also writes person.timeOff, so reload everything afterward.
+    func decideTimeOff(id: String, action: String, reason: String = "") async {
+        guard let api else { return }
+        _ = try? await api.decideTimeOff(id: id, action: action, reason: reason)
+        await refreshTimeOffRequests()
+        await loadAll()
+    }
+
     /// Pull just the org settings. Views like the Schedule and Tasks
     /// tabs call this on appear so changes the admin makes on the
     /// Netlify desktop (workdays, holidays, hpd, etc.) show up

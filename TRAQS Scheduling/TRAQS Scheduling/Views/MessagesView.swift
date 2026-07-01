@@ -769,8 +769,13 @@ struct ThreadDetailView: View {
                             ForEach(messageSections) { section in
                                 SectionTimeHeader(text: section.header)
                                 ForEach(section.messages) { msg in
-                                    MessageBubble(message: msg, isMe: isMyMessage(msg))
-                                        .id(msg.id)
+                                    if msg.type == "timeoff_request" {
+                                        TimeOffRequestBubble(message: msg)
+                                            .id(msg.id)
+                                    } else {
+                                        MessageBubble(message: msg, isMe: isMyMessage(msg))
+                                            .id(msg.id)
+                                    }
                                 }
                             }
                         }
@@ -786,6 +791,9 @@ struct ThreadDetailView: View {
                         if let last = liveMessages.last {
                             proxy.scrollTo(last.id, anchor: .bottom)
                         }
+                        // Pull latest request statuses so any timeoff_request
+                        // bubble shows live state + Approve/Deny (admins get all).
+                        Task { await appState.refreshTimeOffRequests() }
                     }
                 }
 
@@ -1402,6 +1410,141 @@ struct MessageBubble: View {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             guard !Task.isCancelled else { return }
             withAnimation(.easeIn(duration: 0.28)) { showTimestamp = false }
+        }
+    }
+}
+
+// MARK: - Time Off Request Bubble (in-chat approve/deny)
+
+struct TimeOffRequestBubble: View {
+    @Environment(AppState.self) private var appState
+    let message: Message
+
+    @State private var denying = false
+    @State private var reason = ""
+    @State private var busy = false
+
+    // Live request (if loaded) wins; otherwise fall back to the fields the
+    // server embedded on the message so the card always renders.
+    private var req: TimeOffRequest? {
+        appState.timeOffRequests.first { $0.id == message.timeOffRequestId }
+    }
+    private var status: String { req?.status ?? "pending" }
+    private var type: String { req?.type ?? message.toType ?? "PTO" }
+    private var startD: String { req?.start ?? message.toStart ?? "" }
+    private var endD: String { req?.end ?? message.toEnd ?? "" }
+    private var note: String { req?.note ?? message.toNote ?? "" }
+    private var who: String { req?.personName ?? message.toPersonName ?? message.authorName }
+    private var typeColor: Color { type == "UTO" ? Color(hex: "#F59E0B") : Color(hex: "#10B981") }
+    private var pending: Bool { status == "pending" }
+    private var statusPill: (label: String, kind: TagKind, dot: Bool) {
+        switch status {
+        case "approved":  return ("Approved", .green, false)
+        case "denied":    return ("Denied", .magenta, false)
+        case "cancelled": return ("Cancelled", .neutral, false)
+        default:          return ("Pending", .amber, true)
+        }
+    }
+    private var rangeLabel: String {
+        let out = DateFormatter(); out.dateFormat = "MMM d"
+        let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]
+        let sL = inF.date(from: startD).map(out.string(from:)) ?? startD
+        let eL = inF.date(from: endD).map(out.string(from:)) ?? endD
+        return startD == endD ? sL : "\(sL) – \(eL)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 11) {
+                IconChip(icon: .cal, color: typeColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Time Off Request")
+                        .font(TTypo.smBold(15))
+                        .foregroundStyle(Color(hex: T.ink))
+                    Text("from \(who)")
+                        .font(TTypo.xs(12))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
+                Spacer(minLength: 8)
+                TagPill(label: statusPill.label, kind: statusPill.kind, dot: statusPill.dot)
+            }
+
+            HStack(spacing: 8) {
+                Text(type)
+                    .font(TTypo.xsBold(11))
+                    .tLabel(tracking: 0.4)
+                    .foregroundStyle(typeColor)
+                    .padding(.horizontal, 9).padding(.vertical, 3)
+                    .background(Capsule().fill(typeColor.opacity(0.14)))
+                Text(rangeLabel)
+                    .font(TTypo.smBold(14))
+                    .foregroundStyle(Color(hex: T.ink))
+            }
+
+            if !note.isEmpty {
+                Text(note)
+                    .font(TTypo.sm(13))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+
+            if status != "pending", let r = req, let by = r.decidedByName, !by.isEmpty {
+                let extra = (r.denialReason?.isEmpty == false) ? " · “\(r.denialReason!)”" : ""
+                Text("\(statusPill.label) by \(by)\(extra)")
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+
+            if appState.isAdmin && pending {
+                if denying {
+                    VStack(spacing: 8) {
+                        TextField("Reason (optional)…", text: $reason)
+                            .textFieldStyle(.plain)
+                            .font(TTypo.sm(13))
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.surface)))
+                            .overlay(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
+                        HStack(spacing: 8) {
+                            Button { denying = false; reason = "" } label: {
+                                Text("Cancel").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+                                    .frame(maxWidth: .infinity).padding(.vertical, 11)
+                                    .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
+                            }.buttonStyle(.plain)
+                            Button { decide("deny") } label: {
+                                Text("Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 11)
+                                    .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                            }.buttonStyle(.plain).disabled(busy)
+                        }
+                    }
+                } else {
+                    HStack(spacing: 10) {
+                        Button { denying = true } label: {
+                            Text("Deny").font(TTypo.smBold(15)).foregroundStyle(.white)
+                                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                        }.buttonStyle(.plain).disabled(busy)
+                        Button { decide("approve") } label: {
+                            Text("Approve").font(TTypo.smBold(15)).foregroundStyle(.white)
+                                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
+                        }.buttonStyle(.plain).disabled(busy)
+                    }
+                }
+            }
+        }
+        .padding(14)
+        .frostedCard(radius: T.cornerMd)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func decide(_ action: String) {
+        guard let id = message.timeOffRequestId else { return }
+        busy = true
+        Task {
+            await appState.decideTimeOff(id: id, action: action, reason: reason)
+            busy = false
+            denying = false
+            reason = ""
         }
     }
 }
