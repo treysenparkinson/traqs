@@ -28,23 +28,26 @@ final class AppNav {
 
     // MARK: - Push deep links
     //
-    // A tapped push carries a `data` dict set server-side. Two shapes reach
-    // the device (see netlify/functions/notify.js and messages.js):
+    // A tapped push carries a `data` dict set server-side. Three shapes reach
+    // the device (see netlify/functions/notify.js, messages.js, timeoff.js):
     //   • event pushes (new_job / assigned / step / ready) → { jobNumber }
     //   • message pushes (chat + finish-request messages)   → { threadKey }
+    //   • time-off pushes (request/approved/denied/cancelled) → { requestId }
     // We translate the tap into a tab switch plus a pending target that the
-    // owning tab (Jobs / Chat) consumes once its data is loaded, then clears.
-    // Keeping it pending (rather than navigating here) lets a cold-start tap
-    // wait for jobs/messages to load before resolving.
+    // owning tab (Jobs / Chat / Hours) consumes once its data is loaded, then
+    // clears. Keeping it pending (rather than navigating here) lets a cold-start
+    // tap wait for jobs/messages/requests to load before resolving.
     enum DeepLink: Equatable {
-        case job(number: String)   // open that job's detail
-        case thread(key: String)   // open that chat thread
+        case job(number: String)        // open that job's detail
+        case thread(key: String)        // open that chat thread
+        case timeOff(requestId: String) // reveal the Hours → Time Off section
     }
     var pendingDeepLink: DeepLink?
 
     /// Map a tapped notification's `additionalData` to a tab + pending target.
     /// threadKey wins over jobNumber: message pushes only carry threadKey, and
-    /// a payload with both belongs in the conversation it came from.
+    /// a payload with both belongs in the conversation it came from. requestId
+    /// is unique to time-off pushes (they carry neither of the other keys).
     func handleNotification(_ data: [AnyHashable: Any]) {
         if let key = data["threadKey"] as? String, !key.isEmpty {
             selected = .chat
@@ -55,6 +58,9 @@ final class AppNav {
             // sure the merged Jobs tab is showing the list (not gantt) for it.
             jobsMode = .list
             pendingDeepLink = .job(number: number)
+        } else if let requestId = Self.stringValue(data["requestId"]), !requestId.isEmpty {
+            selected = .hours
+            pendingDeepLink = .timeOff(requestId: requestId)
         }
     }
 

@@ -13,6 +13,10 @@ private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 
 struct TimeClockView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
+    /// Scroll anchor for the Time Off section, so a tapped time-off push
+    /// (AppNav → .timeOff deep link) can reveal it.
+    private static let timeOffAnchor = "hoursTimeOffSection"
     @State private var now = Date()
     @State private var showSettings = false
     @State private var showTimeOffSheet = false
@@ -28,7 +32,8 @@ struct TimeClockView: View {
                     IconBtn(icon: .settings, size: 18) { showSettings = true }
                 }
 
-                ScrollView {
+                ScrollViewReader { proxy in
+                  ScrollView {
                     VStack(spacing: 0) {
 
                         PageTitle(title: "Hours", subtitle: periodLabel)
@@ -89,6 +94,7 @@ struct TimeClockView: View {
                         // Submit a request → admins approve/deny on the desktop.
                         // Approved requests flow into the schedule + accountant export.
                         TSectionTitle(title: "Time Off")
+                            .id(Self.timeOffAnchor)
 
                         VStack(spacing: 12) {
                             GradientCTA(disabled: false, dimmed: false, fullWidth: true,
@@ -110,10 +116,19 @@ struct TimeClockView: View {
                         .padding(.horizontal, 16)
                         .padding(.bottom, 24)
                     }
+                  }
+                  .scrollIndicators(.hidden)
+                  .topFadeMask()
+                  .refreshable { await reload() }
+                  // Already on the Hours tab when a time-off push is tapped:
+                  // the deep link mutates in place, so react to the change.
+                  .onChange(of: appNav.pendingDeepLink) { _, _ in
+                      Task { await scrollToTimeOffIfPending(proxy) }
+                  }
+                  // Arrived on the Hours tab via the tap (fresh mount): the deep
+                  // link is already set before this appears, so consume it here.
+                  .task { await scrollToTimeOffIfPending(proxy) }
                 }
-                .scrollIndicators(.hidden)
-                .topFadeMask()
-                .refreshable { await reload() }
             }
             .onReceive(ticker) { now = $0 }
             // On-demand datasets (heavy): the live person/jobs come from loadAll
@@ -137,6 +152,21 @@ struct TimeClockView: View {
         await appState.refreshTimeclock(personId: appState.currentPersonId)
         await appState.refreshJobSessions(personId: appState.currentPersonId)
         await appState.refreshTimeOffRequests()
+    }
+
+    /// If a tapped time-off notification routed us here, scroll the Time Off
+    /// section into view, then clear the pending deep link so it fires once.
+    /// The brief delay lets the list lay out (and the tab-switch animation
+    /// settle) before scrolling on a fresh mount.
+    @MainActor
+    private func scrollToTimeOffIfPending(_ proxy: ScrollViewProxy) async {
+        guard case .timeOff = appNav.pendingDeepLink else { return }
+        try? await Task.sleep(for: .milliseconds(350))
+        guard case .timeOff = appNav.pendingDeepLink else { return }
+        withAnimation(.easeInOut(duration: 0.35)) {
+            proxy.scrollTo(Self.timeOffAnchor, anchor: .top)
+        }
+        appNav.pendingDeepLink = nil
     }
 
     /// My time-off requests, pending first, then newest start date.

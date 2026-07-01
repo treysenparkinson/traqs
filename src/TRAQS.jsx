@@ -3734,12 +3734,21 @@ Extraction rules:
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgCode, loggedInUser?.id]);
 
-  // When a Windows toast is clicked, the service worker focuses the tab and
-  // posts the payload here — jump to the Messages view.
+  // When a desktop toast is clicked, the service worker focuses the tab and
+  // posts the payload here — route to the right page by push type.
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
     const onMsg = (e) => {
-      if (e.data?.source === "traqs-push") setView("messages");
+      if (e.data?.source !== "traqs-push") return;
+      const d = e.data.data || {};
+      // Time-off pushes carry an `event` (see timeoff.js). Request/cancellation
+      // pings go to admins → open the Approval Queue (the Time Off inbox lives
+      // there). Approve/deny pings target the requester, who has no desktop
+      // time-off view, so just leave them on the (now-focused) current page.
+      if (d.event === "request" || d.event === "cancelled") { setView("approvals"); return; }
+      if (d.event === "approved" || d.event === "denied") return;
+      // Everything else (chat + finish-request messages) → Messages.
+      setView("messages");
     };
     navigator.serviceWorker.addEventListener("message", onMsg);
     return () => navigator.serviceWorker.removeEventListener("message", onMsg);
