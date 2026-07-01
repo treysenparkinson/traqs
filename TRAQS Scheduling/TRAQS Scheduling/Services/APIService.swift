@@ -228,6 +228,17 @@ struct APIService {
         return try decoder.decode(TimeOffOneResponse.self, from: data).request
     }
 
+    /// Approve or deny a request (admin only — the server enforces the role).
+    @discardableResult
+    func decideTimeOff(id: String, action: String, reason: String = "") async throws -> TimeOffRequest {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "id": id, "action": action, "reason": reason,
+        ])
+        let req = try await request("timeoff", method: "PATCH", body: body)
+        let data = try await perform(req)
+        return try decoder.decode(TimeOffOneResponse.self, from: data).request
+    }
+
     // MARK: - Attachments
 
     /// Upload a single binary attachment. `data` should be raw bytes;
