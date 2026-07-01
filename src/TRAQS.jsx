@@ -13961,7 +13961,7 @@ ${jobsCtx || "No jobs found."}`;
             {ts && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{ts}</span>}
           </div>
           {latest && <div style={{ fontSize: 12, color: T.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {latest.authorId === loggedInUser?.id ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "Attachment" : "")}
+            {String(latest.authorId) === String(loggedInUser?.id) ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "Attachment" : "")}
           </div>}
         </div>
         {unread > 0 && <div style={{ width: 20, height: 20, borderRadius: 10, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0, marginTop: 8 }}>{unread > 9 ? "9+" : unread}</div>}
@@ -13971,9 +13971,9 @@ ${jobsCtx || "No jobs found."}`;
     const showList = !isMobile || !chatThread;
     const showChat = !isMobile || !!chatThread;
 
-    return <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
+    return <div style={{ display: "flex", flex: 1, minHeight: 0, height: "100%", overflow: "hidden" }}>
       {/* ─── Thread list ─── */}
-      {showList && <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden", background: T.surface }}>
+      {showList && <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, height: "100%", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", minHeight: 0, overflowY: "auto", overflowX: "hidden", background: T.surface }}>
         {/* Groups header */}
         <div style={{ padding: "14px 14px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
           <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Groups</span>
@@ -14029,7 +14029,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>}
 
       {/* ─── Chat area ─── */}
-      {showChat && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {showChat && <div style={{ flex: 1, minHeight: 0, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {!chatThread ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: T.textDim, gap: 12 }}>
             <div style={{ lineHeight: 0, color: T.textDim }}><svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
@@ -14047,14 +14047,14 @@ ${jobsCtx || "No jobs found."}`;
                   {chatThread.scope === "group" ? "Members:" : "Participants:"}
                 </span>
                 {chatThread.participants.slice(0, 8).map(p => (
-                  <div key={p.id} title={p.name} style={{ width: 20, height: 20, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+                  <div key={p.id} title={p.name} style={{ width: 20, height: 20, borderRadius: 10, background: T.systemBg || T.surfaceSolid || T.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{p.name[0]}</div>
                 ))}
                 {chatThread.participants.length > 8 && <span style={{ fontSize: 11, color: T.textDim }}>+{chatThread.participants.length - 8}</span>}
               </div>
             </div>
           </div>
           {/* Messages */}
-          <div style={{ flex: 1, overflow: "auto", padding: "12px 0" }}>
+          <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "12px 0" }}>
             {threadMessages.length === 0 && (
               <div style={{ textAlign: "center", padding: "40px 20px", color: T.textDim }}>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, opacity: 0.5 }}><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
@@ -14072,7 +14072,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ flex: 1, height: 1, background: T.border }} />
                 </div>
                 {msgs.map((m, i) => {
-                  const isMe = loggedInUser && m.authorId === loggedInUser.id;
+                  const isMe = loggedInUser && String(m.authorId) === String(loggedInUser.id);
                   const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
                   // ── Special rendering: Finish Approval Request ──
@@ -14256,10 +14256,10 @@ ${jobsCtx || "No jobs found."}`;
 
                   // ── Standard message bubble ──
                   return <div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 10, padding: "4px 14px", alignItems: "center" }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 16, background: m.authorColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{m.authorName[0]}</div>
+                    <div style={{ width: 32, height: 32, borderRadius: 16, background: T.systemBg || T.surfaceSolid || T.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{m.authorName[0]}</div>
                     <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 3 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: m.authorColor, marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>{m.authorName}</span>
-                      {m.text && <div style={{ background: m.authorColor, color: "#fff", padding: "10px 15px", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: "none" }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: T.text, marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>{m.authorName}</span>
+                      {m.text && <div style={{ background: isMe ? T.accent : T.surface, color: isMe ? T.accentText : T.text, padding: "10px 15px", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
                         {m.text}
                       </div>}
                       {(m.attachments || []).map((att, ai) => (
@@ -14267,7 +14267,7 @@ ${jobsCtx || "No jobs found."}`;
                           ? <div key={ai} onClick={() => setLightboxAtt(att)} style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 240, cursor: "zoom-in" }}>
                               <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "cover" }} loading="lazy" />
                             </div>
-                          : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: m.authorColor + "cc", border: `1px solid ${m.authorColor}`, borderRadius: 10, fontSize: 13, color: "#fff", cursor: "pointer", maxWidth: 220 }}>
+                          : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? T.accent : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 10, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
                               <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                             </div>
@@ -14299,7 +14299,7 @@ ${jobsCtx || "No jobs found."}`;
                     ))}
                   </div>
                 )}
-                <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <input ref={chatFileInputRef} type="file" multiple accept="image/*,.pdf,.txt,.csv,.xlsx,.xls" style={{ display: "none" }} onChange={handleChatFileSelect} />
                   <Tip label="Attach file"><button onClick={() => chatFileInputRef.current?.click()} disabled={chatUploading} style={{ width: 36, height: 36, borderRadius: 8, background: chatUploading ? T.accent + "15" : T.surface, border: `1px solid ${T.border}`, cursor: chatUploading ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", color: chatUploading ? T.accent : T.textDim }}>
                     {chatUploading
@@ -14307,7 +14307,7 @@ ${jobsCtx || "No jobs found."}`;
                       : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     }
                   </button></Tip>
-                  <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={2} style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "11px 14px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.5 }} />
+                  <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "8px 14px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.35, boxSizing: "border-box" }} />
                   <button onClick={sendChatMessage} disabled={(!chatInput.trim() && !chatAttachments.length) || chatSending || chatUploading} style={{ width: 38, height: 38, borderRadius: 10, background: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? T.accent : T.border, border: "none", cursor: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                   </button>
@@ -16259,7 +16259,8 @@ ${jobsCtx || "No jobs found."}`;
           Every card/grid view (jobs, schedule, clients, analytics, approvals, admin, timestamp)
           renders its own pinned bg inside its scroller (so backdrop-filter can sample it); only
           Messages still relies on this panel-level layer. */}
-      {T.bgImage && view === "messages" && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />}
+      {/* Darkened/muted (not blurred) so message text stays legible over the image. */}
+      {T.bgImage && view === "messages" && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />}
       <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", padding: 0 }}>
         {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}</AnimatedView>}
       </div>
@@ -18806,21 +18807,21 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             );
             return tMsgs.map((m, i) => {
-              const isMe = loggedInUser && m.authorId === loggedInUser.id;
+              const isMe = loggedInUser && String(m.authorId) === String(loggedInUser.id);
               const prev = tMsgs[i - 1];
               const showName = !isMe && (!prev || prev.authorId !== m.authorId);
               const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
               return <div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 7, padding: "3px 12px", alignItems: "flex-end" }}>
-                {!isMe && <div style={{ width: 26, height: 26, borderRadius: 13, background: showName ? m.authorColor : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{showName ? m.authorName[0] : ""}</div>}
+                {!isMe && <div style={{ width: 26, height: 26, borderRadius: 13, background: showName ? (T.systemBg || T.surfaceSolid || T.surface) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{showName ? m.authorName[0] : ""}</div>}
                 <div style={{ maxWidth: "75%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 2 }}>
                   {showName && <span style={{ fontSize: 10, color: T.textDim }}>{m.authorName}</span>}
-                  {m.text && <div style={{ background: m.authorColor, color: "#fff", padding: "8px 12px", borderRadius: isMe ? "13px 13px 4px 13px" : "13px 13px 13px 4px", fontSize: 13, lineHeight: 1.45, wordBreak: "break-word", border: "none" }}>{m.text}</div>}
+                  {m.text && <div style={{ background: isMe ? T.accent : T.surface, color: isMe ? T.accentText : T.text, padding: "8px 12px", borderRadius: isMe ? "13px 13px 4px 13px" : "13px 13px 13px 4px", fontSize: 13, lineHeight: 1.45, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>{m.text}</div>}
                   {(m.attachments || []).map((att, ai) => (
                     att.mimeType?.startsWith("image/")
                       ? <div key={ai} onClick={() => setLightboxAtt(att)} style={{ borderRadius: 9, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 200, cursor: "zoom-in" }}>
                           <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} style={{ display: "block", maxWidth: "100%", maxHeight: 160, objectFit: "cover" }} loading="lazy" />
                         </div>
-                      : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: m.authorColor + "cc", border: `1px solid ${m.authorColor}`, borderRadius: 9, fontSize: 12, color: "#fff", cursor: "pointer", maxWidth: 190 }}>
+                      : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: isMe ? T.accent : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 9, fontSize: 12, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 190 }}>
                           <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                         </div>
