@@ -857,13 +857,9 @@ private struct NoJobsPlaceholder: View {
 
 struct JobsHeaderBar: View {
     var body: some View {
-        Text("Jobs")
-            .font(.custom(TFontName.extrabold.rawValue, size: 64))
-            .foregroundStyle(LinearGradient(
-                colors: [Color(hex: T.muted), .clear],
-                startPoint: .top, endPoint: .bottom))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
+        // Use the shared PageTitle so the Jobs wordmark matches every other
+        // page (left, solid ink, tight tracking, same size).
+        PageTitle(title: "Jobs")
     }
 }
 

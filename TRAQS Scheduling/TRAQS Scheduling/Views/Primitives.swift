@@ -667,19 +667,16 @@ struct PageTitle: View {
     @Environment(ThemeSettings.self) private var theme
     let title: String
     var subtitle: String? = nil
-    var size: CGFloat = 64
-    /// Title fill. Defaults to the big dark→transparent fade used on the Jobs
-    /// page, so every screen's title matches. Pass a gradient to override.
+    var size: CGFloat = 56
+    /// Title fill. Defaults to solid primary ink (theme-aware "black"). Pass a
+    /// gradient to override.
     var gradient: LinearGradient? = nil
 
     private var titleFill: AnyShapeStyle {
-        // Muted gray (same token as the "TUE · JUN 30 · 2 TASKS" line) faded
-        // top→bottom into transparency. Theme-aware. An explicit gradient
-        // override still wins if a caller passes one.
+        // Solid primary ink — adapts to light/dark backgrounds. An explicit
+        // gradient override still wins if a caller passes one.
         if let gradient { return AnyShapeStyle(gradient) }
-        return AnyShapeStyle(LinearGradient(
-            colors: [Color(hex: T.muted), .clear],
-            startPoint: .top, endPoint: .bottom))
+        return AnyShapeStyle(Color(hex: T.ink))
     }
 
     var body: some View {
@@ -688,6 +685,7 @@ struct PageTitle: View {
         return VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.custom(TFontName.extrabold.rawValue, size: size))
+                .tracking(-4)
                 .foregroundStyle(titleFill)
             if let subtitle {
                 Text(subtitle)

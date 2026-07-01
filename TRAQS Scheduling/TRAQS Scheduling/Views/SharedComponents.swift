@@ -37,10 +37,10 @@ struct TRAQSNavHeader<Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
-        // Wordmark intentionally lives only in the side drawer now; the top
-        // header is just the menu button + trailing controls so the big
-        // page title can sit higher up.
-        HStack(alignment: .center, spacing: 2) {
+        // Menu button + TRAQS wordmark on the left, trailing controls on the
+        // right. Extra top padding drops the whole header (and page title) down
+        // from the status bar for more breathing room.
+        HStack(alignment: .center, spacing: 10) {
             TRAQSMenuButton()
             Spacer()
             HStack(spacing: 6) {
@@ -48,7 +48,7 @@ struct TRAQSNavHeader<Trailing: View>: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 16)
+        .padding(.top, 10)
         .padding(.bottom, 6)
     }
 }
