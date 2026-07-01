@@ -5861,9 +5861,15 @@ ${jobsCtx || "No jobs found."}`;
   // Unread: messages where user is participant, author is not self, newer than lastRead[threadKey]
   const unreadMessages = useMemo(() => {
     if (!loggedInUser) return [];
+    const myId = String(loggedInUser.id);
     return messages.filter(m => {
-      if (m.authorId === loggedInUser.id) return false;
-      if (!m.participantIds?.includes(loggedInUser.id)) return false;
+      // Time-off requests get their own notification section (from timeOffRequests),
+      // so they don't double up here as chat unread.
+      if (m.type === "timeoff_request") return false;
+      if (String(m.authorId) === myId) return false;
+      // Compare as strings — server-written messages store String ids, which
+      // otherwise wouldn't match a numeric loggedInUser.id.
+      if (!(m.participantIds || []).map(String).includes(myId)) return false;
       const lr = lastRead[m.threadKey] || "1970-01-01T00:00:00Z";
       return m.timestamp > lr;
     });
@@ -5879,6 +5885,34 @@ ${jobsCtx || "No jobs found."}`;
     });
     return Object.values(map).sort((a, b) => b.latest.timestamp.localeCompare(a.latest.timestamp));
   }, [unreadMessages]);
+
+  // Incoming time-off requests for the notification bell — sourced straight from
+  // the polled timeOffRequests (admins see all pending). Reliable regardless of
+  // the chat-DM path (e.g. an admin who submits their own request isn't DM'd it).
+  // Clears automatically once a request is approved/denied.
+  const timeOffNotifs = useMemo(() => {
+    if (!loggedInUser || !isAdmin) return [];
+    return (timeOffRequests || [])
+      .filter(r => r.status === "pending")
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  }, [timeOffRequests, loggedInUser, isAdmin]);
+
+  const notifCount = unreadMessages.length + timeOffNotifs.length;
+  const hasNotifs = unreadByThread.length > 0 || timeOffNotifs.length > 0;
+
+  // Open the requester's DM thread (where the request bubble + Approve/Deny live).
+  const openTimeOffNotif = (r) => {
+    if (!loggedInUser) return;
+    const other = people.find(p => String(p.id) === String(r.personId));
+    const tk = `dm:${[String(loggedInUser.id), String(r.personId)].sort().join("_")}`;
+    setChatThread({ threadKey: tk, title: other?.name || r.personName || "Direct Message", scope: "dm", jobId: null, panelId: null, opId: null, groupId: null, participants: [loggedInUser, other].filter(Boolean) });
+    setView("messages"); setNotifOpen(false);
+  };
+
+  const timeOffNotifRange = (r) => {
+    const fmtD = ds => { try { return new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ds; } };
+    return r.start === r.end ? fmtD(r.start) : `${fmtD(r.start)} – ${fmtD(r.end)}`;
+  };
 
   function getThreadTitle(threadKey, scope, jobId, panelId, opId) {
     if (scope === "group" || threadKey?.startsWith("group:")) {
@@ -13605,7 +13639,7 @@ ${jobsCtx || "No jobs found."}`;
         })()}
         <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? T.accent + "15" : T.bg, border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          {unreadByThread.length > 0 && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{unreadMessages.length > 9 ? "9+" : unreadMessages.length}</span>}
+          {hasNotifs && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
         </button>
         <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: settingsOpen ? T.accent + "15" : T.bg, border: `1px solid ${settingsOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={settingsOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.3s", transform: settingsOpen ? "rotate(90deg)" : "none" }}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -13823,9 +13857,21 @@ ${jobsCtx || "No jobs found."}`;
             {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font, fontWeight: 600 }}>Mark all read</button>}
           </div>
           <div style={{ overflow: "auto" }}>
-            {unreadByThread.length === 0 ? (
-              <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>
-            ) : unreadByThread.map(item => {
+            {!hasNotifs && <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>}
+            {timeOffNotifs.map(r => (
+              <div key={"to-" + r.id} onClick={() => openTimeOffNotif(r)} style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start" }}
+                onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ flexShrink: 0, marginTop: 1, lineHeight: 0, color: r.type === "UTO" ? "#f59e0b" : "#10b981" }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Time off request</span>
+                    <span style={{ fontSize: 10, color: "#f59e0b", flexShrink: 0, marginLeft: 8, fontWeight: 700 }}>Pending</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{r.personName}</strong> · {r.type} {timeOffNotifRange(r)}</div>
+                </div>
+              </div>
+            ))}
+            {unreadByThread.map(item => {
               const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
               return <div key={item.threadKey} onClick={() => {
                 const gId = item.scope === "group" ? item.threadKey.replace("group:", "") : null;
@@ -15950,16 +15996,29 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : Tc.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <span style={{ fontSize: 12, fontWeight: 600, color: notifOpen ? T.accent : Tc.textSec, letterSpacing: "0.01em" }}>Notifications</span>
-            {unreadByThread.length > 0 && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px" }}>{unreadByThread.length > 9 ? "9+" : unreadMessages.length}</span>}
+            {hasNotifs && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
           </button>
           <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
             <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Notifications</div>
               {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
             </div>
-            {unreadByThread.length === 0 ? (
+            {!hasNotifs && (
               <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>
-            ) : unreadByThread.map((item, i) => {
+            )}
+            {timeOffNotifs.map((r, i) => (
+              <div key={"to-" + r.id} onClick={() => openTimeOffNotif(r)} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <span style={{ flexShrink: 0, marginTop: 2, lineHeight: 0, color: r.type === "UTO" ? "#f59e0b" : "#10b981" }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Time off request</span>
+                    <span style={{ fontSize: 10, color: "#f59e0b", flexShrink: 0, marginLeft: 8, fontWeight: 700 }}>Pending</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><strong>{r.personName}</strong> · {r.type} {timeOffNotifRange(r)}</div>
+                </div>
+              </div>
+            ))}
+            {unreadByThread.map((item, i) => {
               const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
               const author = people.find(p => p.id === item.latest.authorId);
               return <div key={item.threadKey} onClick={() => {
@@ -15967,7 +16026,7 @@ ${jobsCtx || "No jobs found."}`;
                 const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
                 setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
                 setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
-              }} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              }} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${(timeOffNotifs.length + i) * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 5 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
