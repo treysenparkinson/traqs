@@ -1,58 +1,65 @@
 import SwiftUI
 
-// MARK: - Stats V1 (KPI overview) · TRAQS Light · Revamp
-// Lives in MoreView.swift / struct MoreView for back-compat (MainTabView routes
-// the Stats tab here). Admin/dispatcher view; non-admins see a friendly empty state.
+// MARK: - Stats V2 (org metrics) · TRAQS
+// Admin/dispatcher dashboard. NEW metric set — values are PLACEHOLDERS ("—")
+// until each is wired, one at a time:
+//   1. Utilization    — % (small box)
+//   2. Task Switching — jobs touched today (small box)
+//   3. Over-hours     — count (small box) that expands a list of jobs whose
+//                       logged ACTUAL hours ran past the admin-set EST hours
+//   4. Reworks        — count (small box)
+//   5. Idle Time      — pay time clocked in but not logged onto a job (small box)
+//   6. Efficiency     — % (hero) + per-day bars for the current week: pay hours
+//                       vs job hours, with the daily difference above each day
+// Non-admins see a friendly empty state.
 
 struct MoreView: View {
     @Environment(AppState.self) private var appState
-    @State private var period: StatsPeriod = .thisWeek
+    /// Any day within the week being shown; defaults to the current week. The
+    /// calendar button in the header repoints this to jump to another week.
+    @State private var weekAnchor: Date = Date()
+    @State private var showCalendar = false
+    @State private var overHoursExpanded = false
 
     var body: some View {
         ZStack {
             AmbientBackground()
 
             VStack(spacing: 0) {
-                // Sticky header. Period chip cycles through the available
-                // ranges so tapping it actually scopes the dashboard.
+                // Sticky header. Calendar button jumps to any week's stats.
                 TRAQSNavHeader {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.18)) {
-                            period = period.next
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(period.label)
-                                .font(TTypo.xsBold(11))
-                                .foregroundStyle(Color(hex: T.ink))
-                                .tLabel(tracking: 0.8)
-                            TIconView(icon: .chevDown, size: 10, color: Color(hex: T.muted))
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 6)
-                        .background(Capsule().fill(Color(hex: T.surface)))
-                        .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
+                    IconBtn(icon: .cal, size: 18) { showCalendar = true }
                 }
 
                 ScrollView {
                     VStack(spacing: 0) {
                         if appState.isAdmin {
-                            PageTitle(title: "Stats", subtitle: period.label)
+                            statsTitle
                                 .padding(.top, pageTitleTopInset)
                                 .padding(.bottom, 16)
 
-                            kpiGrid
+                            statGrid
                                 .padding(.horizontal, 16)
 
-                            HeroTrendCard(points: hoursTrend, total: hoursTrendTotal, delta: hoursTrendDelta)
+                            EfficiencyCard(percent: "\(efficiencyPercent)%", days: efficiencyDays,
+                                           info: "Job hours logged ÷ pay hours for the week (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
                                 .padding(.horizontal, 16)
                                 .padding(.top, 16)
 
-                            TeamUtilizationCard(mix: jobMix)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 16)
-                                .padding(.bottom, 24)
+                            // Over-hours tab pinned at the bottom; tapping it
+                            // drops its list down beneath it at the page's end.
+                            VStack(spacing: 12) {
+                                OverHoursTab(value: "\(overHoursItems.count)", expanded: overHoursExpanded) {
+                                    withAnimation(.easeInOut(duration: 0.22)) { overHoursExpanded.toggle() }
+                                }
+                                if overHoursExpanded {
+                                    OverHoursList(jobs: overHoursItems)
+                                        .transition(.opacity.combined(with: .move(edge: .top)))
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+                            .padding(.bottom, 24)
                         } else {
                             NonAdminEmpty()
                                 .padding(.top, 80)
@@ -63,201 +70,504 @@ struct MoreView: View {
                 .topFadeMask()
             }
         }
-    }
-
-    // MARK: KPI grid
-
-    private var kpiGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            KPICard(label: "Hours billed", value: String(format: "%.1f", hoursThisWeek),
-                    delta: "+12%", up: true)
-            KPICard(label: "Jobs done", value: "\(jobsFinishedThisWeek)",
-                    delta: "+4", up: true)
-            KPICard(label: "On-time rate", value: "92%",
-                    delta: "−3%", up: false)
-            KPICard(label: "Utilization", value: "\(utilization)%",
-                    delta: "+5%", up: true)
+        .sheet(isPresented: $showCalendar) {
+            WeekPickerSheet(selection: $weekAnchor)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        // Whole-org pay-clock + job-session history (heavy) so the team stats
+        // cover everyone. Lifetime data → changing the selected week just
+        // re-filters locally, no refetch.
+        .task {
+            guard appState.isAdmin else { return }
+            await appState.refreshTimeclock(personId: nil)
+            await appState.refreshJobSessions(personId: nil)
         }
     }
 
-    // MARK: Data
+    // MARK: Title (Stats + selected week in accent)
 
-    private var hoursThisWeek: Double {
-        appState.jobs.reduce(0.0) { $0 + ($1.loggedHours ?? 0) }
-    }
-
-    private var jobsFinishedThisWeek: Int {
-        appState.jobs.filter { $0.status == .finished }.count
-    }
-
-    private var utilization: Int {
-        // Available hours = headcount × hpd × workdays-per-week, sourced from
-        // the org settings the user configured on the web.
-        let s = appState.orgSettings
-        let headcount = max(1, appState.people.filter { $0.isAdmin == false }.count)
-        let workDayCount = max(1, s.workDays.count)
-        let total = max(1.0, Double(headcount) * s.hpd * Double(workDayCount))
-        let logged = appState.jobs.reduce(0.0) { $0 + ($1.loggedHours ?? 0) }
-        return min(100, Int((logged / total) * 100))
-    }
-
-    /// 14-day fake-but-deterministic sparkline derived from per-day logged hours
-    /// (we don't have per-day buckets yet). Distributes total across the 14 cells
-    /// with a gentle upward trend so the chart reads naturally.
-    private var hoursTrend: [Double] {
-        let base = max(8, hoursThisWeek / 6)
-        return (0..<14).map { i in
-            let t = Double(i) / 13.0
-            return base + t * (base * 0.6) + Double(i % 3) * 1.2
-        }
-    }
-    private var hoursTrendTotal: Int { Int(hoursTrend.reduce(0, +)) }
-    private var hoursTrendDelta: String { "+14% vs prior" }
-
-    /// Department mix — count panels per dept and convert to percentage.
-    private var jobMix: [JobMixEntry] {
-        var counts: [String: Int] = [:]
-        for job in appState.jobs {
-            let label = deptForJob(job).label
-            counts[label, default: 0] += 1
-        }
-        let total = max(1, counts.values.reduce(0, +))
-        let palette: [String: Color] = [
-            "LAYOUT": Color(hex: T.magenta),
-            "INSTALL": Color(hex: T.magenta),
-            "WIRE": Color(hex: T.cyan),
-            "CUT": Color(hex: T.yellow),
-            "INSPECT": Color(hex: T.lavender),
-            "REPAIR": Color(hex: T.amber),
-            "CALLBACK": Color(hex: T.red),
-            "CONTRACT": Color(hex: T.green),
-        ]
-        return counts.map { (k, v) in
-            JobMixEntry(label: k,
-                        pct: Int(Double(v) / Double(total) * 100),
-                        color: palette[k] ?? Color(hex: T.muted))
-        }
-        .sorted { $0.pct > $1.pct }
-    }
-}
-
-// MARK: - KPI card (frosted: muted tracked label + big bold number + delta pill)
-
-private struct KPICard: View {
-    let label: String
-    let value: String
-    let delta: String
-    let up: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(label.uppercased())
-                .font(TTypo.xsBold(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .tLabel(tracking: 1.2)
-            Text(value)
-                .font(.custom(TFontName.bold.rawValue, size: 34))
+    private var statsTitle: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text("Stats")
+                .font(.custom(TFontName.extrabold.rawValue, size: 56))
+                .tracking(-4)
                 .foregroundStyle(Color(hex: T.ink))
+            Spacer(minLength: 8)
+            Text(weekLabel)
+                .font(TTypo.smBold(15))
+                .foregroundStyle(Color(hex: T.accent))
                 .tnum()
-            TagPill(label: (up ? "↑ " : "↓ ") + delta, kind: up ? .green : .amber)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
-        .frostedCard(radius: T.cornerMd)
+        .padding(.horizontal, 16)
     }
-}
 
-// MARK: - Hero trend (sparkline) card · frosted
-
-private struct HeroTrendCard: View {
-    let points: [Double]
-    let total: Int
-    let delta: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .lastTextBaseline) {
-                Text("HOURS BILLED")
-                    .font(TTypo.xsBold(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tLabel(tracking: 1.2)
-                Spacer()
-                TagPill(label: "↑ " + delta, kind: .green)
-            }
-            HStack(alignment: .lastTextBaseline, spacing: 8) {
-                Text("\(total)")
-                    .font(.custom(TFontName.bold.rawValue, size: 30))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .tnum()
-                Text("hours total")
-                    .font(TTypo.xs(11))
-                    .foregroundStyle(Color(hex: T.muted))
-            }
-            Sparkline(points: points,
-                      stroke: Color(hex: T.accentGradientStart),
-                      fill: Color(hex: T.accentGradientStart).opacity(0.12), height: 84)
-            HStack {
-                Text("14 days ago").font(TTypo.mono(10)).foregroundStyle(Color(hex: T.muted)).tnum()
-                Spacer()
-                Text("today").font(TTypo.mono(10)).foregroundStyle(Color(hex: T.muted)).tnum()
-            }
+    /// The selected week's date range, e.g. "Jun 30 – Jul 6" (or "Jul 1–7"
+    /// when the week stays within one month).
+    private var weekLabel: String {
+        let cal = Calendar.current
+        guard let interval = cal.dateInterval(of: .weekOfYear, for: weekAnchor) else { return "" }
+        let start = interval.start
+        let last = cal.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
+        let mdd = DateFormatter(); mdd.dateFormat = "MMM d"
+        if cal.isDate(start, equalTo: last, toGranularity: .month) {
+            let dOnly = DateFormatter(); dOnly.dateFormat = "d"
+            return "\(mdd.string(from: start))–\(dOnly.string(from: last))"
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frostedCard(radius: T.cornerHero)
-    }
-}
-
-// MARK: - Team utilization card
-// Frosted hero card. Each row = gradient Avatar(initials) + name + gradient Bar(pct)
-// + right % label. Rows are driven by the existing job-mix computation.
-
-struct JobMixEntry: Identifiable {
-    var id: String { label }
-    let label: String
-    let pct: Int
-    let color: Color
-}
-
-private struct TeamUtilizationCard: View {
-    let mix: [JobMixEntry]
-
-    private func initials(_ label: String) -> String {
-        let trimmed = label.trimmingCharacters(in: .whitespaces)
-        guard let first = trimmed.first else { return "—" }
-        return String(first).uppercased()
+        return "\(mdd.string(from: start)) – \(mdd.string(from: last))"
     }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Team utilization")
-                .font(TTypo.h3(18))
-                .foregroundStyle(Color(hex: T.ink))
+    // MARK: Utilization (team average of each worker's assigned ÷ capacity)
 
-            VStack(spacing: 16) {
-                ForEach(mix) { m in
-                    HStack(spacing: 12) {
-                        Avatar(initials: initials(m.label), size: 38, gradient: true)
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(m.label.capitalized)
-                                    .font(TTypo.smBold(14))
-                                    .foregroundStyle(Color(hex: T.ink))
-                                Spacer()
-                                Text("\(m.pct)%")
-                                    .font(TTypo.smBold(13))
-                                    .foregroundStyle(Color(hex: T.muted))
-                                    .tnum()
-                            }
-                            Bar(pct: Double(m.pct), height: 8, gradient: T.brandGradient())
-                        }
+    private var weekInterval: DateInterval {
+        Calendar.current.dateInterval(of: .weekOfYear, for: weekAnchor)
+            ?? DateInterval(start: weekAnchor, duration: 7 * 86_400)
+    }
+
+    /// Team-average utilization for the selected week: each worker's assigned
+    /// job hours ÷ their weekly capacity (org hpd × workdays), capped at 100%,
+    /// averaged across workers. Assigned hours = each task's estimated hours
+    /// (`hpd`), the same estimate the progress bars use.
+    /// NOTE: if `hpd` turns out to mean hours-PER-DAY rather than a task total,
+    /// only `taskEstHours` needs to change (× business-day span).
+    private var utilizationPercent: Int {
+        let s = appState.orgSettings
+        let capacity = max(1.0, s.hpd * Double(max(1, s.workDays.count)))
+        let workers = appState.people.filter { !$0.isAdmin }
+        guard !workers.isEmpty else { return 0 }
+        let week = weekInterval
+        let avg = workers.reduce(0.0) { acc, p in
+            acc + min(100.0, assignedHours(personId: p.id, in: week) / capacity * 100.0)
+        } / Double(workers.count)
+        return Int(avg.rounded())
+    }
+
+    private func assignedHours(personId: String, in week: DateInterval) -> Double {
+        var total = 0.0
+        for job in appState.jobs {
+            for panel in job.subs {
+                if panel.subs.isEmpty {
+                    if panel.team.contains(personId), taskOverlaps(panel.start, panel.end, week) {
+                        total += taskEstHours(panel.hpd)
+                    }
+                } else {
+                    for op in panel.subs where op.team.contains(personId) {
+                        if taskOverlaps(op.start, op.end, week) { total += taskEstHours(op.hpd) }
                     }
                 }
             }
         }
+        return total
+    }
+
+    /// Estimated hours for one task. Treats `hpd` as the task's total estimate
+    /// (matches AppState.opHoursPair). Single spot to change if it's per-day.
+    private func taskEstHours(_ hpd: Double) -> Double {
+        hpd > 0 ? hpd : appState.orgSettings.hpd
+    }
+
+    /// True when a task's [start, end] overlaps the selected week.
+    private func taskOverlaps(_ startStr: String, _ endStr: String, _ week: DateInterval) -> Bool {
+        guard let s = startStr.asDate, let e = endStr.asDate else { return false }
+        return s < week.end && e >= week.start
+    }
+
+    // MARK: Small stat boxes (Utilization wired; rest are placeholders)
+
+    private var statGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            StatBox(label: "Utilization", value: "\(utilizationPercent)%",
+                    info: "Share of the team's scheduled capacity that's booked with work this week. Each worker's assigned job hours ÷ their weekly capacity (hours-per-day × workdays), capped at 100%, then averaged across the team.")
+            StatBox(label: "Task Switching", value: "\(taskSwitchingCount)", caption: "jobs touched this week",
+                    info: "How many distinct jobs the team touched this week. A job clocked out of and back into still counts once.")
+            StatBox(label: "Reworks", value: "—",
+                    info: "Rework hits: when a completed job sent to buyoff is brought back because a task was done wrong, the person who did that task takes one rework hit — one per hit. Not tracked yet (awaiting the rework button).")
+            StatBox(label: "Idle Time", value: fmtIdle(idleHours), caption: "clocked in, off jobs",
+                    info: "Paid clocked-in time not logged onto any job this week — pay hours minus job hours.")
+        }
+    }
+
+    // MARK: Over-hours (jobs whose logged actual > estimated)
+
+    /// Jobs currently over estimate: est = Σ of the job's op/panel `hpd`,
+    /// actual = Σ of its ops' `loggedHours` (cumulative all-time — so this is a
+    /// current-state metric, NOT week-scoped). Admins see every over job; a
+    /// non-admin sees only jobs they're on / logged time to.
+    private var overHoursItems: [OverHoursJob] {
+        let mineOnly = !appState.isAdmin
+        let myId = appState.currentPersonId
+        var items: [OverHoursJob] = []
+        for job in appState.jobs {
+            var est = 0.0, actual = 0.0
+            for panel in job.subs {
+                if panel.subs.isEmpty {
+                    est += panel.hpd > 0 ? panel.hpd : appState.orgSettings.hpd
+                } else {
+                    for op in panel.subs {
+                        est += op.hpd > 0 ? op.hpd : appState.orgSettings.hpd
+                        actual += op.loggedHours ?? 0
+                    }
+                }
+            }
+            guard est > 0, actual > est else { continue }
+            if mineOnly && !personOnJob(job, myId) { continue }
+            items.append(OverHoursJob(title: job.title, est: est, actual: actual))
+        }
+        return items.sorted { $0.over > $1.over }
+    }
+
+    /// Whether the person is assigned anywhere in the job or logged time on it.
+    private func personOnJob(_ job: Job, _ personId: String?) -> Bool {
+        guard let pid = personId else { return false }
+        if job.team.contains(pid) { return true }
+        for panel in job.subs {
+            if panel.team.contains(pid) { return true }
+            for op in panel.subs where op.team.contains(pid) { return true }
+        }
+        return appState.jobSessions.contains { $0.jobId == job.id && $0.personId == pid }
+    }
+
+}
+
+// MARK: - Efficiency (job hours ÷ pay hours) · MoreView
+
+private extension MoreView {
+    /// Pay-clock work rows across everyone (exclude lunch/break event rows).
+    var payEntries: [TimeclockEntry] {
+        appState.timeclockEntries.filter { $0.eventType == nil && $0.clockIn != nil && $0.clockOut != nil }
+    }
+
+    /// Best calendar day for a row: its ISO clockIn, else its "YYYY-MM-DD" date.
+    func dayOf(_ iso: String?, _ dateStr: String?) -> Date? {
+        if let iso, let d = Date.fromFlexibleISO8601(iso) { return d }
+        if let dateStr, !dateStr.isEmpty {
+            let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
+            return f.date(from: dateStr)
+        }
+        return nil
+    }
+
+    /// The seven days of the selected week with total pay + job hours (everyone).
+    var efficiencyDays: [EffDay] {
+        let cal = Calendar.current
+        let week = weekInterval
+        let dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        var out: [EffDay] = []
+        for offset in 0..<7 {
+            guard let day = cal.date(byAdding: .day, value: offset, to: week.start) else { continue }
+            let pay = payEntries.reduce(0.0) { acc, e in
+                guard let ed = dayOf(e.clockIn, e.date) else { return acc }
+                return cal.isDate(ed, inSameDayAs: day) ? acc + (e.hours ?? 0) : acc
+            }
+            let job = appState.jobSessions.reduce(0.0) { acc, s in
+                guard let sd = dayOf(s.clockIn, s.date) else { return acc }
+                return cal.isDate(sd, inSameDayAs: day) ? acc + (s.hours ?? 0) : acc
+            }
+            let label = dows[cal.component(.weekday, from: day) - 1]
+            out.append(EffDay(label: label, pay: pay, job: job))
+        }
+        return out
+    }
+
+    /// Efficiency = week job hours ÷ week pay hours (e.g. 30 logged of 40 paid = 75%).
+    var efficiencyPercent: Int {
+        let totalPay = efficiencyDays.reduce(0.0) { $0 + $1.pay }
+        let totalJob = efficiencyDays.reduce(0.0) { $0 + $1.job }
+        guard totalPay > 0 else { return 0 }
+        return Int((totalJob / totalPay * 100).rounded())
+    }
+
+    /// Idle time = paid clocked-in hours NOT logged onto a job for the week
+    /// (everyone) — the complement of Efficiency. Uses gross pay hours (lunch/
+    /// break not subtracted — same basis as Efficiency).
+    var idleHours: Double {
+        let pay = efficiencyDays.reduce(0.0) { $0 + $1.pay }
+        let job = efficiencyDays.reduce(0.0) { $0 + $1.job }
+        return max(0, pay - job)
+    }
+
+    /// "3h 12m" — idle rounded to the minute.
+    func fmtIdle(_ hours: Double) -> String {
+        let totalMin = Int((hours * 60).rounded())
+        return "\(totalMin / 60)h \(totalMin % 60)m"
+    }
+
+    /// Task switching = distinct jobs touched in the selected week (a job
+    /// clocked out of and back into still counts once). Team-wide for now.
+    var taskSwitchingCount: Int {
+        let cal = Calendar.current
+        let week = weekInterval
+        var jobIds = Set<String>()
+        for s in appState.jobSessions where !s.jobId.isEmpty {
+            guard let d = dayOf(s.clockIn, s.date) else { continue }
+            if d >= week.start && d < week.end { jobIds.insert(s.jobId) }
+        }
+        return jobIds.count
+    }
+}
+
+// MARK: - Small stat box (compact frosted: label + big number + optional caption)
+
+private struct StatBox: View {
+    let label: String
+    let value: String
+    var caption: String? = nil
+    var info: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top, spacing: 4) {
+                Text(label.uppercased())
+                    .font(TTypo.xsBold(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tLabel(tracking: 1.0)
+                Spacer(minLength: 2)
+                if !info.isEmpty { InfoButton(text: info) }
+            }
+            Text(value)
+                .font(.custom(TFontName.bold.rawValue, size: 30))
+                .foregroundStyle(Color(hex: T.ink))
+                .tnum()
+            if let caption {
+                Text(caption)
+                    .font(TTypo.xs(10))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .lineLimit(1)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+        .frostedCard(radius: T.cornerMd)
+    }
+}
+
+/// Small "i" that pops down a stat's description (what it is + how it's recorded).
+private struct InfoButton: View {
+    let text: String
+    @State private var show = false
+
+    var body: some View {
+        Button { show.toggle() } label: {
+            Image(systemName: "info.circle")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(hex: T.muted))
+        }
+        .buttonStyle(.plain)
+        .popover(isPresented: $show) {
+            Text(text)
+                .font(TTypo.sm(13))
+                .foregroundStyle(Color(hex: T.ink))
+                .multilineTextAlignment(.leading)
+                .padding(16)
+                .frame(width: 264)
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+}
+
+// MARK: - Over-hours tab (full-width bar → drops its list down beneath it)
+
+private struct OverHoursTab: View {
+    let value: String
+    let expanded: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text("OVER-HOURS")
+                    .font(TTypo.xsBold(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tLabel(tracking: 1.2)
+                Text(value)
+                    .font(TTypo.smBold(15))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .tnum()
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .rotationEffect(.degrees(expanded ? 180 : 0))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 15)
+            .frame(maxWidth: .infinity)
+            .frostedCard(radius: T.cornerMd)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Over-hours dropdown (est vs actual per job)
+
+struct OverHoursJob: Identifiable {
+    let id = UUID()
+    let title: String
+    let est: Double      // admin-set estimate (Σ op hpd)
+    let actual: Double   // hours actually logged (Σ op loggedHours)
+    var over: Double { max(0, actual - est) }
+}
+
+/// Compact hours label: "26h" / "5.5h".
+private func fmtHours(_ v: Double) -> String {
+    v == v.rounded() ? String(format: "%.0fh", v) : String(format: "%.1fh", v)
+}
+
+private struct OverHoursList: View {
+    let jobs: [OverHoursJob]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("JOB").tLabel(tracking: 1.0)
+                Spacer()
+                Text("EST").tLabel(tracking: 1.0).frame(width: 46, alignment: .trailing)
+                Text("ACT").tLabel(tracking: 1.0).frame(width: 46, alignment: .trailing)
+                Text("OVER").tLabel(tracking: 1.0).frame(width: 52, alignment: .trailing)
+            }
+            .font(TTypo.xsBold(10))
+            .foregroundStyle(Color(hex: T.muted))
+            .padding(.horizontal, 14).padding(.vertical, 10)
+
+            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
+
+            if jobs.isEmpty {
+                Text("No jobs over their estimate.")
+                    .font(TTypo.xs(12))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(14)
+            } else {
+                ForEach(jobs) { OverHoursRow(job: $0) }
+            }
+        }
+        .frostedCard(radius: T.cornerMd)
+    }
+}
+
+private struct OverHoursRow: View {
+    let job: OverHoursJob
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(job.title)
+                .font(TTypo.smBold(13))
+                .foregroundStyle(Color(hex: T.ink))
+                .lineLimit(1)
+            Spacer()
+            Text(fmtHours(job.est))
+                .font(TTypo.sm(13))
+                .foregroundStyle(Color(hex: T.muted))
+                .tnum()
+                .frame(width: 46, alignment: .trailing)
+            Text(fmtHours(job.actual))
+                .font(TTypo.smBold(13))
+                .foregroundStyle(Color(hex: T.ink))
+                .tnum()
+                .frame(width: 46, alignment: .trailing)
+            Text("+" + fmtHours(job.over))
+                .font(TTypo.smBold(13))
+                .foregroundStyle(Color(hex: T.amber))
+                .tnum()
+                .frame(width: 52, alignment: .trailing)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 11)
+    }
+}
+
+// MARK: - Efficiency (parent % + weekly pay-vs-job bars)
+
+struct EffDay: Identifiable {
+    var id: String { label }
+    let label: String
+    let pay: Double
+    let job: Double
+    /// Daily difference shown above the bars (job − pay).
+    var diff: Double { job - pay }
+}
+
+private struct EfficiencyCard: View {
+    let percent: String
+    let days: [EffDay]
+    var info: String = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                Text("EFFICIENCY")
+                    .font(TTypo.xsBold(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tLabel(tracking: 1.2)
+                Spacer()
+                if !info.isEmpty { InfoButton(text: info) }
+            }
+            Text(percent)
+                .font(.custom(TFontName.bold.rawValue, size: 40))
+                .foregroundStyle(Color(hex: T.ink))
+                .tnum()
+
+            WeeklyBars(days: days)
+
+            HStack(spacing: 16) {
+                legend(color: Color(hex: T.accentGradientStart), text: "Pay hours")
+                legend(color: Color(hex: T.accentGradientEnd), text: "Job hours")
+                Spacer()
+            }
+        }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frostedCard(radius: T.cornerHero)
+    }
+
+    private func legend(color: Color, text: String) -> some View {
+        HStack(spacing: 6) {
+            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 12, height: 12)
+            Text(text).font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
+        }
+    }
+}
+
+private struct WeeklyBars: View {
+    let days: [EffDay]
+    private let barsHeight: CGFloat = 96
+    private let maxValue: Double = 9   // a full workday ≈ a full bar (matches Hours)
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            ForEach(days) { d in
+                VStack(spacing: 6) {
+                    Text(String(format: "%+.2f", d.diff))
+                        .font(TTypo.mono(9))
+                        .foregroundStyle(d.diff < 0 ? Color(hex: T.red) : Color(hex: T.green))
+                        .tnum()
+                    HStack(alignment: .bottom, spacing: 3) {
+                        bar(value: d.pay, base: Color(hex: T.accentGradientStart))
+                        bar(value: d.job, base: Color(hex: T.accentGradientEnd))
+                    }
+                    .frame(height: barsHeight)
+                    Text(d.label)
+                        .font(TTypo.xs(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    /// One bar, styled like the Hours-page day bars: rounded, vertical-gradient
+    /// fill grown from the bottom, with a short muted stub when there's no data.
+    private func bar(value: Double, base: Color) -> some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 0)
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .fill(value > 0
+                      ? AnyShapeStyle(LinearGradient(colors: [base, base.opacity(0.6)],
+                                                     startPoint: .bottom, endPoint: .top))
+                      : AnyShapeStyle(Color(hex: T.progressTrack)))
+                .frame(height: max(6, min(1, value / maxValue) * barsHeight))
+        }
+        .frame(height: barsHeight)
     }
 }
 
@@ -279,25 +589,33 @@ private struct NonAdminEmpty: View {
     }
 }
 
-// MARK: - StatsPeriod
-// Drives the period chip in the Stats header. Tapping cycles through.
+// MARK: - Week picker (calendar → jump to a week's stats)
 
-enum StatsPeriod: CaseIterable {
-    case thisWeek, last30Days, allTime
+private struct WeekPickerSheet: View {
+    @Binding var selection: Date
+    @Environment(\.dismiss) private var dismiss
 
-    var label: String {
-        switch self {
-        case .thisWeek:   return "This week"
-        case .last30Days: return "Last 30 days"
-        case .allTime:    return "All time"
-        }
-    }
-
-    var next: StatsPeriod {
-        switch self {
-        case .thisWeek:   return .last30Days
-        case .last30Days: return .allTime
-        case .allTime:    return .thisWeek
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(hex: T.bg).ignoresSafeArea()
+                VStack(spacing: 12) {
+                    DatePicker("", selection: $selection, displayedComponents: .date)
+                        .datePickerStyle(.graphical)
+                        .tint(Color(hex: T.accent))
+                    Spacer(minLength: 0)
+                }
+                .padding(16)
+            }
+            .navigationTitle("Select week")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.bold)
+                        .foregroundColor(Color(hex: T.accent))
+                }
+            }
         }
     }
 }
