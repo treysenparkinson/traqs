@@ -3667,9 +3667,10 @@ Extraction rules:
     return () => clearInterval(id);
   }, [view, orgCode]);
 
-  // Time-off requests: admins load + poll the inbox (members submit from iOS).
+  // Time-off requests: everyone loads + polls (admins get all, members get
+  // their own) so the chat bubble can show live status + Approve/Deny.
   useEffect(() => {
-    if (!orgCode || !isAdmin) return;
+    if (!orgCode || !loggedInUser) return;
     let cancelled = false;
     const load = () => fetchTimeOffRequests(getToken, orgCode)
       .then(r => { if (!cancelled) setTimeOffRequests(r.requests || []); })
@@ -3678,7 +3679,7 @@ Extraction rules:
     const id = setInterval(() => { if (!document.hidden) load(); }, 30000);
     return () => { cancelled = true; clearInterval(id); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orgCode, isAdmin]);
+  }, [orgCode, loggedInUser?.id]);
 
   // Approve / deny / cancel a time-off request. Approve & cancel mutate
   // person.timeOff on the server, so we pull fresh people afterward (guarding
@@ -3742,10 +3743,10 @@ Extraction rules:
       if (e.data?.source !== "traqs-push") return;
       const d = e.data.data || {};
       // Time-off pushes carry an `event` (see timeoff.js). Request/cancellation
-      // pings go to admins → open the Approval Queue (the Time Off inbox lives
-      // there). Approve/deny pings target the requester, who has no desktop
-      // time-off view, so just leave them on the (now-focused) current page.
-      if (d.event === "request" || d.event === "cancelled") { setView("approvals"); return; }
+      // pings go to admins → open Messages (the request is delivered as a chat
+      // DM with in-bubble Approve/Deny). Approve/deny pings target the
+      // requester, who has no desktop time-off view, so leave them put.
+      if (d.event === "request" || d.event === "cancelled") { setView("messages"); return; }
       if (d.event === "approved" || d.event === "denied") return;
       // Everything else (chat + finish-request messages) → Messages.
       setView("messages");
@@ -5524,7 +5525,7 @@ ${jobsCtx || "No jobs found."}`;
     const label = opId ? `${panel.title} › ${target.title}` : target.title;
     postMessage({
       threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-      text: `✅ Finish request approved by ${loggedInUser.name}. "${label}" has been marked as Finished.`,
+      text: `Finish request approved by ${loggedInUser.name}. "${label}" has been marked as Finished.`,
       authorId: loggedInUser.id, authorName: loggedInUser.name,
       authorColor: elColor(loggedInUser.color) || "#64748b", participantIds, attachments: [],
     }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
@@ -5560,7 +5561,7 @@ ${jobsCtx || "No jobs found."}`;
     const label = opId ? `${panel.title} › ${target.title}` : target.title;
     postMessage({
       threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-      text: `❌ Finish request for "${label}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
+      text: `Finish request for "${label}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
       authorId: loggedInUser.id, authorName: loggedInUser.name,
       authorColor: elColor(loggedInUser.color) || "#64748b", participantIds, attachments: [],
     }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
@@ -5583,7 +5584,7 @@ ${jobsCtx || "No jobs found."}`;
     }
     const threadKey = scope === "op" ? `op:${opId}` : scope === "panel" ? `panel:${panelId}` : `job:${jobId}`;
     const participants = getThreadParticipants(scope, jobId, panelId, opId);
-    const text = `🔔 Reminder: ${note.trim() || "Please complete this job."}`;
+    const text = `Reminder: ${note.trim() || "Please complete this job."}`;
     try {
       const msg = await postMessage({
         threadKey, scope,
@@ -5895,6 +5896,12 @@ ${jobsCtx || "No jobs found."}`;
     }
     if (scope === "op" || threadKey?.startsWith("op:")) {
       for (const j of tasks) { for (const p of (j.subs || [])) { const o = (p.subs || []).find(x => x.id === opId); if (o) return `${p.title} — ${o.title}`; } } return "Operation Chat";
+    }
+    if (scope === "dm" || threadKey?.startsWith("dm:")) {
+      const ids = (threadKey?.slice(3) || "").split("_");
+      const otherId = ids.find(id => String(id) !== String(loggedInUser?.id)) || ids[0];
+      const other = people.find(p => String(p.id) === String(otherId));
+      return other ? other.name : "Direct Message";
     }
     return "Chat";
   }
@@ -7290,46 +7297,9 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={() => openApprovalModal(null)} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44` }}>+ New Approval</button>
         </div>
       </div>
-      {isAdmin && timeOffRequests.length > 0 && (() => {
-        const pending = timeOffRequests.filter(r => r.status === "pending").sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-        const decided = timeOffRequests.filter(r => r.status !== "pending").sort((a, b) => new Date(b.decidedAt || b.createdAt) - new Date(a.decidedAt || a.createdAt)).slice(0, 8);
-        const typeColor = t => t === "UTO" ? "#f59e0b" : "#10b981";
-        const fmtD = ds => { try { return new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); } catch { return ds; } };
-        const range = r => r.start === r.end ? fmtD(r.start) : `${fmtD(r.start)} – ${fmtD(r.end)}`;
-        return <div style={{ marginBottom: 22 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-            <span style={{ fontSize: 18, lineHeight: 1 }}>🌴</span>
-            <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Time Off Requests</h3>
-            {pending.length > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", borderRadius: 10, padding: "2px 10px" }}>{pending.length} pending</span>}
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {pending.map(r => <div key={r.id} className="tq-frost" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", padding: "12px 16px", borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{r.personName}</span>
-                  <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", color: typeColor(r.type), background: typeColor(r.type) + "1f", borderRadius: 8, padding: "2px 8px" }}>{r.type}</span>
-                </div>
-                <div style={{ fontSize: 13, color: T.textSec, marginTop: 3 }}>{range(r)}{r.note ? <span style={{ color: T.textDim }}> · {r.note}</span> : null}</div>
-              </div>
-              {toDeny === r.id ? <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 240 }}>
-                <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(r.id, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
-                <button disabled={toBusy === r.id} onClick={() => decideTimeOff(r.id, "deny", toDenyReason)} style={{ padding: "7px 12px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === r.id ? 0.6 : 1 }}>Confirm deny</button>
-                <button onClick={() => { setToDeny(null); setToDenyReason(""); }} style={{ padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              </div> : <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <button disabled={toBusy === r.id} onClick={() => decideTimeOff(r.id, "approve")} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === r.id ? 0.6 : 1 }}>Approve</button>
-                <button disabled={toBusy === r.id} onClick={() => { setToDeny(r.id); setToDenyReason(""); }} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Deny</button>
-              </div>}
-            </div>)}
-            {decided.map(r => <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 16px", fontSize: 12.5, color: T.textDim, flexWrap: "wrap" }}>
-              <span style={{ color: r.status === "approved" ? "#10b981" : r.status === "denied" ? "#ef4444" : T.textDim, fontWeight: 700, textTransform: "capitalize", minWidth: 70 }}>{r.status}</span>
-              <span style={{ color: T.textSec }}>{r.personName}</span>
-              <span>{r.type} · {range(r)}</span>
-              {r.status === "denied" && r.denialReason ? <span style={{ fontStyle: "italic" }}>“{r.denialReason}”</span> : null}
-            </div>)}
-          </div>
-        </div>;
-      })()}
-      {empty && !(isAdmin && timeOffRequests.some(r => r.status === "pending")) && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "70px 24px", textAlign: "center", gap: 12 }}>
+      {/* Time-off requests are delivered via chat (Messages) with in-bubble
+          Approve/Deny — no longer surfaced in the approval queue. */}
+      {empty && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "70px 24px", textAlign: "center", gap: 12 }}>
         <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
         <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: T.text }}>{noMatches ? "No approvals match your search" : "Nothing waiting for approval"}</h3>
         <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 360, lineHeight: 1.65 }}>{noMatches ? "Try a different search term, or clear the search to see everything." : "Create a standalone approval with “+ New Approval”, or pending job sign-offs will show up here automatically."}</p>
@@ -7692,7 +7662,7 @@ ${jobsCtx || "No jobs found."}`;
                   onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; if (!isSel) e.currentTarget.style.borderColor = "#10b98144"; }}
                   onMouseLeave={e => { if (!isSel) { e.currentTarget.style.opacity = "0.65"; e.currentTarget.style.borderColor = T.border; } }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                    <span style={{ fontSize: 11 }}>✅</span>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                     <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                     {client && <span style={{ fontSize: 10, color: elColor(client.color), fontWeight: 600 }}>{client.name}</span>}
                     {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600 }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>}
@@ -8631,7 +8601,7 @@ ${jobsCtx || "No jobs found."}`;
                 {clientCompletedExpanded && <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", background: T.surface }}>
                   {completedJobs.map(t => <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "12px 14px", border: `1px solid #10b98122`, borderLeft: `4px solid #10b981` }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                      <span style={{ fontSize: 13 }}>✅</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                       <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} onClick={() => { setSelClient(null); openDetail(t); }}>{t.title}</span>
                       {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: "#10b981", background: "#10b98115", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
                     </div>
@@ -10632,7 +10602,7 @@ ${jobsCtx || "No jobs found."}`;
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                    <span style={{ fontSize: 11, color: isPto ? bar.color : (accentText(bc)), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? `${bar.ptoType === "UTO" ? "📋" : "🏖️"} ${bar.title}` : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
+                    <span style={{ fontSize: 11, color: isPto ? bar.color : (accentText(bc)), fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={bar.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
                     {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
                   /* "New job" dot — a sibling of the bar (not a child, which the bar's overflow:hidden
@@ -13388,7 +13358,7 @@ ${jobsCtx || "No jobs found."}`;
           const allItems = [...pending.map(x => ({ ...x, done: false })), ...finished.map(x => ({ ...x, done: true }))];
           return <div key={tmpl.id} style={{ marginBottom: 12 }}>
             <div onClick={() => setMobileExp(p => ({ ...p, [mKey]: !p[mKey] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: `${T.accent}15`, borderRadius: T.radiusSm, border: `1px solid ${T.accent}30`, cursor: "pointer", marginBottom: isOpen ? 6 : 0 }}>
-              <span style={{ fontSize: 14 }}>✅</span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               <span style={{ fontSize: 14, fontWeight: 700, color: T.accent, flex: 1 }}>{tmpl.name}</span>
               {pending.length > 0 && <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{pending.length}</span>}
               {finished.length > 0 && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700, background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓{finished.length}</span>}
@@ -13455,7 +13425,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 13, fontWeight: 700, color: "#10b981", textTransform: "uppercase", letterSpacing: "0.06em", marginTop: 16, marginBottom: 8, padding: "4px 0" }}>Finished · {finished.length}</div>
           {finished.map(t => <div key={t.id} style={{ display: "flex", gap: 10, padding: "10px 12px", marginBottom: 4, background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, alignItems: "center", opacity: 0.65 }}>
             <div onClick={() => openDetail(t)} style={{ display: "flex", gap: 10, alignItems: "center", flex: 1, minWidth: 0, cursor: "pointer" }}>
-              <span style={{ fontSize: 14 }}>✅</span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               <span style={{ flex: 1, fontSize: 14, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
               <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(t.end)}</span>
             </div>
@@ -13851,7 +13821,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ overflow: "auto" }}>
             {unreadByThread.length === 0 ? (
-              <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up! 🎉</div>
+              <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>
             ) : unreadByThread.map(item => {
               const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
               return <div key={item.threadKey} onClick={() => {
@@ -13891,7 +13861,9 @@ ${jobsCtx || "No jobs found."}`;
       if (!threadMap[m.threadKey]) threadMap[m.threadKey] = { threadKey: m.threadKey, scope: m.scope, jobId: m.jobId, panelId: m.panelId, opId: m.opId, latest: m };
       else if (m.timestamp > threadMap[m.threadKey].latest.timestamp) threadMap[m.threadKey].latest = m;
     });
-    const jobThreads = Object.values(threadMap).filter(t => t.scope !== "group").sort((a, b) => b.latest.timestamp.localeCompare(a.latest.timestamp));
+    const isDmThread = t => t.scope === "dm" || String(t.threadKey).startsWith("dm:");
+    const dmThreads = Object.values(threadMap).filter(isDmThread).sort((a, b) => b.latest.timestamp.localeCompare(a.latest.timestamp));
+    const jobThreads = Object.values(threadMap).filter(t => t.scope !== "group" && !isDmThread(t)).sort((a, b) => b.latest.timestamp.localeCompare(a.latest.timestamp));
 
     const threadMessages = chatThread ? messages.filter(m => m.threadKey === chatThread.threadKey) : [];
     const canPost = !!(chatThread && loggedInUser);
@@ -13910,7 +13882,9 @@ ${jobsCtx || "No jobs found."}`;
     };
 
     const openThread = (threadKey, title, scope, jobId, panelId, opId, groupId) => {
-      const participants = getThreadParticipants(scope, jobId, panelId, opId, groupId);
+      const participants = (scope === "dm" || String(threadKey).startsWith("dm:"))
+        ? threadKey.slice(3).split("_").map(id => people.find(p => String(p.id) === String(id))).filter(Boolean)
+        : getThreadParticipants(scope, jobId, panelId, opId, groupId);
       setChatThread({ threadKey, title, scope, jobId: jobId || null, panelId: panelId || null, opId: opId || null, groupId: groupId || null, participants });
       markThreadRead(threadKey);
     };
@@ -13938,7 +13912,7 @@ ${jobsCtx || "No jobs found."}`;
             {ts && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{ts}</span>}
           </div>
           {latest && <div style={{ fontSize: 12, color: T.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {latest.authorId === loggedInUser?.id ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "📎 Attachment" : "")}
+            {latest.authorId === loggedInUser?.id ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "Attachment" : "")}
           </div>}
         </div>
         {unread > 0 && <div style={{ width: 20, height: 20, borderRadius: 10, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0, marginTop: 8 }}>{unread > 9 ? "9+" : unread}</div>}
@@ -13966,9 +13940,20 @@ ${jobsCtx || "No jobs found."}`;
           const latest = messages.filter(m => m.threadKey === tk).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
           const isPinned = pinnedGroups.includes(g.id);
           return <div key={g.id} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setGroupCtxMenu({ x: e.clientX, y: e.clientY, groupId: g.id, groupName: g.name }); }}>
-            {renderThread(tk, (isPinned ? "📌 " : "") + g.name, latest, unreadCount(tk), <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>)}
+            {renderThread(tk, g.name, latest, unreadCount(tk), <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>)}
           </div>;
         })}
+        {/* Direct messages (includes time-off requests routed to admins) */}
+        {dmThreads.length > 0 && <>
+          <div style={{ padding: "10px 14px 6px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Direct Messages</span>
+          </div>
+          {dmThreads.map(t => {
+            const title = getThreadTitle(t.threadKey, "dm");
+            const icon = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
+            return <div key={t.threadKey}>{renderThread(t.threadKey, title, t.latest, unreadCount(t.threadKey), icon)}</div>;
+          })}
+        </>}
         {/* Job threads */}
         {jobThreads.length > 0 && <>
           <div style={{ padding: "10px 14px 6px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
@@ -13987,7 +13972,7 @@ ${jobsCtx || "No jobs found."}`;
               ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
               : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>;
             return <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setThreadCtxMenu({ x: e.clientX, y: e.clientY, threadKey: t.threadKey, title, scope: t.scope, jobId: t.jobId, panelId: t.panelId, opId: t.opId }); }}>
-              {renderThread(t.threadKey, (isPinned ? "📌 " : "") + title, t.latest, unreadCount(t.threadKey), icon)}
+              {renderThread(t.threadKey, title, t.latest, unreadCount(t.threadKey), icon)}
             </div>;
           })}
         </>}
@@ -14133,7 +14118,7 @@ ${jobsCtx || "No jobs found."}`;
                           {/* Resolution card — shown after decision */}
                           {(isApproved || isDeclined) && <div style={{ padding: "12px 14px", borderRadius: T.radiusXs, background: isApproved ? "#10b98110" : "#ef444410", border: `1px solid ${isApproved ? "#10b98130" : "#ef444430"}`, marginBottom: 4 }}>
                             <div style={{ fontSize: 13, fontWeight: 600, color: isApproved ? "#10b981" : "#ef4444" }}>
-                              {isApproved ? "✅ Approved" : "❌ Declined"} by {frReq.resolvedByName} · {new Date(frReq.resolvedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                              {isApproved ? "Approved" : "Declined"} by {frReq.resolvedByName} · {new Date(frReq.resolvedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
                             </div>
                             {isDeclined && frReq.declineReason && <div style={{ fontSize: 12, color: T.textSec, marginTop: 4 }}>Reason: {frReq.declineReason}</div>}
                           </div>}
@@ -14169,6 +14154,57 @@ ${jobsCtx || "No jobs found."}`;
                     </div>;
                   }
 
+                  // ── Special rendering: Time Off Request ──
+                  if (m.type === "timeoff_request") {
+                    const toReq = timeOffRequests.find(r => String(r.id) === String(m.timeOffRequestId));
+                    const toStatus = toReq?.status || "pending";
+                    const toTypeV = toReq?.type || m.toType || "PTO";
+                    const toStartD = toReq?.start || m.toStart;
+                    const toEndD = toReq?.end || m.toEnd;
+                    const toNoteV = toReq?.note ?? m.toNote ?? "";
+                    const toName = toReq?.personName || m.toPersonName || m.authorName;
+                    const toClr = toTypeV === "UTO" ? "#f59e0b" : "#10b981";
+                    const fmtTO = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+                    const rangeTO = toStartD === toEndD ? fmtTO(toStartD) : `${fmtTO(toStartD)} – ${fmtTO(toEndD)}`;
+                    const toPending = toStatus === "pending";
+                    const denying = toDeny === m.timeOffRequestId;
+                    return <div key={m.id} style={{ padding: "8px 14px" }}>
+                      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius, overflow: "hidden", maxWidth: 460 }}>
+                        <div style={{ padding: "13px 16px 11px", borderBottom: `1px solid ${T.border}`, background: T.card, display: "flex", alignItems: "center", gap: 11 }}>
+                          <span style={{ flexShrink: 0, lineHeight: 0, color: toClr }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Time Off Request</div>
+                            <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>from <strong style={{ color: T.text }}>{toName}</strong> · {ts}</div>
+                          </div>
+                          {toPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
+                          {toStatus === "approved" && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
+                          {toStatus === "denied" && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Denied</span>}
+                          {toStatus === "cancelled" && <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, background: T.border, borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Cancelled</span>}
+                        </div>
+                        <div style={{ padding: "14px 16px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: toNoteV ? 8 : 12 }}>
+                            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", color: toClr, background: toClr + "1f", borderRadius: 8, padding: "2px 9px" }}>{toTypeV}</span>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{rangeTO}</span>
+                          </div>
+                          {toNoteV && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 12, lineHeight: 1.5 }}>{toNoteV}</div>}
+                          {toReq && toStatus !== "pending" && toReq.decidedByName && <div style={{ fontSize: 12, color: T.textDim }}>{toStatus === "approved" ? "Approved" : toStatus === "denied" ? "Denied" : "Updated"} by {toReq.decidedByName}{toReq.denialReason ? ` · “${toReq.denialReason}”` : ""}</div>}
+                          {isAdmin && toPending && (denying
+                            ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+                                <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(m.timeOffRequestId, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ padding: "9px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button onClick={() => { setToDeny(null); setToDenyReason(""); }} style={{ flex: 1, padding: "11px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                                  <button disabled={toBusy === m.timeOffRequestId} onClick={() => decideTimeOff(m.timeOffRequestId, "deny", toDenyReason)} style={{ flex: 1, padding: "11px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Confirm Deny</button>
+                                </div>
+                              </div>
+                            : <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+                                <button disabled={toBusy === m.timeOffRequestId} onClick={() => { setToDeny(m.timeOffRequestId); setToDenyReason(""); }} style={{ flex: 1, padding: "13px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Deny</button>
+                                <button disabled={toBusy === m.timeOffRequestId} onClick={() => decideTimeOff(m.timeOffRequestId, "approve")} style={{ flex: 1, padding: "13px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Approve</button>
+                              </div>)}
+                        </div>
+                      </div>
+                    </div>;
+                  }
+
                   // ── Standard message bubble ──
                   return <div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 10, padding: "4px 14px", alignItems: "center" }}>
                     <div style={{ width: 32, height: 32, borderRadius: 16, background: m.authorColor, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{m.authorName[0]}</div>
@@ -14183,7 +14219,7 @@ ${jobsCtx || "No jobs found."}`;
                               <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "cover" }} loading="lazy" />
                             </div>
                           : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: m.authorColor + "cc", border: `1px solid ${m.authorColor}`, borderRadius: 10, fontSize: 13, color: "#fff", cursor: "pointer", maxWidth: 220 }}>
-                              <span style={{ fontSize: 17, flexShrink: 0 }}>{att.mimeType === "application/pdf" ? "📄" : "📎"}</span>
+                              <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                             </div>
                       ))}
@@ -14207,7 +14243,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {chatAttachments.map((att, i) => (
                       <div key={att.key} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px 4px 6px", background: T.accent + "18", border: `1px solid ${T.accent}44`, borderRadius: 8, maxWidth: 180 }}>
-                        <span style={{ fontSize: 14 }}>{att.mimeType.startsWith("image/") ? "🖼️" : att.mimeType === "application/pdf" ? "📄" : "📎"}</span>
+                        <span style={{ lineHeight: 0 }}>{att.mimeType.startsWith("image/") ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}</span>
                         <span style={{ fontSize: 11, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{att.filename}</span>
                         <button onClick={() => setChatAttachments(prev => prev.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: T.textDim, fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
                       </div>
@@ -15398,10 +15434,10 @@ ${jobsCtx || "No jobs found."}`;
                   {slot.busy.map(p => <span key={p.id} style={{ fontSize:11, padding:"2px 8px", borderRadius:6, background:T.danger+"10", color:T.danger+"aa", fontWeight:500, textDecoration:"line-through" }}>{p.name}</span>)}
                 </div>}
                 {slot.staggered && <div style={{ marginTop:6, padding:"6px 10px", background:T.accent+"08", borderRadius:T.radiusXs, border:`1px solid ${T.accent}22`, fontSize:11, color:T.textSec }}>
-                  📋 <strong style={{ color:T.text }}>{slot.businessDays} day{slot.businessDays>1?"s":""}</strong> window — <strong style={{ color:T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}</strong> scheduled sequentially
+                  <strong style={{ color:T.text }}>{slot.businessDays} day{slot.businessDays>1?"s":""}</strong> window — <strong style={{ color:T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}</strong> scheduled sequentially
                 </div>}
                 {!slot.staggered && <div style={{ marginTop:6, padding:"6px 10px", background:"#10b98108", borderRadius:T.radiusXs, border:"1px solid #10b98122", fontSize:11, color:T.textSec }}>
-                  📋 Scheduling <strong style={{ color:T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}</strong> sequentially — one person per operation
+                  Scheduling <strong style={{ color:T.text }}>{aiSuggestion.numPanels} operation{aiSuggestion.numPanels>1?"s":""}</strong> sequentially — one person per operation
                 </div>}
               </div>)}
             </div>}
@@ -15721,7 +15757,7 @@ ${jobsCtx || "No jobs found."}`;
                     : attView === "list"
                       ? <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           {atts.map(a => <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg }}>
-                            <span style={{ fontSize: 14, flexShrink: 0 }}>{a.mimeType?.startsWith("image/") ? "🖼️" : "📄"}</span>
+                            <span style={{ flexShrink: 0, lineHeight: 0 }}>{a.mimeType?.startsWith("image/") ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}</span>
                             <span onClick={() => setLightboxAtt(a)} title="View" style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "underline" }}>{a.filename}</span>
                             {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", border: "none", background: T.danger + "22", color: T.danger, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
                           </div>)}
@@ -15731,7 +15767,7 @@ ${jobsCtx || "No jobs found."}`;
                             <div onClick={() => setLightboxAtt(a)} title={`${a.filename}${a.uploadedByName ? " · " + a.uploadedByName : ""}`} style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.bg }}>
                               {a.mimeType?.startsWith("image/")
                                 ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>📎</div>}
+                                : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>}
                             </div>
                             {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 18, height: 18, borderRadius: "50%", border: "none", background: T.danger, color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
                           </div>)}
@@ -15919,7 +15955,7 @@ ${jobsCtx || "No jobs found."}`;
               {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
             </div>
             {unreadByThread.length === 0 ? (
-              <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up! 🎉</div>
+              <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>
             ) : unreadByThread.map((item, i) => {
               const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
               const author = people.find(p => p.id === item.latest.authorId);
@@ -16836,7 +16872,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ flex: 1 }} />
               {/* Export buttons */}
               <div style={{ display: "flex", gap: 6 }}>
-                {[["📄 PDF", doPDF], ["📊 CSV", doCSV], ["📝 Word", doWord]].map(([lbl, fn]) => (
+                {[["PDF", doPDF], ["CSV", doCSV], ["Word", doWord]].map(([lbl, fn]) => (
                   <button key={lbl} onClick={fn} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: exportData.length > 0 ? 1 : 0.4 }}>{lbl} {exportSelRows.size > 0 ? `(${exportSelRows.size})` : `(${visibleJobs.length})`}</button>
                 ))}
               </div>
@@ -18359,7 +18395,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>}
               {uploadFiles.length > 0 && <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                 {uploadFiles.map((f, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderRadius: T.radiusXs, fontSize: 12 }}>
-                  <span style={{ fontSize: 14 }}>{f.name.endsWith(".pdf") ? "📄" : f.name.endsWith(".xlsx") || f.name.endsWith(".xls") ? "📊" : /\.(png|jpg|jpeg)$/i.test(f.name) ? "🖼️" : "📝"}</span>
+                  <span style={{ lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                   <span style={{ flex: 1, color: T.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
                   <span style={{ color: T.textSec, fontSize: 11 }}>{(f.size / 1024).toFixed(1)}KB</span>
                   {!uploadProcessing && <button onClick={e => { e.stopPropagation(); setUploadFiles(prev => prev.filter((_, j) => j !== i)); }} style={{ background: "none", border: "none", color: T.text, cursor: "pointer", fontSize: 14, padding: "0 4px" }}>✕</button>}
@@ -18368,7 +18404,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
 
             {uploadResult && <div style={{ marginTop: 16, padding: "12px 14px", borderRadius: T.radiusSm, background: uploadResult.success ? "#10b98115" : "#ef444415", border: `1px solid ${uploadResult.success ? "#10b98133" : "#ef444433"}` }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: uploadResult.success ? "#10b981" : "#ef4444" }}>{uploadResult.success ? "✅ Success" : "❌ Error"}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: uploadResult.success ? "#10b981" : "#ef4444" }}>{uploadResult.success ? "Success" : "Error"}</div>
               <div style={{ fontSize: 12, color: T.textSec, marginTop: 4 }}>{uploadResult.message}</div>
             </div>}
           </div>
@@ -18600,7 +18636,7 @@ ${jobsCtx || "No jobs found."}`;
       {lightboxAtt.mimeType?.startsWith("image/")
         ? <img src={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} alt={lightboxAtt.filename} onClick={e => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "88vh", borderRadius: 10, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.8)" }} />
         : <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, padding: "32px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16, maxWidth: 340 }}>
-            <span style={{ fontSize: 48 }}>{lightboxAtt.mimeType === "application/pdf" ? "📄" : "📎"}</span>
+            <span style={{ lineHeight: 0, color: T.textDim }}><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.text, textAlign: "center", wordBreak: "break-all" }}>{lightboxAtt.filename}</div>
             <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: T.accent, color: T.accentText, borderRadius: 9, padding: "10px 24px", textDecoration: "none", fontSize: 14, fontWeight: 600, fontFamily: T.font }}>Download</a>
           </div>
@@ -18643,7 +18679,7 @@ ${jobsCtx || "No jobs found."}`;
         <div onClick={e => e.stopPropagation()} style={{ position: "relative", background: T.card, borderRadius: T.radius, width: "100%", maxWidth: 720, maxHeight: "calc(100vh - 48px)", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column", fontFamily: T.font }}>
           <div style={{ padding: "20px 28px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>📎 Attachments</h3>
+              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Attachments</h3>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>{job.title} · {total} photo{total === 1 ? "" : "s"} across {panels.length} panel{panels.length === 1 ? "" : "s"}</div>
             </div>
             <button onClick={() => setAttachmentsModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
@@ -18667,7 +18703,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div onClick={() => setLightboxAtt(a)} title={`${a.uploadedByName || ""}${a.uploadedAt ? " · " + new Date(a.uploadedAt).toLocaleString() : ""}`} style={{ width: 96, height: 96, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.surface }}>
                           {a.mimeType?.startsWith("image/")
                             ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                            : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30 }}>📎</div>}
+                            : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim }}><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>}
                         </div>
                         {canEdit && <button onClick={() => deletePanelAttachment({ jobId: job.id, panelId: panel.id }, a.key)} title="Remove" style={{ position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: "50%", border: "none", background: T.danger, color: "#fff", fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, boxShadow: "0 2px 6px rgba(0,0,0,0.4)" }}>×</button>}
                         <div style={{ fontSize: 9, color: T.textDim, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.uploadedByName || a.filename}</div>
@@ -18686,7 +18722,7 @@ ${jobsCtx || "No jobs found."}`;
         {/* Header */}
         <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>💬 {quickChat.title}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{quickChat.title}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 5 }}>
               {quickChat.participants.slice(0, 7).map(p => (
                 <div key={p.id} title={p.name} style={{ width: 22, height: 22, borderRadius: 11, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: accentText(p.color), flexShrink: 0 }}>{p.name[0]}</div>
@@ -18723,7 +18759,7 @@ ${jobsCtx || "No jobs found."}`;
                           <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} style={{ display: "block", maxWidth: "100%", maxHeight: 160, objectFit: "cover" }} loading="lazy" />
                         </div>
                       : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: m.authorColor + "cc", border: `1px solid ${m.authorColor}`, borderRadius: 9, fontSize: 12, color: "#fff", cursor: "pointer", maxWidth: 190 }}>
-                          <span style={{ fontSize: 15, flexShrink: 0 }}>{att.mimeType === "application/pdf" ? "📄" : "📎"}</span>
+                          <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                         </div>
                   ))}
@@ -18756,7 +18792,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>👥 {groupCtxMenu.groupName}</div>
         </div>
-        <CtxMenuItem icon={pinnedGroups.includes(groupCtxMenu.groupId) ? "📌" : "📌"} label={pinnedGroups.includes(groupCtxMenu.groupId) ? "Unpin from Top" : "Pin to Top"} sub={pinnedGroups.includes(groupCtxMenu.groupId) ? "Remove from pinned" : "Keep at top of list"} onClick={() => {
+        <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg>} label={pinnedGroups.includes(groupCtxMenu.groupId) ? "Unpin from Top" : "Pin to Top"} sub={pinnedGroups.includes(groupCtxMenu.groupId) ? "Remove from pinned" : "Keep at top of list"} onClick={() => {
           const updated = pinnedGroups.includes(groupCtxMenu.groupId)
             ? pinnedGroups.filter(id => id !== groupCtxMenu.groupId)
             : [...pinnedGroups, groupCtxMenu.groupId];
@@ -18786,7 +18822,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{threadCtxMenu.scope === "op" ? "🔧" : threadCtxMenu.scope === "panel" ? "📦" : "🏗"} {threadCtxMenu.title}</div>
         </div>
-        <CtxMenuItem icon="📌" label={pinnedThreads.includes(threadCtxMenu.threadKey) ? "Unpin from Top" : "Pin to Top"} sub={pinnedThreads.includes(threadCtxMenu.threadKey) ? "Remove from pinned" : "Keep at top of list"} onClick={() => {
+        <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg>} label={pinnedThreads.includes(threadCtxMenu.threadKey) ? "Unpin from Top" : "Pin to Top"} sub={pinnedThreads.includes(threadCtxMenu.threadKey) ? "Remove from pinned" : "Keep at top of list"} onClick={() => {
           const updated = pinnedThreads.includes(threadCtxMenu.threadKey)
             ? pinnedThreads.filter(tk => tk !== threadCtxMenu.threadKey)
             : [...pinnedThreads, threadCtxMenu.threadKey];
@@ -19919,7 +19955,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 12, flexShrink: 0 }}>
                 <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                  📎 Attachments{(() => { const n = (ej.subs || []).reduce((s, p) => s + (p.attachments?.length || 0), 0); return n ? ` (${n})` : ""; })()}
+                  Attachments{(() => { const n = (ej.subs || []).reduce((s, p) => s + (p.attachments?.length || 0), 0); return n ? ` (${n})` : ""; })()}
                 </button>
                 <button onClick={() => setEditJobModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
               </div>
@@ -20464,7 +20500,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Type</label>
           <div style={{ display: "flex", gap: 6 }}>
-            {["PTO", "UTO"].map(t => <button key={t} onClick={() => setToType(t)} style={{ padding: "7px 18px", borderRadius: 8, border: `1px solid ${toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "66" : T.border}`, background: toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: toType === t ? 700 : 400, color: toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") : T.textSec, transition: "all 0.15s" }}>{t === "PTO" ? "🏖️ PTO (Paid)" : "📋 UTO (Unpaid)"}</button>)}
+            {["PTO", "UTO"].map(t => <button key={t} onClick={() => setToType(t)} style={{ padding: "7px 18px", borderRadius: 8, border: `1px solid ${toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "66" : T.border}`, background: toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: toType === t ? 700 : 400, color: toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") : T.textSec, transition: "all 0.15s" }}>{t === "PTO" ? "PTO (Paid)" : "UTO (Unpaid)"}</button>)}
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>

@@ -159,11 +159,50 @@ export async function handler(event) {
       return err(500, "Failed to save request");
     }
 
+    // Surface the request in chat (Messages): a DM from the requester to each
+    // admin carrying the request, so admins approve/deny right in the bubble.
+    // Written straight to messages.json server-side (bypasses the member auth
+    // gate on /messages, which requires authorId === caller). Both DM
+    // participants can read it; approval still flows through the PATCH handler
+    // → person.timeOff, so the schedule/export are unaffected.
+    try {
+      const admins = people.filter((p) => p.userRole === "admin" && String(p.id) !== String(meId));
+      if (admins.length > 0) {
+        const messagesKey = `orgs/${orgCode}/messages.json`;
+        let messages = (await readJson(messagesKey)) ?? [];
+        if (!Array.isArray(messages)) messages = [];
+        const summary = `${personName} requested ${type} · ${fmtRange(start, end)}${note ? ` — "${note}"` : ""}`;
+        const authorColor = me?.color || "#4169e1";
+        for (const a of admins) {
+          const threadKey = `dm:${[String(meId), String(a.id)].sort().join("_")}`;
+          messages.push({
+            id: makeId(),
+            threadKey,
+            scope: "dm",
+            jobId: null, panelId: null, opId: null,
+            text: summary,
+            authorId: String(meId),
+            authorName: personName,
+            authorColor,
+            participantIds: [String(meId), String(a.id)],
+            attachments: [],
+            timestamp: nowIso(),
+            type: "timeoff_request",
+            timeOffRequestId: record.id,
+            toType: type, toStart: start, toEnd: end, toNote: note, toPersonName: personName,
+          });
+        }
+        await writeJson(messagesKey, messages.slice(-2000));
+      }
+    } catch (e) {
+      console.error("timeoff → chat post failed:", e);
+    }
+
     await pushTo(
       orgCode,
       people,
       adminIdsOf(people),
-      "🌴 Time Off Request",
+      "Time Off Request",
       `${personName} requested ${type} for ${fmtRange(start, end)}. Tap to approve or deny.`,
       { event: "request", requestId: record.id }
     );
@@ -253,7 +292,7 @@ export async function handler(event) {
         orgCode,
         people,
         [reqRec.personId],
-        "✅ Time Off Approved",
+        "Time Off Approved",
         `Your ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)} was approved.`,
         { event: "approved", requestId: reqRec.id }
       );
@@ -278,7 +317,7 @@ export async function handler(event) {
         orgCode,
         people,
         [reqRec.personId],
-        "❌ Time Off Denied",
+        "Time Off Denied",
         `Your ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)} was denied${reason ? `: ${reason}` : "."}`,
         { event: "denied", requestId: reqRec.id }
       );
@@ -319,7 +358,7 @@ export async function handler(event) {
       orgCode,
       people,
       adminIdsOf(people),
-      "🚫 Time Off Cancelled",
+      "Time Off Cancelled",
       `${reqRec.personName} cancelled their ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)}.`,
       { event: "cancelled", requestId: reqRec.id }
     );
