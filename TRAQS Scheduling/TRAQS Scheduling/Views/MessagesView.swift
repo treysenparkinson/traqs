@@ -1,4 +1,7 @@
 import SwiftUI
+import PhotosUI
+import UIKit
+import UniformTypeIdentifiers
 
 // MARK: - Chat V1 (Inbox) · TRAQS Light
 // Inbox / channel list. DMs + group threads.
@@ -22,6 +25,7 @@ struct MessagesView: View {
     @State private var showNewGroup = false
     @State private var showNewDM = false
     @State private var filter: ChatFilter = .all
+    @State private var filterOpen = false   // filter FAB dropdown open?
     @State private var navigationPath = NavigationPath()
     @State private var searchText = ""
     @State private var showSearch = false
@@ -210,7 +214,7 @@ struct MessagesView: View {
                     }
                     .animation(.easeInOut(duration: 0.18), value: selectMode)
 
-                    PageTitle(title: "Chat")
+                    PageTitle(title: "Messages")
                         .padding(.bottom, 6)
 
                     if showSearch {
@@ -228,38 +232,65 @@ struct MessagesView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            FilterPills(selected: $filter)
-                                .padding(.top, 4)
-                                .padding(.bottom, 8)
-
-                            if filteredThreads.isEmpty {
-                                ChatEmptyState(filter: filter)
-                                    .padding(.top, 80)
-                            } else {
-                                TSectionTitle(title: "Inbox",
-                                              action: "MARK ALL READ",
-                                              onAction: { appState.markAllThreadsRead() })
-                                VStack(spacing: 12) {
-                                    ForEach(filteredThreads) { t in
-                                        threadRow(t)
-                                            .frostedCard(radius: T.cornerMd)
+                    // Inbox + the filter FAB. The list blurs behind the floating
+                    // filter options when the FAB is open (mirrors the Jobs tab's
+                    // range picker); tapping the backdrop dismisses it.
+                    ZStack(alignment: .topTrailing) {
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                if filteredThreads.isEmpty {
+                                    ChatEmptyState(filter: filter)
+                                        .padding(.top, 80)
+                                } else {
+                                    TSectionTitle(title: "Inbox",
+                                                  action: "MARK ALL READ",
+                                                  onAction: { appState.markAllThreadsRead() })
+                                    VStack(spacing: 12) {
+                                        ForEach(filteredThreads) { t in
+                                            threadRow(t)
+                                                .frostedCard(radius: T.cornerMd)
+                                        }
                                     }
+                                    .padding(.horizontal, 16)
+                                    .padding(.bottom, 96)   // clear the bottom-right filter FAB
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 24)
                             }
+                            .animation(.easeInOut(duration: 0.18), value: filter)
                         }
-                        .animation(.easeInOut(duration: 0.18), value: filter)
+                        .scrollIndicators(.hidden)
+                        .topFadeMask()
+                        .allowsHitTesting(!filterOpen)
+
+                        // Fading backdrop blur + tap-to-dismiss. Always mounted,
+                        // driven by opacity so it eases away when the FAB closes.
+                        FadingBlur()
+                            .ignoresSafeArea()
+                            .opacity(filterOpen ? 1 : 0)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
+                                    filterOpen = false
+                                }
+                            }
+                            .allowsHitTesting(filterOpen)
+                            .animation(.easeInOut(duration: 0.28), value: filterOpen)
+
+                        // Bottom-right: the filter FAB with its options stacked
+                        // ABOVE it (they float over the blurred inbox).
+                        VStack(alignment: .trailing, spacing: 12) {
+                            filterOptions
+                            FilterFab(open: $filterOpen)
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .padding(.trailing, 20)
+                        .padding(.bottom, 26)
                     }
-                    .scrollIndicators(.hidden)
-                    .topFadeMask()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { key in
-                ThreadDetailView(threadKey: key)
+                ThreadDetailView(threadKey: key, onOpenThread: { navigationPath.append($0) })
             }
             .sheet(isPresented: $showNewGroup) {
                 NewGroupSheet { name, memberIds in
@@ -304,6 +335,29 @@ struct MessagesView: View {
         .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeThreadDeepLink() }
     }
 
+    /// Floating filter options — stacked vertically above the filter FAB,
+    /// dropping in one-by-one (nearest the FAB reveals first). Empty (zero-size)
+    /// when closed. Mirrors the Jobs tab's range picker.
+    @ViewBuilder private var filterOptions: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            if filterOpen {
+                let opts = Array(ChatFilter.allCases.reversed())   // [mentions … all]
+                ForEach(Array(opts.enumerated()), id: \.element) { idx, opt in
+                    let fromFab = opts.count - 1 - idx   // 0 = nearest the FAB
+                    RangePill(label: opt.label, selected: opt == filter) {
+                        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
+                            filter = opt
+                            filterOpen = false
+                        }
+                    }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.spring(response: 0.32, dampingFraction: 0.74)
+                                .delay(Double(fromFab) * 0.05), value: filterOpen)
+                }
+            }
+        }
+    }
+
     /// Navigate to the thread named by a pending `.thread` deep link.
     private func consumeThreadDeepLink() {
         guard case let .thread(key)? = appNav.pendingDeepLink else { return }
@@ -336,6 +390,26 @@ struct MessagesView: View {
             .simultaneousGesture(TapGesture().onEnded {
                 appState.markThreadRead(t.key)
             })
+            // Press-and-hold to enter multi-select with this row selected.
+            // Flipping selectMode swaps this NavigationLink for the select-mode
+            // Button below, which cancels the in-flight tap so the hold doesn't
+            // also navigate into the thread.
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                    enterSelectMode(selecting: t.key)
+                }
+            )
+        }
+    }
+
+    /// Long-press a row (when not already selecting) to enter select mode with
+    /// that row pre-selected. A haptic confirms the mode switch.
+    private func enterSelectMode(selecting key: String) {
+        guard !selectMode else { return }
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.easeInOut(duration: 0.2)) {
+            selectMode = true
+            selectedKeys.insert(key)
         }
     }
 
@@ -347,30 +421,25 @@ struct MessagesView: View {
     }
 }
 
-// MARK: - Filter pills
+// MARK: - Filter FAB
+// Bottom-right floating filter button, mirroring the Jobs tab's calendar FAB
+// (CalendarFab): a gradient circle that toggles a stack of filter options
+// (reusing RangePill) above it. Replaces the old horizontal filter pills.
 
-private struct FilterPills: View {
-    @Binding var selected: ChatFilter
+private struct FilterFab: View {
+    @Binding var open: Bool
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(ChatFilter.allCases, id: \.self) { f in
-                    let on = f == selected
-                    Button { withAnimation(.easeInOut(duration: 0.18)) { selected = f } } label: {
-                        Text(f.label)
-                            .font(TTypo.xsBold(12))
-                            .foregroundStyle(on ? .white : Color(hex: T.ink))
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(Capsule().fill(on ? Color(hex: T.sky) : Color(hex: T.surface)))
-                            .overlay(Capsule().stroke(on ? Color(hex: T.sky) : Color(hex: T.hair), lineWidth: 1))
-                            .shadow(color: on ? Color(hex: T.sky).opacity(T.skyShadowOpacity) : .clear,
-                                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 16)
+        Button {
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { open.toggle() }
+        } label: {
+            TIconView(icon: .filter, size: 24, color: .white, weight: .bold)
+                .frame(width: 62, height: 62)
+                .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
+                .shadow(color: Color(hex: T.ctaGlowColor).opacity(0.5), radius: 16, x: 0, y: 8)
+                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                .scaleEffect(open ? 1.06 : 1)
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -408,10 +477,10 @@ private struct ChannelRow: View {
         return ordered
     }
 
-    /// Short relative time for the last message ("2m", "1h", …), shown
-    /// top-right of the row to match the wireframe.
+    /// Date the last message was sent, shown top-right of the row.
+    /// Today → "Today at 9:30PM" · any earlier day → "June 30".
     private var timeLabel: String {
-        thread.lastMessage?.timestamp.shortTimestamp ?? ""
+        thread.lastMessage?.timestamp.threadDateStamp ?? ""
     }
 
     var body: some View {
@@ -584,16 +653,59 @@ struct ThreadDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     let threadKey: String
+    /// Open another thread (used when adding people to a DM spins up a group).
+    /// Supplied by MessagesView, which owns the navigation path.
+    var onOpenThread: (String) -> Void = { _ in }
     @State private var newText = ""
     @State private var isSending = false
     @State private var sendError: String? = nil
     @State private var myMessageIds: Set<String> = []
+    @State private var showPeople = false     // header people/add popover open?
+    @State private var showAddPeople = false  // add-people multi-select sheet?
+    @State private var peopleListHeight: CGFloat = 0   // measured pill-stack height
+
+    // Composer attachment (one at a time). An image routes through the
+    // downscaler; a non-image file is sent as-is. Mirrors the end-job panel
+    // photo picker (PanelPhotoSheet) so camera/library/files behave the same.
+    @State private var pickedImage: UIImage?
+    @State private var pickedFile: PickedAttachment?
+    @State private var photoItem: PhotosPickerItem?
+    @State private var showSourceDialog = false
+    @State private var showCamera = false
+    @State private var showLibrary = false
+    @State private var showFiles = false
+
+    private var hasAttachment: Bool { pickedImage != nil || pickedFile != nil }
 
     // Always live — recomputes whenever appState.messages changes
     var liveMessages: [Message] {
         appState.messages
             .filter { $0.threadKey == threadKey }
             .sorted { $0.timestamp < $1.timestamp }
+    }
+
+    /// Messages grouped into time clusters. A new section begins on a new
+    /// calendar day or after a gap of more than an hour; each section's header
+    /// shows when that cluster started (e.g. "Today at 9:30PM", "June 30 at
+    /// 2:15PM"). `liveMessages` is already sorted ascending, so a single pass
+    /// appends to the current section or opens a new one.
+    private var messageSections: [MessageSection] {
+        let sectionGap: TimeInterval = 60 * 60   // 1 hour
+        var sections: [MessageSection] = []
+        for m in liveMessages {
+            if let last = sections.last, let lastMsg = last.messages.last,
+               let lastDate = Date.fromFlexibleISO8601(lastMsg.timestamp),
+               let thisDate = Date.fromFlexibleISO8601(m.timestamp),
+               Calendar.current.isDate(thisDate, inSameDayAs: lastDate),
+               thisDate.timeIntervalSince(lastDate) < sectionGap {
+                sections[sections.count - 1].messages.append(m)
+            } else {
+                sections.append(MessageSection(id: m.id,
+                                               header: m.timestamp.sectionStamp,
+                                               messages: [m]))
+            }
+        }
+        return sections
     }
 
     var displayTitle: String {
@@ -638,7 +750,12 @@ struct ThreadDetailView: View {
             VStack(spacing: 0) {
                 ThreadHeader(title: displayTitle,
                              participants: threadParticipants,
-                             onBack: { dismiss() })
+                             onBack: { dismiss() },
+                             onTapPeople: {
+                                 withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                                     showPeople.toggle()
+                                 }
+                             })
 
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -649,9 +766,12 @@ struct ThreadDetailView: View {
                                     .foregroundColor(Color(hex: T.muted))
                                     .padding(.top, 40)
                             }
-                            ForEach(liveMessages) { msg in
-                                MessageBubble(message: msg, isMe: isMyMessage(msg))
-                                    .id(msg.id)
+                            ForEach(messageSections) { section in
+                                SectionTimeHeader(text: section.header)
+                                ForEach(section.messages) { msg in
+                                    MessageBubble(message: msg, isMe: isMyMessage(msg))
+                                        .id(msg.id)
+                                }
                             }
                         }
                         .padding()
@@ -669,34 +789,85 @@ struct ThreadDetailView: View {
                     }
                 }
 
-                HStack(spacing: 10) {
-                    TextField("Message…", text: $newText, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(TTypo.sm(14))
-                        .foregroundColor(Color(hex: T.ink))
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .background(Capsule().fill(Color(hex: T.surface)))
-                        .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                        .lineLimit(1...5)
+                VStack(spacing: 8) {
+                    // Pending attachment preview (thumbnail + remove) above the row.
+                    if hasAttachment {
+                        HStack {
+                            attachmentPreview
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 6)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
 
-                    let sendDisabled = newText.trimmingCharacters(in: .whitespaces).isEmpty || isSending
-                    Button {
-                        Task { await sendMessage() }
-                    } label: {
-                        TIconView(icon: .send, size: 18, color: .white, weight: .bold)
+                    HStack(spacing: 10) {
+                        // Attachment button — photo / camera / file, same sources
+                        // as the end-job panel photo.
+                        Button { showSourceDialog = true } label: {
+                            Image(systemName: "paperclip")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(Color(hex: T.ink))
+                                .frame(width: 44, height: 44)
+                                .background(Circle().fill(Color(hex: T.surface)))
+                                .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isSending)
+
+                        TextField("Message…", text: $newText, axis: .vertical)
+                            .textFieldStyle(.plain)
+                            .font(TTypo.sm(14))
+                            .foregroundColor(Color(hex: T.ink))
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(Capsule().fill(Color(hex: T.surface)))
+                            .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                            .lineLimit(1...5)
+
+                        // Send is allowed with text OR an attachment (or both).
+                        let sendDisabled = (newText.trimmingCharacters(in: .whitespaces).isEmpty && !hasAttachment) || isSending
+                        Button {
+                            Task { await sendMessage() }
+                        } label: {
+                            Group {
+                                if isSending {
+                                    ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.85)
+                                } else {
+                                    TIconView(icon: .send, size: 18, color: .white, weight: .bold)
+                                }
+                            }
                             .frame(width: 44, height: 44)
                             .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
                             .shadow(color: Color(hex: T.ctaGlowColor).opacity(sendDisabled ? 0 : T.ctaGlowOpacity),
                                     radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
                             .opacity(sendDisabled ? 0.5 : 1)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(sendDisabled)
                     }
-                    .buttonStyle(.plain)
-                    .disabled(sendDisabled)
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
                 .padding(.bottom, 6)
+                .animation(.easeInOut(duration: 0.18), value: hasAttachment)
+                .confirmationDialog("Add attachment", isPresented: $showSourceDialog, titleVisibility: .visible) {
+                    Button("Take Photo") {
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
+                        else { sendError = "No camera available on this device." }
+                    }
+                    Button("Photo Album") { showLibrary = true }
+                    Button("Choose File") { showFiles = true }
+                    Button("Cancel", role: .cancel) {}
+                }
+                .sheet(isPresented: $showCamera) {
+                    CameraPicker { image in pickedImage = image; pickedFile = nil; sendError = nil }
+                        .ignoresSafeArea()
+                }
+                .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+                .fileImporter(isPresented: $showFiles,
+                              allowedContentTypes: [.image, .pdf],
+                              allowsMultipleSelection: false) { handleFileImport($0) }
+                .onChange(of: photoItem) { _, item in loadLibraryItem(item) }
 
                 if let err = sendError {
                     Text(err)
@@ -706,6 +877,14 @@ struct ThreadDetailView: View {
                         .padding(.bottom, 4)
                 }
             }
+        }
+        .overlay { peoplePopoverOverlay }
+        .sheet(isPresented: $showAddPeople) {
+            AddPeopleSheet(excludedIds: Set(threadParticipants.map { $0.id })) { ids in
+                addPeople(ids)
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
         }
         .toolbar(.hidden, for: .navigationBar)
         .task(id: threadKey) {
@@ -731,11 +910,217 @@ struct ThreadDetailView: View {
         return false
     }
 
+    // MARK: - People / add-to-chat popover
+    //
+    // FAB-style popout from the header: the thread's people slide out as pills
+    // (staggered spring, like the inbox filter FAB), with an "Add person" pill
+    // below. Tapping it presents AddPeopleSheet (search + multi-select + Add).
+    /// Blur is only as tall as the pill stack (+ a soft fade tail): FadingBlur's
+    /// flipped gradient keeps the top ~66% solid, so sizing the frame to
+    /// listHeight / 0.66 lands the solid band right at the list's bottom and
+    /// eases out just below it.
+    private var peopleBlurHeight: CGFloat { max(90, peopleListHeight / 0.66) }
+
+    @ViewBuilder private var peoplePopoverOverlay: some View {
+        ZStack(alignment: .topTrailing) {
+            // Full-screen invisible tap-catcher so tapping anywhere dismisses,
+            // even below the (now-confined) blur.
+            Color.clear
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { showPeople = false }
+                }
+                .allowsHitTesting(showPeople)
+
+            // Blur only as tall as the list, easing out at its bottom.
+            FadingBlur(flip: true)
+                .frame(maxWidth: .infinity)
+                .frame(height: peopleBlurHeight)
+                .opacity(showPeople ? 1 : 0)
+                .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 0.28), value: showPeople)
+
+            VStack(alignment: .trailing, spacing: 10) {
+                if showPeople {
+                    let people = threadParticipants
+                    // People slide in from the right, top-down, one-by-one.
+                    ForEach(Array(people.enumerated()), id: \.element.id) { idx, p in
+                        PersonPill(name: p.name, initials: personInitials(p.name))
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .animation(.spring(response: 0.32, dampingFraction: 0.74)
+                                        .delay(Double(idx) * 0.05), value: showPeople)
+                    }
+                    // Add-person pill sits below the roster (reveals last).
+                    if canAddPeople {
+                        AddPersonPill { showAddPeople = true }
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .animation(.spring(response: 0.32, dampingFraction: 0.74)
+                                        .delay(Double(people.count) * 0.05), value: showPeople)
+                    }
+                }
+            }
+            .padding(.top, 60)
+            .padding(.horizontal, 16)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: PeopleListHeightKey.self, value: geo.size.height)
+                }
+            )
+        }
+        .onPreferenceChange(PeopleListHeightKey.self) { peopleListHeight = $0 }
+    }
+
+    /// Adding people is supported for group chats (append members) and DMs
+    /// (spin up a group). Job/panel/op membership comes from the job team, so
+    /// it isn't edited here.
+    private var canAddPeople: Bool {
+        threadKey.hasPrefix("group:") || threadKey.hasPrefix("dm:")
+    }
+
+    /// Add the picked people. Group → append + persist. DM → spin up a group
+    /// from the pair + picks and open it (the original DM stays intact).
+    private func addPeople(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { showPeople = false }
+        if threadKey.hasPrefix("group:") {
+            let name = String(threadKey.dropFirst(6))
+            Task { await appState.addGroupMembers(groupName: name, add: ids) }
+        } else if threadKey.hasPrefix("dm:") {
+            let members = Array(Set(threadParticipants.map { $0.id }).union(ids))
+            let name = suggestedGroupName(memberIds: members)
+            Task {
+                await appState.createGroup(name: name, memberIds: members)
+                await MainActor.run { onOpenThread("group:\(name)") }
+            }
+        }
+    }
+
+    /// Readable auto-name for a group spun up from a DM: comma-joined first
+    /// names, truncated with "+N" past three.
+    private func suggestedGroupName(memberIds: [String]) -> String {
+        let names = memberIds.compactMap { id in
+            appState.people.first(where: { $0.id == id })?.name
+                .split(separator: " ").first.map(String.init)
+        }
+        guard !names.isEmpty else { return "New Group" }
+        if names.count <= 3 { return names.joined(separator: ", ") }
+        return names.prefix(3).joined(separator: ", ") + " +\(names.count - 3)"
+    }
+
+    private func personInitials(_ name: String) -> String {
+        name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }.joined()
+    }
+
+    /// Thumbnail (image) or doc chip (file) for the pending attachment, with a
+    /// remove button. Tapping the paperclip again re-opens the source dialog.
+    @ViewBuilder private var attachmentPreview: some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let img = pickedImage {
+                    Image(uiImage: img)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 64, height: 64)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                } else if let file = pickedFile {
+                    VStack(spacing: 3) {
+                        Image(systemName: "doc.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(Color(hex: T.accent))
+                        Text(file.name)
+                            .font(.system(size: 8))
+                            .lineLimit(1)
+                            .foregroundStyle(Color(hex: T.muted))
+                    }
+                    .frame(width: 64, height: 64)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: T.surface)))
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.hair), lineWidth: 1))
+
+            Button {
+                pickedImage = nil; pickedFile = nil; photoItem = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 18))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, Color.black.opacity(0.55))
+            }
+            .buttonStyle(.plain)
+            .offset(x: 7, y: -7)
+        }
+        .padding(.top, 6)
+    }
+
+    private func loadLibraryItem(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        Task {
+            let data = try? await item.loadTransferable(type: Data.self)
+            await MainActor.run {
+                if let data, let img = UIImage(data: data) {
+                    pickedImage = img; pickedFile = nil; sendError = nil
+                } else {
+                    sendError = "Couldn't load that photo. Try another."
+                }
+            }
+        }
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url) else {
+                sendError = "Couldn't read that file."; return
+            }
+            let mime = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+            if mime.hasPrefix("image/"), let img = UIImage(data: data) {
+                pickedImage = img; pickedFile = nil          // route through the downscaler
+            } else {
+                pickedFile = PickedAttachment(data: data, name: url.lastPathComponent, mime: mime); pickedImage = nil
+            }
+            sendError = nil
+        case .failure(let error):
+            sendError = error.localizedDescription
+        }
+    }
+
+    /// Auto-name for camera/library photos (no source filename). Files keep
+    /// their own name. e.g. "photo_2026-07-01_143205.jpg".
+    private func attachmentFilename(ext: String) -> String {
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd_HHmmss"
+        return "photo_\(fmt.string(from: Date())).\(ext)"
+    }
+
     private func sendMessage() async {
         let text = newText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty || hasAttachment else { return }
         isSending = true
         sendError = nil
+
+        // Upload the pending attachment first (if any). On failure keep the
+        // composer intact so the user can retry rather than losing the photo.
+        var attachments: [Attachment] = []
+        do {
+            if let img = pickedImage {
+                guard let data = ImageDownscaler.jpeg(from: img) else {
+                    throw NSError(domain: "TRAQS", code: 0,
+                                  userInfo: [NSLocalizedDescriptionKey: "Couldn't process that photo."])
+                }
+                attachments = [try await appState.uploadMessageAttachment(
+                    filename: attachmentFilename(ext: "jpg"), mimeType: "image/jpeg", data: data)]
+            } else if let file = pickedFile {
+                attachments = [try await appState.uploadMessageAttachment(
+                    filename: file.name, mimeType: file.mime, data: file.data)]
+            }
+        } catch {
+            sendError = "Attachment failed: \(error.localizedDescription)"
+            isSending = false
+            return
+        }
 
         let authorId    = appState.currentPerson?.id    ?? appState.currentPersonId ?? UUID().uuidString
         let authorName  = appState.currentPerson?.name  ?? appState.matchEmail ?? "Me"
@@ -809,10 +1194,11 @@ struct ThreadDetailView: View {
             authorName: authorName,
             authorColor: authorColor,
             participantIds: participantIds,
-            attachments: [],
+            attachments: attachments,
             timestamp: ISO8601DateFormatter().string(from: Date())
         )
         newText = ""
+        pickedImage = nil; pickedFile = nil; photoItem = nil
         do {
             let serverId = try await appState.sendMessageThrowing(msg)
             myMessageIds.insert(serverId)   // track server-assigned id too
@@ -822,6 +1208,109 @@ struct ThreadDetailView: View {
             myMessageIds.remove(msgId)      // clean up on failure
         }
         isSending = false
+    }
+}
+
+// MARK: - Message time sections
+
+/// A cluster of consecutive messages, headed by the time it started.
+private struct MessageSection: Identifiable {
+    let id: String          // first message's id
+    let header: String      // when this cluster began
+    var messages: [Message]
+}
+
+/// Centered, muted time label shown above each message cluster in a thread.
+private struct SectionTimeHeader: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(TTypo.xsBold(11))
+            .foregroundStyle(Color(hex: T.muted))
+            .tracking(0.3)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+    }
+}
+
+// MARK: - Attachment bubble (image thumbnail or file chip)
+
+/// Renders one message attachment: images load inline (tap opens full-size in
+/// the browser); other files show a tappable doc chip. Served by the no-auth
+/// `attachment` GET endpoint, same as the web app's <img src>.
+private struct AttachmentBubble: View {
+    let attachment: Attachment
+    let isMe: Bool
+
+    private var url: URL? { Attachment.viewURL(for: attachment.key) }
+    private var isImage: Bool { attachment.mimeType.hasPrefix("image/") }
+
+    var body: some View {
+        if isImage, let url {
+            Link(destination: url) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image.resizable().scaledToFit()
+                    case .failure:
+                        fileChip
+                    case .empty:
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 16).fill(Color(hex: T.surface))
+                            ProgressView().tint(Color(hex: T.muted))
+                        }
+                        .frame(width: 200, height: 150)
+                    @unknown default:
+                        EmptyView()
+                    }
+                }
+                .frame(maxWidth: 220, maxHeight: 260)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color(hex: T.hair), lineWidth: isMe ? 0 : 1))
+            }
+            .buttonStyle(.plain)
+        } else if let url {
+            Link(destination: url) { fileChip }.buttonStyle(.plain)
+        } else {
+            fileChip
+        }
+    }
+
+    private var fileChip: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "doc.fill")
+                .foregroundStyle(isMe ? .white : Color(hex: T.accent))
+            Text(attachment.filename)
+                .font(TTypo.sm(13))
+                .lineLimit(1)
+                .foregroundStyle(isMe ? .white : Color(hex: T.ink))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(isMe ? AnyShapeStyle(T.brandGradient()) : AnyShapeStyle(Color(hex: T.surface)))
+        )
+    }
+}
+
+// MARK: - Composer attachment (a local pick, before upload)
+
+private struct PickedAttachment: Equatable {
+    let data: Data
+    let name: String
+    let mime: String
+}
+
+extension Attachment {
+    /// Viewable URL served by the `attachment` function. GET needs no auth —
+    /// the key is an unguessable bearer — so AsyncImage/Link can hit it
+    /// directly, mirroring the web app's `<img src="/api/attachment?key=…">`.
+    static func viewURL(for key: String) -> URL? {
+        guard let encoded = key.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return nil }
+        return URL(string: "\(AppConfig.netlifyBase)/attachment?key=\(encoded)")
     }
 }
 
@@ -846,10 +1335,14 @@ struct MessageBubble: View {
                        size: 28, gradient: true)
             }
 
-            VStack(alignment: isMe ? .trailing : .leading, spacing: 2) {
+            VStack(alignment: isMe ? .trailing : .leading, spacing: 4) {
                 if !isMe {
                     Text(message.authorName).font(.caption2).foregroundColor(Color(hex: T.muted))
                 }
+                ForEach(message.attachments) { att in
+                    AttachmentBubble(attachment: att, isMe: isMe)
+                }
+                if !message.text.isEmpty {
                 Text(message.text)
                     .font(TTypo.sm(14))
                     .padding(.horizontal, 14)
@@ -890,6 +1383,7 @@ struct MessageBubble: View {
                                 .transition(.move(edge: .top).combined(with: .opacity))
                         }
                     }
+                }
             }
 
             if !isMe { Spacer(minLength: 40) }
@@ -918,6 +1412,8 @@ private struct ThreadHeader: View {
     let title: String
     let participants: [Person]
     let onBack: () -> Void
+    /// Tapping the title or the avatar stack opens the people/add popover.
+    var onTapPeople: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 10) {
@@ -931,16 +1427,32 @@ private struct ThreadHeader: View {
             }
             .buttonStyle(.plain)
 
-            Text(title)
-                .font(TTypo.smBold(15))
-                .foregroundStyle(Color(hex: T.ink))
-                .lineLimit(1)
-                .truncationMode(.tail)
+            Button { onTapPeople?() } label: {
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(TTypo.smBold(15))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if onTapPeople != nil {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color(hex: T.muted))
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(onTapPeople == nil)
 
             Spacer(minLength: 8)
 
             if !participants.isEmpty {
-                ParticipantStack(people: participants)
+                Button { onTapPeople?() } label: {
+                    ParticipantStack(people: participants)
+                }
+                .buttonStyle(.plain)
+                .disabled(onTapPeople == nil)
             }
         }
         .padding(.horizontal, 16)
@@ -984,6 +1496,168 @@ private struct ParticipantStack: View {
             .prefix(2)
             .map { String($0.prefix(1)).uppercased() }
             .joined()
+    }
+}
+
+// MARK: - Header popover pills
+
+/// Reports the measured height of the popover's pill stack so the blur behind
+/// it can be sized to the list instead of the whole screen.
+private struct PeopleListHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+/// A person in the header people popover — avatar + name in a capsule, styled
+/// like the FAB range pills.
+private struct PersonPill: View {
+    let name: String
+    let initials: String
+    var body: some View {
+        HStack(spacing: 8) {
+            Avatar(initials: initials, size: 24, gradient: true)
+            Text(name)
+                .font(TTypo.smBold(14))
+                .foregroundStyle(Color(hex: T.ink))
+                .lineLimit(1)
+        }
+        .padding(.leading, 6)
+        .padding(.trailing, 16)
+        .padding(.vertical, 7)
+        .background(Capsule().fill(Color(hex: T.surface)))
+        .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
+    }
+}
+
+/// The "Add person" action pill below the roster — gradient, to stand out.
+private struct AddPersonPill: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus").font(.system(size: 14, weight: .bold))
+                Text("Add person").font(TTypo.smBold(14))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 11)
+            .background(Capsule().fill(T.brandGradient()))
+            .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
+                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Add People Sheet (search + multi-select + Add)
+
+/// Presented from the header popover's "Add person" pill. Lists all workers
+/// not already in the thread, with a search bar and multi-select; "Add" (top
+/// right) hands the picked ids back to the caller.
+struct AddPeopleSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    let excludedIds: Set<String>
+    let onAdd: ([String]) -> Void
+
+    @State private var selected: Set<String> = []
+    @State private var search = ""
+    @FocusState private var searchFocused: Bool
+
+    private var candidates: [Person] {
+        appState.people
+            .filter { !excludedIds.contains($0.id) }
+            .filter { search.isEmpty
+                || $0.name.localizedCaseInsensitiveContains(search)
+                || $0.role.localizedCaseInsensitiveContains(search) }
+            .sorted { $0.name < $1.name }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(hex: T.bg).ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    SearchBar(text: $search,
+                              placeholder: "Search workers…",
+                              focused: $searchFocused,
+                              onCancel: { search = "" })
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 6)
+
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            ForEach(candidates) { p in
+                                Button { toggle(p.id) } label: { row(p) }
+                                    .buttonStyle(.plain)
+                            }
+                            if candidates.isEmpty {
+                                Text(search.isEmpty ? "No one left to add." : "No matches.")
+                                    .font(TTypo.sm(13))
+                                    .foregroundStyle(Color(hex: T.muted))
+                                    .padding(.top, 40)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 4)
+                        .padding(.bottom, 24)
+                    }
+                    .scrollIndicators(.hidden)
+                }
+            }
+            .navigationTitle("Add People")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundColor(Color(hex: T.accent))
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(selected.isEmpty ? "Add" : "Add (\(selected.count))") {
+                        onAdd(Array(selected))
+                        dismiss()
+                    }
+                    .fontWeight(.bold)
+                    .foregroundColor(selected.isEmpty ? Color(hex: T.muted) : Color(hex: T.accent))
+                    .disabled(selected.isEmpty)
+                }
+            }
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
+    }
+
+    private func row(_ p: Person) -> some View {
+        let isOn = selected.contains(p.id)
+        return HStack(spacing: 12) {
+            Circle()
+                .fill(Color(hex: p.color))
+                .frame(width: 40, height: 40)
+                .overlay(Text(String(p.name.prefix(1)).uppercased())
+                    .font(.subheadline.bold()).foregroundColor(.white))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(p.name).font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink)).lineLimit(1)
+                if !p.role.isEmpty {
+                    Text(p.role).font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted)).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 8)
+            Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                .font(.system(size: 22))
+                .foregroundStyle(isOn ? Color(hex: T.sky) : Color(hex: T.muted))
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.card)))
+        .overlay(RoundedRectangle(cornerRadius: T.cornerMd)
+            .stroke(isOn ? Color(hex: T.sky).opacity(0.5) : Color(hex: T.hair), lineWidth: 1))
+        .contentShape(Rectangle())
     }
 }
 
@@ -1228,5 +1902,34 @@ extension String {
             df.dateFormat = "MMM d, yyyy"
         }
         return df.string(from: date)
+    }
+
+    /// Date stamp for the inbox thread list. Today → "Today at 9:30PM";
+    /// any earlier day → full month + day, e.g. "June 30".
+    var threadDateStamp: String {
+        guard let date = Date.fromFlexibleISO8601(self) else { return self }
+        let df = DateFormatter()
+        if Calendar.current.isDateInToday(date) {
+            df.dateFormat = "h:mma"          // "9:30PM"
+            return "Today at \(df.string(from: date))"
+        }
+        df.dateFormat = "MMMM d"             // "June 30"
+        return df.string(from: date)
+    }
+
+    /// Header for an in-thread message cluster, marking when it started.
+    /// Today → "Today at 9:30PM" · yesterday → "Yesterday at 9:30PM" ·
+    /// earlier this year → "June 30 at 2:15PM" · older → "June 30, 2025 at 2:15PM".
+    var sectionStamp: String {
+        guard let date = Date.fromFlexibleISO8601(self) else { return self }
+        let cal = Calendar.current
+        let time = DateFormatter(); time.dateFormat = "h:mma"
+        let t = time.string(from: date)
+        if cal.isDateInToday(date) { return "Today at \(t)" }
+        if cal.isDateInYesterday(date) { return "Yesterday at \(t)" }
+        let day = DateFormatter()
+        day.dateFormat = cal.component(.year, from: date) == cal.component(.year, from: Date())
+            ? "MMMM d" : "MMMM d, yyyy"
+        return "\(day.string(from: date)) at \(t)"
     }
 }

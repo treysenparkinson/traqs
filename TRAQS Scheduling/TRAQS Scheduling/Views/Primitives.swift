@@ -794,10 +794,19 @@ import UIKit
 
 final class _GradientBlurView: UIVisualEffectView {
     private let maskLayer = CAGradientLayer()
-    init() {
+    /// `flip == false`: sharp at the top, full blur lower down (for a menu that
+    /// floats near the BOTTOM, e.g. the Jobs range FAB). `flip == true`: full
+    /// blur at the top easing out toward the bottom (for a menu near the TOP,
+    /// e.g. the Messages header people popover).
+    init(flip: Bool = false) {
         super.init(effect: UIBlurEffect(style: .systemUltraThinMaterial))
-        maskLayer.colors = [UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
-        maskLayer.locations = [0.0, 0.34, 1.0]
+        if flip {
+            maskLayer.colors = [UIColor.black.cgColor, UIColor.black.cgColor, UIColor.clear.cgColor]
+            maskLayer.locations = [0.0, 0.66, 1.0]
+        } else {
+            maskLayer.colors = [UIColor.clear.cgColor, UIColor.black.cgColor, UIColor.black.cgColor]
+            maskLayer.locations = [0.0, 0.34, 1.0]
+        }
         maskLayer.startPoint = CGPoint(x: 0.5, y: 0)
         maskLayer.endPoint = CGPoint(x: 0.5, y: 1)
         layer.mask = maskLayer
@@ -812,7 +821,9 @@ final class _GradientBlurView: UIVisualEffectView {
 }
 
 struct FadingBlur: UIViewRepresentable {
-    func makeUIView(context: Context) -> _GradientBlurView { _GradientBlurView() }
+    /// Flip the gradient to full-at-top (for menus anchored near the top).
+    var flip: Bool = false
+    func makeUIView(context: Context) -> _GradientBlurView { _GradientBlurView(flip: flip) }
     func updateUIView(_ uiView: _GradientBlurView, context: Context) {}
 }
 #endif

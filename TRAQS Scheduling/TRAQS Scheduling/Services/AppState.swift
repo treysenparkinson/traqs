@@ -460,6 +460,25 @@ class AppState {
         }
     }
 
+    /// Add people to an existing group and persist. Optimistic local update so
+    /// the thread's participant list reflects it immediately; the server save
+    /// runs in the background. No-op if the group is missing or everyone named
+    /// is already a member.
+    func addGroupMembers(groupName: String, add ids: [String]) async {
+        guard let api else { return }
+        guard let idx = groups.firstIndex(where: { $0.name == groupName || $0.id == groupName }) else { return }
+        let newIds = ids.filter { !groups[idx].memberIds.contains($0) }
+        guard !newIds.isEmpty else { return }
+        var updated = groups
+        updated[idx].memberIds.append(contentsOf: newIds)
+        groups = updated
+        do {
+            try await api.saveGroups(updated)
+        } catch {
+            errorMessage = "Failed to add to group: \(error.localizedDescription)"
+        }
+    }
+
     /// Delete an entire message thread (DM, job, panel, op, or group).
     /// Server removes every message with that threadKey from messages.json.
     func deleteThread(threadKey: String) async {
@@ -817,6 +836,18 @@ class AppState {
               let pi = job.subs.firstIndex(where: { $0.id == panelId }) else { return }
         job.subs[pi].attachments.append(meta)
         updateJob(job)
+    }
+
+    /// Upload a photo/file for a chat message and return its attachment
+    /// metadata (to drop into `Message.attachments`). Throws on failure so the
+    /// composer can surface an error and keep the pending attachment for retry.
+    func uploadMessageAttachment(filename: String, mimeType: String, data: Data) async throws -> Attachment {
+        guard let api else {
+            throw APIError.unknown(NSError(domain: "TRAQS", code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Service unavailable — try again."]))
+        }
+        let r = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data)
+        return Attachment(key: r.key, filename: r.filename, mimeType: r.mimeType, size: r.size)
     }
 
     /// Count of files already attached to a panel whose names start with

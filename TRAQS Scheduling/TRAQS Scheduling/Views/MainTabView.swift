@@ -15,7 +15,7 @@ enum TTab: Int, CaseIterable, Hashable {
         case .jobs:     return "Jobs"
         case .hours:    return "Hours"
         case .stats:    return "Stats"
-        case .chat:     return "Chat"
+        case .chat:     return "Messages"
         }
     }
     var icon: TIcon {
