@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2E9226922F5BA00000B64A2E /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = 2E9226912F5BA00000B64A2E /* OneSignalFramework */; };
+		AB1E00000000000000000001 /* Ably in Frameworks */ = {isa = PBXBuildFile; productRef = AB1E00000000000000000002 /* Ably */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +63,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2E9226922F5BA00000B64A2E /* OneSignalFramework in Frameworks */,
+				AB1E00000000000000000001 /* Ably in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -133,6 +135,7 @@
 			name = "TRAQS Scheduling";
 			packageProductDependencies = (
 				2E9226912F5BA00000B64A2E /* OneSignalFramework */,
+				AB1E00000000000000000002 /* Ably */,
 			);
 			productName = "TRAQS Scheduling";
 			productReference = 2E9225E82F5A32E200B64A2E /* TRAQS Scheduling.app */;
@@ -218,6 +221,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				2E92268E2F5B9CA500B64A2E /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */,
+				AB1E00000000000000000003 /* XCRemoteSwiftPackageReference "ably-cocoa" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 2E9225E92F5A32E200B64A2E /* Products */;
@@ -421,7 +425,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = "TRAQS Scheduling/TRAQS Scheduling.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = AT8N877SPR;
 				ENABLE_APP_SANDBOX = YES;
@@ -446,7 +450,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.0.30;
+				MARKETING_VERSION = 1.0.31;
 				PRODUCT_BUNDLE_IDENTIFIER = "TRAQS.TRAQS-Scheduling";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -472,7 +476,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = "TRAQS Scheduling/TRAQS Scheduling.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = AT8N877SPR;
 				ENABLE_APP_SANDBOX = YES;
@@ -497,7 +501,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.0.30;
+				MARKETING_VERSION = 1.0.31;
 				PRODUCT_BUNDLE_IDENTIFIER = "TRAQS.TRAQS-Scheduling";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -671,6 +675,14 @@
 				minimumVersion = 5.4.2;
 			};
 		};
+		AB1E00000000000000000003 /* XCRemoteSwiftPackageReference "ably-cocoa" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/ably/ably-cocoa";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.2.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -678,6 +690,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2E92268E2F5B9CA500B64A2E /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */;
 			productName = OneSignalFramework;
+		};
+		AB1E00000000000000000002 /* Ably */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB1E00000000000000000003 /* XCRemoteSwiftPackageReference "ably-cocoa" */;
+			productName = Ably;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

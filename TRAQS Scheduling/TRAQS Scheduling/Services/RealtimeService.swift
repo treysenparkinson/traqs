@@ -1,0 +1,101 @@
+import Foundation
+import Ably
+
+// Ably realtime subscriber (mirrors the desktop src/realtime/ably.js). Deferred
+// until connect() runs after login. The device never sees ABLY_ROOT_KEY — it
+// authenticates through /.netlify/functions/ably-token (fetched fresh each time
+// via APIService, so the Auth0 token is always valid). @MainActor: Ably delivers
+// callbacks on the main queue by default, and we hop to main defensively anyway.
+@MainActor
+final class RealtimeService {
+    private var client: ARTRealtime?
+    private var orgCode = ""
+    private var degraded = false
+    private var hasConnected = false
+    private var channels: [ARTRealtimeChannel] = []
+    private var onChange: (() -> Void)?
+    private var onReconnect: (() -> Void)?
+
+    private static let entities = ["tasks", "people", "clients", "messages", "groups", "timeclock", "orgConfig", "settings"]
+
+    var isDegraded: Bool { degraded }
+
+    func connect(orgCode: String,
+                 api: APIService,
+                 onChange: @escaping () -> Void,
+                 onReconnect: @escaping () -> Void) async {
+        if client != nil || degraded { return }
+        self.orgCode = orgCode
+        self.onChange = onChange
+        self.onReconnect = onReconnect
+
+        // Preflight probe so a "real-time not configured" (503) degrades cleanly
+        // instead of spinning Ably's auth-retry loop forever.
+        do {
+            _ = try await api.fetchAblyTokenData()
+        } catch let e as APIError {
+            if case .httpError(503) = e {
+                degraded = true
+                print("[Realtime] disabled — server 503 (ABLY_ROOT_KEY unset). App runs without live updates.")
+                return
+            }
+        } catch {
+            // Other probe errors: connect anyway; Ably retries auth on its own.
+            print("[Realtime] token probe error: \(error) — connecting anyway")
+        }
+
+        let options = ARTClientOptions()
+        options.authCallback = { _, callback in
+            Task { @MainActor in
+                do {
+                    let data = try await api.fetchAblyTokenData()
+                    guard let json = try JSONSerialization.jsonObject(with: data) as? NSDictionary else {
+                        callback(nil, NSError(domain: "Realtime", code: -1)); return
+                    }
+                    let tokenRequest = try ARTTokenRequest.fromJson(json)
+                    callback(tokenRequest, nil)
+                } catch {
+                    callback(nil, error)
+                }
+            }
+        }
+
+        let realtime = ARTRealtime(options: options)
+        client = realtime
+
+        realtime.connection.on { [weak self] change in
+            let current = change.current
+            let previous = change.previous
+            Task { @MainActor in
+                guard let self else { return }
+                print("[Realtime] connection: \(previous.rawValue) → \(current.rawValue)")
+                if current == .connected {
+                    // On a RE-connect (not the first), pull the delta to catch
+                    // anything published while we were offline.
+                    if self.hasConnected { self.onReconnect?() }
+                    self.hasConnected = true
+                }
+            }
+        }
+
+        for entity in Self.entities {
+            let channel = realtime.channels.get("org-\(orgCode):\(entity)")
+            channels.append(channel)
+            channel.subscribe("changed") { [weak self] _ in
+                Task { @MainActor in self?.onChange?() }
+            }
+        }
+    }
+
+    func disconnect() {
+        for ch in channels { ch.unsubscribe() }
+        channels.removeAll()
+        client?.close()
+        client = nil
+        orgCode = ""
+        degraded = false
+        hasConnected = false
+        onChange = nil
+        onReconnect = nil
+    }
+}

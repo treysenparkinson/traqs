@@ -97,6 +97,27 @@ struct APIService {
         return try decoder.decode([Job].self, from: data)
     }
 
+    // MARK: - Live sync (Phase 4)
+
+    /// Delta-sync snapshot. `since` = the cursor from the last response; nil/empty
+    /// → full snapshot. Returns raw JSON so SyncService can store per-record blobs.
+    func fetchSyncData(since: String?) async throws -> Data {
+        var path = "sync"
+        if let since, !since.isEmpty {
+            let q = since.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? since
+            path += "?since=\(q)"
+        }
+        let req = try await request(path)
+        return try await perform(req)
+    }
+
+    /// Ably TokenRequest JSON for the realtime auth callback. Throws
+    /// APIError.httpError(503) when real-time isn't configured server-side.
+    func fetchAblyTokenData() async throws -> Data {
+        let req = try await request("ably-token", method: "POST")
+        return try await perform(req)
+    }
+
     func saveJobs(_ jobs: [Job]) async throws {
         let body = try JSONEncoder().encode(jobs)
         let req = try await request("tasks", method: "POST", body: body)

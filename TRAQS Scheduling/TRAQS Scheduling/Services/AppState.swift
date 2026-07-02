@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import SwiftUI
 import OneSignalFramework
+import SwiftData
 
 @MainActor
 @Observable
@@ -71,6 +72,12 @@ class AppState {
     private var refreshTask: Task<Void, Never>?
     private var api: APIService?
 
+    // Live sync (Phase 4): SwiftData cache + Ably realtime, layered on top of
+    // loadAll()/startAutoRefresh() (which remain the fallback).
+    private var localCache: LocalCache?
+    private var syncService: SyncService?
+    private let realtime = RealtimeService()
+
     enum SaveStatus {
         case idle, saving, saved, error(String)
     }
@@ -79,8 +86,29 @@ class AppState {
 
     func configure(auth: AuthManager, orgCode: String) {
         self.orgCode = orgCode
-        self.api = APIService(auth: auth, orgCode: orgCode)
+        let apiInstance = APIService(auth: auth, orgCode: orgCode)
+        self.api = apiInstance
         KeychainHelper.save(orgCode, forKey: KeychainHelper.orgCodeKey)
+
+        // ── Live sync (Phase 4): SwiftData cache + Ably realtime ──
+        // Layered ON TOP of loadAll()/startAutoRefresh() below (the fallback):
+        // paint from cache instantly, delta-sync in the background, then
+        // subscribe to Ably for ~1s live updates.
+        realtime.disconnect()                 // drop any previous org's connection
+        let cache = LocalCache()
+        cache.initialize(orgCode: orgCode)
+        self.localCache = cache
+        let sync = SyncService(api: apiInstance, cache: cache)
+        self.syncService = sync
+        if cache.hasCachedData() { rehydrateFromCache() }   // instant paint from cache
+        Task {
+            _ = await sync.deltaSync()        // seed/refresh cache + cursor
+            rehydrateFromCache()              // apply anything that changed
+            await realtime.connect(orgCode: orgCode, api: apiInstance,
+                                   onChange: { [weak self] in self?.onRealtimeChange() },
+                                   onReconnect: { [weak self] in self?.onRealtimeChange() })
+        }
+
         startAutoRefresh()
         Task { await loadAll() }
         // Resolve the org's display name (cached server-side) so the sidebar
@@ -91,6 +119,39 @@ class AppState {
                let name = info.name, !name.isEmpty {
                 await MainActor.run { self.orgName = name }
             }
+        }
+    }
+
+    // Push the cached snapshot into @Observable state, mirroring loadAll()'s
+    // exact live lists + empty-guard (a momentarily-empty cache slice must not
+    // blank populated state). timeclock/jobSessions/timeOffRequests + orgConfig
+    // keep their existing on-demand paths and are not applied here.
+    private func rehydrateFromCache() {
+        guard let cache = localCache else { return }
+        let dec = JSONDecoder()
+        let j = cache.readAll(SyncedJob.self).compactMap { try? dec.decode(Job.self, from: $0.payload) }
+        let p = cache.readAll(SyncedPerson.self).compactMap { try? dec.decode(Person.self, from: $0.payload) }
+        let c = cache.readAll(SyncedClient.self).compactMap { try? dec.decode(Client.self, from: $0.payload) }
+        let m = cache.readAll(SyncedMessage.self).compactMap { try? dec.decode(Message.self, from: $0.payload) }
+        let g = cache.readAll(SyncedGroup.self).compactMap { try? dec.decode(ChatGroup.self, from: $0.payload) }
+        let s = cache.readAll(SyncedSettings.self).first.flatMap { try? dec.decode(OrgSettings.self, from: $0.payload) }
+        withoutAnimation {
+            if !j.isEmpty || jobs.isEmpty { jobs = j }
+            if !p.isEmpty || people.isEmpty { people = p }
+            if !c.isEmpty || clients.isEmpty { clients = c }
+            if !m.isEmpty || messages.isEmpty { messages = m }
+            if !g.isEmpty || groups.isEmpty { groups = g }
+            if let s { orgSettings = s }
+            autoMatchPerson()
+        }
+    }
+
+    // Ably "changed" → pull the delta, then rehydrate. deltaSync coalesces bursts.
+    private func onRealtimeChange() {
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.syncService?.deltaSync()
+            self.rehydrateFromCache()
         }
     }
 
