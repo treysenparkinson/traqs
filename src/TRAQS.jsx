@@ -5,6 +5,9 @@ import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClien
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
+import { syncBus } from "./db/index.js";
+import { configureSync, deltaSync, readSlice, hasCachedData } from "./db/sync.js";
+import * as realtime from "./realtime/ably.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 
@@ -3526,6 +3529,36 @@ Extraction rules:
   // useState([]) values. (Incident 2026-06-03: empty `[]` was POSTed over
   // tasks.json after a load race; doSave gating prevents the recurrence.)
   useEffect(() => {
+    // Configure delta-sync (Ably "changed" handlers call deltaSync() with no args).
+    configureSync({ getToken, orgCode });
+    let cancelled = false;
+
+    // Instant cold-open: paint from the IndexedDB cache before the network
+    // responds. Runs only if a cached snapshot exists, and bails if the
+    // authoritative server load below already won. dataLoadedRef stays false
+    // until that server load completes, and the save-trigger effect ignores all
+    // state changes while it's false — so these cache-driven sets never echo
+    // back to the server.
+    (async () => {
+      try {
+        if (!(await hasCachedData())) return;
+        const [cT, cP, cC, cTC] = await Promise.all([
+          readSlice("tasks"), readSlice("people"), readSlice("clients"), readSlice("timeclock"),
+        ]);
+        if (cancelled || dataLoadedRef.current) return;
+        _setTasks(normalizeTasks(cT || []));
+        const np = normalizePeople(cP || []);
+        setPeople(np);
+        setClients(cC || []);
+        if (Array.isArray(cTC)) setTimeclock(cTC);
+        const match = auth0User?.email
+          ? np.find(p => p.email && p.email.toLowerCase() === auth0User.email.toLowerCase())
+          : null;
+        setLoggedInUser(prev => prev || match || np[0] || null);
+        setDataLoading(false); // render immediately; the server load below reconciles
+      } catch (e) { console.warn("[cold-hydrate] skipped:", e?.message || e); }
+    })();
+
     fetchTimeclock(getToken, orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
     Promise.all([fetchTasks(getToken, orgCode), fetchPeople(getToken, orgCode), fetchClients(getToken, orgCode)])
       .then(([t, p, c]) => {
@@ -3558,6 +3591,12 @@ Extraction rules:
         setLoadError(e?.message || "Failed to load data — please refresh");
       })
       .finally(() => setDataLoading(false));
+
+    // Seed/refresh the IndexedDB cache + sync cursor in the background so the
+    // NEXT cold-open is instant and Ably deltas have a cursor to work from.
+    deltaSync().catch(e => console.warn("[deltaSync] initial seed failed:", e?.message || e));
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -3938,8 +3977,98 @@ Extraction rules:
     saveOrgSettings(orgSettings, getTokenRef.current, orgCode).catch(e => console.warn("saveOrgSettings failed:", e));
   }, [orgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
+  // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.
+  useEffect(() => { configureSync({ getToken, orgCode }); }, [getToken, orgCode]);
+
+  // applyDelta() (db/sync.js) writes changes through to IndexedDB and emits
+  // `${entity}-changed` on syncBus; here we pull the fresh slice back into React
+  // state. For the SAVE-TRACKED slices (tasks/people/clients) we replicate the
+  // 30s poll's guard contract exactly: bail while the user has unsaved edits;
+  // set pollUpdateRef before the setter (resetting it on a no-op to avoid the
+  // documented ref-leak) so the change isn't mistaken for a user edit; reject a
+  // tasks update that would drop an optimistically-created protected job; and
+  // merge preserving the current array order so identical data is a true no-op.
+  // messages/groups/timeclock/settings are not save-tracked, so they apply directly.
+  useEffect(() => {
+    const busy = () => saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved";
+    const mergeInOrder = (prev, fresh) => {
+      const byId = new Map(fresh.map(r => [String(r.id), r]));
+      const seen = new Set();
+      const out = [];
+      for (const r of prev) { const id = String(r.id); if (byId.has(id)) { out.push(byId.get(id)); seen.add(id); } }
+      for (const r of fresh) { const id = String(r.id); if (!seen.has(id)) out.push(r); }
+      return out;
+    };
+    const applySlice = async (entity) => {
+      if (busy()) return;
+      try {
+        if (entity === "tasks") {
+          const fresh = normalizeTasks((await readSlice("tasks")) || []);
+          if (busy()) return;
+          pollUpdateRef.current = true;
+          setTasks(prev => {
+            const merged = mergeInOrder(prev, fresh);
+            if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; }
+            const findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
+            if ([...protectedJobIds.current].some(id => !findId(id, merged))) { pollUpdateRef.current = false; return prev; }
+            return merged;
+          });
+        } else if (entity === "people") {
+          const fresh = normalizePeople((await readSlice("people")) || []);
+          if (busy()) return;
+          pollUpdateRef.current = true;
+          setPeople(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; } return merged; });
+        } else if (entity === "clients") {
+          const fresh = (await readSlice("clients")) || [];
+          if (busy()) return;
+          pollUpdateRef.current = true;
+          setClients(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; } return merged; });
+        } else if (entity === "messages") {
+          setMessages((await readSlice("messages")) || []);
+        } else if (entity === "groups") {
+          setGroups((await readSlice("groups")) || []);
+        } else if (entity === "timeclock") {
+          setTimeclock((await readSlice("timeclock")) || []);
+        } else if (entity === "settings") {
+          const s = await readSlice("settings");
+          if (s && typeof s === "object") { skipNextOrgSave.current = true; setOrgSettings(prev => ({ ...prev, ...s })); }
+        }
+        // orgConfig is a prop owned by App.jsx — can't be updated from here (see report).
+      } catch (e) { console.warn(`[rehydrate ${entity}] failed:`, e?.message || e); }
+    };
+    const names = ["tasks", "people", "clients", "messages", "groups", "timeclock", "settings"];
+    const handlers = names.map(entity => { const h = () => applySlice(entity); syncBus.addEventListener(`${entity}-changed`, h); return [entity, h]; });
+    return () => { handlers.forEach(([entity, h]) => syncBus.removeEventListener(`${entity}-changed`, h)); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Ably realtime: connect after mount, refetch the delta on any "changed"
+  // signal (deltaSync coalesces bursts), tear down on unmount/logout. If the
+  // token endpoint 503s (ABLY_ROOT_KEY unset), connect() returns null and we
+  // rely on the 30s poll + cold cache — no live updates, but nothing breaks.
+  useEffect(() => {
+    if (!orgCode) return;
+    let active = true;
+    const unsubs = [];
+    (async () => {
+      const client = await realtime.connect({ orgCode, getToken, onReconnect: () => deltaSync().catch(() => {}) });
+      if (!active || !client) return;
+      for (const entity of ["tasks", "people", "clients", "messages", "groups", "timeclock", "orgConfig", "settings"]) {
+        unsubs.push(realtime.subscribe(entity, () => { deltaSync().catch(() => {}); }));
+      }
+    })();
+    return () => { active = false; unsubs.forEach(u => { try { u(); } catch {} }); realtime.disconnect(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgCode]);
+
   const isInitialSave = useRef(true);
   useEffect(() => {
+    // Never schedule a save during initial hydration: the cold-cache paint and
+    // the server load both mutate [tasks,people,clients] before dataLoadedRef
+    // flips true, and neither is a user edit. (doSave also guards on
+    // dataLoadedRef, but bailing here keeps saveStatus from flickering "unsaved".)
+    if (!dataLoadedRef.current) return;
     if (isInitialSave.current) { isInitialSave.current = false; return; }
     if (pollUpdateRef.current) { pollUpdateRef.current = false; return; }
     setSaveStatus("unsaved");
