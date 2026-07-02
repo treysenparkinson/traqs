@@ -125,7 +125,13 @@ export function softDelete(record) {
  * Returns a NEW array; never mutates the inputs. `previous` may be null / not an
  * array (first write) → `next` is returned unchanged.
  */
-export function reconcileDeletions(next, previous) {
+// `onDelete` builds the tombstone for a newly-removed record; defaults to
+// softDelete. Callers pass a custom one to strip sensitive fields before
+// tombstoning (e.g. people.js drops the PIN so a removed employee's PIN doesn't
+// linger at rest). It is applied ONLY to freshly-deleted records — an already
+// tombstoned record is carried forward untouched so stampArray preserves its
+// stamp (no re-stamp / re-sync).
+export function reconcileDeletions(next, previous, onDelete = softDelete) {
   if (!Array.isArray(next) || !Array.isArray(previous) || previous.length === 0) return next;
 
   const nextIds = new Set();
@@ -137,7 +143,7 @@ export function reconcileDeletions(next, previous) {
   for (const rec of previous) {
     if (!rec || rec.id == null) continue;      // untracked id → can't detect deletion
     if (nextIds.has(String(rec.id))) continue; // still present → not a deletion
-    out.push(rec.deletedAt ? rec : softDelete(rec));
+    out.push(rec.deletedAt ? rec : onDelete(rec));
   }
   return out;
 }

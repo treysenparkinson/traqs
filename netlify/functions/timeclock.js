@@ -3,6 +3,7 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray } from "./_utils/timestamps.js";
+import { filterLive } from "./_utils/entities.js";
 
 const failedAttempts = new Map(); // ip -> { count, firstAttempt }
 
@@ -572,7 +573,11 @@ export async function handler(event) {
       } else if (attempts.count >= 5) {
         return err(429, "Too many failed attempts. Try again later.");
       }
-      const person = people.find(p => p.pin && String(p.pin) === String(pin));
+      // Scan LIVE people only — a soft-deleted (tombstoned) person must not be
+      // able to clock in even though their record (and, for legacy tombstones,
+      // their PIN) is still in the raw array. No live match → 401, same as a
+      // wrong PIN, so we never leak that a removed employee's PIN once existed.
+      const person = filterLive(people).find(p => p.pin && String(p.pin) === String(pin));
       if (!person) {
         failedAttempts.set(ip, { count: (attempts.count || 0) + 1, firstAttempt: attempts.firstAttempt || Date.now() });
         return err(401, "Invalid PIN");

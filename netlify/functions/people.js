@@ -2,7 +2,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
-import { stampArray, nowIso, reconcileDeletions } from "./_utils/timestamps.js";
+import { stampArray, nowIso, reconcileDeletions, softDelete } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
@@ -98,7 +98,11 @@ export async function handler(event) {
       // becomes a tombstone (kept in the array) so delta-sync clients evict them.
       // Runs only on a non-empty roster — the empty-array guard above already
       // refuses an empty POST, so this can never mass-tombstone the whole team.
-      const reconciled = reconcileDeletions(merged, existing);
+      // Strip the PIN when tombstoning a person: a removed employee's PIN must
+      // not linger at rest, and (belt-and-suspenders with timeclock's live-only
+      // PIN identify) a pinless tombstone also can't authenticate a kiosk clock-in.
+      const tombstoneWithoutPin = ({ pin: _pin, ...rest }) => softDelete(rest);
+      const reconciled = reconcileDeletions(merged, existing, tombstoneWithoutPin);
       await writeJson(s3Key, stampArray(reconciled, existing));
       return json(200, { ok: true });
     } catch (e) {

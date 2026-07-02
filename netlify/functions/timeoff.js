@@ -2,6 +2,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { sendWebPush } from "./_utils/webpush.js";
+import { filterLive } from "./_utils/entities.js";
 
 // ─── Time Off Requests ────────────────────────────────────────────────────────
 //
@@ -70,8 +71,10 @@ async function pushTo(orgCode, people, targetIds, heading, content, data) {
   }
 }
 
+// filterLive: notifications must target only LIVE admins — a removed admin's
+// tombstone (userRole still "admin") must not keep receiving time-off pushes/DMs.
 const adminIdsOf = (people) =>
-  people.filter((p) => p.userRole === "admin").map((p) => String(p.id));
+  filterLive(people).filter((p) => p.userRole === "admin").map((p) => String(p.id));
 
 const fmtRange = (start, end) => (start === end ? start : `${start} – ${end}`);
 
@@ -166,7 +169,7 @@ export async function handler(event) {
     // participants can read it; approval still flows through the PATCH handler
     // → person.timeOff, so the schedule/export are unaffected.
     try {
-      const admins = people.filter((p) => p.userRole === "admin" && String(p.id) !== String(meId));
+      const admins = filterLive(people).filter((p) => p.userRole === "admin" && String(p.id) !== String(meId));
       if (admins.length > 0) {
         const messagesKey = `orgs/${orgCode}/messages.json`;
         let messages = (await readJson(messagesKey)) ?? [];
