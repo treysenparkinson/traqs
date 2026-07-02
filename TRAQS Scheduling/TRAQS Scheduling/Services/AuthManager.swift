@@ -216,7 +216,12 @@ class AuthManager: NSObject {
         KeychainHelper.save(email, forKey: "userEmail")
     }
 
+    /// Called at the very start of logout() so AppState can disconnect live-sync
+    /// (Ably) before the session is torn down. Registered in AppState.configure().
+    var onLogout: (() -> Void)?
+
     func logout() {
+        onLogout?()
         accessToken = nil
         userEmail = nil
         isAuthenticated = false

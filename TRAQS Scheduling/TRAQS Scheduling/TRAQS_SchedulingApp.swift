@@ -61,6 +61,9 @@ struct TRAQS_SchedulingApp: App {
             if newPhase == .active {
                 Task { await appState.loadAll() }
                 Task { await MainActor.run { appState.startAutoRefresh() } }
+                // Fallback catch-up when Ably is degraded / was suspended while
+                // backgrounded: pull the delta on every foreground.
+                Task { await MainActor.run { appState.foregroundSync() } }
             } else if newPhase == .background {
                 Task { await MainActor.run { appState.stopAutoRefresh() } }
             }

@@ -95,6 +95,7 @@ class AppState {
         // paint from cache instantly, delta-sync in the background, then
         // subscribe to Ably for ~1s live updates.
         realtime.disconnect()                 // drop any previous org's connection
+        auth.onLogout = { [weak self] in self?.teardownRealtime() }  // disconnect Ably on full logout
         let cache = LocalCache()
         cache.initialize(orgCode: orgCode)
         self.localCache = cache
@@ -153,6 +154,18 @@ class AppState {
             _ = await self.syncService?.deltaSync()
             self.rehydrateFromCache()
         }
+    }
+
+    /// Foreground catch-up (scenePhase .active): delta-sync + rehydrate so we
+    /// reconcile even when Ably is degraded or was suspended in the background.
+    func foregroundSync() {
+        onRealtimeChange()
+    }
+
+    /// Tear down the Ably connection on full logout (org switch already
+    /// disconnects via configure()). Wired to AuthManager.onLogout in configure().
+    func teardownRealtime() {
+        realtime.disconnect()
     }
 
     func startAutoRefresh() {
