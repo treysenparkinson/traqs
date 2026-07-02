@@ -38,13 +38,19 @@ struct RootView: View {
 
             ErrorBanner()
                 .zIndex(2)
-
+        }
+        // The splash is an OVERLAY, not a ZStack sibling. As a sibling it drove
+        // the ZStack's width (its 440pt-wide glow made the whole stack wider
+        // than the screen), so the app content laid out too wide — title
+        // clipped at the left edge, cards edge-to-edge — for the entire time
+        // the splash was on screen, then snapped back when it unmounted. An
+        // overlay is sized to its host and never affects the host's layout.
+        .overlay {
             // The logo loadup only plays once the user is authenticated — an
             // unauthenticated launch goes straight to the login screen.
             if showSplash && auth.isAuthenticated {
                 SplashView(isShowing: $showSplash)
                     .transition(.opacity)
-                    .zIndex(3)
             }
         }
     }

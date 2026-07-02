@@ -18,9 +18,16 @@ struct SplashView: View {
             ZStack {
                 SplashWordmarkGlow()
                 TRAQSWordmark(size: logoSize)
-                    .fixedSize()
             }
         }
+        // Pin the splash to the screen size. Without this the 440pt-wide
+        // SplashWordmarkGlow makes this view report a >screen width, and since
+        // the splash is a sibling of the app content in RootView's ZStack, that
+        // inflates the ZStack — laying the app out too wide (title clipped at
+        // the left edge, cards edge-to-edge) until the splash unmounts and it
+        // snaps back. maxWidth/maxHeight reports the screen size to the parent
+        // while the soft glow still overflows visually (drawn, not measured).
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(overallOpacity)
         .preferredColorScheme(.light)
         .onAppear { runAnimation() }
