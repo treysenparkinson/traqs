@@ -2,7 +2,8 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
-import { stampArray } from "./_utils/timestamps.js";
+import { stampArray, reconcileDeletions } from "./_utils/timestamps.js";
+import { filterLive } from "./_utils/entities.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -17,7 +18,10 @@ export async function handler(event) {
     try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const data = await readJson(s3Key);
-      return json(200, data ?? []);
+      // Hide soft-deleted (tombstoned) records from normal readers so existing
+      // clients see the array as if the record was hard-deleted. /sync does NOT
+      // filter these — delta-sync clients need the tombstone to evict the row.
+      return json(200, filterLive(data ?? []));
     } catch (e) {
       console.error("tasks GET error:", e);
       return err(500, "Failed to read tasks");
@@ -44,14 +48,21 @@ export async function handler(event) {
       // wiped MTX2026TRAQS/tasks.json on 2026-06-03. This guard makes that race fatal
       // on the server instead of silently destroying data. To intentionally clear all
       // tasks, delete the S3 object directly or pass ?force=1.
+      // Empty-array safeguard: run on the RAW incoming array, before deletion
+      // reconciliation, or an empty POST would tombstone every live record. Only
+      // NON-tombstoned records count — once all live records are deleted, the
+      // leftover tombstones must not make a legitimately-empty roster get refused.
       const force = event.queryStringParameters?.force === "1";
       if (tasks.length === 0 && !force) {
-        if (Array.isArray(existing) && existing.length > 0) {
+        if (Array.isArray(existing) && existing.some(r => r && !r.deletedAt)) {
           return err(409, "Refusing to overwrite non-empty tasks with empty array");
         }
       }
 
-      await writeJson(s3Key, stampArray(tasks, existing));
+      // Turn client-side deletions (ids in `existing` but absent from the
+      // incoming array) into tombstones so delta-sync can propagate them.
+      const reconciled = reconcileDeletions(tasks, existing);
+      await writeJson(s3Key, stampArray(reconciled, existing));
       return json(200, { ok: true });
     } catch (e) {
       console.error("tasks POST error:", e);

@@ -1,6 +1,7 @@
 import { readJson, listOrgCodes } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { validateToken } from "./_utils/auth.js";
+import { filterLive } from "./_utils/entities.js";
 
 // Resolve which organization(s) the AUTHENTICATED user belongs to. Used by
 // the mobile app right after Auth0 login so users don't have to type an
@@ -65,7 +66,9 @@ export async function handler(event) {
       // added to the roster yet).
       let inRoster = isAdmin;
       if (!inRoster) {
-        const people = await readJson(`orgs/${code}/people.json`).catch(() => null);
+        // filterLive: a soft-deleted person is not a member, so a removed
+        // employee can no longer resolve/enter the org via this lookup.
+        const people = filterLive(await readJson(`orgs/${code}/people.json`).catch(() => null));
         if (Array.isArray(people)) {
           inRoster = people.some((p) => (p?.email || "").toLowerCase() === email);
         }

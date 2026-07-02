@@ -104,3 +104,40 @@ export function softDelete(record) {
   const stamp = nowIso();
   return { ...record, deletedAt: stamp, lastModifiedAt: stamp };
 }
+
+/**
+ * Reconcile client-intended deletions for the full-array-POST entities
+ * (tasks/people/clients/groups). Those endpoints receive the ENTIRE array from
+ * the client, so a record the client deleted just doesn't appear in `next`. A
+ * plain write would hard-delete it, and delta-sync — which only ships records
+ * present in the array — could never tell caching clients it's gone, so it would
+ * linger in their local store forever. So every id present in `previous` but
+ * absent from `next` is turned into a tombstone kept in the returned array,
+ * exactly like messages.js does on its explicit delete path.
+ *
+ * A record that ALREADY carries `deletedAt` is carried forward UNCHANGED (not
+ * re-tombstoned): passing the identical object through means stampArray sees
+ * matching content and preserves its stamp, so a standing tombstone is neither
+ * re-stamped nor re-sent in every delta. Records without an id can't be tracked
+ * across writes, so their deletion can't be detected here — they're ignored
+ * (stampArray already stamps id-less records on every write anyway).
+ *
+ * Returns a NEW array; never mutates the inputs. `previous` may be null / not an
+ * array (first write) → `next` is returned unchanged.
+ */
+export function reconcileDeletions(next, previous) {
+  if (!Array.isArray(next) || !Array.isArray(previous) || previous.length === 0) return next;
+
+  const nextIds = new Set();
+  for (const rec of next) {
+    if (rec && rec.id != null) nextIds.add(String(rec.id));
+  }
+
+  const out = next.slice();
+  for (const rec of previous) {
+    if (!rec || rec.id == null) continue;      // untracked id → can't detect deletion
+    if (nextIds.has(String(rec.id))) continue; // still present → not a deletion
+    out.push(rec.deletedAt ? rec : softDelete(rec));
+  }
+  return out;
+}

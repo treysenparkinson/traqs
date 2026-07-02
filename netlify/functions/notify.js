@@ -2,6 +2,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { sendWebPush } from "./_utils/webpush.js";
+import { filterLive } from "./_utils/entities.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -35,7 +36,9 @@ export async function handler(event) {
 
   // Load people to get push tokens
   let people = [];
-  try { people = await readJson(s3Key) || []; } catch { people = []; }
+  // filterLive: never target notifications at soft-deleted (tombstoned) people
+  // — a removed admin shouldn't keep receiving org pushes.
+  try { people = filterLive(await readJson(s3Key) || []); } catch { people = []; }
 
   const adminIds = people.filter(p => p.userRole === "admin").map(p => String(p.id));
   const teamIds  = (jobTeamIds || []).map(id => String(id));

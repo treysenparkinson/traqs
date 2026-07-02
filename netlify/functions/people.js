@@ -2,7 +2,8 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
-import { stampArray, nowIso } from "./_utils/timestamps.js";
+import { stampArray, nowIso, reconcileDeletions } from "./_utils/timestamps.js";
+import { filterLive } from "./_utils/entities.js";
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
@@ -46,11 +47,14 @@ export async function handler(event) {
     try { await requireOrgMember(event); isMember = true; } catch { /* unauthenticated kiosk */ }
     try {
       const data = (await readJson(s3Key)) ?? [];
-      const safe = data.map(({ pin: _pin, ...rest }) => {
-        if (isMember) return rest;
-        const { pushToken: _pt, timeOff: _to, ...pub } = rest;
-        return pub;
-      });
+      // Hide soft-deleted (tombstoned) people from normal readers; /sync does
+      // NOT filter these so delta-sync clients can evict the deleted row.
+      const safe = filterLive(data)
+        .map(({ pin: _pin, ...rest }) => {
+          if (isMember) return rest;
+          const { pushToken: _pt, timeOff: _to, ...pub } = rest;
+          return pub;
+        });
       return json(200, safe);
     } catch (e) {
       console.error("people GET error:", e);
@@ -90,7 +94,12 @@ export async function handler(event) {
         return np;
       });
 
-      await writeJson(s3Key, stampArray(merged, existing));
+      // Reconcile deletions: any existing person absent from the incoming roster
+      // becomes a tombstone (kept in the array) so delta-sync clients evict them.
+      // Runs only on a non-empty roster — the empty-array guard above already
+      // refuses an empty POST, so this can never mass-tombstone the whole team.
+      const reconciled = reconcileDeletions(merged, existing);
+      await writeJson(s3Key, stampArray(reconciled, existing));
       return json(200, { ok: true });
     } catch (e) {
       console.error("people POST error:", e);

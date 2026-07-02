@@ -4,6 +4,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { sendWebPush } from "./_utils/webpush.js";
 import { nowIso, softDelete } from "./_utils/timestamps.js";
+import { filterLive } from "./_utils/entities.js";
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -165,9 +166,9 @@ export async function handler(event) {
     try {
       const [messages, people, jobs, groups] = await Promise.all([
         readJson(messagesKey).then(v => v ?? []),
-        readJson(orgKey(event, "people.json")).then(v => v ?? []),
-        readJson(orgKey(event, "tasks.json")).then(v => v ?? []),
-        readJson(orgKey(event, "groups.json")).then(v => v ?? []),
+        readJson(orgKey(event, "people.json")).then(v => filterLive(v ?? [])),
+        readJson(orgKey(event, "tasks.json")).then(v => filterLive(v ?? [])),
+        readJson(orgKey(event, "groups.json")).then(v => filterLive(v ?? [])),
       ]);
       const r = await resolveViewerId(event, people);
       if (r.error) return err(r.error, r.message);
@@ -205,9 +206,9 @@ export async function handler(event) {
     try {
       const [existing, people, jobs, groups] = await Promise.all([
         readJson(messagesKey).then(v => v ?? []),
-        readJson(orgKey(event, "people.json")).then(v => v ?? []),
-        readJson(orgKey(event, "tasks.json")).then(v => v ?? []),
-        readJson(orgKey(event, "groups.json")).then(v => v ?? []),
+        readJson(orgKey(event, "people.json")).then(v => filterLive(v ?? [])),
+        readJson(orgKey(event, "tasks.json")).then(v => filterLive(v ?? [])),
+        readJson(orgKey(event, "groups.json")).then(v => filterLive(v ?? [])),
       ]);
       const r = await resolveViewerId(event, people);
       if (r.error) return err(r.error, r.message);
@@ -292,9 +293,9 @@ export async function handler(event) {
     try {
       const [existing, people, jobs, groups] = await Promise.all([
         readJson(messagesKey).then(v => v ?? []),
-        readJson(orgKey(event, "people.json")).then(v => v ?? []),
-        readJson(orgKey(event, "tasks.json")).then(v => v ?? []),
-        readJson(orgKey(event, "groups.json")).then(v => v ?? []),
+        readJson(orgKey(event, "people.json")).then(v => filterLive(v ?? [])),
+        readJson(orgKey(event, "tasks.json")).then(v => filterLive(v ?? [])),
+        readJson(orgKey(event, "groups.json")).then(v => filterLive(v ?? [])),
       ]);
       const r = await resolveViewerId(event, people);
       if (r.error) return err(r.error, r.message);

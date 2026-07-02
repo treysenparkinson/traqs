@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { readJson } from "./s3.js";
+import { filterLive } from "./entities.js";
 
 const domain = process.env.AUTH0_DOMAIN;
 const audience = process.env.AUTH0_AUDIENCE;
@@ -161,7 +162,9 @@ export async function requireOrgMember(event) {
   }
 
   const [people, config] = await Promise.all([
-    readJson(`orgs/${orgCode}/people.json`).then(v => v ?? []).catch(() => []),
+    // filterLive: a soft-deleted (tombstoned) person must NOT count as a member
+    // or admin — otherwise removing an employee wouldn't revoke their access.
+    readJson(`orgs/${orgCode}/people.json`).then(v => filterLive(v ?? [])).catch(() => []),
     readJson(`orgs/${orgCode}/config.json`).catch(() => null),
   ]);
 
