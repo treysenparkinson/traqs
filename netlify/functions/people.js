@@ -2,8 +2,9 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
-import { stampArray, nowIso, reconcileDeletions, softDelete } from "./_utils/timestamps.js";
+import { stampArray, nowIso, reconcileDeletions, softDelete, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
+import { publishChange } from "./_utils/ably-publish.js";
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
@@ -104,6 +105,7 @@ export async function handler(event) {
       const tombstoneWithoutPin = ({ pin: _pin, ...rest }) => softDelete(rest);
       const reconciled = reconcileDeletions(merged, existing, tombstoneWithoutPin);
       await writeJson(s3Key, stampArray(reconciled, existing));
+      await publishChange(member.orgCode, "people", { ids: changedIds(reconciled, existing) });
       return json(200, { ok: true });
     } catch (e) {
       console.error("people POST error:", e);
@@ -152,6 +154,7 @@ export async function handler(event) {
       // stamp directly (no diff needed — the caller changed a field on purpose).
       existing[idx].lastModifiedAt = nowIso();
       await writeJson(s3Key, existing);
+      await publishChange(member.orgCode, "people", { ids: [String(personId)] });
 
       // Strip PIN before returning, matching the GET behavior.
       const { pin: _omit, ...safe } = existing[idx];

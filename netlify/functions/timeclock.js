@@ -2,8 +2,9 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
-import { stampArray } from "./_utils/timestamps.js";
+import { stampArray, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
+import { publishChange } from "./_utils/ably-publish.js";
 
 const failedAttempts = new Map(); // ip -> { count, firstAttempt }
 
@@ -66,10 +67,28 @@ function hoursElapsedMinusPauses(isoStart, isoEnd, events) {
 // to diff against (cheap: clock actions are low-frequency) so only the
 // record(s) this action touched restamp. jobsessions.json is NOT a synced
 // entity, so its writes stay on plain writeJson.
+// Datasets timeclock writes that ARE synced entities → their real-time channel.
+// (jobsessions.json is intentionally absent — not a /sync entity; see its write.)
+const ENTITY_BY_FILE = {
+  "people.json": "people",
+  "timeclock.json": "timeclock",
+  "tasks.json": "tasks",
+};
+
 async function writeStampedArray(key, nextArr) {
   let prev = null;
   try { prev = await readJson(key); } catch { prev = null; }
   await writeJson(key, stampArray(nextArr, prev));
+  // Real-time: signal the change on this dataset's org channel. The S3 key is
+  // `orgs/{orgCode}/{file}`, so org + entity come straight from it — no need to
+  // thread state through the ~30 call sites. Only the changed ids, only after
+  // the write above succeeds; publishChange never throws, so a real-time hiccup
+  // can't fail the clock action.
+  const parts = key.split("/");
+  const entity = ENTITY_BY_FILE[parts[2]];
+  if (parts[1] && entity) {
+    await publishChange(parts[1], entity, { ids: changedIds(nextArr, prev) });
+  }
 }
 
 export async function handler(event) {
@@ -437,6 +456,9 @@ export async function handler(event) {
             date: jcoClockIn.slice(0, 10),
           });
           await writeJson(jobSessionsKey, sessions);
+          // jobsessions.json isn't a /sync entity, so signal on the timeclock
+          // channel — Hours-page listeners refetch job hours after a job clock-out.
+          await publishChange(orgCode, "timeclock", { ids: [] });
         } catch { /* non-fatal */ }
       }
 

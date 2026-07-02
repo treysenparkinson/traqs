@@ -1,9 +1,10 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-import { orgKey } from "./_utils/org.js";
-import { stampArray, reconcileDeletions } from "./_utils/timestamps.js";
+import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
+import { stampArray, reconcileDeletions, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
+import { publishChange } from "./_utils/ably-publish.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -63,6 +64,10 @@ export async function handler(event) {
       // incoming array) into tombstones so delta-sync can propagate them.
       const reconciled = reconcileDeletions(tasks, existing);
       await writeJson(s3Key, stampArray(reconciled, existing));
+      // Real-time: signal which jobs changed AFTER the write succeeds. Awaited
+      // (serverless freezes post-response) but never throws, so it can't fail
+      // the save.
+      await publishChange(orgCodeFromHeader(event), "tasks", { ids: changedIds(reconciled, existing) });
       return json(200, { ok: true });
     } catch (e) {
       console.error("tasks POST error:", e);

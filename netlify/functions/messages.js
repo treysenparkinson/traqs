@@ -5,6 +5,7 @@ import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { sendWebPush } from "./_utils/webpush.js";
 import { nowIso, softDelete } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
+import { publishChange } from "./_utils/ably-publish.js";
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -240,6 +241,7 @@ export async function handler(event) {
       };
       existing.push(newMsg);
       await writeJson(messagesKey, existing.slice(-2000));
+      await publishChange(orgCodeFromHeader(event), "messages", { ids: [String(newMsg.id)] });
 
       // Push notification to participants (excluding sender). Derived
       // from canonical group/task membership instead of body.participantIds
@@ -311,12 +313,15 @@ export async function handler(event) {
       // delta-sync. The GET handler filters out `deletedAt` so existing clients
       // see the thread vanish exactly as before.
       let deleted = 0;
+      const deletedIds = [];
       const next = existing.map(m => {
         if (m.threadKey !== threadKey || m.deletedAt) return m;
         deleted++;
+        deletedIds.push(String(m.id));
         return softDelete(m);
       });
       await writeJson(messagesKey, next);
+      await publishChange(orgCodeFromHeader(event), "messages", { ids: deletedIds });
       return json(200, { ok: true, deleted });
     } catch (e) {
       console.error("messages DELETE error:", e);

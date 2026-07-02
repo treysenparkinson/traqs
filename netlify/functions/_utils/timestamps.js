@@ -147,3 +147,27 @@ export function reconcileDeletions(next, previous, onDelete = softDelete) {
   }
   return out;
 }
+
+/**
+ * Ids of records in `next` that are NEW or whose content changed vs `previous`
+ * — exactly the ones stampArray gives a fresh lastModifiedAt. Used to tell
+ * real-time subscribers WHICH records to refetch. Tombstoned records appear here
+ * too (their deletedAt is a content change). Id-less records are skipped (no
+ * stable id to reference). Order follows `next`.
+ */
+export function changedIds(next, previous) {
+  if (!Array.isArray(next)) return [];
+  const prevById = new Map();
+  if (Array.isArray(previous)) {
+    for (const rec of previous) if (rec && rec.id != null) prevById.set(String(rec.id), rec);
+  }
+  const ids = [];
+  for (const rec of next) {
+    if (!rec || rec.id == null) continue;
+    const prev = prevById.get(String(rec.id));
+    if (!prev || stableStringify(rec, COMPARE_OMIT) !== stableStringify(prev, COMPARE_OMIT)) {
+      ids.push(String(rec.id));
+    }
+  }
+  return ids;
+}

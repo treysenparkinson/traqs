@@ -1,8 +1,9 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-import { orgKey } from "./_utils/org.js";
+import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { stampObject } from "./_utils/timestamps.js";
+import { publishChange } from "./_utils/ably-publish.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -53,6 +54,7 @@ export async function handler(event) {
         }
       }
       await writeJson(s3Key, stampObject(settings, existing));
+      await publishChange(orgCodeFromHeader(event), "settings", { ids: ["*"] });
       return json(200, { ok: true });
     } catch (e) {
       console.error("settings POST error:", e);
