@@ -2,6 +2,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
+import { stampObject } from "./_utils/timestamps.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -35,16 +36,23 @@ export async function handler(event) {
       if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
         return err(400, "Body must be an object");
       }
+
+      // Read the current version once. It serves double duty: the empty-overwrite
+      // guard's reference below, AND the `previous` that stampObject diffs against
+      // so an unchanged settings object keeps its existing lastModifiedAt (only a
+      // genuine content change gets a fresh timestamp, which is what delta-sync
+      // relies on to avoid re-sending settings on every autosave).
+      const existing = await readJson(s3Key);
+
       // Refuse to overwrite a populated settings object with an empty one ({}).
       // See tasks.js for the incident this guards against.
       const force = event.queryStringParameters?.force === "1";
       if (Object.keys(settings).length === 0 && !force) {
-        const existing = await readJson(s3Key);
         if (existing && typeof existing === "object" && !Array.isArray(existing) && Object.keys(existing).length > 0) {
           return err(409, "Refusing to overwrite non-empty settings with empty object");
         }
       }
-      await writeJson(s3Key, settings);
+      await writeJson(s3Key, stampObject(settings, existing));
       return json(200, { ok: true });
     } catch (e) {
       console.error("settings POST error:", e);

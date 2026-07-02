@@ -1,6 +1,7 @@
 import { readJson, writeJson, copyPrefix } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
+import { nowIso, stampObject } from "./_utils/timestamps.js";
 
 function isValidCode(code) {
   return typeof code === "string" && /^[a-zA-Z0-9]{3,20}$/.test(code);
@@ -75,6 +76,10 @@ export async function handler(event) {
       domain: cleanDomain,
       adminEmail,
       createdAt: new Date().toISOString(),
+      // Brand-new object → seed its delta-sync stamp now so the first /sync
+      // after creation sees a lastModifiedAt (rather than treating a fresh
+      // config as un-timestamped legacy data).
+      lastModifiedAt: nowIso(),
     };
 
     // Seed the org creator as the first admin person
@@ -88,6 +93,10 @@ export async function handler(event) {
       cap: 8,
       color: "#6366f1",
       timeOff: [],
+      // Stamp the seed admin like the config above — without this the record
+      // has no lastModifiedAt, so /sync's changedSince treats it as always-new
+      // and re-sends the admin in every delta pull for the life of the org.
+      lastModifiedAt: nowIso(),
     }];
 
     try {
@@ -127,9 +136,12 @@ export async function handler(event) {
       try {
         const existing = await readJson(configKey);
         if (!existing) return err(404, "Organization not found");
-        const updated = { ...existing, name: trimmed };
-        await writeJson(configKey, updated);
-        return json(200, { ok: true, config: updated });
+        // Stamp against the prior config so lastModifiedAt only advances when
+        // the name actually changed (a no-op rename keeps the old stamp and
+        // won't re-broadcast the org config to every syncing client).
+        const stamped = stampObject({ ...existing, name: trimmed }, existing);
+        await writeJson(configKey, stamped);
+        return json(200, { ok: true, config: stamped });
       } catch (e) {
         console.error("org PATCH name error:", e);
         return err(500, "Failed to update organization name");
@@ -151,7 +163,9 @@ export async function handler(event) {
       if (newName) {
         const newConfigKey = `orgs/${newCode}/config.json`;
         const cfg = await readJson(newConfigKey);
-        if (cfg) await writeJson(newConfigKey, { ...cfg, name: String(newName).trim() });
+        // Stamp the post-rename name update against the copied config so the
+        // migrated config's lastModifiedAt advances only if the name changed.
+        if (cfg) await writeJson(newConfigKey, stampObject({ ...cfg, name: String(newName).trim() }, cfg));
       }
       return json(200, { ok: true, newCode });
     } catch (e) {

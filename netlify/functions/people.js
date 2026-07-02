@@ -2,6 +2,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
+import { stampArray, nowIso } from "./_utils/timestamps.js";
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
@@ -89,7 +90,7 @@ export async function handler(event) {
         return np;
       });
 
-      await writeJson(s3Key, merged);
+      await writeJson(s3Key, stampArray(merged, existing));
       return json(200, { ok: true });
     } catch (e) {
       console.error("people POST error:", e);
@@ -134,6 +135,9 @@ export async function handler(event) {
       }
 
       existing[idx] = withBreakStart({ ...existing[idx], ...allowedFields }, existing[idx]);
+      // A PATCH is an explicit modification of this one record, so advance its
+      // stamp directly (no diff needed — the caller changed a field on purpose).
+      existing[idx].lastModifiedAt = nowIso();
       await writeJson(s3Key, existing);
 
       // Strip PIN before returning, matching the GET behavior.

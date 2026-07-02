@@ -3,6 +3,7 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { sendWebPush } from "./_utils/webpush.js";
+import { nowIso, softDelete } from "./_utils/timestamps.js";
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -67,7 +68,10 @@ async function resolveViewerId(event, people) {
 //   panel:<id>    → same rule as the parent job
 //   op:<id>       → same rule as the parent job
 // Anything else is rejected. Closed-by-default keeps mistakes safe.
-function canViewThread(threadKey, viewerId, jobs, groups) {
+// Exported so /sync can enforce the SAME per-viewer thread access control —
+// otherwise sync would hand every member the whole org's conversations,
+// reintroducing exactly the leak the GET handler below was written to close.
+export function canViewThread(threadKey, viewerId, jobs, groups) {
   if (!viewerId || !threadKey) return false;
   if (threadKey.startsWith("dm:")) {
     return threadKey.slice(3).split("_").map(String).includes(viewerId);
@@ -98,7 +102,7 @@ function canViewThread(threadKey, viewerId, jobs, groups) {
   return false;
 }
 
-function userInJob(viewerId, j) {
+export function userInJob(viewerId, j) {
   const has = arr => Array.isArray(arr) && arr.map(String).includes(viewerId);
   if (has(j.team)) return true;
   for (const p of (j.subs || [])) {
@@ -172,6 +176,10 @@ export async function handler(event) {
       // Cache thread-level decisions so we don't re-evaluate per message.
       const decision = new Map();
       const filtered = messages.filter(m => {
+        // Hide tombstoned messages. Thread deletes are now soft (see DELETE
+        // below) so /sync can propagate them; this filter keeps the GET's
+        // observable behavior identical — a deleted thread stays gone here.
+        if (m.deletedAt) return false;
         if (!decision.has(m.threadKey)) {
           decision.set(m.threadKey, canViewThread(m.threadKey, viewerId, jobs, groups));
         }
@@ -224,6 +232,9 @@ export async function handler(event) {
         participantIds: participantIds || [],
         attachments: Array.isArray(attachments) ? attachments.slice(0, 10) : [],
         timestamp: new Date().toISOString(),
+        // A brand-new message is modified "now" by definition — stamp it so it
+        // shows up in the next /sync delta without diffing the whole log.
+        lastModifiedAt: nowIso(),
         ...(type ? { type, finishRequestId: finishRequestId || null } : {}),
       };
       existing.push(newMsg);
@@ -293,9 +304,19 @@ export async function handler(event) {
       if (!r.viewerId || !canViewThread(threadKey, r.viewerId, jobs, groups)) {
         return err(403, "Not a participant in this thread");
       }
-      const filtered = existing.filter(m => m.threadKey !== threadKey);
-      await writeJson(messagesKey, filtered);
-      return json(200, { ok: true, deleted: existing.length - filtered.length });
+      // Soft-delete: tombstone the thread's messages (deletedAt + lastModifiedAt)
+      // but keep them in the array so /sync can tell clients to drop them from
+      // their local cache. A hard filter would make the deletion invisible to
+      // delta-sync. The GET handler filters out `deletedAt` so existing clients
+      // see the thread vanish exactly as before.
+      let deleted = 0;
+      const next = existing.map(m => {
+        if (m.threadKey !== threadKey || m.deletedAt) return m;
+        deleted++;
+        return softDelete(m);
+      });
+      await writeJson(messagesKey, next);
+      return json(200, { ok: true, deleted });
     } catch (e) {
       console.error("messages DELETE error:", e);
       return err(500, "Failed to delete messages");

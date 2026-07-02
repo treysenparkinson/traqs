@@ -2,6 +2,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
+import { stampArray } from "./_utils/timestamps.js";
 
 const failedAttempts = new Map(); // ip -> { count, firstAttempt }
 
@@ -56,6 +57,18 @@ function hoursElapsedMinusPauses(isoStart, isoEnd, events) {
   const totalMs = new Date(isoEnd) - new Date(isoStart);
   const netMs = totalMs - pausedMsFromEvents(events, isoEnd);
   return Math.max(0, Math.round((netMs / 3600000) * 100) / 100);
+}
+
+// Stamp entity-array writes so timeclock's server-side mutations (clock
+// state on people, logged hours on tasks, punches on the clock log) advance
+// lastModifiedAt and propagate through /sync. Re-reads the previous version
+// to diff against (cheap: clock actions are low-frequency) so only the
+// record(s) this action touched restamp. jobsessions.json is NOT a synced
+// entity, so its writes stay on plain writeJson.
+async function writeStampedArray(key, nextArr) {
+  let prev = null;
+  try { prev = await readJson(key); } catch { prev = null; }
+  await writeJson(key, stampArray(nextArr, prev));
 }
 
 export async function handler(event) {
@@ -131,7 +144,7 @@ export async function handler(event) {
 
         const clockIn = clockInTime || new Date().toISOString();
         people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs: [], events: [] } };
-        try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save people"); }
+        try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save people"); }
 
         return json(200, { ok: true, activeClockIn: people[personIdx].activeClockIn });
       }
@@ -170,10 +183,10 @@ export async function handler(event) {
         let log;
         try { log = await readJson(clockKey) ?? []; } catch { log = []; }
         log.push(entry);
-        try { await writeJson(clockKey, log); } catch { return err(500, "Failed to save clock entry"); }
+        try { await writeStampedArray(clockKey, log); } catch { return err(500, "Failed to save clock entry"); }
 
         people[personIdx] = { ...person, activeClockIn: null };
-        try { await writeJson(peopleKey, people); } catch { /* non-fatal */ }
+        try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
 
         // Update loggedHours on each job in tasks.json
         if (jobRefs.length > 0 && hours > 0) {
@@ -184,7 +197,7 @@ export async function handler(event) {
               if (!ref) return job;
               return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
             });
-            await writeJson(tasksKey, tasks);
+            await writeStampedArray(tasksKey, tasks);
           } catch { /* non-fatal */ }
         }
 
@@ -214,7 +227,7 @@ export async function handler(event) {
         });
 
         if (!found) return err(404, "Entry not found");
-        try { await writeJson(clockKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        try { await writeStampedArray(clockKey, log); } catch { return err(500, "Failed to save timeclock"); }
 
         const updated = log.find(e => e.id === entryId);
         return json(200, { ok: true, entry: updated });
@@ -256,7 +269,7 @@ export async function handler(event) {
       // Nothing matched — skip the write (and dodge the empty-overwrite guard).
       if (count === 0) return json(200, { ok: true, count: 0, confirmed: confirming, start, end });
 
-      try { await writeJson(clockKey, next); } catch { return err(500, "Failed to save timeclock"); }
+      try { await writeStampedArray(clockKey, next); } catch { return err(500, "Failed to save timeclock"); }
       return json(200, { ok: true, count, confirmed: confirming, start, end, confirmedAt: confirming ? stamp : null, confirmedBy: confirming ? by : null });
     }
 
@@ -297,11 +310,11 @@ export async function handler(event) {
 
       const albTimestamp = albTs || new Date().toISOString();
       albPeople[albIdx] = { ...albPerson, activeClockIn: { ...albPerson.activeClockIn, events: [...albEvents, { type: evtType, ts: albTimestamp }] } };
-      try { await writeJson(peopleKey, albPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, albPeople); } catch { return err(500, "Failed to save"); }
 
       const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: albTimestamp.slice(0, 10), eventType: evtType, timestamp: albTimestamp };
       let albLog; try { albLog = await readJson(clockKey) ?? []; } catch { albLog = []; }
-      albLog.push(albEvt); try { await writeJson(clockKey, albLog); } catch { /* non-fatal */ }
+      albLog.push(albEvt); try { await writeStampedArray(clockKey, albLog); } catch { /* non-fatal */ }
 
       return json(200, { ok: true, event: albEvt, activeClockIn: albPeople[albIdx].activeClockIn });
     }
@@ -327,7 +340,7 @@ export async function handler(event) {
 
       const jciClockIn = new Date().toISOString();
       jciPeople[jciIdx] = { ...jciPerson, activeJobClock: { clockIn: jciClockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle } };
-      try { await writeJson(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
 
       // Update job and sub-operation status to "In Progress" in tasks.json
       try {
@@ -346,7 +359,7 @@ export async function handler(event) {
               }),
             })),
           };
-          await writeJson(tasksKey, jciTasks);
+          await writeStampedArray(tasksKey, jciTasks);
         }
       } catch (e) { console.warn("jobClockIn: failed to update task status", e); }
 
@@ -377,7 +390,7 @@ export async function handler(event) {
       const jcoHours = Math.max(0, Math.round(((jcoRawMs - jcoPausedMs) / 3600000) * 100) / 100);
 
       jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null };
-      try { await writeJson(peopleKey, jcoPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, jcoPeople); } catch { return err(500, "Failed to save"); }
 
       if (jcoHours > 0 && jcoJobId) {
         try {
@@ -397,7 +410,7 @@ export async function handler(event) {
             }) : job.subs;
             return { ...job, loggedHours: newJobHours, subs: newSubs };
           });
-          await writeJson(tasksKey, tasks);
+          await writeStampedArray(tasksKey, tasks);
         } catch { /* non-fatal */ }
       }
 
@@ -450,7 +463,7 @@ export async function handler(event) {
 
       const pausedAt = new Date().toISOString();
       jpPeople[jpIdx] = { ...jpPerson, activeJobClock: { ...jpPerson.activeJobClock, pausedAt } };
-      try { await writeJson(peopleKey, jpPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, jpPeople); } catch { return err(500, "Failed to save"); }
 
       return json(200, { ok: true, pausedAt });
     }
@@ -478,7 +491,7 @@ export async function handler(event) {
       const totalPausedMs = (jrPerson.activeJobClock.totalPausedMs || 0) + pausedDuration;
       const { pausedAt: _removed, ...jrJobClock } = jrPerson.activeJobClock;
       jrPeople[jrIdx] = { ...jrPerson, activeJobClock: { ...jrJobClock, totalPausedMs } };
-      try { await writeJson(peopleKey, jrPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, jrPeople); } catch { return err(500, "Failed to save"); }
 
       return json(200, { ok: true, totalPausedMs });
     }
@@ -507,12 +520,12 @@ export async function handler(event) {
       const bbStart = new Date().toISOString();
       const bbMinutes = Number.isFinite(bbDur) ? bbDur : 15;
       bbPeople[bbIdx] = { ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } };
-      try { await writeJson(peopleKey, bbPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, bbPeople); } catch { return err(500, "Failed to save"); }
 
       // Log to timeclock.json for payroll records.
       const bbEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bbPId), date: bbStart.slice(0, 10), eventType: "breakStart", timestamp: bbStart };
       let bbLog; try { bbLog = await readJson(clockKey) ?? []; } catch { bbLog = []; }
-      bbLog.push(bbEvt); try { await writeJson(clockKey, bbLog); } catch { }
+      bbLog.push(bbEvt); try { await writeStampedArray(clockKey, bbLog); } catch { }
 
       return json(200, { ok: true, startedAt: bbStart, durationMinutes: bbMinutes });
     }
@@ -534,11 +547,11 @@ export async function handler(event) {
 
       const bcEnd = new Date().toISOString();
       bcPeople[bcIdx] = { ...bcPeople[bcIdx], activeBreak: null };
-      try { await writeJson(peopleKey, bcPeople); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, bcPeople); } catch { return err(500, "Failed to save"); }
 
       const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: bcEnd.slice(0, 10), eventType: "breakEnd", timestamp: bcEnd };
       let bcLog; try { bcLog = await readJson(clockKey) ?? []; } catch { bcLog = []; }
-      bcLog.push(bcEvt); try { await writeJson(clockKey, bcLog); } catch { }
+      bcLog.push(bcEvt); try { await writeStampedArray(clockKey, bcLog); } catch { }
 
       return json(200, { ok: true, endedAt: bcEnd });
     }
@@ -596,7 +609,7 @@ export async function handler(event) {
       const { jobRefs = [] } = body;
       const clockIn = new Date().toISOString();
       people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs } };
-      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save clock-in"); }
+      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save clock-in"); }
       return json(200, { ok: true, clockIn });
     }
 
@@ -624,10 +637,10 @@ export async function handler(event) {
       let log;
       try { log = await readJson(clockKey) ?? []; } catch { log = []; }
       log.push(entry);
-      try { await writeJson(clockKey, log); } catch { return err(500, "Failed to save clock entry"); }
+      try { await writeStampedArray(clockKey, log); } catch { return err(500, "Failed to save clock entry"); }
 
       people[personIdx] = { ...person, activeClockIn: null };
-      try { await writeJson(peopleKey, people); } catch { /* non-fatal */ }
+      try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
 
       // Update loggedHours on each job in tasks.json
       if (jobRefs.length > 0 && hours > 0) {
@@ -638,7 +651,7 @@ export async function handler(event) {
             if (!ref) return job;
             return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
           });
-          await writeJson(tasksKey, tasks);
+          await writeStampedArray(tasksKey, tasks);
         } catch { /* non-fatal */ }
       }
 
@@ -653,10 +666,10 @@ export async function handler(event) {
       if (lastLunch?.type === "lunchStart") return err(409, "Already on lunch");
       const timestamp = new Date().toISOString();
       people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchStart", ts: timestamp }] } };
-      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchStart", timestamp };
       let log1; try { log1 = await readJson(clockKey) ?? []; } catch { log1 = []; }
-      log1.push(evt); try { await writeJson(clockKey, log1); } catch { }
+      log1.push(evt); try { await writeStampedArray(clockKey, log1); } catch { }
       return json(200, { ok: true, event: evt });
     }
 
@@ -668,10 +681,10 @@ export async function handler(event) {
       if (!lastLunch || lastLunch.type !== "lunchStart") return err(409, "Not on lunch");
       const timestamp = new Date().toISOString();
       people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchEnd", ts: timestamp }] } };
-      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchEnd", timestamp };
       let log2; try { log2 = await readJson(clockKey) ?? []; } catch { log2 = []; }
-      log2.push(evt); try { await writeJson(clockKey, log2); } catch { }
+      log2.push(evt); try { await writeStampedArray(clockKey, log2); } catch { }
       return json(200, { ok: true, event: evt });
     }
 
@@ -683,10 +696,10 @@ export async function handler(event) {
       if (lastBreak?.type === "breakStart") return err(409, "Already on break");
       const timestamp = new Date().toISOString();
       people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } };
-      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakStart", timestamp };
       let log3; try { log3 = await readJson(clockKey) ?? []; } catch { log3 = []; }
-      log3.push(evt); try { await writeJson(clockKey, log3); } catch { }
+      log3.push(evt); try { await writeStampedArray(clockKey, log3); } catch { }
       return json(200, { ok: true, event: evt });
     }
 
@@ -698,10 +711,10 @@ export async function handler(event) {
       if (!lastBreak || lastBreak.type !== "breakStart") return err(409, "Not on break");
       const timestamp = new Date().toISOString();
       people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } };
-      try { await writeJson(peopleKey, people); } catch { return err(500, "Failed to save"); }
+      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakEnd", timestamp };
       let log4; try { log4 = await readJson(clockKey) ?? []; } catch { log4 = []; }
-      log4.push(evt); try { await writeJson(clockKey, log4); } catch { }
+      log4.push(evt); try { await writeStampedArray(clockKey, log4); } catch { }
       return json(200, { ok: true, event: evt });
     }
 
@@ -733,7 +746,7 @@ export async function handler(event) {
       });
 
       if (!updated) return err(404, "Operation not found");
-      try { await writeJson(tasksKey, tasks); } catch { return err(500, "Failed to save tasks"); }
+      try { await writeStampedArray(tasksKey, tasks); } catch { return err(500, "Failed to save tasks"); }
       return json(200, { ok: true });
     }
 
