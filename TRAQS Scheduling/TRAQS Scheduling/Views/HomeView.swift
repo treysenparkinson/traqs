@@ -33,7 +33,7 @@ struct HomeView: View {
 
                         // Page title — personal greeting, same muted
                         // faded-to-transparent style as every other tab.
-                        PageTitle(title: greeting, centered: true)
+                        PageTitle(title: greeting)
                             .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 10)
 
