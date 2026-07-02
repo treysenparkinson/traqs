@@ -37,9 +37,9 @@ struct TRAQSNavHeader<Trailing: View>: View {
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
-        // Menu button + TRAQS wordmark on the left, trailing controls on the
-        // right. Extra top padding drops the whole header (and page title) down
-        // from the status bar for more breathing room.
+        // Menu button on the left, trailing controls on the right. Extra top
+        // padding drops the whole header (and page title) down from the status
+        // bar for more breathing room.
         HStack(alignment: .center, spacing: 10) {
             TRAQSMenuButton()
             Spacer()

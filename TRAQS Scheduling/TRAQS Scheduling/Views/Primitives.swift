@@ -671,6 +671,9 @@ struct PageTitle: View {
     /// Title fill. Defaults to solid primary ink (theme-aware "black"). Pass a
     /// gradient to override.
     var gradient: LinearGradient? = nil
+    /// Horizontally center the title (and subtitle). Opt-in — defaults to the
+    /// standard leading alignment; currently only the Home greeting centers.
+    var centered: Bool = false
 
     private var titleFill: AnyShapeStyle {
         // Solid primary ink — adapts to light/dark backgrounds. An explicit
@@ -682,18 +685,19 @@ struct PageTitle: View {
     var body: some View {
         // Re-render the title ink on a live Customize background change.
         _ = theme.bgPresetId
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: centered ? .center : .leading, spacing: 2) {
             Text(title)
                 .font(.custom(TFontName.extrabold.rawValue, size: size))
                 .tracking(-4)
                 .foregroundStyle(titleFill)
+                .multilineTextAlignment(centered ? .center : .leading)
             if let subtitle {
                 Text(subtitle)
                     .font(TTypo.sm(13))
                     .foregroundStyle(Color(hex: T.muted))
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
         .padding(.horizontal, 16)
     }
 }

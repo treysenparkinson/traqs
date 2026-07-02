@@ -31,9 +31,9 @@ struct HomeView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
 
-                        // Page title — same muted faded-to-transparent style as
-                        // every other tab.
-                        PageTitle(title: "Home")
+                        // Page title — personal greeting, same muted
+                        // faded-to-transparent style as every other tab.
+                        PageTitle(title: greeting, centered: true)
                             .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 10)
 
@@ -84,6 +84,16 @@ struct HomeView: View {
     // MARK: - Data
 
     private var personName: String { appState.currentPerson?.name ?? "" }
+
+    /// First name only, for the friendly Home greeting.
+    private var firstName: String {
+        personName.split(separator: " ").first.map(String.init) ?? ""
+    }
+
+    /// Home page title: "Hello, <first name>" once the person loads, else "Hello".
+    private var greeting: String {
+        firstName.isEmpty ? "Hello" : "Hello, \(firstName)"
+    }
 
     private var initials: String {
         let parts = (appState.currentPerson?.name ?? "—")
