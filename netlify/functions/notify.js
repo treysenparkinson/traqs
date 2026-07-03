@@ -114,8 +114,12 @@ export async function handler(event) {
         },
         body: JSON.stringify({
           app_id: appId,
-          include_external_user_ids: registeredIds,
-          channel_for_external_user_ids: "push",
+          // v5 user model: target by the external_id alias (set on iOS via
+          // OneSignal.login(personId)). The legacy include_external_user_ids
+          // field is deprecated and silently resolves 0 recipients on new
+          // apps, which is why pushes were never delivered.
+          include_aliases: { external_id: registeredIds },
+          target_channel: "push",
           headings: { en: heading },
           contents: { en: content },
           data: { type, jobTitle, panelTitle, stepLabel, jobNumber },

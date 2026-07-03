@@ -267,18 +267,33 @@ export async function handler(event) {
           .filter(p => p.pushToken && targetIds.includes(String(p.id)))
           .map(p => String(p.id));
         if (registered.length > 0) {
-          await fetch("https://onesignal.com/api/v1/notifications", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", Authorization: `Basic ${apiKey}` },
-            body: JSON.stringify({
-              app_id: appId,
-              include_external_user_ids: registered,
-              channel_for_external_user_ids: "push",
-              headings: { en: `${authorName}` },
-              contents: { en: text?.trim() || "Sent an attachment" },
-              data: { threadKey, scope },
-            }),
-          }).catch(() => {});
+          try {
+            const osRes = await fetch("https://onesignal.com/api/v1/notifications", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Basic ${apiKey}` },
+              body: JSON.stringify({
+                app_id: appId,
+                // v5 user model: target by the external_id alias (set on iOS
+                // via OneSignal.login(personId)). The legacy
+                // include_external_user_ids field is deprecated and silently
+                // resolves 0 recipients on new apps.
+                include_aliases: { external_id: registered },
+                target_channel: "push",
+                headings: { en: `${authorName}` },
+                contents: { en: text?.trim() || "Sent an attachment" },
+                data: { threadKey, scope },
+              }),
+            });
+            // Previously this was `.catch(() => {})`, so every message-push
+            // failure was invisible. Surface non-2xx status + body so a
+            // targeting/auth problem shows up in the function logs.
+            const osBody = await osRes.json().catch(() => ({}));
+            if (!osRes.ok) {
+              console.error("OneSignal error (messages):", osRes.status, osBody);
+            }
+          } catch (e) {
+            console.error("OneSignal request failed (messages):", e);
+          }
         }
       }
 

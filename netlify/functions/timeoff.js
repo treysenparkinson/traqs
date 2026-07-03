@@ -54,18 +54,25 @@ async function pushTo(orgCode, people, targetIds, heading, content, data) {
   if (registeredIds.length === 0) return;
 
   try {
-    await fetch("https://onesignal.com/api/v1/notifications", {
+    const osRes = await fetch("https://onesignal.com/api/v1/notifications", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Basic ${apiKey}` },
       body: JSON.stringify({
         app_id: appId,
-        include_external_user_ids: registeredIds,
-        channel_for_external_user_ids: "push",
+        // v5 user model: target by the external_id alias (set on iOS via
+        // OneSignal.login(personId)). The legacy include_external_user_ids
+        // field is deprecated and silently resolves 0 recipients on new apps.
+        include_aliases: { external_id: registeredIds },
+        target_channel: "push",
         headings: { en: heading },
         contents: { en: content },
         data: { type: "timeoff", ...data },
       }),
     });
+    const osBody = await osRes.json().catch(() => ({}));
+    if (!osRes.ok) {
+      console.error("OneSignal error (timeoff):", osRes.status, osBody);
+    }
   } catch (e) {
     console.error("OneSignal timeoff push error:", e);
   }

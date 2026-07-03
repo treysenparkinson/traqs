@@ -49,6 +49,14 @@ struct TRAQS_SchedulingApp: App {
                     // what makes message notifications actually arrive.
                     if let personId {
                         OneSignal.login(personId)
+                        // Diagnostic: confirm login() actually attached the
+                        // external ID. If this logs "nil" the SDK call failed
+                        // silently and no server push (targeted by external_id
+                        // alias) can ever resolve this device. Note the read
+                        // can lag login() by a moment since it round-trips, so
+                        // treat a one-off nil right here as inconclusive —
+                        // what matters is the Audience → user record.
+                        print("[onesignal] login called for personId=\(personId), current external id=\(OneSignal.User.externalId ?? "nil")")
                         // notify.js / messages.js filter recipients by
                         // person.pushToken. Writing the OneSignal
                         // subscription ID back to people.json is what
