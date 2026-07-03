@@ -591,7 +591,7 @@ struct Client: Codable, Identifiable, Equatable, Hashable {
 
 // MARK: - Attachment
 
-struct Attachment: Codable, Identifiable {
+struct Attachment: Codable, Identifiable, Equatable {
     var id: String { key }
     var key: String
     var filename: String
@@ -601,7 +601,7 @@ struct Attachment: Codable, Identifiable {
 
 // MARK: - Message
 
-struct Message: Codable, Identifiable {
+struct Message: Codable, Identifiable, Equatable {
     var id: String
     var threadKey: String
     var scope: String
@@ -670,7 +670,7 @@ struct Message: Codable, Identifiable {
 
 // MARK: - ChatGroup
 
-struct ChatGroup: Codable, Identifiable {
+struct ChatGroup: Codable, Identifiable, Equatable {
     var id: String
     var name: String
     var memberIds: [String]

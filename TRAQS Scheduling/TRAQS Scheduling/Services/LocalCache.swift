@@ -58,25 +58,44 @@ final class LocalCache {
 
     // Upsert the live records and evict the tombstoned ones (matching the
     // desktop: the cache holds only live rows). One fetch per batch → O(n).
-    func applyBatch<T: SyncRecord>(_ type: T.Type, _ records: [Incoming]) {
-        guard let ctx, !records.isEmpty else { return }
+    @discardableResult
+    func applyBatch<T: SyncRecord>(_ type: T.Type, _ records: [Incoming]) -> Int {
+        guard let ctx, !records.isEmpty else { return 0 }
         let existing = (try? ctx.fetch(FetchDescriptor<T>())) ?? []
         var byId: [String: T] = [:]
         for e in existing { byId[e.id] = e }
+        var wrote = 0, inserted = 0, deleted = 0
         for rec in records {
             if rec.isDeleted {
-                if let obj = byId[rec.id] { ctx.delete(obj); byId[rec.id] = nil }
+                if let obj = byId[rec.id] { ctx.delete(obj); byId[rec.id] = nil; deleted += 1 }
+                // else: tombstone for a record we don't cache → nothing to evict
             } else if let obj = byId[rec.id] {
+                // Skip no-op rewrites. SwiftData writes run on the main actor, so
+                // rewriting the entire delta every sync — e.g. legacy messages that
+                // /sync re-sends forever because they carry no lastModifiedAt — stalls
+                // the UI. The server advances lastModifiedAt ONLY on a real content
+                // change (stampArray preserves it otherwise), so equal stamps ⇒
+                // unchanged. When neither side has a stamp, compare canonical payload
+                // bytes (parseArray uses .sortedKeys, so equal content ⇒ equal bytes).
+                let unchanged: Bool
+                if let inLM = rec.lastModifiedAt, let curLM = obj.lastModifiedAt { unchanged = (inLM == curLM) }
+                else if rec.lastModifiedAt == nil, obj.lastModifiedAt == nil { unchanged = (obj.payload == rec.payload) }
+                else { unchanged = false }
+                if unchanged { continue }
                 obj.lastModifiedAt = rec.lastModifiedAt
                 obj.deletedAt = nil
                 obj.payload = rec.payload
+                wrote += 1
             } else {
                 let obj = T(id: rec.id, lastModifiedAt: rec.lastModifiedAt, deletedAt: nil, payload: rec.payload)
                 ctx.insert(obj)
                 byId[rec.id] = obj
+                inserted += 1
             }
         }
-        try? ctx.save()
+        let writes = wrote + inserted + deleted
+        if writes > 0 { try? ctx.save() }  // nothing dirtied → skip the save entirely
+        return writes
     }
 
     // ── Cursor (Meta) ──

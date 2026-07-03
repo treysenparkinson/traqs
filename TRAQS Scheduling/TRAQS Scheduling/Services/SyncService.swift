@@ -42,7 +42,10 @@ final class SyncService {
         out.reserveCapacity(arr.count)
         for rec in arr {
             guard let id = Self.idString(rec["id"]) else { continue }
-            let payload = (try? JSONSerialization.data(withJSONObject: rec)) ?? Data()
+            // .sortedKeys → canonical bytes: identical content always serializes
+            // to identical bytes, so applyBatch's "did this change?" byte compare
+            // is reliable (JSONSerialization's default key order is not stable).
+            let payload = (try? JSONSerialization.data(withJSONObject: rec, options: [.sortedKeys])) ?? Data()
             out.append(.init(id: id,
                              lastModifiedAt: Self.date(rec["lastModifiedAt"]),
                              deletedAt: Self.date(rec["deletedAt"]),
@@ -53,22 +56,31 @@ final class SyncService {
 
     private func parseObject(_ raw: Any?) -> LocalCache.Incoming? {
         guard let obj = raw as? [String: Any] else { return nil }
-        let payload = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data()
+        let payload = (try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys])) ?? Data()
         return .init(id: "current", lastModifiedAt: Self.date(obj["lastModifiedAt"]), deletedAt: nil, payload: payload)
     }
 
     // Write one /sync response through to the cache (synchronous → atomic vs
     // other main-actor work), then advance the cursor.
-    private func applyDelta(_ dict: [String: Any]) {
-        cache.applyBatch(SyncedJob.self, parseArray(dict["tasks"]))
-        cache.applyBatch(SyncedPerson.self, parseArray(dict["people"]))
-        cache.applyBatch(SyncedClient.self, parseArray(dict["clients"]))
-        cache.applyBatch(SyncedMessage.self, parseArray(dict["messages"]))
-        cache.applyBatch(SyncedGroup.self, parseArray(dict["groups"]))
-        cache.applyBatch(SyncedTimeclockEntry.self, parseArray(dict["timeclock"]))
-        if let cfg = parseObject(dict["orgConfig"]) { cache.applyBatch(SyncedOrgConfig.self, [cfg]) }
-        if let set = parseObject(dict["settings"]) { cache.applyBatch(SyncedSettings.self, [set]) }
+    // Returns the number of records actually written to the cache (upserts +
+    // inserts + deletes; no-op re-sends are skipped by applyBatch). The caller
+    // rehydrates the UI ONLY when this is > 0, so a coalesced/empty delta never
+    // triggers a spurious @Observable churn.
+    @discardableResult
+    private func applyDelta(_ dict: [String: Any]) -> Int {
+        let tasks = parseArray(dict["tasks"]), people = parseArray(dict["people"]), clients = parseArray(dict["clients"])
+        let messages = parseArray(dict["messages"]), groups = parseArray(dict["groups"]), timeclock = parseArray(dict["timeclock"])
+        var w = 0
+        w += cache.applyBatch(SyncedJob.self, tasks)
+        w += cache.applyBatch(SyncedPerson.self, people)
+        w += cache.applyBatch(SyncedClient.self, clients)
+        w += cache.applyBatch(SyncedMessage.self, messages)
+        w += cache.applyBatch(SyncedGroup.self, groups)
+        w += cache.applyBatch(SyncedTimeclockEntry.self, timeclock)
+        if let cfg = parseObject(dict["orgConfig"]) { w += cache.applyBatch(SyncedOrgConfig.self, [cfg]) }
+        if let set = parseObject(dict["settings"]) { w += cache.applyBatch(SyncedSettings.self, [set]) }
         if let serverTime = dict["serverTime"] as? String { cache.setCursor(serverTime) }
+        return w
     }
 
     private func fetchDelta(since: String?) async throws -> [String: Any] {
@@ -77,34 +89,38 @@ final class SyncService {
     }
 
     // Full snapshot into freshly-cleared tables (first load / forced rebuild).
-    private func fullResync() async throws {
+    @discardableResult
+    private func fullResync() async throws -> Int {
         let dict = try await fetchDelta(since: nil)
         cache.clearAll()
-        applyDelta(dict)
+        let w = applyDelta(dict)
         if let st = dict["serverTime"] as? String { cache.setCursor(st, fullSync: true) }
+        return w
     }
 
     // Incremental sync from the stored cursor; full resync if there's none yet.
-    // Returns true if a sync completed successfully (so the caller can rehydrate).
+    // Returns true only if this sync actually WROTE something to the cache, so
+    // the caller can skip rehydrating (and the resulting @Observable churn) when
+    // nothing changed. A coalesced call returns false — the in-flight run reruns
+    // and its caller does the single rehydrate.
     @discardableResult
     func deltaSync() async -> Bool {
         if inFlight { rerun = true; return false }
         inFlight = true
         defer { inFlight = false }
-        var ok = false
+        var totalWrites = 0
         repeat {
             rerun = false
             do {
                 if let cursor = cache.cursor() {
-                    applyDelta(try await fetchDelta(since: cursor))
+                    totalWrites += applyDelta(try await fetchDelta(since: cursor))
                 } else {
-                    try await fullResync()
+                    totalWrites += try await fullResync()
                 }
-                ok = true
             } catch {
-                print("[SyncService] deltaSync failed: \(error)")
+                print("[sync] deltaSync failed: \(error)")
             }
         } while rerun
-        return ok
+        return totalWrites > 0
     }
 }

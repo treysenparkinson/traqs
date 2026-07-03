@@ -2,7 +2,8 @@ import SwiftUI
 
 struct JobDetailView: View {
     @Environment(AppState.self) private var appState
-    let job: Job
+    /// Frozen snapshot pushed onto the NavigationStack path — seed/fallback only.
+    private let seedJob: Job
     /// When set (e.g. arrived via a Schedule block), highlight + auto-expand this panel.
     var highlightPanelId: String? = nil
     /// When set, highlight this op row inside the panel.
@@ -10,6 +11,19 @@ struct JobDetailView: View {
 
     @State private var showEdit = false
     @State private var showDeleteConfirm = false
+
+    init(job: Job, highlightPanelId: String? = nil, highlightOpId: String? = nil) {
+        self.seedJob = job
+        self.highlightPanelId = highlightPanelId
+        self.highlightOpId = highlightOpId
+    }
+
+    /// Live job — re-read by id from AppState on every render so realtime/sync
+    /// edits (Ably → deltaSync → rehydrate → appState.jobs) reflect immediately.
+    /// The value pushed onto the NavigationStack path is a frozen snapshot; without
+    /// this lookup the detail screen never observes updates. Falls back to the
+    /// seed if the job is momentarily absent (mid-sync) or was deleted.
+    private var job: Job { appState.jobs.first(where: { $0.id == seedJob.id }) ?? seedJob }
 
     var client: Client? { appState.client(for: job) }
 

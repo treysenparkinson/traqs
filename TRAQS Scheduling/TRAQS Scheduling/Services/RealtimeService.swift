@@ -24,7 +24,11 @@ final class RealtimeService {
                  api: APIService,
                  onChange: @escaping () -> Void,
                  onReconnect: @escaping () -> Void) async {
-        if client != nil || degraded { return }
+        if client != nil || degraded {
+            print("[ably] connect() ignored (connected: \(client != nil), degraded: \(degraded))")
+            return
+        }
+        print("[ably] connect() orgCode=\"\(orgCode)\"")
         self.orgCode = orgCode
         self.onChange = onChange
         self.onReconnect = onReconnect
@@ -36,12 +40,12 @@ final class RealtimeService {
         } catch let e as APIError {
             if case .httpError(503) = e {
                 degraded = true
-                print("[Realtime] disabled — server 503 (ABLY_ROOT_KEY unset). App runs without live updates.")
+                print("[ably] disabled — /ably-token returned 503 (real-time not configured). No live updates.")
                 return
             }
+            print("[ably] token preflight error (connecting anyway): \(e)")
         } catch {
-            // Other probe errors: connect anyway; Ably retries auth on its own.
-            print("[Realtime] token probe error: \(error) — connecting anyway")
+            print("[ably] token preflight error (connecting anyway): \(error)")
         }
 
         let options = ARTClientOptions()
@@ -66,9 +70,10 @@ final class RealtimeService {
         realtime.connection.on { [weak self] change in
             let current = change.current
             let previous = change.previous
+            let reason = change.reason?.message
             Task { @MainActor in
                 guard let self else { return }
-                print("[Realtime] connection: \(previous.rawValue) → \(current.rawValue)")
+                print("[ably] connection: \(ARTRealtimeConnectionStateToStr(previous)) → \(ARTRealtimeConnectionStateToStr(current))" + (reason.map { " reason=\($0)" } ?? ""))
                 if current == .connected {
                     // On a RE-connect (not the first), pull the delta to catch
                     // anything published while we were offline.
@@ -79,10 +84,14 @@ final class RealtimeService {
         }
 
         for entity in Self.entities {
-            let channel = realtime.channels.get("org-\(orgCode):\(entity)")
+            let name = "org-\(orgCode):\(entity)"
+            let channel = realtime.channels.get(name)
             channels.append(channel)
             channel.subscribe("changed") { [weak self] _ in
-                Task { @MainActor in self?.onChange?() }
+                Task { @MainActor in
+                    guard let self else { return }
+                    self.onChange?()
+                }
             }
         }
     }

@@ -77,6 +77,7 @@ class AppState {
     private var localCache: LocalCache?
     private var syncService: SyncService?
     private let realtime = RealtimeService()
+    private var configuredOrgCode: String?   // guards configure() against duplicate login-time calls
 
     enum SaveStatus {
         case idle, saving, saved, error(String)
@@ -85,6 +86,14 @@ class AppState {
     // MARK: - Setup
 
     func configure(auth: AuthManager, orgCode: String) {
+        // Idempotent: ContentView.handleAuthState fires from BOTH the
+        // isAuthenticated AND userEmail onChange handlers (plus applyOrg after the
+        // email→org lookup), so configure() is called 2–3× on login with the same
+        // org. Without this guard each call spun up another Ably client → duplicate
+        // subscriptions + doubled downstream work. Re-configuring for a DIFFERENT
+        // org still proceeds (org switch).
+        if configuredOrgCode == orgCode, api != nil { return }
+        configuredOrgCode = orgCode
         self.orgCode = orgCode
         let apiInstance = APIService(auth: auth, orgCode: orgCode)
         self.api = apiInstance
@@ -136,23 +145,45 @@ class AppState {
         let m = cache.readAll(SyncedMessage.self).compactMap { try? dec.decode(Message.self, from: $0.payload) }
         let g = cache.readAll(SyncedGroup.self).compactMap { try? dec.decode(ChatGroup.self, from: $0.payload) }
         let s = cache.readAll(SyncedSettings.self).first.flatMap { try? dec.decode(OrgSettings.self, from: $0.payload) }
-        withoutAnimation {
-            if !j.isEmpty || jobs.isEmpty { jobs = j }
-            if !p.isEmpty || people.isEmpty { people = p }
-            if !c.isEmpty || clients.isEmpty { clients = c }
-            if !m.isEmpty || messages.isEmpty { messages = m }
-            if !g.isEmpty || groups.isEmpty { groups = g }
-            if let s { orgSettings = s }
-            autoMatchPerson()
-        }
+        // Assign directly on the main actor, and ONLY when the entity's content
+        // actually changed. @Observable fires on EVERY assignment regardless of
+        // value, so re-assigning an unchanged array churns observers — and each
+        // such churn resets SwiftUI's render debounce, so a burst of coalesced
+        // syncs stretched the real update out to many seconds. Job/Person/Client/
+        // Message/ChatGroup/OrgSettings are Equatable, so `!=` is the guard. The
+        // empty-guard (|| current.isEmpty) still blocks blanking populated state
+        // with a momentarily-empty cache slice.
+        if j != jobs, !j.isEmpty || jobs.isEmpty { jobs = j }
+        if p != people, !p.isEmpty || people.isEmpty { people = p }
+        if c != clients, !c.isEmpty || clients.isEmpty { clients = c }
+        if m != messages, !m.isEmpty || messages.isEmpty { messages = m }
+        if g != groups, !g.isEmpty || groups.isEmpty { groups = g }
+        if let s, s != orgSettings { orgSettings = s }
+        autoMatchPerson()
     }
 
     // Ably "changed" → pull the delta, then rehydrate. deltaSync coalesces bursts.
     private func onRealtimeChange() {
         Task { [weak self] in
             guard let self else { return }
-            _ = await self.syncService?.deltaSync()
-            self.rehydrateFromCache()
+            // Rehydrate ONLY when the delta actually wrote something. A coalesced
+            // or empty sync (e.g. a re-send of already-cached records) writes
+            // nothing → skipping avoids re-assigning unchanged arrays, which was
+            // resetting SwiftUI's render debounce and delaying the real update.
+            let didWrite = await self.syncService?.deltaSync() ?? false
+            if didWrite { self.deferRehydrate() }
+        }
+    }
+
+    /// Rehydrate on a FRESH main-queue turn. Mutating @Observable state directly
+    /// inside the awaited Task continuation above (Ably → deltaSync → here) marks
+    /// the view dirty but does NOT drive SwiftUI's update flush until the next
+    /// run-loop event fires — an idle app showed a ~10s lag before TasksView.body
+    /// re-ran. Re-dispatching the mutation as a queued main-queue block gives the
+    /// run loop the turn it needs to invoke the body immediately.
+    private func deferRehydrate() {
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.rehydrateFromCache() }
         }
     }
 
@@ -215,6 +246,7 @@ class AppState {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
+        let startCursor = localCache?.cursor()  // race guard — see the end of this method
 
         // Don't clobber existing in-memory data with an empty server response
         // — a momentary S3 / network blip would otherwise wipe a populated
@@ -254,6 +286,14 @@ class AppState {
         }
         if let r = try? await api.fetchOrgSettings() { withoutAnimation { orgSettings = r } }
         withoutAnimation { autoMatchPerson() }
+
+        // Race fix: if a live delta (Ably) advanced the sync cursor WHILE we were
+        // fetching, this network snapshot is stale relative to the cache. The
+        // cache is authoritative, so re-hydrate from it (no extra network) to let
+        // the fresh data win instead of the old fetch clobbering it.
+        if let cache = localCache, cache.cursor() != startCursor {
+            rehydrateFromCache()
+        }
     }
 
     // MARK: - Jobs
