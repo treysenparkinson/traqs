@@ -5,6 +5,7 @@ import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, reconcileDeletions, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
+import { sendSilentPush } from "./_utils/push.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -54,6 +55,8 @@ export async function handler(event) {
       const reconciled = reconcileDeletions(clients, existing);
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(orgCodeFromHeader(event), "clients", { ids: changedIds(reconciled, existing) });
+      // Phase 5: silent background-sync push to org members (best-effort).
+      await sendSilentPush(orgCodeFromHeader(event), { entity: "clients" });
       return json(200, { ok: true });
     } catch (e) {
       console.error("clients POST error:", e);

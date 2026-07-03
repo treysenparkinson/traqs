@@ -5,6 +5,7 @@ import { orgKey } from "./_utils/org.js";
 import { stampArray, nowIso, reconcileDeletions, softDelete, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
+import { sendSilentPush } from "./_utils/push.js";
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
@@ -106,6 +107,8 @@ export async function handler(event) {
       const reconciled = reconcileDeletions(merged, existing, tombstoneWithoutPin);
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(member.orgCode, "people", { ids: changedIds(reconciled, existing) });
+      // Phase 5: silent background-sync push to org members (best-effort).
+      await sendSilentPush(member.orgCode, { entity: "people" });
       return json(200, { ok: true });
     } catch (e) {
       console.error("people POST error:", e);
@@ -155,6 +158,7 @@ export async function handler(event) {
       existing[idx].lastModifiedAt = nowIso();
       await writeJson(s3Key, existing);
       await publishChange(member.orgCode, "people", { ids: [String(personId)] });
+      await sendSilentPush(member.orgCode, { entity: "people" });
 
       // Strip PIN before returning, matching the GET behavior.
       const { pin: _omit, ...safe } = existing[idx];

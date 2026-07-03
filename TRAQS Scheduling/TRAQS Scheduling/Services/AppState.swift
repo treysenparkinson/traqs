@@ -79,6 +79,12 @@ class AppState {
     private let realtime = RealtimeService()
     private var configuredOrgCode: String?   // guards configure() against duplicate login-time calls
 
+    /// Weak process-wide handle so the UIApplicationDelegate's silent-push
+    /// (content-available) handler can reach the live AppState to run a
+    /// background delta-sync. Set in configure(); weak so it never keeps a
+    /// torn-down AppState alive.
+    static weak var shared: AppState?
+
     enum SaveStatus {
         case idle, saving, saved, error(String)
     }
@@ -86,6 +92,7 @@ class AppState {
     // MARK: - Setup
 
     func configure(auth: AuthManager, orgCode: String) {
+        AppState.shared = self   // expose to the silent-push background handler
         // Idempotent: ContentView.handleAuthState fires from BOTH the
         // isAuthenticated AND userEmail onChange handlers (plus applyOrg after the
         // email→org lookup), so configure() is called 2–3× on login with the same
@@ -191,6 +198,20 @@ class AppState {
     /// reconcile even when Ably is degraded or was suspended in the background.
     func foregroundSync() {
         onRealtimeChange()
+    }
+
+    /// Awaitable background delta-sync for silent ("content-available") pushes.
+    /// Returns true when something was written (→ iOS `.newData`). Mirrors
+    /// onRealtimeChange (delta-sync, then rehydrate) but is awaitable so the push
+    /// handler can call iOS's completion handler only AFTER the sync finishes.
+    /// deltaSync coalesces, so this is safe alongside a concurrent Ably-driven
+    /// sync. Safe to call before configure() has wired the sync service — returns
+    /// false (e.g. a cold background launch where SwiftUI's .task hasn't run).
+    func backgroundSync() async -> Bool {
+        guard let sync = syncService else { return false }
+        let didWrite = await sync.deltaSync()
+        if didWrite { deferRehydrate() }
+        return didWrite
     }
 
     /// Tear down the Ably connection on full logout (org switch already
@@ -321,33 +342,23 @@ class AppState {
         guard sendNotification else { return }
         Task {
             guard let api else { return }
+            // Only the "new job created" heads-up (→ admins) is client-invoked.
+            // "Assigned" pushes are now fired SERVER-SIDE by tasks.js, which
+            // diffs op/panel team membership on every write — client-agnostic
+            // and can't double-fire with a client call — so the former client
+            // `assigned` notify was removed here (Phase 5 consolidation).
+            guard existing == nil else { return }
             do {
-                if existing == nil {
-                    try await api.sendNotification(NotifyPayload(
-                        type: "new_job",
-                        jobTitle: job.title,
-                        jobNumber: job.jobNumber,
-                        panelTitle: "",
-                        stepLabel: "",
-                        jobTeamIds: job.team,
-                        newTeamIds: nil,
-                        clientName: clientName
-                    ))
-                } else {
-                    let newMembers = job.team.filter { !(existing!.team.contains($0)) }
-                    if !newMembers.isEmpty {
-                        try await api.sendNotification(NotifyPayload(
-                            type: "assigned",
-                            jobTitle: job.title,
-                            jobNumber: job.jobNumber,
-                            panelTitle: "",
-                            stepLabel: "",
-                            jobTeamIds: job.team,
-                            newTeamIds: newMembers,
-                            clientName: nil
-                        ))
-                    }
-                }
+                try await api.sendNotification(NotifyPayload(
+                    type: "new_job",
+                    jobTitle: job.title,
+                    jobNumber: job.jobNumber,
+                    panelTitle: "",
+                    stepLabel: "",
+                    jobTeamIds: job.team,
+                    newTeamIds: nil,
+                    clientName: clientName
+                ))
             } catch { /* best-effort */ }
         }
     }

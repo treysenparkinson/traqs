@@ -5,6 +5,7 @@ import { orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
+import { sendSilentPush } from "./_utils/push.js";
 
 const failedAttempts = new Map(); // ip -> { count, firstAttempt }
 
@@ -88,6 +89,14 @@ async function writeStampedArray(key, nextArr) {
   const entity = ENTITY_BY_FILE[parts[2]];
   if (parts[1] && entity) {
     await publishChange(parts[1], entity, { ids: changedIds(nextArr, prev) });
+    // Phase 5: silent background-sync push to org members. Every clock write
+    // funnels through here, so this one call covers all ~18 timeclock actions.
+    // An action that writes several arrays (e.g. clockOut → people + timeclock +
+    // tasks) fires one silent push per write; that's a few redundant wakes, but
+    // deltaSync coalesces them (Phase 4), so it's harmless. Reads people.json to
+    // resolve recipients — see the debounce note in the Phase 5 brief if a
+    // high-frequency clock endpoint ever needs rate-limiting. Best-effort.
+    await sendSilentPush(parts[1], { entity });
   }
 }
 

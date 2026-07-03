@@ -46,8 +46,11 @@ export async function handler(event) {
   // Determine who to target based on notification type
   let targetIds;
   if (type === "new_job") {
-    // Notify all admins + everyone on the job team
-    targetIds = [...new Set([...adminIds, ...teamIds])];
+    // Admins only — a "new job created" heads-up. The job's team members get a
+    // per-person "assigned" push fired SERVER-SIDE from tasks.js (team-added
+    // detection) instead, so targeting the team here too would double-notify
+    // anyone on the new job. (Phase 5 consolidation.)
+    targetIds = [...adminIds];
   } else if (type === "assigned") {
     // Notify only the newly added team members (+ admins)
     const newIds = (newTeamIds || []).map(id => String(id));

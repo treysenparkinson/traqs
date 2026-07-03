@@ -6,6 +6,7 @@ import { sendWebPush } from "./_utils/webpush.js";
 import { nowIso, softDelete } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
+import { sendVisiblePush, sendSilentPush } from "./_utils/push.js";
 
 function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -259,43 +260,25 @@ export async function handler(event) {
         data: { kind: "message", threadKey, scope },
       }).catch(() => {});
 
-      // OneSignal → native iOS/Android.
-      const appId  = process.env.ONESIGNAL_APP_ID;
-      const apiKey = process.env.ONESIGNAL_API_KEY;
-      if (appId && apiKey) {
-        const registered = people
-          .filter(p => p.pushToken && targetIds.includes(String(p.id)))
-          .map(p => String(p.id));
-        if (registered.length > 0) {
-          try {
-            const osRes = await fetch("https://onesignal.com/api/v1/notifications", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", Authorization: `Basic ${apiKey}` },
-              body: JSON.stringify({
-                app_id: appId,
-                // v5 user model: target by the external_id alias (set on iOS
-                // via OneSignal.login(personId)). The legacy
-                // include_external_user_ids field is deprecated and silently
-                // resolves 0 recipients on new apps.
-                include_aliases: { external_id: registered },
-                target_channel: "push",
-                headings: { en: `${authorName}` },
-                contents: { en: text?.trim() || "Sent an attachment" },
-                data: { threadKey, scope },
-              }),
-            });
-            // Previously this was `.catch(() => {})`, so every message-push
-            // failure was invisible. Surface non-2xx status + body so a
-            // targeting/auth problem shows up in the function logs.
-            const osBody = await osRes.json().catch(() => ({}));
-            if (!osRes.ok) {
-              console.error("OneSignal error (messages):", osRes.status, osBody);
-            }
-          } catch (e) {
-            console.error("OneSignal request failed (messages):", e);
-          }
-        }
-      }
+      // OneSignal → native. VISIBLE push to the thread's recipients (sender
+      // already excluded above), plus a SILENT background-sync push to every
+      // OTHER org member so their cached thread list refreshes even though
+      // they're not a participant here. The silent push only triggers a
+      // deltaSync — it carries no message text, and /sync still enforces
+      // per-viewer thread ACLs, so a non-participant never sees the content.
+      const orgCode = orgCodeFromHeader(event);
+      const senderId = String(authorId);
+      await sendVisiblePush(orgCode, people, targetIds, {
+        heading: authorName || "New message",
+        content: text?.trim() || "Sent an attachment",
+        data: { threadKey, scope },
+        label: "message",
+      });
+      const recipientSet = new Set(targetIds.map(String));
+      const silentTargets = people
+        .map(p => p && p.id).filter(v => v != null).map(String)
+        .filter(id => id !== senderId && !recipientSet.has(id));
+      await sendSilentPush(orgCode, { entity: "messages", people, personIds: silentTargets });
 
       return json(200, newMsg);
     } catch (e) {

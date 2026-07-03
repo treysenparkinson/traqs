@@ -3,6 +3,7 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { sendWebPush } from "./_utils/webpush.js";
 import { filterLive } from "./_utils/entities.js";
+import { sendSilentPush } from "./_utils/push.js";
 
 // ─── Time Off Requests ────────────────────────────────────────────────────────
 //
@@ -217,6 +218,11 @@ export async function handler(event) {
       { event: "request", requestId: record.id }
     );
 
+    // Silent background-sync to everyone else. timeoff.json isn't a delta-sync
+    // entity, so this mainly matters for the actions that also mutate
+    // people.json (approve/cancel) — but firing it uniformly is cheap and the
+    // client coalesces. Actor excluded: their device already has the change.
+    await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
     return json(200, { request: record });
   }
 
@@ -306,6 +312,8 @@ export async function handler(event) {
         `Your ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)} was approved.`,
         { event: "approved", requestId: reqRec.id }
       );
+      // Approval wrote person.timeOff into people.json → sync everyone else.
+      await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
       return json(200, { request: requests[idx] });
     }
 
@@ -331,6 +339,7 @@ export async function handler(event) {
         `Your ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)} was denied${reason ? `: ${reason}` : "."}`,
         { event: "denied", requestId: reqRec.id }
       );
+      await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
       return json(200, { request: requests[idx] });
     }
 
@@ -372,6 +381,8 @@ export async function handler(event) {
       `${reqRec.personName} cancelled their ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)}.`,
       { event: "cancelled", requestId: reqRec.id }
     );
+    // Cancelling an approved request pulled the entry back out of people.json.
+    await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
     return json(200, { request: requests[idx] });
   }
 

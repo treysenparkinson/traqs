@@ -3,6 +3,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
 import { nowIso, stampObject } from "./_utils/timestamps.js";
 import { publishChange } from "./_utils/ably-publish.js";
+import { sendSilentPush } from "./_utils/push.js";
 
 function isValidCode(code) {
   return typeof code === "string" && /^[a-zA-Z0-9]{3,20}$/.test(code);
@@ -108,6 +109,7 @@ export async function handler(event) {
         writeJson(`orgs/${code}/clients.json`, []),
       ]);
       await publishChange(code, "orgConfig", { ids: ["*"] });
+      await sendSilentPush(code, { entity: "orgConfig" });
       return json(200, { ok: true, code });
     } catch (e) {
       console.error("org POST error:", e);
@@ -144,6 +146,7 @@ export async function handler(event) {
         const stamped = stampObject({ ...existing, name: trimmed }, existing);
         await writeJson(configKey, stamped);
         await publishChange(currentCode, "orgConfig", { ids: ["*"] });
+        await sendSilentPush(currentCode, { entity: "orgConfig" });
         return json(200, { ok: true, config: stamped });
       } catch (e) {
         console.error("org PATCH name error:", e);
@@ -173,6 +176,7 @@ export async function handler(event) {
       // Config now lives under the new code; signal there. Clients reconnect to
       // the new org channel in a later phase, so this is a no-op until then.
       await publishChange(newCode, "orgConfig", { ids: ["*"] });
+      await sendSilentPush(newCode, { entity: "orgConfig" });
       return json(200, { ok: true, newCode });
     } catch (e) {
       console.error("org PATCH error:", e);

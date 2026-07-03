@@ -5409,24 +5409,12 @@ ${jobsCtx || "No jobs found."}`;
     if (withIds.id) updTask(withIds.id, withIds, parentId);
     else { const nw = { ...withIds, id: uid(), createdAt: new Date().toISOString() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
 
-    // Notify newly-assigned team members. Collect every personId across the
-    // job + its panels + ops, diff against the job's previous team, and push
-    // "assigned" to anyone newly added (excluding the editor themselves).
-    const collectTeamIds = (job) => {
-      const ids = new Set((job.team || []).map(String));
-      (job.subs || []).forEach(panel => {
-        (panel.team || []).forEach(id => ids.add(String(id)));
-        (panel.subs || []).forEach(op => (op.team || []).forEach(id => ids.add(String(id))));
-      });
-      return ids;
-    };
-    const newTeam = collectTeamIds(withIds);
-    const oldJob = ed.id ? tasks.find(j => j.id === ed.id) : null;
-    const oldTeam = oldJob ? collectTeamIds(oldJob) : new Set();
-    const newlyAssigned = [...newTeam].filter(id => !oldTeam.has(id) && id !== String(loggedInUser?.id));
-    if (newlyAssigned.length > 0) {
-      callNotify({ type: "assigned", jobTitle: ed.title, jobNumber: ed.jobNumber || null, newTeamIds: newlyAssigned }, getToken, orgCode).catch(console.warn);
-    }
+    // "Assigned" notifications are now fired SERVER-SIDE from tasks.js, which
+    // diffs the incoming vs existing tasks array on write and pushes to any
+    // newly team-added person. That path is client-agnostic (covers iOS +
+    // desktop + any future client) and can't double-fire with a client call,
+    // so the former client-invoked callNotify({type:"assigned"}) was removed
+    // here to avoid sending each newly-assigned person two pushes for one edit.
 
     closeModal();
   };
