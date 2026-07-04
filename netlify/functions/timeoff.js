@@ -4,6 +4,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 import { sendWebPush } from "./_utils/webpush.js";
 import { filterLive } from "./_utils/entities.js";
 import { sendSilentPush } from "./_utils/push.js";
+import { publishChange } from "./_utils/ably-publish.js";
 
 // ─── Time Off Requests ────────────────────────────────────────────────────────
 //
@@ -218,6 +219,12 @@ export async function handler(event) {
       { event: "request", requestId: record.id }
     );
 
+    // Real-time (Phase 2 followup): broadcast so other sessions update live,
+    // matching the other write endpoints. Clients don't subscribe to a
+    // "timeoff" channel yet (so the request LIST refresh is latent/future), but
+    // "messages" IS subscribed — the admins' DM bubble appears live.
+    await publishChange(orgCode, "timeoff", { ids: [record.id] });
+    await publishChange(orgCode, "messages", { ids: [] });
     // Silent background-sync to everyone else. timeoff.json isn't a delta-sync
     // entity, so this mainly matters for the actions that also mutate
     // people.json (approve/cancel) — but firing it uniformly is cheap and the
@@ -312,7 +319,10 @@ export async function handler(event) {
         `Your ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)} was approved.`,
         { event: "approved", requestId: reqRec.id }
       );
-      // Approval wrote person.timeOff into people.json → sync everyone else.
+      // Approval wrote person.timeOff into people.json → broadcast "people" so
+      // the schedule (PTO/UTO bars) updates live on other sessions.
+      await publishChange(orgCode, "timeoff", { ids: [reqRec.id] });
+      await publishChange(orgCode, "people", { ids: [String(reqRec.personId)] });
       await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
       return json(200, { request: requests[idx] });
     }
@@ -339,6 +349,7 @@ export async function handler(event) {
         `Your ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)} was denied${reason ? `: ${reason}` : "."}`,
         { event: "denied", requestId: reqRec.id }
       );
+      await publishChange(orgCode, "timeoff", { ids: [reqRec.id] });
       await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
       return json(200, { request: requests[idx] });
     }
@@ -382,6 +393,8 @@ export async function handler(event) {
       { event: "cancelled", requestId: reqRec.id }
     );
     // Cancelling an approved request pulled the entry back out of people.json.
+    await publishChange(orgCode, "timeoff", { ids: [reqRec.id] });
+    if (wasApproved) await publishChange(orgCode, "people", { ids: [String(reqRec.personId)] });
     await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
     return json(200, { request: requests[idx] });
   }

@@ -1,6 +1,11 @@
 import Foundation
 import Ably
 
+// Coarse connection status surfaced to AppState for the Phase 6 sync-status
+// indicator. `.degraded` = real-time disabled (503 preflight) — the app polls
+// instead, so the indicator should stay quiet rather than nag "reconnecting".
+enum RealtimeStatus { case connecting, connected, disconnected, degraded }
+
 // Ably realtime subscriber (mirrors the desktop src/realtime/ably.js). Deferred
 // until connect() runs after login. The device never sees ABLY_ROOT_KEY — it
 // authenticates through /.netlify/functions/ably-token (fetched fresh each time
@@ -15,6 +20,7 @@ final class RealtimeService {
     private var channels: [ARTRealtimeChannel] = []
     private var onChange: (() -> Void)?
     private var onReconnect: (() -> Void)?
+    private var onStatus: ((RealtimeStatus) -> Void)?
 
     private static let entities = ["tasks", "people", "clients", "messages", "groups", "timeclock", "orgConfig", "settings"]
 
@@ -23,7 +29,8 @@ final class RealtimeService {
     func connect(orgCode: String,
                  api: APIService,
                  onChange: @escaping () -> Void,
-                 onReconnect: @escaping () -> Void) async {
+                 onReconnect: @escaping () -> Void,
+                 onStatus: @escaping (RealtimeStatus) -> Void = { _ in }) async {
         if client != nil || degraded {
             print("[ably] connect() ignored (connected: \(client != nil), degraded: \(degraded))")
             return
@@ -32,6 +39,8 @@ final class RealtimeService {
         self.orgCode = orgCode
         self.onChange = onChange
         self.onReconnect = onReconnect
+        self.onStatus = onStatus
+        onStatus(.connecting)
 
         // Preflight probe so a "real-time not configured" (503) degrades cleanly
         // instead of spinning Ably's auth-retry loop forever.
@@ -40,6 +49,7 @@ final class RealtimeService {
         } catch let e as APIError {
             if case .httpError(503) = e {
                 degraded = true
+                onStatus(.degraded)
                 print("[ably] disabled — /ably-token returned 503 (real-time not configured). No live updates.")
                 return
             }
@@ -74,6 +84,12 @@ final class RealtimeService {
             Task { @MainActor in
                 guard let self else { return }
                 print("[ably] connection: \(ARTRealtimeConnectionStateToStr(previous)) → \(ARTRealtimeConnectionStateToStr(current))" + (reason.map { " reason=\($0)" } ?? ""))
+                // Surface a coarse status for the sync indicator.
+                switch current {
+                case .connected:              self.onStatus?(.connected)
+                case .connecting, .initialized: self.onStatus?(.connecting)
+                default:                      self.onStatus?(.disconnected)  // disconnected/suspended/closing/closed/failed
+                }
                 if current == .connected {
                     // On a RE-connect (not the first), pull the delta to catch
                     // anything published while we were offline.
@@ -106,5 +122,6 @@ final class RealtimeService {
         hasConnected = false
         onChange = nil
         onReconnect = nil
+        onStatus = nil
     }
 }

@@ -3,6 +3,7 @@ import Combine
 import SwiftUI
 import OneSignalFramework
 import SwiftData
+import Network
 
 @MainActor
 @Observable
@@ -34,6 +35,45 @@ class AppState {
     var isLoading = false
     var saveStatus: SaveStatus = .idle
     var errorMessage: String?
+
+    /// Transient toast text (Phase 6). Surfaced by the existing ErrorBanner via
+    /// `errorMessage`; `showErrorToast` sets it. Kept as a separate entry point
+    /// so optimistic-UI failures read as a friendly toast, not a raw error.
+
+    // MARK: - Sync status (Phase 6)
+    /// Network reachability (NWPathMonitor). Going offline is DEBOUNCED ~2s so a
+    /// brief hiccup doesn't flash the indicator; coming back online is immediate.
+    var isOnline = true
+    /// True while a delta sync is applying — drives the faint "syncing" cue.
+    var isSyncing = false
+    /// Ably connection status, mapped from RealtimeService.
+    private(set) var realtimeStatus: RealtimeStatus = .connecting
+    /// True once Ably has connected at least once, so we don't show
+    /// "reconnecting" during the very first connect on launch.
+    private var realtimeEverConnected = false
+    /// A recent save/sync FAILED — red error dot until the next success.
+    var syncFailed = false
+    /// Brief green "Reconnected" flash (2s) after Ably recovers from a drop.
+    var reconnectedFlash = false
+
+    /// Collapsed status the indicator renders. `.hidden` = quiet (all good).
+    enum SyncBadge { case hidden, syncing, reconnecting, offline, error, reconnected }
+    var syncBadge: SyncBadge {
+        if reconnectedFlash { return .reconnected }
+        if !isOnline { return .offline }
+        if syncFailed { return .error }
+        // Only nag "reconnecting" once Ably HAS connected and isn't degraded
+        // (degraded = real-time disabled; the app just polls — no alarm needed).
+        if realtimeEverConnected && realtimeStatus != .connected && realtimeStatus != .degraded { return .reconnecting }
+        if isSyncing { return .syncing }
+        return .hidden
+    }
+
+    // NWPathMonitor plumbing.
+    private let netMonitor = NWPathMonitor()
+    private var netMonitorStarted = false
+    private var offlineDebounce: Task<Void, Never>?
+    private var reconnectedFlashTask: Task<Void, Never>?
 
     // MARK: - Time Clock State
     var clockedInPersonId: String?
@@ -118,12 +158,14 @@ class AppState {
         let sync = SyncService(api: apiInstance, cache: cache)
         self.syncService = sync
         if cache.hasCachedData() { rehydrateFromCache() }   // instant paint from cache
+        startNetworkMonitoring()              // Phase 6: reachability for the sync indicator
         Task {
-            _ = await sync.deltaSync()        // seed/refresh cache + cursor
-            rehydrateFromCache()              // apply anything that changed
-            await realtime.connect(orgCode: orgCode, api: apiInstance,
+            _ = await self.runDeltaSync()     // seed/refresh cache + cursor (flips isSyncing)
+            self.rehydrateFromCache()         // apply anything that changed
+            await self.realtime.connect(orgCode: orgCode, api: apiInstance,
                                    onChange: { [weak self] in self?.onRealtimeChange() },
-                                   onReconnect: { [weak self] in self?.onRealtimeChange() })
+                                   onReconnect: { [weak self] in self?.onRealtimeChange() },
+                                   onStatus: { [weak self] s in self?.setRealtimeStatus(s) })
         }
 
         startAutoRefresh()
@@ -177,7 +219,7 @@ class AppState {
             // or empty sync (e.g. a re-send of already-cached records) writes
             // nothing → skipping avoids re-assigning unchanged arrays, which was
             // resetting SwiftUI's render debounce and delaying the real update.
-            let didWrite = await self.syncService?.deltaSync() ?? false
+            let didWrite = await self.runDeltaSync()   // flips isSyncing for the indicator
             if didWrite { self.deferRehydrate() }
         }
     }
@@ -239,6 +281,100 @@ class AppState {
         localCache?.clearAll()
         jobs = []; people = []; clients = []; messages = []; groups = []
         configuredOrgCode = nil
+    }
+
+    // MARK: - Sync status & optimistic UI (Phase 6)
+
+    /// Rollback snapshot for the debounced job save: the jobs state as of the
+    /// last confirmed save, captured before the first edit of a debounce batch.
+    private var rollbackSnapshot: [Job]?
+
+    /// Start NWPathMonitor once. Offline is DEBOUNCED ~2s (a brief hiccup
+    /// shouldn't flash the indicator — adversarial #6); coming back online is
+    /// applied immediately.
+    func startNetworkMonitoring() {
+        guard !netMonitorStarted else { return }
+        netMonitorStarted = true
+        netMonitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            Task { @MainActor in
+                guard let self else { return }
+                if satisfied {
+                    self.offlineDebounce?.cancel(); self.offlineDebounce = nil
+                    self.isOnline = true
+                } else if self.isOnline {
+                    self.offlineDebounce?.cancel()
+                    self.offlineDebounce = Task { [weak self] in
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        guard let self, !Task.isCancelled else { return }
+                        self.isOnline = false
+                    }
+                }
+            }
+        }
+        netMonitor.start(queue: DispatchQueue(label: "traqs.netmonitor"))
+    }
+
+    /// Map RealtimeService status → indicator state, flashing a 2s green
+    /// "Reconnected" when Ably recovers after a drop (STEP 5.1).
+    private func setRealtimeStatus(_ status: RealtimeStatus) {
+        let wasDown = realtimeEverConnected && realtimeStatus != .connected
+        realtimeStatus = status
+        if status == .connected {
+            if wasDown { flashReconnected() }
+            realtimeEverConnected = true
+        }
+    }
+
+    private func flashReconnected() {
+        reconnectedFlashTask?.cancel()
+        reconnectedFlash = true
+        reconnectedFlashTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self, !Task.isCancelled else { return }
+            self.reconnectedFlash = false
+        }
+    }
+
+    /// Delta-sync wrapper that flips `isSyncing` for the indicator and clears the
+    /// error state on a successful write. Returns whether anything was written.
+    @discardableResult
+    private func runDeltaSync() async -> Bool {
+        guard let sync = syncService else { return false }
+        isSyncing = true
+        defer { isSyncing = false }
+        let didWrite = await sync.deltaSync()
+        if didWrite { syncFailed = false }
+        return didWrite
+    }
+
+    /// Show a transient error toast. Reuses the existing ErrorBanner (which reads
+    /// `errorMessage` and auto-dismisses). Separate entry point so optimistic-UI
+    /// failures read as a friendly toast.
+    func showErrorToast(_ message: String) {
+        errorMessage = message
+    }
+
+    /// Minimal optimistic-UI helper (Phase 6 STEP 1). Applies `optimisticUpdate`
+    /// immediately — it returns a rollback closure — fires `serverCall`, and on
+    /// failure invokes the rollback + shows a toast + runs `onFail` (e.g. a
+    /// shake). No offline queueing: the action still needs the network. Each
+    /// call captures its OWN rollback, so overlapping optimistic updates don't
+    /// interfere (adversarial #2). On success, nothing further — the Ably event
+    /// eventually confirms.
+    func performOptimistic(
+        _ optimisticUpdate: () -> (() -> Void),
+        serverCall: () async throws -> Void,
+        onFail: (() -> Void)? = nil
+    ) async {
+        let rollback = optimisticUpdate()
+        do {
+            try await serverCall()
+        } catch {
+            rollback()
+            showErrorToast("Couldn't save — try again")
+            onFail?()
+        }
     }
 
     func startAutoRefresh() {
@@ -346,6 +482,11 @@ class AppState {
             if undoStack.count > maxUndoSize { undoStack.removeFirst() }
             redoStack.removeAll()
         }
+        // Phase 6 optimism: snapshot the pre-batch state ONCE per debounce window
+        // so a failed save can revert the whole batch to the last confirmed
+        // state. Cleared on the next successful persist. Rapid edits coalesce
+        // into one save (adversarial #5) and share this one snapshot.
+        if rollbackSnapshot == nil { rollbackSnapshot = jobs }
         jobs = newJobs
         scheduleSave()
     }
@@ -510,14 +651,21 @@ class AppState {
 
     // Returns the server-assigned message ID so callers can track ownership.
     func sendMessageThrowing(_ message: Message) async throws -> String {
-        messages.append(message)
+        messages.append(message)   // optimistic: bubble appears instantly
         guard let api else { return message.id }
-        let serverMsg = try await api.sendMessage(message)
-        // Swap the optimistic local message for the canonical server message
-        if let i = messages.firstIndex(where: { $0.id == message.id }) {
-            messages[i] = serverMsg
+        do {
+            let serverMsg = try await api.sendMessage(message)
+            // Swap the optimistic local message for the canonical server message.
+            if let i = messages.firstIndex(where: { $0.id == message.id }) {
+                messages[i] = serverMsg
+            }
+            return serverMsg.id
+        } catch {
+            // Phase 6 rollback: drop the optimistic bubble so a failed send
+            // doesn't leave a ghost message stuck in the thread.
+            messages.removeAll { $0.id == message.id }
+            throw error
         }
-        return serverMsg.id
     }
 
     func refreshMessages() async {
@@ -689,12 +837,21 @@ class AppState {
         guard let api else { return }
         do {
             try await api.saveJobs(jobs)
+            rollbackSnapshot = nil        // batch confirmed on the server
+            syncFailed = false
             saveStatus = .saved
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             if case .saved = saveStatus { saveStatus = .idle }
             await loadAll()
         } catch {
+            // Phase 6 optimistic rollback: revert the whole failed batch to the
+            // last confirmed state so the edit visibly returns (not silently
+            // kept), flag the error dot, and toast. Assigning `jobs` directly
+            // (not via updateJobs) avoids re-triggering a save loop.
+            if let snap = rollbackSnapshot { jobs = snap; rollbackSnapshot = nil }
+            syncFailed = true
             saveStatus = .error(error.localizedDescription)
+            showErrorToast("Couldn't save — check your connection")
         }
     }
 
@@ -761,6 +918,12 @@ class AppState {
             if currentPersonId != match.id {
                 currentPersonId = match.id
             }
+        } else {
+            // Phase 6 STEP 5.2 diagnostic (Phase-5 Fix C follow-up): the Auth0
+            // email resolved to no person in this org, so the SERVER's
+            // email→person resolution will also fail — chat/writes will 403 for
+            // this account. Log-only aid for debugging email-alignment issues.
+            print("[identity] currentPersonId=\(currentPersonId ?? "nil") not found in people — possible email mismatch (login=\(email))")
         }
     }
 

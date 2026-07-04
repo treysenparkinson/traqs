@@ -659,6 +659,7 @@ struct ThreadDetailView: View {
     @State private var newText = ""
     @State private var isSending = false
     @State private var sendError: String? = nil
+    @State private var sendShakeToken = 0      // bumped on send failure → shakes the composer
     @State private var myMessageIds: Set<String> = []
     @State private var showPeople = false     // header people/add popover open?
     @State private var showAddPeople = false  // add-people multi-select sheet?
@@ -853,6 +854,7 @@ struct ThreadDetailView: View {
                         .buttonStyle(.plain)
                         .disabled(sendDisabled)
                     }
+                    .shakeIfChanged(sendShakeToken)   // Phase 6: shake on send failure
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
@@ -1222,9 +1224,13 @@ struct ThreadDetailView: View {
             let serverId = try await appState.sendMessageThrowing(msg)
             myMessageIds.insert(serverId)   // track server-assigned id too
         } catch {
+            // Optimistic bubble is rolled back inside sendMessageThrowing; here
+            // we restore the composer text, surface the inline error, and shake
+            // the input bar (Phase 6) so the failure is felt, not silent.
             sendError = "Failed to send: \(error.localizedDescription)"
             newText = text
             myMessageIds.remove(msgId)      // clean up on failure
+            sendShakeToken += 1
         }
         isSending = false
     }

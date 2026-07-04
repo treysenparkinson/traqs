@@ -71,6 +71,13 @@ struct MainTabView: View {
             .id(appNav.selected)
             .transition(.opacity)
             .allowsHitTesting(progress < 0.05)   // disable taps under the drawer while open
+            // Phase 6: subtle sync-status indicator, just below the nav header.
+            // Renders nothing when healthy; a small dot on offline/reconnect/error.
+            .overlay(alignment: .top) {
+                SyncStatusDot()
+                    .padding(.top, 52)
+                    .allowsHitTesting(progress < 0.05)
+            }
 
             // Backdrop scrim — opacity follows the drag in real time
             Color.black
