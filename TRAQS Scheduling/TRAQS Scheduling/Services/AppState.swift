@@ -15,6 +15,10 @@ class AppState {
     var clients: [Client] = []
     var messages: [Message] = []
     var groups: [ChatGroup] = []
+    /// Server-side read receipts: `[threadKey: [personId: ISO "read up to"]]`.
+    /// Drives the Sent/Read status under my own message bubbles. Refreshed
+    /// while a thread is open (poll + realtime "reads" channel).
+    var readReceipts: [String: [String: String]] = [:]
     /// Historical pay-clock entries (per-person, lifetime) from the
     /// server's timeclock.json. Loaded on demand because the dataset
     /// can be large; views that need it call `refreshTimeclock()`.
@@ -166,7 +170,8 @@ class AppState {
                                    onChange: { [weak self] in self?.onRealtimeChange() },
                                    onReconnect: { [weak self] in self?.onRealtimeChange() },
                                    onStatus: { [weak self] s in self?.setRealtimeStatus(s) },
-                                   onTimeoff: { [weak self] in Task { await self?.refreshTimeOffRequests() } })
+                                   onTimeoff: { [weak self] in Task { await self?.refreshTimeOffRequests() } },
+                                   onReads: { [weak self] in Task { await self?.refreshReadReceipts() } })
         }
 
         startAutoRefresh()
@@ -624,23 +629,26 @@ class AppState {
     // timestamp against the stored value to display the sky unread badge.
     private let readStateKey = "traqs_threadReadAt"
 
-    var threadReadAt: [String: String] {
-        UserDefaults.standard.dictionary(forKey: readStateKey) as? [String: String] ?? [:]
+    /// Per-thread "last read at" timestamps. This is a STORED property (seeded
+    /// from UserDefaults, written back on every change) rather than a computed
+    /// UserDefaults read — so @Observable tracks it and the inbox unread badge
+    /// refreshes the instant a thread is marked read. As a computed property it
+    /// never notified observers, so the badge only ever cleared by luck on the
+    /// next unrelated re-render.
+    var threadReadAt: [String: String] = (UserDefaults.standard.dictionary(forKey: "traqs_threadReadAt") as? [String: String]) ?? [:] {
+        didSet { UserDefaults.standard.set(threadReadAt, forKey: readStateKey) }
     }
 
     func markThreadRead(_ threadKey: String) {
-        var map = threadReadAt
-        map[threadKey] = ISO8601DateFormatter().string(from: Date())
-        UserDefaults.standard.set(map, forKey: readStateKey)
+        threadReadAt[threadKey] = ISO8601DateFormatter().string(from: Date())
     }
 
     func markAllThreadsRead() {
         let nowISO = ISO8601DateFormatter().string(from: Date())
         // Compute unique threadKeys from current messages, then stamp each.
-        let keys = Set(messages.map { $0.threadKey })
         var map = threadReadAt
-        for k in keys { map[k] = nowISO }
-        UserDefaults.standard.set(map, forKey: readStateKey)
+        for k in Set(messages.map { $0.threadKey }) { map[k] = nowISO }
+        threadReadAt = map
     }
 
     // MARK: - Messages
@@ -674,6 +682,33 @@ class AppState {
         if let msgs = try? await api.fetchMessages() {
             withoutAnimation { messages = msgs }
         }
+    }
+
+    // MARK: - Read receipts
+
+    /// Pull the read-cursor map for every thread I'm in. Cheap (a small map);
+    /// called while a thread is open and on the realtime "reads" signal.
+    func refreshReadReceipts() async {
+        guard let api else { return }
+        if let map = try? await api.fetchReadReceipts() {
+            withoutAnimation { readReceipts = map }
+        }
+    }
+
+    /// Mark a thread read up to `at` (usually its newest message's timestamp).
+    /// Optimistically advances my own cursor locally so the UI reacts instantly,
+    /// then persists to the server. Monotonic on both sides.
+    func markThreadReadServer(_ threadKey: String, at: String) async {
+        guard let api, let myId = currentPersonId else { return }
+        var map = readReceipts
+        var cursors = map[threadKey] ?? [:]
+        if let prev = cursors[myId], prev >= at { /* already read this far */ }
+        else {
+            cursors[myId] = at
+            map[threadKey] = cursors
+            withoutAnimation { readReceipts = map }
+        }
+        try? await api.postReadReceipt(threadKey: threadKey, at: at)
     }
 
     /// Pull historical timeclock entries. Pass `personId` to filter on the

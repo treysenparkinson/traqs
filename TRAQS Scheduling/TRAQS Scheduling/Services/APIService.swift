@@ -187,6 +187,27 @@ struct APIService {
         _ = try await perform(req)
     }
 
+    // MARK: - Read receipts
+
+    /// Per-thread, per-person "read up to" cursors:
+    /// `[threadKey: [personId: ISO8601 read-up-to timestamp]]`. Scoped
+    /// server-side to threads the viewer participates in.
+    func fetchReadReceipts() async throws -> [String: [String: String]] {
+        let req = try await request("message-reads")
+        let data = try await perform(req)
+        return try decoder.decode([String: [String: String]].self, from: data)
+    }
+
+    /// Advance the current user's read cursor for a thread (monotonic
+    /// server-side). `at` is the "read up to" timestamp — typically the newest
+    /// message's timestamp in the thread.
+    func postReadReceipt(threadKey: String, at: String) async throws {
+        let body = try JSONSerialization.data(
+            withJSONObject: ["threadKey": threadKey, "at": at], options: [])
+        let req = try await request("message-reads", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
     // MARK: - Groups
 
     func fetchGroups() async throws -> [ChatGroup] {

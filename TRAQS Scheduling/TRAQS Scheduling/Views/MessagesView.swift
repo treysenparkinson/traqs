@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
+import QuickLook
 
 // MARK: - Chat V1 (Inbox) · TRAQS Light
 // Inbox / channel list. DMs + group threads.
@@ -665,6 +666,26 @@ struct ThreadDetailView: View {
     @State private var showAddPeople = false  // add-people multi-select sheet?
     @State private var peopleListHeight: CGFloat = 0   // measured pill-stack height
 
+    // Composer focus — used to re-pin the scroll to the bottom when the
+    // keyboard opens (#1 auto-follow).
+    @FocusState private var composerFocused: Bool
+
+    // #1 auto-follow + #4 entrance animations. `baselineIds` is the set of
+    // messages already present when the thread first appeared — those never
+    // animate. `animatedIds` records every bubble that has already played its
+    // entrance so scrolling it back into view (LazyVStack recycling) or the
+    // optimistic→server id swap doesn't replay the animation.
+    @State private var baselineIds: Set<String> = []
+    @State private var animatedIds: Set<String> = []
+    @State private var didCaptureBaseline = false
+    private static let bottomAnchor = "chat_bottom_anchor"
+
+    // #3 read receipts. `pendingIds` = my messages still in flight (show
+    // "Sending…"); `lastMarkedReadAt` dedupes the read POST so we only report
+    // when the newest message actually changes.
+    @State private var pendingIds: Set<String> = []
+    @State private var lastMarkedReadAt = ""
+
     // Composer attachment (one at a time). An image routes through the
     // downscaler; a non-image file is sent as-is. Mirrors the end-job panel
     // photo picker (PanelPhotoSheet) so camera/library/files behave the same.
@@ -723,6 +744,113 @@ struct ThreadDetailView: View {
         return threadKey
     }
 
+    /// One-line subtitle under the (now larger) header title. DMs show the
+    /// other person's role (or "Direct message"); group/scoped threads show a
+    /// member/participant count so you know who's in the room.
+    var headerSubtitle: String {
+        if threadKey.hasPrefix("dm:") {
+            let myId = appState.currentPersonId
+            let ids = String(threadKey.dropFirst(3)).components(separatedBy: "_")
+            let otherId = ids.first(where: { $0 != myId }) ?? ids.first
+            let role = appState.people.first(where: { $0.id == otherId })?.role ?? ""
+            return role.isEmpty ? "Direct message" : role
+        }
+        if threadKey.hasPrefix("group:") {
+            let n = threadParticipants.count
+            return n > 0 ? "\(n) member\(n == 1 ? "" : "s")" : "Group"
+        }
+        if threadKey.hasPrefix("job:")   { return "Job chat" }
+        if threadKey.hasPrefix("panel:") { return "Panel chat" }
+        if threadKey.hasPrefix("op:")    { return "Operation chat" }
+        let n = threadParticipants.count
+        return n > 0 ? "\(n) participant\(n == 1 ? "" : "s")" : ""
+    }
+
+    // MARK: - Scroll follow (#1) + entrance animation (#4) helpers
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
+        if animated {
+            withAnimation(.easeOut(duration: 0.25)) {
+                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+        }
+    }
+
+    /// Snapshot which messages were already on screen when the thread opened,
+    /// so the initial backlog doesn't animate — only messages that arrive (or
+    /// that I send) while I'm here.
+    private func captureBaselineIfNeeded() {
+        guard !didCaptureBaseline else { return }
+        baselineIds = Set(liveMessages.map { $0.id })
+        didCaptureBaseline = true
+    }
+
+    /// A bubble animates its entrance only if it wasn't in the opening backlog
+    /// and hasn't already animated (guards against LazyVStack recycling and the
+    /// optimistic→server id swap replaying the effect).
+    private func shouldAnimate(_ msg: Message) -> Bool {
+        !baselineIds.contains(msg.id) && !animatedIds.contains(msg.id)
+    }
+
+    private func markAnimated(_ id: String) {
+        animatedIds.insert(id)
+    }
+
+    // MARK: - Read receipts (#3)
+
+    /// The id of the last message I sent — only this one carries the Sent/Read
+    /// detail label (iMessage-style), which keeps the thread uncluttered.
+    private var lastMineId: String? {
+        liveMessages.last(where: { isMyMessage($0) })?.id
+    }
+
+    /// Delivery status shown under one of my bubbles; nil for others' messages
+    /// and for my earlier (non-latest) delivered messages.
+    private func deliveryStatus(for m: Message) -> MessageDeliveryStatus? {
+        guard isMyMessage(m) else { return nil }
+        if pendingIds.contains(m.id) { return .sending }
+        guard m.id == lastMineId else { return nil }
+        let myId = appState.currentPersonId ?? ""
+        let others = Set(threadParticipants.map { $0.id }).subtracting([myId])
+        guard !others.isEmpty, let msgDate = Date.fromFlexibleISO8601(m.timestamp) else {
+            return .sent
+        }
+        let cursors = appState.readReceipts[threadKey] ?? [:]
+        var readerCursors: [Date] = []
+        for pid in others {
+            if let c = cursors[pid], let cd = Date.fromFlexibleISO8601(c), cd >= msgDate {
+                readerCursors.append(cd)
+            }
+        }
+        if readerCursors.isEmpty { return .sent }
+        if threadKey.hasPrefix("dm:") {
+            let when = readerCursors.max().map { readLabelTime($0) } ?? ""
+            return .read(when.isEmpty ? "Read" : "Read \(when)")
+        }
+        return .read("Read by \(readerCursors.count)")
+    }
+
+    private func readLabelTime(_ d: Date) -> String {
+        let cal = Calendar.current
+        let f = DateFormatter()
+        if cal.isDateInToday(d) { f.dateFormat = "h:mm a" }
+        else if cal.isDateInYesterday(d) { return "yesterday" }
+        else { f.dateFormat = "MMM d" }
+        return f.string(from: d)
+    }
+
+    /// Report the thread read up to its newest message so the sender sees
+    /// "Read". Deduped on the newest timestamp so we don't POST every poll.
+    private func markThreadReadNow() async {
+        let at = liveMessages.last?.timestamp
+            ?? ISO8601DateFormatter().string(from: Date())
+        guard at != lastMarkedReadAt else { return }
+        lastMarkedReadAt = at
+        await appState.markThreadReadServer(threadKey, at: at)
+    }
+
     /// Participants for the header avatar stack.
     /// - DM: the two ids encoded in the threadKey.
     /// - Group: members of the matching ChatGroup.
@@ -750,6 +878,8 @@ struct ThreadDetailView: View {
 
             VStack(spacing: 0) {
                 ThreadHeader(title: displayTitle,
+                             subtitle: headerSubtitle,
+                             isDM: threadKey.hasPrefix("dm:"),
                              participants: threadParticipants,
                              onBack: { dismiss() },
                              onTapPeople: {
@@ -774,23 +904,54 @@ struct ThreadDetailView: View {
                                         TimeOffRequestBubble(message: msg)
                                             .id(msg.id)
                                     } else {
-                                        MessageBubble(message: msg, isMe: isMyMessage(msg))
+                                        MessageBubble(message: msg,
+                                                      isMe: isMyMessage(msg),
+                                                      animateIn: shouldAnimate(msg),
+                                                      status: deliveryStatus(for: msg),
+                                                      onAppeared: { markAnimated(msg.id) })
                                             .id(msg.id)
                                     }
                                 }
                             }
+                            // Stable bottom anchor. Scrolling to a fixed id is far
+                            // more reliable than scrolling to the last message id,
+                            // which changes on the optimistic→server swap.
+                            Color.clear
+                                .frame(height: 1)
+                                .id(Self.bottomAnchor)
                         }
                         .padding()
                     }
+                    // Start pinned to the newest message and stay pinned as
+                    // content grows — the reliable iOS-17+ way to open a chat at
+                    // the bottom (scrollTo on a lazy trailing anchor at .onAppear
+                    // often no-ops because the anchor isn't realized yet).
+                    .defaultScrollAnchor(.bottom)
                     .refreshable { await appState.refreshMessages() }
+                    // Follow the conversation: any new message (count change) or an
+                    // id swap on the last message re-pins to the bottom. A new
+                    // message also means there's something new to mark read.
                     .onChange(of: liveMessages.count) {
-                        if let last = liveMessages.last {
-                            withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
-                        }
+                        scrollToBottom(proxy, animated: true)
+                        appState.markThreadRead(threadKey)   // keep inbox badge clear while viewing
+                        Task { await markThreadReadNow() }
+                    }
+                    .onChange(of: liveMessages.last?.id) { scrollToBottom(proxy, animated: true) }
+                    // Keyboard opening shrinks the viewport — re-pin so the newest
+                    // message stays visible above the composer.
+                    .onChange(of: composerFocused) { _, focused in
+                        if focused { scrollToBottom(proxy, animated: true) }
                     }
                     .onAppear {
-                        if let last = liveMessages.last {
-                            proxy.scrollTo(last.id, anchor: .bottom)
+                        captureBaselineIfNeeded()
+                        // Clear this thread's inbox unread badge the instant it's
+                        // opened (observable → the inbox re-renders immediately).
+                        appState.markThreadRead(threadKey)
+                        // defaultScrollAnchor(.bottom) sets the initial offset;
+                        // these are a belt-and-suspenders nudge for late layout.
+                        scrollToBottom(proxy, animated: false)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            scrollToBottom(proxy, animated: false)
                         }
                         // Pull latest request statuses so any timeoff_request
                         // bubble shows live state + Approve/Deny (admins get all).
@@ -825,6 +986,7 @@ struct ThreadDetailView: View {
 
                         TextField("Message…", text: $newText, axis: .vertical)
                             .textFieldStyle(.plain)
+                            .focused($composerFocused)
                             .font(TTypo.sm(14))
                             .foregroundColor(Color(hex: T.ink))
                             .padding(.horizontal, 16)
@@ -905,6 +1067,10 @@ struct ThreadDetailView: View {
             // when the view disappears.
             while !Task.isCancelled {
                 await appState.refreshMessages()
+                await appState.refreshReadReceipts()
+                // Keep my read cursor at the newest message so the sender sees
+                // "Read" (no-op once it stops advancing).
+                await markThreadReadNow()
                 try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
@@ -1204,6 +1370,7 @@ struct ThreadDetailView: View {
 
         let msgId = UUID().uuidString
         myMessageIds.insert(msgId)
+        pendingIds.insert(msgId)   // #3: show "Sending…" until the server confirms
 
         let msg = Message(
             id: msgId,
@@ -1220,9 +1387,18 @@ struct ThreadDetailView: View {
         )
         newText = ""
         pickedImage = nil; pickedFile = nil; photoItem = nil
+        // A light tap as the bubble springs in (#4 send feel).
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         do {
             let serverId = try await appState.sendMessageThrowing(msg)
             myMessageIds.insert(serverId)   // track server-assigned id too
+            // Mark the server id as already-animated BEFORE SwiftUI renders the
+            // swapped bubble, so the optimistic pop doesn't play a second time.
+            animatedIds.insert(serverId)
+            pendingIds.remove(msgId)        // confirmed → "Sent"
+            // Report my own newest message as read so my cursor advances past it
+            // (keeps the DM "Read" math correct after I send).
+            await markThreadReadNow()
         } catch {
             // Optimistic bubble is rolled back inside sendMessageThrowing; here
             // we restore the composer text, surface the inline error, and shake
@@ -1230,6 +1406,7 @@ struct ThreadDetailView: View {
             sendError = "Failed to send: \(error.localizedDescription)"
             newText = text
             myMessageIds.remove(msgId)      // clean up on failure
+            pendingIds.remove(msgId)
             sendShakeToken += 1
         }
         isSending = false
@@ -1261,43 +1438,49 @@ private struct SectionTimeHeader: View {
 
 // MARK: - Attachment bubble (image thumbnail or file chip)
 
-/// Renders one message attachment: images load inline (tap opens full-size in
-/// the browser); other files show a tappable doc chip. Served by the no-auth
-/// `attachment` GET endpoint, same as the web app's <img src>.
+/// Renders one message attachment: images load inline as a thumbnail, other
+/// files show a doc chip. Tapping either opens the attachment INSIDE the app
+/// (QuickLook) with download / share / copy actions — no more kicking out to
+/// Safari. The inline thumbnail is still served by the no-auth `attachment`
+/// GET endpoint, same as the web app's <img src>.
 private struct AttachmentBubble: View {
     let attachment: Attachment
     let isMe: Bool
+    @State private var showViewer = false
 
     private var url: URL? { Attachment.viewURL(for: attachment.key) }
     private var isImage: Bool { attachment.mimeType.hasPrefix("image/") }
 
     var body: some View {
-        if isImage, let url {
-            Link(destination: url) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image.resizable().scaledToFit()
-                    case .failure:
-                        fileChip
-                    case .empty:
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 16).fill(Color(hex: T.surface))
-                            ProgressView().tint(Color(hex: T.muted))
-                        }
-                        .frame(width: 200, height: 150)
-                    @unknown default:
-                        EmptyView()
-                    }
-                }
-                .frame(maxWidth: 220, maxHeight: 260)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color(hex: T.hair), lineWidth: isMe ? 0 : 1))
-            }
+        Button { showViewer = true } label: { thumbnail }
             .buttonStyle(.plain)
-        } else if let url {
-            Link(destination: url) { fileChip }.buttonStyle(.plain)
+            .fullScreenCover(isPresented: $showViewer) {
+                AttachmentViewer(attachment: attachment)
+            }
+    }
+
+    @ViewBuilder private var thumbnail: some View {
+        if isImage, let url {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFit()
+                case .failure:
+                    fileChip
+                case .empty:
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16).fill(Color(hex: T.surface))
+                        ProgressView().tint(Color(hex: T.muted))
+                    }
+                    .frame(width: 200, height: 150)
+                @unknown default:
+                    EmptyView()
+                }
+            }
+            .frame(maxWidth: 220, maxHeight: 260)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color(hex: T.hair), lineWidth: isMe ? 0 : 1))
         } else {
             fileChip
         }
@@ -1321,6 +1504,120 @@ private struct AttachmentBubble: View {
     }
 }
 
+// MARK: - In-app attachment viewer (QuickLook + share/save/copy)
+
+/// Opens an attachment inside the app. Downloads it to a temp file, then hands
+/// it to QuickLook, which renders images (pinch-zoom), PDFs, and documents
+/// natively and exposes a Share action — the system share sheet covers
+/// download (Save to Files / Save Image), copy, and share-to-apps. A Done
+/// button dismisses. This replaces the old Link that punted to Safari.
+private struct AttachmentViewer: View {
+    let attachment: Attachment
+    @Environment(\.dismiss) private var dismiss
+
+    private enum LoadState: Equatable {
+        case loading
+        case ready(URL)
+        case failed(String)
+    }
+    @State private var state: LoadState = .loading
+
+    var body: some View {
+        ZStack {
+            Color(hex: T.bg).ignoresSafeArea()
+            switch state {
+            case .loading:
+                VStack(spacing: 14) {
+                    ProgressView().tint(Color(hex: T.muted))
+                    Text("Loading \(attachment.filename)…")
+                        .font(TTypo.sm(13))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
+            case .ready(let fileURL):
+                QuickLookPreview(url: fileURL, onDone: { dismiss() })
+                    .ignoresSafeArea()
+            case .failed(let msg):
+                VStack(spacing: 14) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.system(size: 34))
+                        .foregroundStyle(Color(hex: T.muted))
+                    Text(msg)
+                        .font(TTypo.sm(13))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 18) {
+                        Button("Retry") { Task { await load() } }
+                            .foregroundStyle(Color(hex: T.accent))
+                        Button("Close") { dismiss() }
+                            .foregroundStyle(Color(hex: T.muted))
+                    }
+                    .font(TTypo.smBold(15))
+                    .buttonStyle(.plain)
+                }
+                .padding(40)
+            }
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        state = .loading
+        guard let remote = Attachment.viewURL(for: attachment.key) else {
+            state = .failed("This attachment can't be opened."); return
+        }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: remote)
+            // Write into a unique temp subfolder using the real filename, so
+            // QuickLook infers the right type and a Save/Share exports a
+            // sensibly-named file.
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let safeName = attachment.filename.isEmpty ? "attachment" : attachment.filename
+            let fileURL = dir.appendingPathComponent(safeName)
+            try data.write(to: fileURL, options: .atomic)
+            state = .ready(fileURL)
+        } catch {
+            state = .failed("Couldn't load this attachment.\n\(error.localizedDescription)")
+        }
+    }
+}
+
+/// Wraps `QLPreviewController` in a nav controller so it gets a Done button and
+/// its native Share action (→ Save to Files / Save Image / Copy / AirDrop).
+private struct QuickLookPreview: UIViewControllerRepresentable {
+    let url: URL
+    let onDone: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(url: url, onDone: onDone) }
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let preview = QLPreviewController()
+        preview.dataSource = context.coordinator
+        preview.navigationItem.leftBarButtonItem = UIBarButtonItem(
+            barButtonSystemItem: .done,
+            target: context.coordinator,
+            action: #selector(Coordinator.doneTapped))
+        return UINavigationController(rootViewController: preview)
+    }
+
+    func updateUIViewController(_ vc: UINavigationController, context: Context) {
+        context.coordinator.onDone = onDone
+    }
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource {
+        let url: URL
+        var onDone: () -> Void
+        init(url: URL, onDone: @escaping () -> Void) { self.url = url; self.onDone = onDone }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> QLPreviewItem {
+            url as NSURL
+        }
+        @objc func doneTapped() { onDone() }
+    }
+}
+
 // MARK: - Composer attachment (a local pick, before upload)
 
 private struct PickedAttachment: Equatable {
@@ -1339,17 +1636,60 @@ extension Attachment {
     }
 }
 
+// MARK: - Delivery status (#3)
+
+/// Status shown under one of my own message bubbles.
+enum MessageDeliveryStatus: Equatable {
+    case sending          // optimistic, POST in flight
+    case sent             // server confirmed, not yet read by anyone
+    case read(String)     // read — label is "Read 9:42 AM" (DM) or "Read by 3" (group)
+}
+
+/// Compact caption under my latest bubble: muted "Sending…"/"✓ Sent", or a
+/// sky-blue "✓✓ Read …" once a recipient's cursor passes the message.
+private struct DeliveryStatusLabel: View {
+    let status: MessageDeliveryStatus
+
+    var body: some View {
+        Group {
+            switch status {
+            case .sending:
+                Text("Sending…").foregroundStyle(Color(hex: T.muted))
+            case .sent:
+                Text("✓ Sent").foregroundStyle(Color(hex: T.muted))
+            case .read(let label):
+                Text("✓✓ \(label)").foregroundStyle(Color(hex: T.sky))
+            }
+        }
+        .font(.system(size: 10, weight: .semibold))
+        .transition(.opacity)
+    }
+}
+
 // MARK: - MessageBubble
 
 struct MessageBubble: View {
     let message: Message
     let isMe: Bool
+    /// When true this bubble plays an entrance animation the first time it
+    /// appears — a spring "pop" for my own sends, a slide-in-from-leading for
+    /// incoming messages (#4). Old backlog bubbles pass false.
+    var animateIn: Bool = false
+    /// Delivery status for my own messages (Sending / Sent / Read). nil for
+    /// others' messages (#3).
+    var status: MessageDeliveryStatus? = nil
+    /// Called once the entrance has kicked off so the parent can record that
+    /// this id already animated.
+    var onAppeared: () -> Void = {}
 
     /// Timestamp is hidden by default and revealed when the user taps
     /// the bubble. A timed Task auto-hides it again so the thread stays
     /// uncluttered without forcing a second tap.
     @State private var showTimestamp = false
     @State private var hideTask: Task<Void, Never>?
+    /// Drives the entrance: false = pre-animation (offset/scaled/faded),
+    /// true = resting. Flipped in onAppear.
+    @State private var appeared = false
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 8) {
@@ -1409,9 +1749,29 @@ struct MessageBubble: View {
                         }
                     }
                 }
+
+                if isMe, let status {
+                    DeliveryStatusLabel(status: status)
+                        .padding(.trailing, 4)
+                        .padding(.top, 1)
+                }
             }
 
             if !isMe { Spacer(minLength: 40) }
+        }
+        .modifier(BubbleEntrance(isMe: isMe, active: animateIn, appeared: appeared))
+        .onAppear {
+            guard !appeared else { return }
+            if animateIn {
+                // Mine springs up into place; incoming slides in from the side.
+                let anim: Animation = isMe
+                    ? .spring(response: 0.34, dampingFraction: 0.6)
+                    : .spring(response: 0.42, dampingFraction: 0.82)
+                withAnimation(anim) { appeared = true }
+                onAppeared()
+            } else {
+                appeared = true   // no animation for backlog bubbles
+            }
         }
         .onDisappear { hideTask?.cancel() }
     }
@@ -1428,6 +1788,29 @@ struct MessageBubble: View {
             guard !Task.isCancelled else { return }
             withAnimation(.easeIn(duration: 0.28)) { showTimestamp = false }
         }
+    }
+}
+
+/// The pre/post transform for a message bubble's entrance (#4). When `active`
+/// is false it's the identity transform (resting) so backlog bubbles and
+/// already-animated bubbles render normally with no first-frame flash.
+/// `pre` (active && not yet appeared) is the starting pose:
+///   · mine     → scaled down + nudged below, anchored bottom-trailing (a pop)
+///   · incoming → slid in from the leading edge (a slide-in)
+/// both fading up from transparent.
+private struct BubbleEntrance: ViewModifier {
+    let isMe: Bool
+    let active: Bool
+    let appeared: Bool
+
+    func body(content: Content) -> some View {
+        let pre = active && !appeared
+        content
+            .scaleEffect(pre && isMe ? 0.86 : 1,
+                         anchor: isMe ? .bottomTrailing : .bottomLeading)
+            .offset(x: pre && !isMe ? -28 : 0,
+                    y: pre && isMe ? 12 : 0)
+            .opacity(pre ? 0 : 1)
     }
 }
 
@@ -1570,54 +1953,76 @@ struct TimeOffRequestBubble: View {
 
 private struct ThreadHeader: View {
     let title: String
+    let subtitle: String
+    let isDM: Bool
     let participants: [Person]
     let onBack: () -> Void
-    /// Tapping the title or the avatar stack opens the people/add popover.
+    /// Tapping the title, avatar, or subtitle opens the people/add popover.
     var onTapPeople: (() -> Void)? = nil
 
+    /// Initials for the DM's single leading avatar, derived from the title
+    /// (which already resolves to the other person's name).
+    private var titleInitials: String {
+        let parts = title.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        return parts.joined()
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(width: 34, height: 34)
+                    .frame(width: 38, height: 38)
                     .background(Circle().fill(Color(hex: T.surface)))
                     .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
             }
             .buttonStyle(.plain)
 
             Button { onTapPeople?() } label: {
-                HStack(spacing: 6) {
-                    Text(title)
-                        .font(TTypo.smBold(15))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                    if onTapPeople != nil {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color(hex: T.muted))
+                HStack(spacing: 11) {
+                    // Identity: a single large avatar for a DM, an overlapping
+                    // stack for a group / job / panel / op thread.
+                    if isDM {
+                        Avatar(initials: titleInitials.isEmpty ? "?" : titleInitials,
+                               size: 42, gradient: true)
+                    } else if !participants.isEmpty {
+                        ParticipantStack(people: participants,
+                                         avatarSize: 34, overlap: 12, maxShown: 3)
+                    } else {
+                        Avatar(initials: "#", size: 42, gradient: true)
                     }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(TTypo.h3(20))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        HStack(spacing: 4) {
+                            Text(subtitle)
+                                .font(TTypo.xs(12))
+                                .foregroundStyle(Color(hex: T.muted))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                            if onTapPeople != nil {
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(Color(hex: T.muted))
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(onTapPeople == nil)
-
-            Spacer(minLength: 8)
-
-            if !participants.isEmpty {
-                Button { onTapPeople?() } label: {
-                    ParticipantStack(people: participants)
-                }
-                .buttonStyle(.plain)
-                .disabled(onTapPeople == nil)
-            }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 18)
-        .padding(.bottom, 14)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
     }
 }
 

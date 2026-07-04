@@ -22,6 +22,7 @@ final class RealtimeService {
     private var onReconnect: (() -> Void)?
     private var onStatus: ((RealtimeStatus) -> Void)?
     private var onTimeoff: (() -> Void)?
+    private var onReads: (() -> Void)?
 
     private static let entities = ["tasks", "people", "clients", "messages", "groups", "timeclock", "orgConfig", "settings"]
 
@@ -32,7 +33,8 @@ final class RealtimeService {
                  onChange: @escaping () -> Void,
                  onReconnect: @escaping () -> Void,
                  onStatus: @escaping (RealtimeStatus) -> Void = { _ in },
-                 onTimeoff: @escaping () -> Void = {}) async {
+                 onTimeoff: @escaping () -> Void = {},
+                 onReads: @escaping () -> Void = {}) async {
         if client != nil || degraded {
             print("[ably] connect() ignored (connected: \(client != nil), degraded: \(degraded))")
             return
@@ -43,6 +45,7 @@ final class RealtimeService {
         self.onReconnect = onReconnect
         self.onStatus = onStatus
         self.onTimeoff = onTimeoff
+        self.onReads = onReads
         onStatus(.connecting)
 
         // Preflight probe so a "real-time not configured" (503) degrades cleanly
@@ -123,6 +126,15 @@ final class RealtimeService {
         timeoffChannel.subscribe("changed") { [weak self] _ in
             Task { @MainActor in self?.onTimeoff?() }
         }
+
+        // reads is likewise not a /sync entity — it has its own GET endpoint —
+        // so its channel triggers a dedicated refetch (onReads) so a sender
+        // sees "Read" the instant a recipient opens the thread.
+        let readsChannel = realtime.channels.get("org-\(orgCode):reads")
+        channels.append(readsChannel)
+        readsChannel.subscribe("changed") { [weak self] _ in
+            Task { @MainActor in self?.onReads?() }
+        }
     }
 
     func disconnect() {
@@ -137,5 +149,6 @@ final class RealtimeService {
         onReconnect = nil
         onStatus = nil
         onTimeoff = nil
+        onReads = nil
     }
 }
