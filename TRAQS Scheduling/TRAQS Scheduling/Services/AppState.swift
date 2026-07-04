@@ -111,7 +111,7 @@ class AppState {
         // paint from cache instantly, delta-sync in the background, then
         // subscribe to Ably for ~1s live updates.
         realtime.disconnect()                 // drop any previous org's connection
-        auth.onLogout = { [weak self] in self?.teardownRealtime() }  // disconnect Ably on full logout
+        auth.onLogout = { [weak self] in self?.clearForLogout() }  // full-logout cleanup (runs before the Auth0 session ends)
         let cache = LocalCache()
         cache.initialize(orgCode: orgCode)
         self.localCache = cache
@@ -218,6 +218,27 @@ class AppState {
     /// disconnects via configure()). Wired to AuthManager.onLogout in configure().
     func teardownRealtime() {
         realtime.disconnect()
+    }
+
+    /// Full-logout cleanup. Wired to `AuthManager.onLogout`, which fires at the
+    /// START of logout() — BEFORE the Auth0 session/tokens are cleared — so the
+    /// next account to log in on this device can't inherit the previous user's
+    /// identity or see their cached threads/data. Without this, a stale
+    /// `currentPersonId` (persisted in UserDefaults, never cleared) drove the
+    /// chat ACL for the wrong person, and the SwiftData cache surfaced a prior
+    /// account's messages/groups. Clears, in order: realtime, the persisted +
+    /// in-memory identity, the local cache (rows AND the sync cursor, so the
+    /// next login full-resyncs), the in-memory synced collections (loadAll /
+    /// rehydrate's empty-guards otherwise keep a populated list, letting old
+    /// data linger), and the configure() idempotency guard (so re-login
+    /// re-runs configure()).
+    func clearForLogout() {
+        teardownRealtime()
+        currentPersonId = nil
+        UserDefaults.standard.removeObject(forKey: "traqs_currentPersonId")
+        localCache?.clearAll()
+        jobs = []; people = []; clients = []; messages = []; groups = []
+        configuredOrgCode = nil
     }
 
     func startAutoRefresh() {

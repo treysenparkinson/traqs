@@ -127,6 +127,11 @@ final class LocalCache {
         try? ctx.delete(model: SyncedTimeclockEntry.self)
         try? ctx.delete(model: SyncedOrgConfig.self)
         try? ctx.delete(model: SyncedSettings.self)
+        // Also drop the sync cursor so the caller re-fetches from scratch.
+        // fullResync() (the other caller) immediately re-sets it via setCursor;
+        // on logout, clearing it makes the next login full-resync into a clean
+        // cache instead of delta-syncing from the previous user's cursor.
+        try? ctx.delete(model: Meta.self)
         try? ctx.save()
     }
 }

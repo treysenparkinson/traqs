@@ -1106,6 +1106,17 @@ struct ThreadDetailView: View {
     private func sendMessage() async {
         let text = newText.trimmingCharacters(in: .whitespaces)
         guard !text.isEmpty || hasAttachment else { return }
+        // Identity guard (chat ACL): the server authorizes a post ONLY when the
+        // authenticated Auth0 email resolves to a person whose id == authorId.
+        // If our local identity is unresolved or stale (not a person in this
+        // org), the post would 403 — and the old `?? UUID().uuidString` author
+        // fallback GUARANTEED a bogus id. Refuse up front with a recovery hint
+        // rather than firing a doomed request.
+        guard let myPid = appState.currentPersonId,
+              appState.people.contains(where: { $0.id == myPid }) else {
+            sendError = "Session issue, please log out and log back in."
+            return
+        }
         isSending = true
         sendError = nil
 
@@ -1130,7 +1141,7 @@ struct ThreadDetailView: View {
             return
         }
 
-        let authorId    = appState.currentPerson?.id    ?? appState.currentPersonId ?? UUID().uuidString
+        let authorId    = myPid   // guarded above: a real person id in this org, matching the server's email resolution
         let authorName  = appState.currentPerson?.name  ?? appState.matchEmail ?? "Me"
         let authorColor = appState.currentPerson?.color ?? "#7c3aed"
 
