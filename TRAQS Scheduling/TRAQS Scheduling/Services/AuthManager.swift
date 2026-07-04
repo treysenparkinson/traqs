@@ -69,7 +69,15 @@ class AuthManager: NSObject {
                     else { continuation.resume(throwing: URLError(.badServerResponse)) }
                 }
                 session.presentationContextProvider = self
-                session.prefersEphemeralWebBrowserSession = false
+                // Ephemeral = no shared Safari cookie jar. Auth0's SSO session
+                // cookie is NOT persisted, so after logout the next login always
+                // shows the Auth0 login screen instead of silently auto-signing
+                // in with the old session ("auto sending me through"). Staying
+                // logged in across launches is handled separately by the
+                // Keychain access/refresh tokens, so this doesn't affect the
+                // "remember me while I'm logged in" behavior — only the
+                // interactive login, which we WANT to prompt after a logout.
+                session.prefersEphemeralWebBrowserSession = true
                 session.start()
             }
 
