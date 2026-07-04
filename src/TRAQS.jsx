@@ -4057,6 +4057,15 @@ Extraction rules:
       for (const entity of ["tasks", "people", "clients", "messages", "groups", "timeclock", "orgConfig", "settings"]) {
         unsubs.push(realtime.subscribe(entity, () => { deltaSync().catch(() => {}); }));
       }
+      // timeoff is NOT a /sync delta entity — it has its own GET endpoint — so
+      // its channel triggers a dedicated refetch (→ setTimeOffRequests) rather
+      // than deltaSync, giving ~1s live updates instead of the 30s poll. The
+      // schedule side of an approve/cancel still arrives via the "people" channel.
+      unsubs.push(realtime.subscribe("timeoff", () => {
+        fetchTimeOffRequests(getToken, orgCode)
+          .then(r => setTimeOffRequests(r.requests || []))
+          .catch(() => {});
+      }));
     })();
     return () => { active = false; unsubs.forEach(u => { try { u(); } catch {} }); realtime.disconnect(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps

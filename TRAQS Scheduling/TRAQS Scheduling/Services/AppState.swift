@@ -165,7 +165,8 @@ class AppState {
             await self.realtime.connect(orgCode: orgCode, api: apiInstance,
                                    onChange: { [weak self] in self?.onRealtimeChange() },
                                    onReconnect: { [weak self] in self?.onRealtimeChange() },
-                                   onStatus: { [weak self] s in self?.setRealtimeStatus(s) })
+                                   onStatus: { [weak self] s in self?.setRealtimeStatus(s) },
+                                   onTimeoff: { [weak self] in Task { await self?.refreshTimeOffRequests() } })
         }
 
         startAutoRefresh()

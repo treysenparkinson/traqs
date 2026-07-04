@@ -21,6 +21,7 @@ final class RealtimeService {
     private var onChange: (() -> Void)?
     private var onReconnect: (() -> Void)?
     private var onStatus: ((RealtimeStatus) -> Void)?
+    private var onTimeoff: (() -> Void)?
 
     private static let entities = ["tasks", "people", "clients", "messages", "groups", "timeclock", "orgConfig", "settings"]
 
@@ -30,7 +31,8 @@ final class RealtimeService {
                  api: APIService,
                  onChange: @escaping () -> Void,
                  onReconnect: @escaping () -> Void,
-                 onStatus: @escaping (RealtimeStatus) -> Void = { _ in }) async {
+                 onStatus: @escaping (RealtimeStatus) -> Void = { _ in },
+                 onTimeoff: @escaping () -> Void = {}) async {
         if client != nil || degraded {
             print("[ably] connect() ignored (connected: \(client != nil), degraded: \(degraded))")
             return
@@ -40,6 +42,7 @@ final class RealtimeService {
         self.onChange = onChange
         self.onReconnect = onReconnect
         self.onStatus = onStatus
+        self.onTimeoff = onTimeoff
         onStatus(.connecting)
 
         // Preflight probe so a "real-time not configured" (503) degrades cleanly
@@ -110,6 +113,16 @@ final class RealtimeService {
                 }
             }
         }
+
+        // timeoff is NOT a /sync delta entity — it has its own GET endpoint — so
+        // its channel triggers a dedicated refetch (onTimeoff) rather than the
+        // deltaSync-based onChange used for the entities above. (The schedule
+        // side of an approve/cancel still arrives via the "people" channel.)
+        let timeoffChannel = realtime.channels.get("org-\(orgCode):timeoff")
+        channels.append(timeoffChannel)
+        timeoffChannel.subscribe("changed") { [weak self] _ in
+            Task { @MainActor in self?.onTimeoff?() }
+        }
     }
 
     func disconnect() {
@@ -123,5 +136,6 @@ final class RealtimeService {
         onChange = nil
         onReconnect = nil
         onStatus = nil
+        onTimeoff = nil
     }
 }
