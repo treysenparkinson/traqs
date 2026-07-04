@@ -14030,6 +14030,11 @@ ${jobsCtx || "No jobs found."}`;
     const isDmThread = t => t.scope === "dm" || String(t.threadKey).startsWith("dm:");
     const dmThreads = Object.values(threadMap).filter(isDmThread).sort((a, b) => b.latest.timestamp.localeCompare(a.latest.timestamp));
     const jobThreads = Object.values(threadMap).filter(t => t.scope !== "group" && !isDmThread(t)).sort((a, b) => b.latest.timestamp.localeCompare(a.latest.timestamp));
+    // Belt-and-suspenders: only show groups the current user is a member of.
+    // The server (/sync + GET /groups) is authoritative and now filters to
+    // members, but filtering here too prevents a flash of unauthorized groups
+    // during a cache-first paint before the first delta lands.
+    const myGroups = (groups || []).filter(g => (g.memberIds || []).map(String).includes(String(loggedInUser?.id)));
 
     const threadMessages = chatThread ? messages.filter(m => m.threadKey === chatThread.threadKey) : [];
     const canPost = !!(chatThread && loggedInUser);
@@ -14096,8 +14101,8 @@ ${jobsCtx || "No jobs found."}`;
           <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Groups</span>
           {loggedInUser && <Tip label="New group"><button onClick={() => setNewGroupModal(true)} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: T.accent, border: "none", color: T.accentText, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button></Tip>}
         </div>
-        {groups.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No groups yet</div>}
-        {groups.slice().sort((a, b) => {
+        {myGroups.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No groups yet</div>}
+        {myGroups.slice().sort((a, b) => {
           const ap = pinnedGroups.includes(a.id) ? 0 : 1;
           const bp = pinnedGroups.includes(b.id) ? 0 : 1;
           return ap - bp || a.name.localeCompare(b.name);

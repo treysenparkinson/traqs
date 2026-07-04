@@ -96,13 +96,21 @@ export async function handler(event) {
       return decision.get(m.threadKey);
     });
 
+    // Groups: same members-only ACL as the thread list — a viewer only receives
+    // the groups they belong to (memberIds), so group names/rosters of groups
+    // they aren't in never reach the client (previously ALL groups were sent).
+    // No admin override, matching the message ACL. Tombstones retain memberIds,
+    // so a deleted group the viewer was in still propagates for cache eviction.
+    const groupsDelta = arrDelta(groups)
+      .filter(g => myId && (g?.memberIds || []).map(String).includes(myId));
+
     return json(200, {
       serverTime,
       tasks: arrDelta(tasks),
       people: peopleDelta,
       clients: arrDelta(clients),
       messages: messagesDelta,
-      groups: arrDelta(groups),
+      groups: groupsDelta,
       timeclock: timeclockDelta,
       orgConfig: objDelta(orgConfig),
       settings: objDelta(settings),

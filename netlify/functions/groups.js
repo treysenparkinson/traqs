@@ -16,12 +16,19 @@ export async function handler(event) {
   // GET — return groups for the named org (membership required, since
   // group names + member ids implicitly reveal the team structure).
   if (event.httpMethod === "GET") {
-    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       const data = (await readJson(s3Key)) ?? [];
-      // Hide soft-deleted (tombstoned) records from normal readers; /sync does
-      // NOT filter these so delta-sync clients can evict the deleted row.
-      return json(200, filterLive(data));
+      // Members-only visibility (mirrors the messages/thread ACL): return only
+      // the groups the caller belongs to, so group names + rosters of groups
+      // they aren't in aren't exposed. No admin override — an admin who isn't in
+      // a group doesn't see it here, matching the message ACL.
+      // Also hides soft-deleted (tombstoned) records from normal readers; /sync
+      // does NOT filter tombstones so delta-sync clients can still evict them.
+      const myId = member?.personId != null ? String(member.personId) : null;
+      const mine = filterLive(data).filter(g => myId && (g?.memberIds || []).map(String).includes(myId));
+      return json(200, mine);
     } catch (e) {
       console.error("groups GET error:", e);
       return err(500, "Failed to read groups");
@@ -30,7 +37,8 @@ export async function handler(event) {
 
   // POST — save full groups array (member of the named org required).
   if (event.httpMethod === "POST") {
-    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     let body;
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
     if (!Array.isArray(body)) return err(400, "Body must be an array");
@@ -40,21 +48,45 @@ export async function handler(event) {
       // so unchanged groups keep their existing lastModifiedAt (only genuinely
       // changed groups get a fresh timestamp, which is what delta-sync relies on).
       const existing = await readJson(s3Key);
+      const prev = Array.isArray(existing) ? existing : [];
+      const posterId = member?.personId != null ? String(member.personId) : null;
+      const isMemberOf = (g) => posterId != null && (g?.memberIds || []).map(String).includes(posterId);
 
-      // Refuse to overwrite a non-empty groups.json with an empty array.
-      // See tasks.js for the incident this guards against.
-      // Empty-array safeguard on the RAW incoming array (before reconciliation),
-      // counting only NON-tombstoned records so leftover tombstones don't make a
-      // legitimately-empty list get refused.
+      // Members-only delivery (GET + /sync) means a client's POST array is a
+      // PARTIAL view of groups.json — it only ever contains groups the poster
+      // belongs to (plus any new one they're creating). A plain
+      // reconcileDeletions(body, existing) would treat every group the poster
+      // CAN'T see as a client-side deletion and tombstone it, wiping other
+      // people's groups. So we scope reconciliation to the poster's OWN groups
+      // and carry everything else forward verbatim.
+      //
+      // preserved:   existing groups the poster isn't a member of (incl. their
+      //              tombstones) — never touched by someone else's POST.
+      // visiblePrev: existing groups the poster IS a member of — the only ones a
+      //              missing-from-body entry may legitimately tombstone.
+      // safeBody:    incoming entries that are brand-new OR target a group the
+      //              poster belongs to (drops attempts to edit groups they can't
+      //              see, e.g. from a stale client).
+      const preserved = prev.filter(g => g && !isMemberOf(g));
+      const visiblePrev = prev.filter(g => g && isMemberOf(g));
+      const prevById = new Map(prev.filter(g => g && g.id != null).map(g => [String(g.id), g]));
+      const safeBody = body.filter(g => {
+        if (!g || g.id == null) return true;            // new / id-less → allow (create)
+        const ex = prevById.get(String(g.id));
+        return !ex || isMemberOf(ex);                   // allow new, or groups the poster belongs to
+      });
+
+      // Empty-array safeguard, scoped to the POSTER's own groups: a client bug
+      // (failed fetch → state reset to [] → autosave) must not tombstone every
+      // group the poster belongs to. Only the poster's visible groups are at
+      // risk now (non-member groups are preserved above), so guard on those.
+      // `?force=1` bypasses it (e.g. deliberately deleting your last group).
       const force = event.queryStringParameters?.force === "1";
-      if (body.length === 0 && !force) {
-        if (Array.isArray(existing) && existing.some(r => r && !r.deletedAt)) {
-          return err(409, "Refusing to overwrite non-empty groups with empty array");
-        }
+      if (body.length === 0 && !force && visiblePrev.some(r => r && !r.deletedAt)) {
+        return err(409, "Refusing to overwrite your groups with an empty array");
       }
-      // Tombstone client-side deletions (ids in `existing` missing from incoming)
-      // so delta-sync propagates them instead of the record silently vanishing.
-      const reconciled = reconcileDeletions(body, existing);
+
+      const reconciled = [...preserved, ...reconcileDeletions(safeBody, visiblePrev)];
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(orgCodeFromHeader(event), "groups", { ids: changedIds(reconciled, existing) });
       // Phase 5: silent background-sync push to org members (best-effort).
