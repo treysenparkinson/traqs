@@ -114,6 +114,25 @@ export async function copyPrefix(sourcePrefix, destPrefix) {
   }
 }
 
+/**
+ * Copy a single S3 object from srcKey to destKey (server-side copy).
+ */
+export async function copyObject(srcKey, destKey) {
+  await client.send(new CopyObjectCommand({
+    Bucket: BUCKET,
+    CopySource: encodeURIComponent(`${BUCKET}/${srcKey}`),
+    Key: destKey,
+  }));
+}
+
+/**
+ * Delete a single S3 object. No-op semantics on a missing key (S3 delete is
+ * idempotent and does not error on absent keys).
+ */
+export async function deleteObject(key) {
+  await client.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+}
+
 function streamToString(stream) {
   return new Promise((resolve, reject) => {
     const chunks = [];
