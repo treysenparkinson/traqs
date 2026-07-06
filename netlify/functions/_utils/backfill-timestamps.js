@@ -24,7 +24,7 @@ import { readJson, writeJson } from "./s3.js";
 const LEGACY = "2020-01-01T00:00:00.000Z";
 
 // Entities stored as an ARRAY of records. Each record gets its own stamp.
-const ARRAY_FILES = ["tasks.json", "people.json", "clients.json", "messages.json", "groups.json", "timeclock.json"];
+const ARRAY_FILES = ["tasks.json", "people.json", "clients.json", "messages.json", "groups.json", "payhours.json", "productionhours.json"];
 
 // Entities stored as a single OBJECT. The object itself gets a root stamp.
 const OBJECT_FILES = ["config.json", "settings.json"];

@@ -5,7 +5,7 @@ import { orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
-import { sendSilentPush } from "./_utils/push.js";
+import { sendSilentPush, sendVisiblePush } from "./_utils/push.js";
 
 const failedAttempts = new Map(); // ip -> { count, firstAttempt }
 
@@ -72,7 +72,8 @@ function hoursElapsedMinusPauses(isoStart, isoEnd, events) {
 // (jobsessions.json is intentionally absent — not a /sync entity; see its write.)
 const ENTITY_BY_FILE = {
   "people.json": "people",
-  "timeclock.json": "timeclock",
+  "payhours.json": "payhours",
+  "productionhours.json": "productionhours",
   "tasks.json": "tasks",
 };
 
@@ -89,6 +90,13 @@ async function writeStampedArray(key, nextArr) {
   const entity = ENTITY_BY_FILE[parts[2]];
   if (parts[1] && entity) {
     await publishChange(parts[1], entity, { ids: changedIds(nextArr, prev) });
+    // BACK-COMPAT: during the payhours/productionhours rollout, clients that
+    // haven't migrated still listen on the legacy `timeclock` channel. Mirror
+    // both new entities onto it so un-updated clients still get the refetch
+    // signal. Removable once all clients are confirmed migrated.
+    if (entity === "payhours" || entity === "productionhours") {
+      await publishChange(parts[1], "timeclock", { ids: [] });
+    }
     // Phase 5: silent background-sync push to org members. Every clock write
     // funnels through here, so this one call covers all ~18 timeclock actions.
     // An action that writes several arrays (e.g. clockOut → people + timeclock +
@@ -100,6 +108,45 @@ async function writeStampedArray(key, nextArr) {
   }
 }
 
+// Best-effort: notify org admins that someone started a pay shift. Never throws
+// (a push failure must not fail the clock action). Excludes the worker when the
+// worker is themselves an admin.
+async function notifyAdminsClockIn(orgCode, people, worker, clockInIso) {
+  try {
+    const live = filterLive(people) || [];
+    const workerId = String(worker.id);
+    const adminIds = live
+      .filter(p => p.userRole === "admin")
+      .map(p => String(p.id))
+      .filter(id => id !== workerId);
+    if (adminIds.length === 0) return;
+    await sendVisiblePush(orgCode, live, adminIds, {
+      heading: `${worker.name || "Someone"} clocked in for pay`,
+      content: "Started a pay shift.",
+      data: { type: "clockin", personId: workerId },
+      label: "clockin",
+    });
+  } catch { /* best-effort — never throws */ }
+}
+
+// Apply a single-person mutation to people.json using a FRESH read taken
+// immediately before the write, so this write can't clobber a concurrent change
+// to a DIFFERENT person's record (stale full-array write), and any guard (e.g. a
+// 409 double-clock-in check) is re-evaluated against current data. `mutate(person)`
+// returns the updated person, or throws an Error carrying a `.status` to abort
+// (e.g. a re-checked 409). NOTE: this narrows — but does not fully eliminate —
+// the people.json read-modify-write race (an app-wide limitation shared by
+// clockIn/jobClockIn/etc.); the complete fix is optimistic concurrency (ETag
+// If-Match + retry) at the writeStampedArray layer, tracked as a follow-up.
+async function mutatePersonFresh(peopleKey, personId, mutate) {
+  const people = await readJson(peopleKey) ?? [];
+  const idx = people.findIndex(p => String(p.id) === String(personId));
+  if (idx === -1) { const e = new Error("Person not found"); e.status = 404; throw e; }
+  people[idx] = mutate(people[idx]);
+  await writeStampedArray(peopleKey, people);
+  return { people, person: people[idx] };
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
@@ -107,12 +154,13 @@ export async function handler(event) {
   if (!orgCode) return err(400, "Missing or invalid X-Org-Code header");
 
   const peopleKey = `orgs/${orgCode}/people.json`;
-  const clockKey = `orgs/${orgCode}/timeclock.json`;
+  const payKey = `orgs/${orgCode}/payhours.json`;
   const tasksKey = `orgs/${orgCode}/tasks.json`;
-  // Timestamped per-session job-clock log (one row per jobClockOut) so the app
-  // can report job hours within a pay period — separate from the cumulative
-  // loggedHours totals kept on each job/op in tasks.json.
-  const jobSessionsKey = `orgs/${orgCode}/jobsessions.json`;
+  const settingsKey = `orgs/${orgCode}/settings.json`;
+  // Timestamped per-session production-clock log (one row per jobClockOut) so
+  // the app can report job hours within a pay period — separate from the
+  // cumulative loggedHours totals kept on each job/op in tasks.json.
+  const prodKey = `orgs/${orgCode}/productionhours.json`;
 
   // ── GET ──────────────────────────────────────────────────────────────────
   // Payroll-grade PII. Membership required, AND non-admins can only see
@@ -126,9 +174,10 @@ export async function handler(event) {
       const { personId, dataset } = Object.fromEntries(
         (event.queryStringParameters ? Object.entries(event.queryStringParameters) : [])
       );
-      // `dataset=jobsessions` returns the timestamped job-clock log instead of
-      // the payroll clock entries. Both are payroll-grade PII, scoped the same.
-      const key = dataset === "jobsessions" ? jobSessionsKey : clockKey;
+      // `dataset=productionhours` (or legacy `jobsessions`) returns the
+      // timestamped production-clock log instead of the payroll clock entries.
+      // Both are payroll-grade PII, scoped the same.
+      const key = (dataset === "productionhours" || dataset === "jobsessions") ? prodKey : payKey;
       const data = await readJson(key);
       const entries = Array.isArray(data) ? data : [];
       // Admin: optional personId filter. Non-admin: force-filter to self,
@@ -169,11 +218,13 @@ export async function handler(event) {
         if (personIdx === -1) return err(404, "Person not found");
 
         const person = people[personIdx];
-        if (person.activeClockIn) return err(409, "Already clocked in");
+        if (person.activeClockIn) return err(409, `Already clocked in via ${person.activeClockIn.source || "kiosk"}. Clock out first.`);
 
         const clockIn = clockInTime || new Date().toISOString();
-        people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs: [], events: [] } };
+        people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs: [], events: [], source: "kiosk" } };
         try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save people"); }
+
+        await notifyAdminsClockIn(orgCode, people, people[personIdx], clockIn).catch(() => {});
 
         return json(200, { ok: true, activeClockIn: people[personIdx].activeClockIn });
       }
@@ -194,7 +245,7 @@ export async function handler(event) {
         if (!person.activeClockIn) return err(409, "Not currently clocked in");
 
         const clockOut = clockOutTime || new Date().toISOString();
-        const { clockIn, jobRefs = [], events = [] } = person.activeClockIn;
+        const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk" } = person.activeClockIn;
         const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
         const dateStr = clockIn.slice(0, 10);
 
@@ -207,12 +258,13 @@ export async function handler(event) {
           hours,
           jobRefs,
           note: body.note || "",
+          source: acSource,
         };
 
         let log;
-        try { log = await readJson(clockKey) ?? []; } catch { log = []; }
+        try { log = await readJson(payKey) ?? []; } catch { log = []; }
         log.push(entry);
-        try { await writeStampedArray(clockKey, log); } catch { return err(500, "Failed to save clock entry"); }
+        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save clock entry"); }
 
         people[personIdx] = { ...person, activeClockIn: null };
         try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
@@ -240,7 +292,7 @@ export async function handler(event) {
         if (!validTs(clockIn) || !validTs(clockOut)) return err(400, "Invalid clockIn or clockOut");
 
         let log;
-        try { log = await readJson(clockKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
+        try { log = await readJson(payKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
 
         // Confirmed punches are locked — the admin must re-open the timesheet first.
         const existing = log.find(e => e.id === entryId);
@@ -256,7 +308,7 @@ export async function handler(event) {
         });
 
         if (!found) return err(404, "Entry not found");
-        try { await writeStampedArray(clockKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
 
         const updated = log.find(e => e.id === entryId);
         return json(200, { ok: true, entry: updated });
@@ -279,7 +331,7 @@ export async function handler(event) {
       if (start > end) return err(400, "start must be on or before end");
 
       let log;
-      try { log = await readJson(clockKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
+      try { log = await readJson(payKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
 
       const confirming = action === "confirmTimesheet";
       const stamp = new Date().toISOString();
@@ -298,7 +350,7 @@ export async function handler(event) {
       // Nothing matched — skip the write (and dodge the empty-overwrite guard).
       if (count === 0) return json(200, { ok: true, count: 0, confirmed: confirming, start, end });
 
-      try { await writeStampedArray(clockKey, next); } catch { return err(500, "Failed to save timeclock"); }
+      try { await writeStampedArray(payKey, next); } catch { return err(500, "Failed to save timeclock"); }
       return json(200, { ok: true, count, confirmed: confirming, start, end, confirmedAt: confirming ? stamp : null, confirmedBy: confirming ? by : null });
     }
 
@@ -342,8 +394,8 @@ export async function handler(event) {
       try { await writeStampedArray(peopleKey, albPeople); } catch { return err(500, "Failed to save"); }
 
       const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: albTimestamp.slice(0, 10), eventType: evtType, timestamp: albTimestamp };
-      let albLog; try { albLog = await readJson(clockKey) ?? []; } catch { albLog = []; }
-      albLog.push(albEvt); try { await writeStampedArray(clockKey, albLog); } catch { /* non-fatal */ }
+      let albLog; try { albLog = await readJson(payKey) ?? []; } catch { albLog = []; }
+      albLog.push(albEvt); try { await writeStampedArray(payKey, albLog); } catch { /* non-fatal */ }
 
       return json(200, { ok: true, event: albEvt, activeClockIn: albPeople[albIdx].activeClockIn });
     }
@@ -448,7 +500,8 @@ export async function handler(event) {
       if (jcoHours > 0 && jcoJobId) {
         try {
           const { jobTitle: jcoJobTitle, panelTitle: jcoPanelTitle, opTitle: jcoOpTitle } = jcoPerson.activeJobClock || {};
-          let sessions = await readJson(jobSessionsKey) ?? [];
+          const prodSource = body.source === "kiosk" ? "kiosk" : "ios-app";
+          let sessions = await readJson(prodKey) ?? [];
           if (!Array.isArray(sessions)) sessions = [];
           sessions.push({
             id: `js_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -463,11 +516,12 @@ export async function handler(event) {
             clockOut: jcoClockOut,
             hours: jcoHours,
             date: jcoClockIn.slice(0, 10),
+            source: prodSource,
           });
-          await writeJson(jobSessionsKey, sessions);
-          // jobsessions.json isn't a /sync entity, so signal on the timeclock
-          // channel — Hours-page listeners refetch job hours after a job clock-out.
-          await publishChange(orgCode, "timeclock", { ids: [] });
+          // productionhours.json IS a /sync entity now; writeStampedArray stamps
+          // it, publishes the 'productionhours' channel (+ the legacy 'timeclock'
+          // alias), and fires the silent background-sync push.
+          await writeStampedArray(prodKey, sessions);
         } catch { /* non-fatal */ }
       }
 
@@ -533,7 +587,7 @@ export async function handler(event) {
     // clock (the job keeps logging time — break time is accounted for
     // elsewhere). `durationMinutes` is a snapshot of the configured break
     // length, used by the app for the reminder + countdown. A breakStart row
-    // is logged to timeclock.json for payroll. Distinct from the PIN-based
+    // is logged to payhours.json for payroll. Distinct from the PIN-based
     // "breakStart"/"breakEnd" kiosk actions below.
     if (action === "breakBegin") {
       let _bb;
@@ -554,10 +608,10 @@ export async function handler(event) {
       bbPeople[bbIdx] = { ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } };
       try { await writeStampedArray(peopleKey, bbPeople); } catch { return err(500, "Failed to save"); }
 
-      // Log to timeclock.json for payroll records.
+      // Log to payhours.json for payroll records.
       const bbEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bbPId), date: bbStart.slice(0, 10), eventType: "breakStart", timestamp: bbStart };
-      let bbLog; try { bbLog = await readJson(clockKey) ?? []; } catch { bbLog = []; }
-      bbLog.push(bbEvt); try { await writeStampedArray(clockKey, bbLog); } catch { }
+      let bbLog; try { bbLog = await readJson(payKey) ?? []; } catch { bbLog = []; }
+      bbLog.push(bbEvt); try { await writeStampedArray(payKey, bbLog); } catch { }
 
       return json(200, { ok: true, startedAt: bbStart, durationMinutes: bbMinutes });
     }
@@ -582,10 +636,104 @@ export async function handler(event) {
       try { await writeStampedArray(peopleKey, bcPeople); } catch { return err(500, "Failed to save"); }
 
       const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: bcEnd.slice(0, 10), eventType: "breakEnd", timestamp: bcEnd };
-      let bcLog; try { bcLog = await readJson(clockKey) ?? []; } catch { bcLog = []; }
-      bcLog.push(bcEvt); try { await writeStampedArray(clockKey, bcLog); } catch { }
+      let bcLog; try { bcLog = await readJson(payKey) ?? []; } catch { bcLog = []; }
+      bcLog.push(bcEvt); try { await writeStampedArray(payKey, bcLog); } catch { }
 
       return json(200, { ok: true, endedAt: bcEnd });
+    }
+
+    // ── Pay Clock In / Out (Bearer token, iOS pay-shift clock) ────────────────
+    // The iOS app's own pay clock-in/out, gated behind the org's
+    // iosPayClockEnabled setting (defense in depth — the client also hides the
+    // button when disabled). A member may only clock themselves; admins may
+    // clock anyone. The open pay shift lives on person.activeClockIn exactly like
+    // the kiosk PIN path — the punch is written complete on clock-out.
+    if (action === "payClockIn" || action === "payClockOut") {
+      let _pc;
+      try { _pc = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+
+      const { personId: pcPId } = body;
+      if (!pcPId) return err(400, "Missing personId");
+      if (!_pc.isAdmin && String(_pc.personId) !== String(pcPId)) return err(403, "Can only clock yourself in");
+
+      let pcPeople;
+      try { pcPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+      const pcIdx = pcPeople.findIndex(p => String(p.id) === String(pcPId));
+      if (pcIdx === -1) return err(404, "Person not found");
+      const pcPerson = pcPeople[pcIdx];
+
+      // ── Pay Clock In ───────────────────────────────────────────────────────
+      if (action === "payClockIn") {
+        // Defense in depth: refuse to START an iOS pay shift unless the org
+        // enabled it. Clock-OUT below is intentionally NOT gated — a worker must
+        // always be able to close an open shift even if an admin disables the
+        // feature mid-shift (otherwise the shift is stranded until an admin
+        // manually clocks them out).
+        let pcSettings;
+        try { pcSettings = await readJson(settingsKey); } catch { pcSettings = null; }
+        if (!pcSettings || pcSettings.iosPayClockEnabled !== true) {
+          return err(403, "iOS pay clock-in is disabled for this org");
+        }
+        const clockIn = new Date().toISOString();
+        // Re-read + single-person merge right before the write so this can't
+        // clobber a concurrent change to another person, and re-check the 409
+        // guard against current data.
+        let committed;
+        try {
+          committed = await mutatePersonFresh(peopleKey, pcPId, (fresh) => {
+            if (fresh.activeClockIn) {
+              const e = new Error(`Already clocked in via ${fresh.activeClockIn.source || "kiosk"}. Clock out first.`);
+              e.status = 409; throw e;
+            }
+            return { ...fresh, activeClockIn: { clockIn, jobRefs: [], events: [], source: "ios-app" } };
+          });
+        } catch (e) { return err(e.status || 500, e.status ? e.message : "Failed to save clock-in"); }
+        await notifyAdminsClockIn(orgCode, committed.people, committed.person, clockIn).catch(() => {});
+        return json(200, { ok: true, clockIn, source: "ios-app" });
+      }
+
+      // ── Pay Clock Out ──────────────────────────────────────────────────────
+      if (!pcPerson.activeClockIn) return err(409, "Not currently clocked in");
+      const clockOut = new Date().toISOString();
+      const { clockIn, jobRefs = [], events = [], source: acSource = "ios-app" } = pcPerson.activeClockIn;
+      const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
+      const entry = {
+        id: `tc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        personId: pcPId,
+        date: clockIn.slice(0, 10),
+        clockIn,
+        clockOut,
+        hours,
+        jobRefs,
+        note: body.note || "",
+        source: acSource,
+      };
+
+      let pcLog;
+      try { pcLog = await readJson(payKey) ?? []; } catch { pcLog = []; }
+      pcLog.push(entry);
+      try { await writeStampedArray(payKey, pcLog); } catch { return err(500, "Failed to save clock entry"); }
+
+      // Clear the open shift on a FRESH read (single-person merge) — same
+      // rationale as clock-in. Non-fatal: the punch above is already saved.
+      try {
+        await mutatePersonFresh(peopleKey, pcPId, (fresh) => ({ ...fresh, activeClockIn: null }));
+      } catch { /* non-fatal */ }
+
+      // Mirror the kiosk clockOut: bump loggedHours on each referenced job.
+      if (jobRefs.length > 0 && hours > 0) {
+        try {
+          let tasks = await readJson(tasksKey) ?? [];
+          tasks = tasks.map(job => {
+            const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
+            if (!ref) return job;
+            return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
+          });
+          await writeStampedArray(tasksKey, tasks);
+        } catch { /* non-fatal */ }
+      }
+
+      return json(200, { ok: true, entry });
     }
 
     // ── PIN-authenticated actions ──────────────────────────────────────────
@@ -640,12 +788,14 @@ export async function handler(event) {
     // ── Clock In ────────────────────────────────────────────────────────────
     if (action === "clockIn") {
       if (person.activeClockIn) {
-        return err(409, "Already clocked in");
+        return err(409, `Already clocked in via ${person.activeClockIn.source || "kiosk"}. Clock out first.`);
       }
       const { jobRefs = [] } = body;
       const clockIn = new Date().toISOString();
-      people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs } };
+      const source = body.source === "ios-app" ? "ios-app" : "kiosk";
+      people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs, source } };
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save clock-in"); }
+      await notifyAdminsClockIn(orgCode, people, people[personIdx], clockIn).catch(() => {});
       return json(200, { ok: true, clockIn });
     }
 
@@ -655,7 +805,7 @@ export async function handler(event) {
         return err(409, "Not currently clocked in");
       }
       const clockOut = new Date().toISOString();
-      const { clockIn, jobRefs = [], events = [] } = person.activeClockIn;
+      const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk" } = person.activeClockIn;
       const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
       const dateStr = clockIn.slice(0, 10);
 
@@ -668,12 +818,13 @@ export async function handler(event) {
         hours,
         jobRefs,
         note: body.note || "",
+        source: acSource,
       };
 
       let log;
-      try { log = await readJson(clockKey) ?? []; } catch { log = []; }
+      try { log = await readJson(payKey) ?? []; } catch { log = []; }
       log.push(entry);
-      try { await writeStampedArray(clockKey, log); } catch { return err(500, "Failed to save clock entry"); }
+      try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save clock entry"); }
 
       people[personIdx] = { ...person, activeClockIn: null };
       try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
@@ -704,8 +855,8 @@ export async function handler(event) {
       people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchStart", ts: timestamp }] } };
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchStart", timestamp };
-      let log1; try { log1 = await readJson(clockKey) ?? []; } catch { log1 = []; }
-      log1.push(evt); try { await writeStampedArray(clockKey, log1); } catch { }
+      let log1; try { log1 = await readJson(payKey) ?? []; } catch { log1 = []; }
+      log1.push(evt); try { await writeStampedArray(payKey, log1); } catch { }
       return json(200, { ok: true, event: evt });
     }
 
@@ -719,8 +870,8 @@ export async function handler(event) {
       people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchEnd", ts: timestamp }] } };
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchEnd", timestamp };
-      let log2; try { log2 = await readJson(clockKey) ?? []; } catch { log2 = []; }
-      log2.push(evt); try { await writeStampedArray(clockKey, log2); } catch { }
+      let log2; try { log2 = await readJson(payKey) ?? []; } catch { log2 = []; }
+      log2.push(evt); try { await writeStampedArray(payKey, log2); } catch { }
       return json(200, { ok: true, event: evt });
     }
 
@@ -734,8 +885,8 @@ export async function handler(event) {
       people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } };
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakStart", timestamp };
-      let log3; try { log3 = await readJson(clockKey) ?? []; } catch { log3 = []; }
-      log3.push(evt); try { await writeStampedArray(clockKey, log3); } catch { }
+      let log3; try { log3 = await readJson(payKey) ?? []; } catch { log3 = []; }
+      log3.push(evt); try { await writeStampedArray(payKey, log3); } catch { }
       return json(200, { ok: true, event: evt });
     }
 
@@ -749,8 +900,8 @@ export async function handler(event) {
       people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } };
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakEnd", timestamp };
-      let log4; try { log4 = await readJson(clockKey) ?? []; } catch { log4 = []; }
-      log4.push(evt); try { await writeStampedArray(clockKey, log4); } catch { }
+      let log4; try { log4 = await readJson(payKey) ?? []; } catch { log4 = []; }
+      log4.push(evt); try { await writeStampedArray(payKey, log4); } catch { }
       return json(200, { ok: true, event: evt });
     }
 

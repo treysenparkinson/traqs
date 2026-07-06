@@ -15,7 +15,7 @@ import { canViewThread } from "./messages.js";
 // Access control is NOT uniform across entities, and sync must mirror the
 // per-entity read rules or it becomes a data-leak:
 //   • messages  — scoped per viewer to threads they participate in (canViewThread)
-//   • timeclock — payroll PII; non-admins see only their own entries
+//   • payhours / productionhours — payroll PII; non-admins see only their own entries
 //   • people    — the `pin` is stripped for everyone (as in the people GET)
 
 // "Give me everything": no cursor, or the Unix epoch sentinel.
@@ -55,13 +55,17 @@ export async function handler(event) {
     // pull. Re-sending is harmless (idempotent client upsert); dropping is not.
     const serverTime = nowIso();
     const base = `orgs/${orgCode}`;
-    const [tasks, people, clients, messages, groups, timeclock, orgConfig, settings] = await Promise.all([
+    // timeclock.json is retired by the payhours/productionhours split — read
+    // payhours.json in its place (it feeds the deprecated `timeclock` alias key
+    // below during the client rollout) plus productionhours.json.
+    const [tasks, people, clients, messages, groups, payhours, productionhours, orgConfig, settings] = await Promise.all([
       readJson(`${base}/tasks.json`).then(v => v ?? []),
       readJson(`${base}/people.json`).then(v => v ?? []),
       readJson(`${base}/clients.json`).then(v => v ?? []),
       readJson(`${base}/messages.json`).then(v => v ?? []),
       readJson(`${base}/groups.json`).then(v => v ?? []),
-      readJson(`${base}/timeclock.json`).then(v => v ?? []),
+      readJson(`${base}/payhours.json`).then(v => v ?? []),
+      readJson(`${base}/productionhours.json`).then(v => v ?? []),
       readJson(`${base}/config.json`).then(v => v ?? null),
       readJson(`${base}/settings.json`).then(v => v ?? null),
     ]);
@@ -77,9 +81,13 @@ export async function handler(event) {
     // People: drop the PIN (as the people GET does); sync is always a member.
     const peopleDelta = arrDelta(people).map(({ pin: _pin, ...rest }) => rest);
 
-    // Timeclock: non-admins are confined to their own payroll entries, exactly
-    // like the timeclock GET. An admin sees the whole org's log.
-    const timeclockDelta = asArr(timeclock)
+    // Payhours + productionhours: both are payroll PII, so non-admins are
+    // confined to their own entries, exactly like the old timeclock GET. An
+    // admin sees the whole org's log.
+    const payhoursDelta = asArr(payhours)
+      .filter(e => isAdmin || (myId && String(e.personId) === myId))
+      .filter(r => full || changedSince(r, sinceMs));
+    const productionhoursDelta = asArr(productionhours)
       .filter(e => isAdmin || (myId && String(e.personId) === myId))
       .filter(r => full || changedSince(r, sinceMs));
 
@@ -111,7 +119,11 @@ export async function handler(event) {
       clients: arrDelta(clients),
       messages: messagesDelta,
       groups: groupsDelta,
-      timeclock: timeclockDelta,
+      payhours: payhoursDelta,
+      productionhours: productionhoursDelta,
+      // DEPRECATED alias for un-migrated clients still reading the `timeclock`
+      // key — equals payhoursDelta. Remove after all clients have migrated.
+      timeclock: payhoursDelta,
       orgConfig: objDelta(orgConfig),
       settings: objDelta(settings),
     });
