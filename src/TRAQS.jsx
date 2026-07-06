@@ -784,6 +784,27 @@ html { scroll-behavior: smooth; }
 }
 .tq-hide-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .tq-hide-scrollbar::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+/* ── TRAQS custom scrollbars ─────────────────────────────────────────────
+   Replace the native/OS scrollbar everywhere with a themed one. Colors come
+   from CSS vars set per-theme (--tq-sb-*, see the theme effect), so they
+   track light/dark + the active accent. More-specific rules win, so
+   .tq-hide-scrollbar (hidden) and .tq-schedule-scroll (thick gantt bar)
+   keep their bespoke behavior. Chromium/WebKit use ::-webkit-scrollbar;
+   Firefox uses scrollbar-width/scrollbar-color. */
+* { scrollbar-width: thin; scrollbar-color: var(--tq-sb-thumb, rgba(130,130,150,0.5)) transparent; }
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--tq-sb-thumb, rgba(130,130,150,0.5));
+  border: 3px solid transparent;
+  border-radius: 10px;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
+}
+::-webkit-scrollbar-thumb:hover   { background: var(--tq-sb-thumb-hover, rgba(65,105,225,0.8)); background-clip: padding-box; }
+::-webkit-scrollbar-thumb:active  { background: var(--tq-sb-thumb-hover, rgba(65,105,225,0.9)); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 `;
 if (!document.querySelector('style[data-traqs]')) { animStyle.setAttribute("data-traqs", "1"); document.head.appendChild(animStyle); }
 
@@ -1703,6 +1724,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.documentElement.style.setProperty("--tq-frost-bg", T.adaptive ? hexA(solid, (T.cardOpacity ?? 80) / 100) : solid);
     document.documentElement.style.setProperty("--tq-bg-image", T.adaptive && T.bgImage ? `url("${T.bgImage}")` : "none");
   }, [T.surfaceSolid, T.surface, T.adaptive, T.cardOpacity, T.bgImage]);
+  // Custom scrollbar tint (see the global ::-webkit-scrollbar rules): the thumb
+  // is the accent — the same color as the app's buttons — and lifts slightly
+  // brighter on hover. Tracks the theme's accent.
+  useEffect(() => {
+    const accent = T.accent || "#4169e1";
+    document.documentElement.style.setProperty("--tq-sb-thumb", accent);
+    document.documentElement.style.setProperty("--tq-sb-thumb-hover", blendHex(accent, 0.18));
+  }, [T.accent]);
   // Tag every icon-only close button (text is exactly ✕ or ×) with `tq-noanim`
   // so it opts out of the universal button pop/glow. A MutationObserver catches
   // buttons inside dynamically-mounted popups/modals too — so none are missed.
