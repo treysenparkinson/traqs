@@ -633,6 +633,12 @@ animStyle.textContent = `
   .msg-in-mine, .msg-in-other, .msg-sending, .msg-read-pop { animation: none !important; }
 }
 
+/* Upward-opening dropdown entrance (used only when a menu flips ABOVE its
+   trigger). Mirror of menuIn/toolDrop: the menu rises from below and its rows
+   cascade bottom-to-top (paired with a reversed per-row stagger delay). */
+@keyframes menuInUp  { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes toolDropUp { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+
 .anim-tab {
   transition: all 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
@@ -823,6 +829,25 @@ function blendHex(hex, f) {
 function hexA(hex, a) {
   try { const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${Math.max(0,Math.min(1,a))})`; }
   catch { return hex; }
+}
+// Position a fixed dropdown relative to its trigger rect `r`. Opens below by
+// default, but flips ABOVE when there isn't room below (so a dropdown near the
+// bottom of the page stays fully on-screen instead of running off it). Returns
+// { x, y, maxHeight } — maxHeight caps the menu to the available space so it
+// scrolls rather than overflowing. `count` = number of option rows.
+function placePopover(r, count, rowH = 35) {
+  const vh = window.innerHeight, pad = 8;
+  const spaceBelow = vh - r.bottom - pad;
+  const spaceAbove = r.top - pad;
+  const rawH = count * rowH + 8;               // menu padding is 4px top/bottom
+  const openUp = spaceBelow < Math.min(rawH, 260) && spaceAbove > spaceBelow;
+  const avail = openUp ? spaceAbove : spaceBelow;
+  const constrained = rawH > avail;            // only then does it actually scroll
+  const menuH = Math.round(constrained ? avail : rawH);
+  const y = openUp ? Math.max(pad, r.top - 4 - menuH) : r.bottom + 4;
+  // maxHeight is set ONLY when the menu can't fit — a menu that fits sizes to
+  // its content, so no (now-visible) scrollbar flashes on a short dropdown.
+  return { x: r.left, y, maxHeight: constrained ? menuH : undefined, up: openUp };
 }
 function isLight(hex) {
   try {
@@ -8257,7 +8282,7 @@ ${jobsCtx || "No jobs found."}`;
             );
             case "status": return (
               <div style={{ ...cellBase, cursor: "pointer" }}
-                onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setStatusPopover({ id: item.id, pid: pid || null, current: item.status || "Not Started", x: r.left, y: r.bottom + 4 }); }}>
+                onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const p = placePopover(r, STATUSES.length); setStatusPopover({ id: item.id, pid: pid || null, current: item.status || "Not Started", x: p.x, y: p.y, maxHeight: p.maxHeight, up: p.up }); }}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 11, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none" }}>
                   {STA_ICON[dispStatus] || "○"} {dispStatus}
                 </span>
@@ -8434,7 +8459,7 @@ ${jobsCtx || "No jobs found."}`;
                   // option list renders in the OS system font rather than the app font.
                   return (
                     <div key={col.id} style={{ ...cellBase, justifyContent: "center", cursor: "pointer", ...ccCond }}
-                      onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setCcSelectPopover({ itemId: item.id, pid: pid || null, key, current: selVal, options: col.options || [], x: r.left, y: r.bottom + 4 }); }}>
+                      onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const p = placePopover(r, (col.options || []).length); setCcSelectPopover({ itemId: item.id, pid: pid || null, key, current: selVal, options: col.options || [], x: p.x, y: p.y, maxHeight: p.maxHeight, up: p.up }); }}>
                       {selVal
                         ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: selColor + "20", border: `1px solid ${selColor}44`, fontSize: 11, fontWeight: 700, color: selColor, whiteSpace: "nowrap", userSelect: "none" }}>{selIcon ? <span style={{ fontSize: 12 }}>{selIcon}</span> : null}{selVal}</span>
                         : <span style={{ fontSize: 11, color: T.textDim }}>—</span>}
@@ -17823,7 +17848,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Status Popover ── */}
     <FadeOnClose open={!!statusPopover}>{statusPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setStatusPopover(null)} />
-      <div style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+      <div style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: statusPopover.maxHeight, overflowY: statusPopover.maxHeight ? "auto" : "visible", fontFamily: T.font, animation: `${statusPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
         {STATUSES.map((s, si) => {
           const sc = staColorOf(s);
           const isCurrent = s === statusPopover.current;
@@ -17834,7 +17859,7 @@ ${jobsCtx || "No jobs found."}`;
               if (s === "Finished" && !isAdmin) return; // non-admins must use right-click > Request Finish Approval
               setDropFlashKey(fk);
               setTimeout(() => { updTask(statusPopover.id, { status: s }, statusPopover.pid || undefined); setStatusPopover(null); setDropFlashKey(null); }, 150);
-            }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${si * 38}ms both ease-out`, background: isCurrent ? sc + "12" : "transparent" }}
+            }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `${statusPopover.up ? "toolDropUp" : "toolDrop"} 0.14s ${(statusPopover.up ? STATUSES.length - 1 - si : si) * 38}ms both ease-out`, background: isCurrent ? sc + "12" : "transparent" }}
             onMouseEnter={e => { if (!isCurrent && !dropFlashKey) e.currentTarget.style.background = sc + "18"; }}
             onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? sc + "12" : "transparent"; }}>
               <span style={{ fontSize: 13, color: sc, flexShrink: 0 }}>{STA_ICON[s]}</span>
@@ -17849,7 +17874,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Custom select-column Popover (styled picker for Dropdown-type custom columns) ── */}
     <FadeOnClose open={!!ccSelectPopover}>{ccSelectPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setCcSelectPopover(null)} />
-      <div style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: 320, overflowY: "auto", fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+      <div style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: ccSelectPopover.maxHeight || 320, overflowY: "auto", fontFamily: T.font, animation: `${ccSelectPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
         {ccSelectPopover.options.map((o, oi) => {
           const n = optName(o);
           const optVal = n === "—" ? "" : n;
@@ -17858,7 +17883,7 @@ ${jobsCtx || "No jobs found."}`;
           const ic = optIcon(o);
           return (
             <div key={n} onClick={() => { updTask(ccSelectPopover.itemId, { [ccSelectPopover.key]: optVal }, ccSelectPopover.pid || null); setCcSelectPopover(null); }}
-              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", userSelect: "none", animation: `toolDrop 0.14s ${oi * 38}ms both ease-out`, background: isCurrent ? oc + "12" : "transparent" }}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", userSelect: "none", animation: `${ccSelectPopover.up ? "toolDropUp" : "toolDrop"} 0.14s ${(ccSelectPopover.up ? ccSelectPopover.options.length - 1 - oi : oi) * 38}ms both ease-out`, background: isCurrent ? oc + "12" : "transparent" }}
               onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = oc + "18"; }}
               onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? oc + "12" : "transparent"; }}>
               {ic ? <span style={{ width: 12, textAlign: "center", fontSize: 13, color: optVal ? oc : T.textDim, flexShrink: 0 }}>{ic}</span> : <div style={{ width: 8, height: 8, borderRadius: 4, background: optVal ? oc : T.border, flexShrink: 0 }} />}
