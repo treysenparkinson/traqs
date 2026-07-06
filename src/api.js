@@ -221,6 +221,31 @@ export async function postMessage(message, getToken, orgCode) {
   return res.json();
 }
 
+// ─── Read receipts ──────────────────────────────────────────────────────────
+// The server-side "read up to" cursors, per thread per person:
+//   { [threadKey]: { [personId]: "<ISO read-up-to timestamp>" } }
+// A message I sent shows "Read" once another participant's cursor for the
+// thread is >= that message's timestamp. Mirrors the iOS delivery-status model.
+export async function fetchReads(getToken, orgCode) {
+  const res = await fetch(`${BASE}/message-reads`, { headers: await authReadHeaders(getToken, orgCode) });
+  if (!res.ok) throw new Error(`fetchReads failed: ${res.status}`);
+  return res.json();
+}
+
+// Advance my read cursor for a thread to `at` (defaults server-side to now).
+// Monotonic on the backend — it never moves a cursor backwards — so calling
+// this repeatedly with the newest message's timestamp is safe/idempotent.
+export async function markThreadReadServer(threadKey, at, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/message-reads`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ threadKey, ...(at ? { at } : {}) }),
+  });
+  if (!res.ok) throw new Error(`markThreadReadServer failed: ${res.status}`);
+  return res.json();
+}
+
 // ─── Groups ───────────────────────────────────────────────────────────────────
 export async function fetchGroups(getToken, orgCode) {
   const res = await fetch(`${BASE}/groups`, { headers: await authReadHeaders(getToken, orgCode) });

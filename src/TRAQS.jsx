@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -603,6 +603,35 @@ animStyle.textContent = `
 .anim-gantt-bar   { animation: ganttBarSlide 0.38s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-spring      { animation: springPop   0.5s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .tq-new-pulse     { animation: tqNewPulse 1.6s ease-out infinite; }
+
+/* ── Chat message entrance (send/receive) ──────────────────────────────
+   Mine pop up from the bottom-right; incoming slide in from the leading
+   edge. Applied only to freshly-arrived bubbles — backlog renders static. */
+@keyframes msgPopMine {
+  0%   { opacity: 0; transform: translateY(14px) scale(0.8); }
+  55%  { opacity: 1; transform: translateY(-3px) scale(1.04); }
+  100% { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+@keyframes msgSlideOther {
+  0%   { opacity: 0; transform: translateX(-26px) scale(0.94); }
+  60%  { opacity: 1; transform: translateX(4px)   scale(1.01); }
+  100% { opacity: 1; transform: translateX(0)     scale(1);    }
+}
+.msg-in-mine  { animation: msgPopMine    0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; transform-origin: bottom right; }
+.msg-in-other { animation: msgSlideOther 0.44s cubic-bezier(0.22, 1, 0.36, 1)    both; transform-origin: bottom left; }
+/* The in-flight bubble breathes until the server confirms it. */
+@keyframes msgSendingPulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.9; } }
+.msg-sending { animation: msgSendingPulse 1.15s ease-in-out infinite; }
+/* Read receipt: the double-check ticks pop + tint when a recipient reads. */
+@keyframes msgReadPop {
+  0%   { transform: scale(0.6); opacity: 0; }
+  55%  { transform: scale(1.18); }
+  100% { transform: scale(1);   opacity: 1; }
+}
+.msg-read-pop { animation: msgReadPop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@media (prefers-reduced-motion: reduce) {
+  .msg-in-mine, .msg-in-other, .msg-sending, .msg-read-pop { animation: none !important; }
+}
 
 .anim-tab {
   transition: all 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -3645,6 +3674,22 @@ Extraction rules:
   const [chatError, setChatError] = useState(null);
   const [chatUploading, setChatUploading] = useState(false);
   const chatFileInputRef = useRef(null);
+  // Server-side read cursors: { [threadKey]: { [personId]: ISO } }. Drives the
+  // Sending/Sent/Read delivery status shown under my latest message.
+  const [readReceipts, setReadReceipts] = useState({});
+  // Optimistic messages that are mid-POST. Rendered inline (with a "Sending…"
+  // status) then dropped once the server copy lands. Kept in a SEPARATE array
+  // from `messages` so a realtime/poll refresh (which replaces `messages`
+  // wholesale) can't wipe an in-flight bubble.
+  const [pendingMessages, setPendingMessages] = useState([]);
+  // Bubbles whose entrance animation has already played, so re-renders don't
+  // replay it. Seeded with a thread's backlog on open (backlog never animates);
+  // only genuinely new messages animate. `seenThreadRef` guards the reseed.
+  const seenMsgIdsRef = useRef(new Set());
+  const seenThreadRef = useRef(null);
+  // Newest timestamp we've already POSTed as read for the open thread, so we
+  // don't re-mark the same message on every render/poll.
+  const lastMarkedReadRef = useRef({});
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef(null);
   // Desktop Web Push (Windows toast notifications). pushPerm tracks the
@@ -3656,6 +3701,8 @@ Extraction rules:
   const [pushBusy, setPushBusy] = useState(false);
   const pushAutoAskedRef = useRef(false); // guard: auto-prompt at most once per page load
   const chatBottomRef = useRef(null);
+  const chatScrollRef = useRef(null);       // the messages scroll container
+  const prevChatThreadRef = useRef(null);   // detects a thread switch vs. a new message
   const [lastRead, setLastRead] = useState(() => {
     try { return JSON.parse(localStorage.getItem("tq_last_read") || "{}"); } catch { return {}; }
   });
@@ -3702,7 +3749,13 @@ Extraction rules:
   }, []);
   useEffect(() => {
     if (view !== "messages" || !orgCode) return;
-    const id = setInterval(() => fetchMessages(getToken, orgCode).then(setMessages).catch(() => {}), 15000);
+    // Read receipts load only once you're in Messages — kept OFF the cold-start
+    // request burst so they don't add to Auth0 /userinfo rate-limit pressure.
+    fetchReads(getToken, orgCode).then(setReadReceipts).catch(() => {});
+    const id = setInterval(() => {
+      fetchMessages(getToken, orgCode).then(setMessages).catch(() => {});
+      fetchReads(getToken, orgCode).then(setReadReceipts).catch(() => {});
+    }, 15000);
     return () => clearInterval(id);
   }, [view, orgCode]);
 
@@ -3877,16 +3930,54 @@ Extraction rules:
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [tsSettingsOpen]);
-  // Scroll chat to bottom when thread or view changes, or new message arrives
+  // Keep the chat pinned to the newest message. We drive scrollTop = scrollHeight
+  // directly rather than scrollIntoView — the latter targets the zero-height
+  // bottom anchor and stops ~12px short (the list's bottom padding), which was
+  // both the residual "jump" and why a send didn't reach the very bottom. The
+  // jump is re-asserted across a few frames so the optimistic→server swap and
+  // lazily-loaded images can't strand us above the newest message.
   useEffect(() => {
-    if (view === "messages" && chatBottomRef.current) chatBottomRef.current.scrollIntoView({ behavior: "smooth" });
-  }, [view, chatThread?.threadKey, messages.length]);
+    if (view !== "messages" || !chatThread) return;
+    const threadChanged = prevChatThreadRef.current !== chatThread.threadKey;
+    prevChatThreadRef.current = chatThread.threadKey;
+    const el = chatScrollRef.current;
+    const tk = chatThread.threadKey;
+    // Is the newest message in this thread mine? A pending bubble is always mine
+    // and newest; otherwise check the newest server message's author.
+    let newestTs = "", newestMine = false;
+    for (const m of messages) if (m.threadKey === tk && m.timestamp >= newestTs) { newestTs = m.timestamp; newestMine = String(m.authorId) === String(loggedInUser?.id); }
+    if (pendingMessages.some(m => m.threadKey === tk)) newestMine = true;
+    // Always pin on thread open and on my own sends; for incoming messages only
+    // pin if the reader is already near the bottom (don't yank them off history).
+    const nearBottom = el ? (el.scrollHeight - el.scrollTop - el.clientHeight < 160) : true;
+    if (!threadChanged && !newestMine && !nearBottom) return;
+    const jump = () => { const e = chatScrollRef.current; if (e) e.scrollTop = e.scrollHeight; };
+    jump();
+    const raf = requestAnimationFrame(jump);
+    const timers = [50, 160, 320, 600].map(ms => setTimeout(jump, ms));
+    return () => { cancelAnimationFrame(raf); timers.forEach(clearTimeout); };
+  }, [view, chatThread?.threadKey, messages.length, pendingMessages.length]);
   // Scroll quick-chat to bottom when opened or new message arrives
   useEffect(() => {
     if (quickChat && quickChatBottomRef.current) quickChatBottomRef.current.scrollIntoView({ behavior: "smooth" });
   }, [quickChat?.threadKey, messages.length]);
   // Clear pending attachments when switching threads
   useEffect(() => { setChatAttachments([]); }, [chatThread?.threadKey]);
+  // While a thread is open in the Messages view, advance my server-side read
+  // cursor to its newest message so the sender sees "Read". Deduped per-thread
+  // on the newest timestamp so we don't POST on every poll/re-render. The
+  // backend is monotonic + only publishes when a cursor actually moves.
+  useEffect(() => {
+    if (view !== "messages" || !chatThread || !orgCode || !loggedInUser) return;
+    const tk = chatThread.threadKey;
+    let newest = "";
+    for (const m of messages) if (m.threadKey === tk && m.timestamp > newest) newest = m.timestamp;
+    if (!newest || lastMarkedReadRef.current[tk] === newest) return;
+    lastMarkedReadRef.current[tk] = newest;
+    markThreadReadServer(tk, newest, getToken, orgCode)
+      .catch(() => { lastMarkedReadRef.current[tk] = null; });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, chatThread?.threadKey, messages, orgCode]);
 
   // Sync dataRef for save functions
   useEffect(() => { dataRef.current.clients = clients; }, [clients]);
@@ -4065,6 +4156,12 @@ Extraction rules:
         fetchTimeOffRequests(getToken, orgCode)
           .then(r => setTimeOffRequests(r.requests || []))
           .catch(() => {});
+      }));
+      // Read receipts have their own GET endpoint (not a /sync delta entity),
+      // so the "reads" channel triggers a dedicated refetch — giving ~1s live
+      // "Read" updates under my messages instead of waiting for the 15s poll.
+      unsubs.push(realtime.subscribe("reads", () => {
+        fetchReads(getToken, orgCode).then(setReadReceipts).catch(() => {});
       }));
     })();
     return () => { active = false; unsubs.forEach(u => { try { u(); } catch {} }); realtime.disconnect(); };
@@ -5533,23 +5630,56 @@ ${jobsCtx || "No jobs found."}`;
     setChatSending(true);
     setChatError(null);
     const { threadKey, scope, jobId, panelId, opId, participants } = chatThread;
+    const text = chatInput.trim();
+    const attachments = chatAttachments;
+    const payload = {
+      threadKey, scope,
+      jobId: jobId || null, panelId: panelId || null, opId: opId || null,
+      text,
+      authorId: loggedInUser.id,
+      authorName: loggedInUser.name,
+      authorColor: elColor(loggedInUser.color),
+      participantIds: (participants || []).map(p => p.id),
+      attachments,
+    };
+    // Optimistic bubble: show it immediately (with a "Sending…" status + pop
+    // animation) and clear the composer, then swap in the server copy on
+    // success. Kept in `pendingMessages` — separate from `messages` — so a
+    // poll/realtime refresh that replaces `messages` wholesale can't wipe an
+    // in-flight bubble. On failure we drop it and restore the composer.
+    const tmpId = "tmp_" + uid();
+    const optimistic = { ...payload, id: tmpId, _pending: true, timestamp: new Date().toISOString() };
+    setPendingMessages(prev => [...prev, optimistic]);
+    setChatInput("");
+    setChatAttachments([]);
     try {
-      const msg = await postMessage({
-        threadKey, scope,
-        jobId: jobId || null, panelId: panelId || null, opId: opId || null,
-        text: chatInput.trim(),
-        authorId: loggedInUser.id,
-        authorName: loggedInUser.name,
-        authorColor: elColor(loggedInUser.color),
-        participantIds: (participants || []).map(p => p.id),
-        attachments: chatAttachments,
-      }, getToken, orgCode);
-      setMessages(prev => [...prev, msg]);
-      setChatInput("");
-      setChatAttachments([]);
+      let msg;
+      try {
+        msg = await postMessage(payload, getToken, orgCode);
+      } catch (e1) {
+        // A 401 here is a transient cold-start auth failure (the backend
+        // resolves the sender's email via Auth0 /userinfo, which rate-limits
+        // during request bursts). It's returned BEFORE any DB write, so a
+        // retry can't duplicate the message. Keep the "Sending…" bubble up,
+        // pause briefly so the server's email cache can warm, then try once more.
+        if (!String(e1?.message || "").includes("401")) throw e1;
+        await new Promise(r => setTimeout(r, 1200));
+        msg = await postMessage(payload, getToken, orgCode);
+      }
+      // Pre-mark the server id as "seen" so the pending→server swap doesn't
+      // replay the entrance animation the pending bubble already played.
+      seenMsgIdsRef.current.add(String(msg.id));
+      setMessages(prev => (prev.some(m => String(m.id) === String(msg.id)) ? prev : [...prev, msg]));
+      setPendingMessages(prev => prev.filter(m => m.id !== tmpId));
       markThreadRead(threadKey);
+      // I authored the newest message → my cursor already covers it; skip the
+      // redundant read-cursor POST the viewing effect would otherwise fire.
+      lastMarkedReadRef.current[threadKey] = msg.timestamp;
     } catch (e) {
       console.error("Failed to send message:", e);
+      setPendingMessages(prev => prev.filter(m => m.id !== tmpId));
+      setChatInput(prev => prev || text);
+      setChatAttachments(prev => (prev.length ? prev : attachments));
       setChatError(e.message || "Failed to send — check your connection and try again.");
     } finally {
       setChatSending(false);
@@ -14045,8 +14175,81 @@ ${jobsCtx || "No jobs found."}`;
     // during a cache-first paint before the first delta lands.
     const myGroups = (groups || []).filter(g => (g.memberIds || []).map(String).includes(String(loggedInUser?.id)));
 
-    const threadMessages = chatThread ? messages.filter(m => m.threadKey === chatThread.threadKey) : [];
+    // Server messages for the thread + any optimistic (in-flight) bubbles,
+    // ordered chronologically. Pending bubbles stamp "now" so they sort last.
+    const threadMessages = chatThread
+      ? [
+          ...messages.filter(m => m.threadKey === chatThread.threadKey),
+          ...pendingMessages.filter(m => m.threadKey === chatThread.threadKey),
+        ].sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))
+      : [];
     const canPost = !!(chatThread && loggedInUser);
+
+    // On thread open, treat the whole backlog as "already animated" so only
+    // messages arriving afterward play the entrance animation. (Deriving state
+    // from a ref during render, guarded by a per-thread key — a documented use.)
+    if (chatThread && seenThreadRef.current !== chatThread.threadKey) {
+      seenThreadRef.current = chatThread.threadKey;
+      seenMsgIdsRef.current = new Set(threadMessages.map(m => String(m.id)));
+    }
+
+    // The last message I authored in this thread — the only one of mine that
+    // shows a delivery status (Sent/Read). Earlier ones of mine show nothing.
+    let lastMineId = null;
+    if (loggedInUser) {
+      for (let i = threadMessages.length - 1; i >= 0; i--) {
+        if (String(threadMessages[i].authorId) === String(loggedInUser.id)) { lastMineId = threadMessages[i].id; break; }
+      }
+    }
+    const readLabelTime = (iso) => {
+      const day = String(iso).slice(0, 10);
+      if (day === TD) return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      if (day === addD(TD, -1)) return "yesterday";
+      return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    };
+    // Sending → optimistic; Sent → server has it, nobody's read yet; Read →
+    // another participant's read cursor has passed this message's timestamp.
+    const deliveryStatusFor = (m) => {
+      if (!loggedInUser || String(m.authorId) !== String(loggedInUser.id)) return null;
+      if (m._pending) return { kind: "sending" };
+      if (String(m.id) !== String(lastMineId)) return null;
+      const others = (chatThread?.participants || []).map(p => String(p.id)).filter(id => id !== String(loggedInUser.id));
+      const cursors = readReceipts[chatThread?.threadKey] || {};
+      const readerAts = others.map(id => cursors[id]).filter(at => at && at >= m.timestamp);
+      if (!readerAts.length) return { kind: "sent" };
+      if (String(chatThread?.threadKey || "").startsWith("dm:")) {
+        const latest = [...readerAts].sort().pop();
+        return { kind: "read", label: `Read ${readLabelTime(latest)}` };
+      }
+      return { kind: "read", label: `Read by ${readerAts.length}` };
+    };
+    // Delivery status caption (SVG ticks, no emoji per house style). lineHeight:1
+    // + the fixed-height wrapper around this keep every state the same height, so
+    // Sending→Sent→Read never nudges the layout. Only the ticks animate on Read
+    // (the text stays put — scaling the whole label would look jittery).
+    const renderDeliveryStatus = (status) => {
+      if (!status) return null;
+      const common = { display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, fontFamily: T.font, lineHeight: 1, whiteSpace: "nowrap" };
+      if (status.kind === "sending") {
+        return <span style={{ ...common, color: T.textDim }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 0.9s linear infinite", flexShrink: 0 }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+          Sending…
+        </span>;
+      }
+      if (status.kind === "sent") {
+        return <span style={{ ...common, color: T.textDim }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+          Sent
+        </span>;
+      }
+      return <span style={{ ...common, color: T.accent }}>
+        <span className="msg-read-pop" style={{ position: "relative", display: "inline-block", width: 17, height: 13, flexShrink: 0 }}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ position: "absolute", left: 0, top: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ position: "absolute", left: 4, top: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+        </span>
+        {status.label}
+      </span>;
+    };
 
     const grouped = [];
     threadMessages.forEach(m => {
@@ -14185,7 +14388,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
           {/* Messages */}
-          <div style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "12px 0" }}>
+          <div ref={chatScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "12px 0" }}>
             {threadMessages.length === 0 && (
               <div style={{ textAlign: "center", padding: "40px 20px", color: T.textDim }}>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, opacity: 0.5 }}><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
@@ -14205,6 +14408,12 @@ ${jobsCtx || "No jobs found."}`;
                 {msgs.map((m, i) => {
                   const isMe = loggedInUser && String(m.authorId) === String(loggedInUser.id);
                   const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+                  // Only the FIRST message in a consecutive run by the same author
+                  // shows the name; follow-on texts stay nameless (an approval/
+                  // time-off card breaks the run). Keeps rapid multi-texts tidy.
+                  const prevMsg = i > 0 ? msgs[i - 1] : null;
+                  const prevIsCard = prevMsg && (prevMsg.type === "finish_request" || prevMsg.type === "timeoff_request");
+                  const showName = !prevMsg || prevIsCard || String(prevMsg.authorId) !== String(m.authorId);
 
                   // ── Special rendering: Finish Approval Request ──
                   if (m.type === "finish_request") {
@@ -14386,24 +14595,40 @@ ${jobsCtx || "No jobs found."}`;
                   }
 
                   // ── Standard message bubble ──
-                  return <div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 10, padding: "4px 14px", alignItems: "center" }}>
+                  const status = deliveryStatusFor(m);
+                  // Animate only bubbles that arrived after the thread was opened
+                  // (backlog was pre-seeded as "seen"). Mine pop, incoming slide.
+                  const isNew = !seenMsgIdsRef.current.has(String(m.id));
+                  if (isNew) seenMsgIdsRef.current.add(String(m.id));
+                  const animClass = isNew ? (isMe ? "msg-in-mine" : "msg-in-other") : "";
+                  return <div key={m.id} className={animClass} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 10, padding: "4px 14px", alignItems: "center" }}>
                     <div style={{ width: 32, height: 32, borderRadius: 16, background: T.systemBg || T.surfaceSolid || T.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{m.authorName[0]}</div>
                     <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 3 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: T.text, marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>{m.authorName}</span>
-                      {m.text && <div style={{ background: isMe ? T.accent : T.surface, color: isMe ? T.accentText : T.text, padding: "10px 15px", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
+                      {showName && <span style={{ fontSize: 12, fontWeight: 600, color: T.text, marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>{m.authorName}</span>}
+                      {m.text && <div className={m._pending ? "msg-sending" : undefined} style={{ background: isMe ? T.accent : T.surface, color: isMe ? T.accentText : T.text, padding: "10px 15px", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
                         {m.text}
                       </div>}
                       {(m.attachments || []).map((att, ai) => (
                         att.mimeType?.startsWith("image/")
-                          ? <div key={ai} onClick={() => setLightboxAtt(att)} style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 240, cursor: "zoom-in" }}>
-                              <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "cover" }} loading="lazy" />
+                          ? <div key={ai} onClick={() => setLightboxAtt(att)} className={m._pending ? "msg-sending" : undefined} style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 240, cursor: "zoom-in" }}>
+                              <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} onLoad={() => { const el = chatScrollRef.current; if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 240) el.scrollTop = el.scrollHeight; }} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "cover" }} loading="lazy" />
                             </div>
-                          : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? T.accent : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 10, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
+                          : <div key={ai} onClick={() => setLightboxAtt(att)} className={m._pending ? "msg-sending" : undefined} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? T.accent : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 10, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
                               <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                             </div>
                       ))}
-                      <span style={{ fontSize: 11, color: T.textDim, marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>{ts}</span>
+                      {/* My messages reserve a FIXED-HEIGHT caption slot so the
+                          delivery status appearing, changing (Sending→Sent→Read),
+                          or moving to a newer message never reflows the thread.
+                          The status shows only on my latest; the slot stays (empty)
+                          on my earlier ones. Others keep their timestamp — same
+                          slot height, so both sides stay perfectly stable. */}
+                      <span style={{ height: 15, display: "flex", alignItems: "center", marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>
+                        {isMe
+                          ? renderDeliveryStatus(status)
+                          : <span style={{ fontSize: 11, color: T.textDim }}>{ts}</span>}
+                      </span>
                     </div>
                   </div>;
                 })}
