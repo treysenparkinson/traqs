@@ -281,7 +281,7 @@ private struct PayClockCTA: View {
                         Image(systemName: active ? "stop.circle.fill" : "play.circle.fill")
                             .font(.system(size: 17, weight: .semibold))
                     }
-                    Text(active ? "Clock Out for Pay" : "Clock In for Pay")
+                    Text(active ? "Clock Out" : "Clock In")
                         .font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
                     if active && !inFlight {
                         Text(elapsed).font(TTypo.monoBold(13)).tnum()
@@ -290,7 +290,9 @@ private struct PayClockCTA: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
-                .background(Capsule().fill(Color(hex: active ? T.red : T.green)))
+                // Clock In uses the signature brand/accent gradient (like other
+                // primary CTAs); Clock Out stays red as the "stop" affordance.
+                .background(Capsule().fill(active ? AnyShapeStyle(Color(hex: T.red)) : AnyShapeStyle(T.brandGradient())))
                 .opacity(inFlight ? 0.6 : 1)
             }
             .buttonStyle(.plain)
