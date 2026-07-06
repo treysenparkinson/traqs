@@ -11,7 +11,7 @@ final class LocalCache {
 
     private static let schema = Schema([
         SyncedJob.self, SyncedPerson.self, SyncedClient.self, SyncedMessage.self,
-        SyncedGroup.self, SyncedTimeclockEntry.self, SyncedOrgConfig.self, SyncedSettings.self, Meta.self,
+        SyncedGroup.self, SyncedTimeclockEntry.self, SyncedProductionHours.self, SyncedOrgConfig.self, SyncedSettings.self, Meta.self,
     ])
 
     // A parsed /sync record on its way into the cache.
@@ -125,6 +125,7 @@ final class LocalCache {
         try? ctx.delete(model: SyncedMessage.self)
         try? ctx.delete(model: SyncedGroup.self)
         try? ctx.delete(model: SyncedTimeclockEntry.self)
+        try? ctx.delete(model: SyncedProductionHours.self)
         try? ctx.delete(model: SyncedOrgConfig.self)
         try? ctx.delete(model: SyncedSettings.self)
         // Also drop the sync cursor so the caller re-fetches from scratch.

@@ -24,7 +24,7 @@ final class RealtimeService {
     private var onTimeoff: (() -> Void)?
     private var onReads: (() -> Void)?
 
-    private static let entities = ["tasks", "people", "clients", "messages", "groups", "timeclock", "orgConfig", "settings"]
+    private static let entities = ["tasks", "people", "clients", "messages", "groups", "payhours", "productionhours", "orgConfig", "settings"]
 
     var isDegraded: Bool { degraded }
 

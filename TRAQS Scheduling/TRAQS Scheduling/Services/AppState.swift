@@ -87,6 +87,17 @@ class AppState {
     var isClockingIn = false
     var clockError: String?
 
+    // Pay-clock (Bearer-only iOS clock-in/out) observable state. Canonical
+    // values are derived from currentPerson.activeClockIn (clockIn/source) via
+    // reconcilePayClock(), but they are ALSO set optimistically on tap and the
+    // clockChangeAt trigger is bumped so the always-mounted Hours view flips on
+    // the same frame (the nested currentPerson→people chain doesn't reliably
+    // re-fire it — see clockChangeAt).
+    var payClockInActive = false
+    var payClockInStart: Date?
+    var payClockInSource: String?
+    var isPayClocking = false          // in-flight guard for the CTA spinner
+
     // MARK: - Auth / Org
     /// Persisted so a flaky people-fetch can't briefly blank out the
     /// current user and re-filter the entire app. The first auto-match sets
@@ -215,6 +226,9 @@ class AppState {
         if g != groups, !g.isEmpty || groups.isEmpty { groups = g }
         if let s, s != orgSettings { orgSettings = s }
         autoMatchPerson()
+        // Pick up a pay clock-in/out that landed via realtime (e.g. a kiosk
+        // punch) — grace-guarded so a recent optimistic iOS tap isn't clobbered.
+        reconcilePayClock()
     }
 
     // Ably "changed" → pull the delta, then rehydrate. deltaSync coalesces bursts.
@@ -478,6 +492,10 @@ class AppState {
         if let cache = localCache, cache.cursor() != startCursor {
             rehydrateFromCache()
         }
+        // Reconcile the observable pay-clock flags from the (now-refreshed)
+        // canonical activeClockIn — grace-guarded so a very recent optimistic
+        // pay tap still wins.
+        reconcilePayClock()
     }
 
     // MARK: - Jobs
@@ -1158,6 +1176,89 @@ class AppState {
         }
     }
 
+    // MARK: - Pay Clock (Bearer-only, no PIN; uses currentPersonId)
+
+    /// Sync the observable pay-clock flags from the server's canonical
+    /// person.activeClockIn. Skipped inside the grace window right after an
+    /// optimistic pay mutation so eventually-consistent server data can't flip
+    /// the UI back before the write propagates (mirrors loadAll's clock snap).
+    /// The per-field `!=` guards avoid needless @Observable churn.
+    func reconcilePayClock(force: Bool = false) {
+        if !force, let last = clockChangeAt, Date().timeIntervalSince(last) < 12 { return }
+        if let c = currentPerson?.activeClockIn, !c.clockIn.isEmpty {
+            let start = Date.fromFlexibleISO8601(c.clockIn)
+            if !payClockInActive { payClockInActive = true }
+            if payClockInStart != start { payClockInStart = start }
+            if payClockInSource != c.source { payClockInSource = c.source }
+        } else {
+            if payClockInActive { payClockInActive = false }
+            if payClockInStart != nil { payClockInStart = nil }
+            if payClockInSource != nil { payClockInSource = nil }
+        }
+    }
+
+    /// Clock the current user IN for pay from iOS. Optimistic: flips the CTA
+    /// immediately, then reconciles to the server. 409 = already clocked in
+    /// (treat as success, reconcile to truth); 401 = revert.
+    func payClockIn() async {
+        guard let api, let personId = currentPersonId, !isPayClocking else { return }
+        let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
+        isPayClocking = true
+        defer { isPayClocking = false }
+        // Optimistic — flip on the same frame.
+        payClockInActive = true
+        payClockInStart = Date()
+        payClockInSource = "ios-app"
+        clockChangeAt = Date()
+        do {
+            try await api.payClockIn(personId: personId)
+            await loadAll()
+        } catch APIError.httpError(409) {
+            // Already clocked in (possibly via kiosk) — align to server truth.
+            await loadAll()
+            reconcilePayClock(force: true)
+        } catch APIError.httpError(401) {
+            payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            clockChangeAt = Date()
+            clockError = APIError.httpError(401).localizedDescription
+        } catch {
+            payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            clockChangeAt = Date()
+            clockError = "Failed to clock in for pay: \(error.localizedDescription)"
+        }
+    }
+
+    /// Clock the current user OUT for pay from iOS. Optimistic clear; 409 =
+    /// already clocked out (align to server); 401 = revert.
+    func payClockOut() async {
+        guard let api, let personId = currentPersonId, !isPayClocking else { return }
+        let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
+        isPayClocking = true
+        defer { isPayClocking = false }
+        payClockInActive = false
+        payClockInStart = nil
+        payClockInSource = nil
+        clockChangeAt = Date()
+        do {
+            try await api.payClockOut(personId: personId)
+            await loadAll()
+            // The completed punch now exists — refresh the pay-hours history so
+            // the period total reflects it.
+            await refreshTimeclock(personId: personId)
+        } catch APIError.httpError(409) {
+            await loadAll()
+            reconcilePayClock(force: true)
+        } catch APIError.httpError(401) {
+            payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            clockChangeAt = Date()
+            clockError = APIError.httpError(401).localizedDescription
+        } catch {
+            payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            clockChangeAt = Date()
+            clockError = "Failed to clock out for pay: \(error.localizedDescription)"
+        }
+    }
+
     // MARK: - Panel attachments
 
     /// Upload a photo/file and attach it to a panel's `attachments`, then
@@ -1477,6 +1578,14 @@ extension AppState {
         let s = orgSettings
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
+        // Orgs configure pay periods via explicit days-of-month (payDates, e.g.
+        // [5, 20]) in "setdate" mode — the semi-monthly model the desktop
+        // payroll table actually uses (getPayPeriodFromDates). Prefer it whenever
+        // payDates is present or payMode is "setdate"; otherwise fall back to the
+        // legacy biweekly/weekly/semimonthly rolling logic below.
+        if s.payMode == "setdate" || !s.payDates.isEmpty {
+            return Self.payPeriodFromDates(s.payDates, now: now)
+        }
         let anchor = s.payPeriodStart.flatMap(Self.fullISODate) ?? today
         switch s.payPeriodType {
         case "weekly":
@@ -1510,6 +1619,33 @@ extension AppState {
     private static func fullISODate(_ s: String) -> Date? {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
         return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    }
+
+    /// Semi-monthly pay period from an explicit day-of-month pair (Swift port of
+    /// the desktop `getPayPeriodFromDates`). e.g. [5, 20] → periods are 5th–19th
+    /// and 20th–4th of each month. Boundaries are computed in local time.
+    static func payPeriodFromDates(_ payDates: [Int], now: Date) -> (start: Date, end: Date) {
+        let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        let sorted = (payDates.isEmpty ? [5, 20] : payDates).sorted()
+        let d1 = sorted[0]
+        let d2 = sorted.count > 1 ? sorted[1] : sorted[0]
+        let comps = cal.dateComponents([.year, .month, .day], from: today)
+        let y = comps.year ?? 2020, m = comps.month ?? 1, day = comps.day ?? 1  // m is 1-based
+        // Calendar.date(from:) normalizes out-of-range day/month components
+        // (day 0 → last day of previous month, month 13 → next January), matching
+        // JS `new Date(y, m, d)` semantics used by the desktop helper.
+        func make(monthOffset: Int, day: Int) -> Date {
+            var c = DateComponents(); c.year = y; c.month = m + monthOffset; c.day = day
+            return cal.startOfDay(for: cal.date(from: c) ?? today)
+        }
+        if day >= d1 && day < d2 {
+            return (make(monthOffset: 0, day: d1), make(monthOffset: 0, day: d2 - 1))
+        } else if day >= d2 {
+            return (make(monthOffset: 0, day: d2), make(monthOffset: 1, day: d1 - 1))
+        } else {
+            return (make(monthOffset: -1, day: d2), make(monthOffset: 0, day: d1 - 1))
+        }
     }
 
     /// The pay-period hours cap (soft limit) configured in the desktop's Time

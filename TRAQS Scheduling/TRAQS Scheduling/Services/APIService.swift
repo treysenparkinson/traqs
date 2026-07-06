@@ -470,7 +470,7 @@ struct APIService {
     /// Timestamped per-session job-clock log (jobsessions.json) for pay-period
     /// job-hours reporting. Scoped to the person server-side (non-admins → self).
     func fetchJobSessions(personId: String? = nil) async throws -> [JobSession] {
-        var path = "timeclock?dataset=jobsessions"
+        var path = "timeclock?dataset=productionhours"
         if let personId { path += "&personId=\(personId)" }
         let req = try await request(path)
         let data = try await perform(req)
@@ -507,6 +507,26 @@ struct APIService {
 
     func jobClockOut(personId: String) async throws {
         let body = try JSONEncoder().encode(JobClockSimplePayload(action: "jobClockOut", personId: personId))
+        let req = try await request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    // MARK: - Pay Clock (Bearer-only, no PIN) — iOS pay clock-in/out
+
+    private struct PayClockPayload: Encodable {
+        let action: String
+        let personId: String
+        let source = "ios-app"
+    }
+
+    func payClockIn(personId: String) async throws {
+        let body = try JSONEncoder().encode(PayClockPayload(action: "payClockIn", personId: personId))
+        let req = try await request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    func payClockOut(personId: String) async throws {
+        let body = try JSONEncoder().encode(PayClockPayload(action: "payClockOut", personId: personId))
         let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }

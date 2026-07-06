@@ -40,6 +40,23 @@ struct TimeClockView: View {
                             .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 10)
 
+                        // ── Pay clock-in/out (admin opt-in via iosPayClockEnabled) ──
+                        if appState.orgSettings.iosPayClockEnabled {
+                            PayClockCTA(active: appState.payClockInActive,
+                                        source: appState.payClockInSource,
+                                        elapsed: payClockElapsed,
+                                        inFlight: appState.isPayClocking,
+                                        onToggle: {
+                                            guard !appState.isPayClocking else { return }
+                                            Task {
+                                                if appState.payClockInActive { await appState.payClockOut() }
+                                                else { await appState.payClockIn() }
+                                            }
+                                        })
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 14)
+                        }
+
                         // ── Pay-clock hours (the hero) ──
                         // Time clocked in for pay (desktop), minus lunch/break,
                         // for the current pay period.
@@ -185,6 +202,16 @@ struct TimeClockView: View {
     private var activePayClock: ActiveClockIn? { appState.currentPerson?.activeClockIn }
     private var activeJobClock: ActiveJobClock? { appState.myActiveJobClock }
 
+    /// Wall-clock elapsed for the pay-clock CTA (H:MM:SS once past an hour, else
+    /// MM:SS). Driven by the 1s `now` ticker. Net-of-break hours live in the
+    /// hero ring; this is just the CTA's live timer.
+    private var payClockElapsed: String {
+        guard let start = appState.payClockInStart else { return "0:00" }
+        let secs = max(0, Int(now.timeIntervalSince(start)))
+        let h = secs / 3600, m = (secs % 3600) / 60, s = secs % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
+    }
+
     private func isoDay(_ iso: String?) -> Date? {
         guard let iso else { return nil }
         return Date.fromFlexibleISO8601(iso)
@@ -325,38 +352,11 @@ struct TimeClockView: View {
 
     // MARK: - Pay-period window — from the org's time-clock settings
 
+    // Single source of truth — AppState.payPeriodWindow (semi-monthly payDates
+    // when configured, else legacy biweekly/weekly/semimonthly). Kept as a thin
+    // property so the rest of the view (and the 1s `now` ticker) is unchanged.
     private var periodWindow: (start: Date, end: Date) {
-        let s = appState.orgSettings
-        let cal = Calendar.current
-        let today = cal.startOfDay(for: now)
-        let anchor = s.payPeriodStart.flatMap(parseISO) ?? today
-        switch s.payPeriodType {
-        case "weekly":
-            let weekday = cal.component(.weekday, from: today)
-            let toMonday = weekday == 1 ? -6 : -(weekday - 2)
-            let start = cal.date(byAdding: .day, value: toMonday, to: today) ?? today
-            let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
-            return (start, end)
-        case "semimonthly":
-            let day = cal.component(.day, from: today)
-            let comps = cal.dateComponents([.year, .month], from: today)
-            let monthStart = cal.date(from: comps) ?? today
-            if day <= 15 {
-                let end = cal.date(byAdding: .day, value: 14, to: monthStart) ?? today
-                return (monthStart, end)
-            } else {
-                let start = cal.date(byAdding: .day, value: 15, to: monthStart) ?? today
-                let nextMonth = cal.date(byAdding: .month, value: 1, to: monthStart) ?? today
-                let end = cal.date(byAdding: .day, value: -1, to: nextMonth) ?? today
-                return (start, end)
-            }
-        default: // biweekly
-            let days = cal.dateComponents([.day], from: anchor, to: today).day ?? 0
-            let cycles = days / 14
-            let start = cal.date(byAdding: .day, value: cycles * 14, to: anchor) ?? today
-            let end = cal.date(byAdding: .day, value: 13, to: start) ?? today
-            return (start, end)
-        }
+        appState.payPeriodWindow(now: now)
     }
 
     private func parseISO(_ s: String) -> Date? {
@@ -416,6 +416,52 @@ private struct HeroRingCard: View {
         }
         .padding(18)
         .frostedCard()
+    }
+}
+
+// MARK: - Pay clock-in/out CTA (top of Hours; admin opt-in via iosPayClockEnabled)
+
+private struct PayClockCTA: View {
+    let active: Bool
+    let source: String?
+    let elapsed: String
+    let inFlight: Bool
+    let onToggle: () -> Void
+
+    // Clocked in, but the open shift was started somewhere else (e.g. a kiosk).
+    private var viaOtherSource: Bool { active && source != nil && source != "ios-app" }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Button(action: onToggle) {
+                HStack(spacing: 9) {
+                    if inFlight {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: active ? "stop.circle.fill" : "play.circle.fill")
+                            .font(.system(size: 17, weight: .semibold))
+                    }
+                    Text(active ? "Clock Out for Pay" : "Clock In for Pay")
+                        .font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
+                    if active && !inFlight {
+                        Text(elapsed).font(TTypo.monoBold(13)).tnum()
+                    }
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Capsule().fill(Color(hex: active ? T.red : T.green)))
+                .opacity(inFlight ? 0.6 : 1)
+            }
+            .buttonStyle(.plain)
+            .disabled(inFlight)
+
+            if viaOtherSource {
+                Text("Clocked in via \(source ?? "another device")")
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+        }
     }
 }
 

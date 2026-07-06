@@ -69,14 +69,20 @@ final class SyncService {
     @discardableResult
     private func applyDelta(_ dict: [String: Any]) -> Int {
         let tasks = parseArray(dict["tasks"]), people = parseArray(dict["people"]), clients = parseArray(dict["clients"])
-        let messages = parseArray(dict["messages"]), groups = parseArray(dict["groups"]), timeclock = parseArray(dict["timeclock"])
+        let messages = parseArray(dict["messages"]), groups = parseArray(dict["groups"])
+        // Pay punches now arrive under "payhours"; the server also sends a
+        // deprecated "timeclock" alias during rollout — fall back to it if the
+        // new key is absent. Both feed the same SyncedTimeclockEntry cache.
+        let payhours = dict["payhours"] != nil ? parseArray(dict["payhours"]) : parseArray(dict["timeclock"])
+        let productionhours = parseArray(dict["productionhours"])
         var w = 0
         w += cache.applyBatch(SyncedJob.self, tasks)
         w += cache.applyBatch(SyncedPerson.self, people)
         w += cache.applyBatch(SyncedClient.self, clients)
         w += cache.applyBatch(SyncedMessage.self, messages)
         w += cache.applyBatch(SyncedGroup.self, groups)
-        w += cache.applyBatch(SyncedTimeclockEntry.self, timeclock)
+        w += cache.applyBatch(SyncedTimeclockEntry.self, payhours)
+        w += cache.applyBatch(SyncedProductionHours.self, productionhours)
         if let cfg = parseObject(dict["orgConfig"]) { w += cache.applyBatch(SyncedOrgConfig.self, [cfg]) }
         if let set = parseObject(dict["settings"]) { w += cache.applyBatch(SyncedSettings.self, [set]) }
         if let serverTime = dict["serverTime"] as? String { cache.setCursor(serverTime) }

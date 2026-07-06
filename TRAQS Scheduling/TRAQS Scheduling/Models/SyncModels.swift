@@ -78,6 +78,18 @@ import SwiftData
     }
 }
 
+// Per-job production sessions (js_… rows), synced under the "productionhours"
+// entity. Mirrors SyncedTimeclockEntry — raw JSON blob + the three sync fields.
+@Model final class SyncedProductionHours {
+    @Attribute(.unique) var id: String
+    var lastModifiedAt: Date?
+    var deletedAt: Date?
+    var payload: Data
+    init(id: String, lastModifiedAt: Date?, deletedAt: Date?, payload: Data) {
+        self.id = id; self.lastModifiedAt = lastModifiedAt; self.deletedAt = deletedAt; self.payload = payload
+    }
+}
+
 // Single-instance object entities. `id` is a fixed "current" so there's exactly
 // one row; the whole object is the payload (decode with OrgSettings.self etc.).
 @Model final class SyncedOrgConfig {
@@ -118,6 +130,7 @@ extension SyncedClient: SyncRecord {}
 extension SyncedMessage: SyncRecord {}
 extension SyncedGroup: SyncRecord {}
 extension SyncedTimeclockEntry: SyncRecord {}
+extension SyncedProductionHours: SyncRecord {}
 extension SyncedOrgConfig: SyncRecord {}
 extension SyncedSettings: SyncRecord {}
 

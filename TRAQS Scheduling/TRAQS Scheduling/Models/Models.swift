@@ -324,15 +324,17 @@ struct ActiveClockIn: Codable, Equatable {
     var clockIn: String
     var jobRefs: [JobRef]
     var events: [ClockEvent]
+    var source: String?   // "kiosk" | "ios-app" — where this open pay shift was started
 
-    init(clockIn: String, jobRefs: [JobRef], events: [ClockEvent]) {
-        self.clockIn = clockIn; self.jobRefs = jobRefs; self.events = events
+    init(clockIn: String, jobRefs: [JobRef], events: [ClockEvent], source: String? = nil) {
+        self.clockIn = clockIn; self.jobRefs = jobRefs; self.events = events; self.source = source
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         clockIn  = (try? c.decode(String.self,        forKey: .clockIn))  ?? ""
         jobRefs  = (try? c.decode([JobRef].self,      forKey: .jobRefs))  ?? []
         events   = (try? c.decode([ClockEvent].self,  forKey: .events))   ?? []
+        source   = try? c.decodeIfPresent(String.self, forKey: .source)
     }
 }
 
@@ -742,6 +744,7 @@ struct OrgSettings: Codable, Equatable {
     var payPeriodType: String             // "weekly" | "biweekly" | "semimonthly"
     var payPeriodStart: String?           // ISO date
     var payPeriodHourCap: Double          // soft cap of pay-clock hours per pay period (default 80); over = overtime
+    var iosPayClockEnabled: Bool          // admin opt-in for the iOS pay clock-in/out CTA (default off)
     var breaks: [OrgBreak]
     var lunch: OrgBreak
 
@@ -764,6 +767,7 @@ struct OrgSettings: Codable, Equatable {
             payPeriodType: "biweekly",
             payPeriodStart: nil,
             payPeriodHourCap: 80,
+            iosPayClockEnabled: false,
             breaks: [OrgBreak(time: "10:00", durationMinutes: 15)],
             lunch: OrgBreak(time: "12:00", durationMinutes: 30)
         )
@@ -774,7 +778,7 @@ struct OrgSettings: Codable, Equatable {
          approvalSteps: [String], approverLabel: String, payDates: [Int],
          payMode: String, payAnchor: String?, trackLunch: Bool, trackBreaks: Bool,
          payPeriodType: String, payPeriodStart: String?, payPeriodHourCap: Double,
-         breaks: [OrgBreak], lunch: OrgBreak) {
+         iosPayClockEnabled: Bool, breaks: [OrgBreak], lunch: OrgBreak) {
         self.hpd = hpd; self.workStart = workStart; self.workEnd = workEnd
         self.workDays = workDays; self.holidays = holidays; self.roles = roles
         self.approvalQueueLabel = approvalQueueLabel
@@ -783,6 +787,7 @@ struct OrgSettings: Codable, Equatable {
         self.trackLunch = trackLunch; self.trackBreaks = trackBreaks
         self.payPeriodType = payPeriodType; self.payPeriodStart = payPeriodStart
         self.payPeriodHourCap = payPeriodHourCap
+        self.iosPayClockEnabled = iosPayClockEnabled
         self.breaks = breaks; self.lunch = lunch
     }
 
@@ -806,6 +811,7 @@ struct OrgSettings: Codable, Equatable {
         payPeriodType      = (try? c.decode(String.self,    forKey: .payPeriodType))      ?? d.payPeriodType
         payPeriodStart     = try? c.decodeIfPresent(String.self, forKey: .payPeriodStart)
         payPeriodHourCap   = (try? c.decode(Double.self,    forKey: .payPeriodHourCap))   ?? d.payPeriodHourCap
+        iosPayClockEnabled = (try? c.decode(Bool.self,      forKey: .iosPayClockEnabled)) ?? d.iosPayClockEnabled
         breaks             = (try? c.decode([OrgBreak].self,forKey: .breaks))             ?? d.breaks
         lunch              = (try? c.decode(OrgBreak.self,  forKey: .lunch))              ?? d.lunch
     }
