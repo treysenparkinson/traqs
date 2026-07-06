@@ -13,14 +13,8 @@ private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 
 struct TimeClockView: View {
     @Environment(AppState.self) private var appState
-    @Environment(AppNav.self) private var appNav
-    /// Scroll anchor for the Time Off section, so a tapped time-off push
-    /// (AppNav → .timeOff deep link) can reveal it.
-    private static let timeOffAnchor = "hoursTimeOffSection"
     @State private var now = Date()
     @State private var showSettings = false
-    @State private var showTimeOffSheet = false
-    @State private var isStopping = false
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -32,30 +26,13 @@ struct TimeClockView: View {
                     IconBtn(icon: .settings, size: 18) { showSettings = true }
                 }
 
-                ScrollViewReader { proxy in
+                ScrollViewReader { _ in
                   ScrollView {
                     VStack(spacing: 0) {
 
                         PageTitle(title: "Hours", subtitle: periodLabel)
                             .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 10)
-
-                        // ── Pay clock-in/out (admin opt-in via iosPayClockEnabled) ──
-                        if appState.orgSettings.iosPayClockEnabled {
-                            PayClockCTA(active: appState.payClockInActive,
-                                        source: appState.payClockInSource,
-                                        elapsed: payClockElapsed,
-                                        inFlight: appState.isPayClocking,
-                                        onToggle: {
-                                            guard !appState.isPayClocking else { return }
-                                            Task {
-                                                if appState.payClockInActive { await appState.payClockOut() }
-                                                else { await appState.payClockIn() }
-                                            }
-                                        })
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 14)
-                        }
 
                         // ── Pay-clock hours (the hero) ──
                         // Time clocked in for pay (desktop), minus lunch/break,
@@ -76,75 +53,29 @@ struct TimeClockView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 14)
 
-                        // ── Job Hours (separate; only time logged ON jobs) ──
-                        TSectionTitle(title: "Job Hours")
-
-                        if let active = activeJobClock {
-                            RunningEntryCard(jobClock: active, now: now,
-                                             isStopping: isStopping,
-                                             onStop: {
-                                                 guard !isStopping else { return }
-                                                 isStopping = true
-                                                 Task {
-                                                     await appState.jobClockOut()
-                                                     isStopping = false
-                                                 }
-                                             })
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 4)
+                        // ── Pay clock-in/out (admin opt-in via iosPayClockEnabled) ──
+                        // Sits below the bar graph so the hero number reads first.
+                        if appState.orgSettings.iosPayClockEnabled {
+                            PayClockCTA(active: appState.payClockInActive,
+                                        source: appState.payClockInSource,
+                                        elapsed: payClockElapsed,
+                                        inFlight: appState.isPayClocking,
+                                        onToggle: {
+                                            guard !appState.isPayClocking else { return }
+                                            Task {
+                                                if appState.payClockInActive { await appState.payClockOut() }
+                                                else { await appState.payClockIn() }
+                                            }
+                                        })
+                                .padding(.horizontal, 16)
+                                .padding(.top, 14)
                         }
-
-                        VStack(spacing: 12) {
-                            JobHoursSummaryRow(periodHours: jobPeriodHours,
-                                               sessions: jobSessionsInPeriod.count)
-                            ForEach(jobSessionGroups) { group in
-                                EntryGroupCard(group: group)
-                            }
-                            if jobSessionsInPeriod.isEmpty && activeJobClock == nil {
-                                HoursEmptyState()
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 8)
-
-                        // ── Time Off (PTO/UTO requests) ──
-                        // Submit a request → admins approve/deny on the desktop.
-                        // Approved requests flow into the schedule + accountant export.
-                        TSectionTitle(title: "Time Off")
-                            .id(Self.timeOffAnchor)
-
-                        VStack(spacing: 12) {
-                            GradientCTA(disabled: false, dimmed: false, fullWidth: true,
-                                        verticalPadding: 13, action: { showTimeOffSheet = true }) {
-                                HStack(spacing: 7) {
-                                    Image(systemName: "calendar.badge.plus")
-                                    Text("REQUEST TIME OFF").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                                }
-                            }
-                            ForEach(myTimeOffRequests) { req in
-                                TimeOffRequestCard(request: req) {
-                                    Task { await appState.cancelTimeOff(id: req.id) }
-                                }
-                            }
-                            if myTimeOffRequests.isEmpty {
-                                TimeOffEmptyState()
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
                     }
+                    .padding(.bottom, 24)
                   }
                   .scrollIndicators(.hidden)
                   .topFadeMask()
                   .refreshable { await reload() }
-                  // Already on the Hours tab when a time-off push is tapped:
-                  // the deep link mutates in place, so react to the change.
-                  .onChange(of: appNav.pendingDeepLink) { _, _ in
-                      Task { await scrollToTimeOffIfPending(proxy) }
-                  }
-                  // Arrived on the Hours tab via the tap (fresh mount): the deep
-                  // link is already set before this appears, so consume it here.
-                  .task { await scrollToTimeOffIfPending(proxy) }
                 }
             }
             .onReceive(ticker) { now = $0 }
@@ -152,55 +83,20 @@ struct TimeClockView: View {
             // elsewhere; here we only pull this person's clock + job-session logs.
             .task {
                 await appState.refreshTimeclock(personId: appState.currentPersonId)
-                await appState.refreshJobSessions(personId: appState.currentPersonId)
-                await appState.refreshTimeOffRequests()
             }
         }
         .sheet(isPresented: $showSettings) { SettingsView() }
-        .sheet(isPresented: $showTimeOffSheet) {
-            RequestTimeOffSheet()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-        }
     }
 
     private func reload() async {
         await appState.loadAll()
         await appState.refreshTimeclock(personId: appState.currentPersonId)
-        await appState.refreshJobSessions(personId: appState.currentPersonId)
-        await appState.refreshTimeOffRequests()
-    }
-
-    /// If a tapped time-off notification routed us here, scroll the Time Off
-    /// section into view, then clear the pending deep link so it fires once.
-    /// The brief delay lets the list lay out (and the tab-switch animation
-    /// settle) before scrolling on a fresh mount.
-    @MainActor
-    private func scrollToTimeOffIfPending(_ proxy: ScrollViewProxy) async {
-        guard case .timeOff = appNav.pendingDeepLink else { return }
-        try? await Task.sleep(for: .milliseconds(350))
-        guard case .timeOff = appNav.pendingDeepLink else { return }
-        withAnimation(.easeInOut(duration: 0.35)) {
-            proxy.scrollTo(Self.timeOffAnchor, anchor: .top)
-        }
-        appNav.pendingDeepLink = nil
-    }
-
-    /// My time-off requests, pending first, then newest start date.
-    private var myTimeOffRequests: [TimeOffRequest] {
-        let order: [String: Int] = ["pending": 0, "approved": 1, "denied": 2, "cancelled": 3]
-        return appState.timeOffRequests.sorted { a, b in
-            let oa = order[a.status] ?? 9, ob = order[b.status] ?? 9
-            if oa != ob { return oa < ob }
-            return a.start > b.start
-        }
     }
 
     // MARK: - Pay-clock compute (the hero)
 
     private var myId: String? { appState.currentPersonId }
     private var activePayClock: ActiveClockIn? { appState.currentPerson?.activeClockIn }
-    private var activeJobClock: ActiveJobClock? { appState.myActiveJobClock }
 
     /// Wall-clock elapsed for the pay-clock CTA (H:MM:SS once past an hour, else
     /// MM:SS). Driven by the 1s `now` ticker. Net-of-break hours live in the
@@ -292,62 +188,6 @@ struct TimeClockView: View {
             out.append(DailyBar(date: d, dow: dow, hours: h, isToday: i == 0))
         }
         return out
-    }
-
-    // MARK: - Job-hours compute (separate section)
-
-    /// Live hours of the in-progress job clock (independent of the pay clock).
-    private var liveJobHours: Double {
-        guard let jc = activeJobClock, let s = Date.fromFlexibleISO8601(jc.clockIn) else { return 0 }
-        var ms = now.timeIntervalSince(s) * 1000
-        ms -= (jc.totalPausedMs ?? 0)
-        if let p = jc.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
-            ms -= now.timeIntervalSince(pStart) * 1000
-        }
-        return max(0, ms / 1000 / 3600)
-    }
-
-    /// My completed job sessions inside the pay period, newest first.
-    private var jobSessionsInPeriod: [JobSession] {
-        let w = periodWindow
-        let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
-        return appState.jobSessions
-            .filter { s in
-                guard myId == nil || s.personId == myId else { return false }
-                guard let d = isoDay(s.clockIn) ?? parseISO(s.date ?? "") else { return false }
-                return d >= w.start && d < end
-            }
-            .sorted { ($0.clockIn ?? "") > ($1.clockIn ?? "") }
-    }
-
-    private var jobPeriodHours: Double {
-        jobSessionsInPeriod.reduce(0.0) { $0 + ($1.hours ?? 0) } + liveJobHours
-    }
-
-    /// Job sessions grouped by day for the dated log.
-    private var jobSessionGroups: [EntryGroup] {
-        let cal = Calendar.current
-        let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
-        let groups = Dictionary(grouping: jobSessionsInPeriod) { s -> Date in
-            cal.startOfDay(for: isoDay(s.clockIn) ?? Date())
-        }
-        return groups.keys.sorted(by: >).map { day in
-            let items = (groups[day] ?? []).map { s -> TimeEntry in
-                let job = appState.jobs.first(where: { $0.id == s.jobId })
-                let dept = job.map(deptForJob) ?? (label: "JOB", color: Color(hex: T.magenta))
-                return TimeEntry(id: s.id,
-                                 start: isoDay(s.clockIn) ?? day,
-                                 end: isoDay(s.clockOut),
-                                 jobTitle: s.jobTitle ?? job?.title ?? "Job",
-                                 deptLabel: dept.label,
-                                 deptColor: dept.color,
-                                 running: false,
-                                 hours: s.hours)
-            }
-            return EntryGroup(id: isoFormatter.string(from: day),
-                              label: df.string(from: day),
-                              entries: items)
-        }
     }
 
     // MARK: - Pay-period window — from the org's time-clock settings
@@ -554,395 +394,5 @@ private struct WeekBarsCard: View {
         }
         .padding(16)
         .frostedCard()
-    }
-}
-
-// MARK: - Job-hours period summary
-
-private struct JobHoursSummaryRow: View {
-    let periodHours: Double
-    let sessions: Int
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("THIS PAY PERIOD")
-                    .font(TTypo.xsBold(11))
-                    .tLabel(tracking: 1.4)
-                    .foregroundStyle(Color(hex: T.muted))
-                Text(String(format: "%.2f h on jobs", periodHours))
-                    .font(.custom(TFontName.bold.rawValue, size: 17))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .tnum()
-            }
-            Spacer()
-            Text("\(sessions) session\(sessions == 1 ? "" : "s")")
-                .font(TTypo.xs(11))
-                .foregroundStyle(Color(hex: T.muted))
-        }
-        .padding(14)
-        .frostedCard(radius: T.cornerMd)
-    }
-}
-
-// MARK: - Running entry card (frosted, gradient STOP)
-
-private struct RunningEntryCard: View {
-    let jobClock: ActiveJobClock
-    let now: Date
-    let isStopping: Bool
-    let onStop: () -> Void
-
-    private var elapsedLabel: String {
-        guard let s = Date.fromFlexibleISO8601(jobClock.clockIn) else { return "—" }
-        var ms = now.timeIntervalSince(s) * 1000
-        ms -= (jobClock.totalPausedMs ?? 0)
-        if let p = jobClock.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
-            ms -= now.timeIntervalSince(pStart) * 1000
-        }
-        let secs = max(0, Int(ms / 1000))
-        return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            IconChip(icon: .hours, color: Color(hex: T.accentGradientStart))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(jobClock.jobTitle ?? "Job")
-                    .font(TTypo.smBold(14))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .lineLimit(1)
-                HStack(spacing: 8) {
-                    TagPill(label: "RUNNING", kind: .indigo, dot: true)
-                    Text(elapsedLabel)
-                        .font(TTypo.monoBold(13))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .tnum()
-                }
-            }
-            Spacer(minLength: 8)
-            GradientCTA(disabled: isStopping, dimmed: false, fullWidth: false,
-                        verticalPadding: 8, action: onStop) {
-                HStack(spacing: 5) {
-                    if isStopping {
-                        ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.6)
-                        Text("STOPPING…").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
-                    } else {
-                        Image(systemName: "stop.fill")
-                        Text("STOP").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
-                    }
-                }
-            }
-            .fixedSize()
-        }
-        .padding(14)
-        .frostedCard()
-    }
-}
-
-// MARK: - Recent entries (used by the Job Hours dated log)
-
-struct TimeEntry: Identifiable {
-    let id: String
-    let start: Date
-    let end: Date?
-    let jobTitle: String
-    let deptLabel: String
-    let deptColor: Color
-    let running: Bool
-    var hours: Double? = nil
-}
-
-struct EntryGroup: Identifiable {
-    let id: String
-    let label: String
-    let entries: [TimeEntry]
-}
-
-private struct EntryGroupCard: View {
-    let group: EntryGroup
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(group.label)
-                .font(TTypo.xsBold(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .tLabel(tracking: 1.4)
-            VStack(spacing: 0) {
-                ForEach(group.entries.indices, id: \.self) { i in
-                    EntryRow(entry: group.entries[i])
-                    if i < group.entries.count - 1 {
-                        SLine().padding(.leading, 60)
-                    }
-                }
-            }
-            .frostedCard(radius: T.cornerMd)
-        }
-    }
-}
-
-private struct EntryRow: View {
-    let entry: TimeEntry
-
-    private var timeRange: String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"
-        let s = f.string(from: entry.start)
-        let e = entry.end.map(f.string(from:)) ?? "live"
-        return "\(s) – \(e)"
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            IconChip(icon: .hours, color: entry.deptColor)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.jobTitle)
-                    .font(TTypo.smBold(14))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .lineLimit(1)
-                Text(timeRange)
-                    .font(TTypo.mono(11))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .tnum()
-            }
-            Spacer(minLength: 8)
-            if entry.running {
-                TagPill(label: "LIVE", kind: .indigo, dot: true)
-            } else if let h = entry.hours {
-                Text(String(format: "%.2fh", h))
-                    .font(TTypo.monoBold(13))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .tnum()
-            }
-        }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-    }
-}
-
-private struct HoursEmptyState: View {
-    var body: some View {
-        VStack(spacing: 8) {
-            TIconView(icon: .hours, size: 24, color: Color(hex: T.muted))
-            Text("No job time this pay period")
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.muted))
-            Text("Start a job from the Jobs tab to log time.")
-                .font(TTypo.xs(11))
-                .foregroundStyle(Color(hex: T.muted))
-        }
-        .frame(maxWidth: .infinity)
-        .padding(22)
-        .frostedCard()
-    }
-}
-
-// MARK: - Time Off request card (one per request, with status + cancel)
-
-private struct TimeOffRequestCard: View {
-    let request: TimeOffRequest
-    let onCancel: () -> Void
-
-    private var typeColor: Color { request.type == "UTO" ? Color(hex: "#F59E0B") : Color(hex: "#10B981") }
-    private var statusPill: (label: String, kind: TagKind, dot: Bool) {
-        switch request.status {
-        case "approved":  return ("Approved", .green, false)
-        case "denied":    return ("Denied", .magenta, false)
-        case "cancelled": return ("Cancelled", .neutral, false)
-        default:          return ("Pending", .amber, true)
-        }
-    }
-    private var rangeLabel: String {
-        let out = DateFormatter(); out.dateFormat = "MMM d"
-        let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]
-        let sL = inF.date(from: request.start).map(out.string(from:)) ?? request.start
-        let eL = inF.date(from: request.end).map(out.string(from:)) ?? request.end
-        return request.start == request.end ? sL : "\(sL) – \(eL)"
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            IconChip(icon: .cal, color: typeColor)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(request.type)
-                        .font(TTypo.smBold(14))
-                        .foregroundStyle(Color(hex: T.ink))
-                    TagPill(label: statusPill.label, kind: statusPill.kind, dot: statusPill.dot)
-                }
-                Text(rangeLabel)
-                    .font(TTypo.xs(12))
-                    .foregroundStyle(Color(hex: T.muted))
-                if request.status == "denied", let r = request.denialReason, !r.isEmpty {
-                    Text("“\(r)”")
-                        .font(TTypo.xs(11))
-                        .italic()
-                        .foregroundStyle(Color(hex: T.muted))
-                        .lineLimit(2)
-                } else if !request.note.isEmpty {
-                    Text(request.note)
-                        .font(TTypo.xs(11))
-                        .foregroundStyle(Color(hex: T.muted))
-                        .lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            if request.status != "cancelled" {
-                Button(action: onCancel) {
-                    Text(request.status == "pending" ? "Cancel" : "Remove")
-                        .font(TTypo.xsBold(11))
-                        .tLabel(tracking: 0.4)
-                        .foregroundStyle(Color(hex: T.muted))
-                        .padding(.horizontal, 11).padding(.vertical, 6)
-                        .background(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(14)
-        .frostedCard(radius: T.cornerMd)
-    }
-}
-
-private struct TimeOffEmptyState: View {
-    var body: some View {
-        VStack(spacing: 8) {
-            TIconView(icon: .cal, size: 24, color: Color(hex: T.muted))
-            Text("No time-off requests")
-                .font(TTypo.smBold(13))
-                .foregroundStyle(Color(hex: T.muted))
-            Text("Tap “Request time off” to submit PTO or UTO.")
-                .font(TTypo.xs(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(22)
-        .frostedCard()
-    }
-}
-
-// MARK: - Request Time Off sheet (date range + PTO/UTO + note)
-
-private struct RequestTimeOffSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var type = "PTO"
-    @State private var start = Date()
-    @State private var end = Date()
-    @State private var note = ""
-    @State private var submitting = false
-    @State private var error: String?
-
-    private static let ymd: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f
-    }()
-
-    private var validRange: Bool {
-        let cal = Calendar.current
-        return cal.startOfDay(for: end) >= cal.startOfDay(for: start)
-    }
-
-    var body: some View {
-        ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
-                    Text("Request Time Off")
-                        .font(TTypo.h3(20))
-                        .foregroundStyle(Color(hex: T.ink))
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color(hex: T.muted))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.top, 18)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("TYPE")
-                        .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                        .foregroundStyle(Color(hex: T.muted))
-                    Picker("", selection: $type) {
-                        Text("PTO · paid").tag("PTO")
-                        Text("UTO · unpaid").tag("UTO")
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                VStack(spacing: 4) {
-                    DatePicker(selection: $start, displayedComponents: .date) {
-                        Text("Start").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
-                    }
-                    .tint(Color(hex: T.accentGradientStart))
-                    SLine()
-                    DatePicker(selection: $end, in: start..., displayedComponents: .date) {
-                        Text("End").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
-                    }
-                    .tint(Color(hex: T.accentGradientStart))
-                }
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .frostedCard(radius: T.cornerMd)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("NOTE (OPTIONAL)")
-                        .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                        .foregroundStyle(Color(hex: T.muted))
-                    TextField("Reason…", text: $note, axis: .vertical)
-                        .lineLimit(1...3)
-                        .font(TTypo.sm(14))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .padding(12)
-                        .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-                        .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
-                }
-
-                if let error {
-                    Text(error)
-                        .font(TTypo.xs(12))
-                        .foregroundStyle(Color(hex: "#DC2626"))
-                }
-
-                Spacer()
-
-                GradientCTA(disabled: submitting || !validRange,
-                            dimmed: submitting || !validRange,
-                            fullWidth: true, verticalPadding: 14, action: submit) {
-                    HStack(spacing: 7) {
-                        if submitting {
-                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
-                        }
-                        Text(submitting ? "SUBMITTING…" : "SUBMIT REQUEST")
-                            .font(TTypo.smBold(14)).tLabel(tracking: 0.8)
-                    }
-                }
-                .padding(.bottom, 18)
-            }
-            .padding(.horizontal, 20)
-        }
-    }
-
-    private func submit() {
-        guard !submitting, validRange else { return }
-        submitting = true
-        error = nil
-        let s = Self.ymd.string(from: start)
-        let e = Self.ymd.string(from: end)
-        let n = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            do {
-                try await appState.submitTimeOff(type: type, start: s, end: e, note: n)
-                submitting = false
-                dismiss()
-            } catch {
-                self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
-                submitting = false
-            }
-        }
     }
 }

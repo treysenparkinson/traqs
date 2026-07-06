@@ -34,15 +34,22 @@ final class AppNav {
     //   • message pushes (chat + finish-request messages)   → { threadKey }
     //   • time-off pushes (request/approved/denied/cancelled) → { requestId }
     // We translate the tap into a tab switch plus a pending target that the
-    // owning tab (Jobs / Chat / Hours) consumes once its data is loaded, then
-    // clears. Keeping it pending (rather than navigating here) lets a cold-start
-    // tap wait for jobs/messages/requests to load before resolving.
+    // owning tab (Jobs / Chat) consumes once its data is loaded, then clears.
+    // Keeping it pending (rather than navigating here) lets a cold-start tap
+    // wait for jobs/messages to load before resolving. Time-off pushes are
+    // different: Time Off is its own nav page (not a tab), so those flip
+    // `openTimeOffPage` instead, which MainTabView presents as a cover.
     enum DeepLink: Equatable {
         case job(number: String)        // open that job's detail
         case thread(key: String)        // open that chat thread
-        case timeOff(requestId: String) // reveal the Hours → Time Off section
+        case timeOff(requestId: String) // documents the requestId push shape
     }
     var pendingDeepLink: DeepLink?
+
+    /// A tapped time-off push flips this true; MainTabView observes it to
+    /// present TimeOffView, then resets it. (Time Off left the Hours tab, so
+    /// it can't be reached via `selected`/`pendingDeepLink` like the others.)
+    var openTimeOffPage: Bool = false
 
     /// Map a tapped notification's `additionalData` to a tab + pending target.
     /// threadKey wins over jobNumber: message pushes only carry threadKey, and
@@ -59,8 +66,10 @@ final class AppNav {
             jobsMode = .list
             pendingDeepLink = .job(number: number)
         } else if let requestId = Self.stringValue(data["requestId"]), !requestId.isEmpty {
-            selected = .hours
-            pendingDeepLink = .timeOff(requestId: requestId)
+            // Time Off is its own nav page now (not the Hours tab): present it
+            // as a cover instead of routing to a tab. The list shows the user's
+            // own requests, so the specific requestId isn't needed to resolve.
+            openTimeOffPage = true
         }
     }
 

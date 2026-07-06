@@ -1,5 +1,8 @@
 import SwiftUI
 
+// One shared ISO8601 formatter for the Past Jobs log (mirrors the Hours tab).
+private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
+
 // MARK: - Stats V2 (org metrics) · TRAQS
 // Admin/dispatcher dashboard. NEW metric set — values are PLACEHOLDERS ("—")
 // until each is wired, one at a time:
@@ -20,6 +23,8 @@ struct MoreView: View {
     @State private var weekAnchor: Date = Date()
     @State private var showCalendar = false
     @State private var overHoursExpanded = false
+    /// Drives the STOP affordance on the live "Past Jobs" running-clock card.
+    @State private var isStopping = false
 
     var body: some View {
         ZStack {
@@ -64,6 +69,44 @@ struct MoreView: View {
                             NonAdminEmpty()
                                 .padding(.top, 80)
                         }
+
+                        // ── Past Jobs (this user's own job-clock history) ──
+                        // Shown to everyone: their completed job sessions for
+                        // the current pay period, plus a live card if a job
+                        // clock is running. Scoped to the current person.
+                        TSectionTitle(title: "Past Jobs")
+
+                        if let active = activeJobClock {
+                            // Own ticker so the per-second elapsed re-renders ONLY
+                            // this card — not MoreView's whole (admin-heavy) body.
+                            TimelineView(.periodic(from: .now, by: 1)) { context in
+                                RunningEntryCard(jobClock: active, now: context.date,
+                                                 isStopping: isStopping,
+                                                 onStop: {
+                                                     guard !isStopping else { return }
+                                                     isStopping = true
+                                                     Task {
+                                                         await appState.jobClockOut()
+                                                         isStopping = false
+                                                     }
+                                                 })
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 4)
+                        }
+
+                        VStack(spacing: 12) {
+                            JobHoursSummaryRow(periodHours: jobPeriodHours,
+                                               sessions: jobSessionsInPeriod.count)
+                            ForEach(jobSessionGroups) { group in
+                                EntryGroupCard(group: group)
+                            }
+                            if jobSessionsInPeriod.isEmpty && activeJobClock == nil {
+                                HoursEmptyState()
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
                     }
                 }
                 .scrollIndicators(.hidden)
@@ -75,10 +118,16 @@ struct MoreView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        // Everyone: this person's own job sessions feed the "Past Jobs" history.
+        // Runs FIRST so the admin org-wide fetch below overwrites it (both write
+        // the same `jobSessions` array) — admins keep whole-org data for the team
+        // stats, and Past Jobs re-filters it to the current person in-view.
+        //
         // Whole-org pay-clock + job-session history (heavy) so the team stats
         // cover everyone. Lifetime data → changing the selected week just
         // re-filters locally, no refetch.
         .task {
+            await appState.refreshJobSessions(personId: appState.currentPersonId)
             guard appState.isAdmin else { return }
             await appState.refreshTimeclock(personId: nil)
             await appState.refreshJobSessions(personId: nil)
@@ -304,6 +353,87 @@ private extension MoreView {
             if d >= week.start && d < week.end { jobIds.insert(s.jobId) }
         }
         return jobIds.count
+    }
+}
+
+// MARK: - Past Jobs compute (this user's own job-clock history) · MoreView
+// Moved verbatim from TimeClockView's "Job Hours" section. Scoped to the
+// CURRENT person and windowed to the org's pay period (not the Stats week).
+
+private extension MoreView {
+    var myId: String? { appState.currentPersonId }
+    var activeJobClock: ActiveJobClock? { appState.myActiveJobClock }
+
+    /// Live hours of the in-progress job clock (independent of the pay clock).
+    var liveJobHours: Double {
+        guard let jc = activeJobClock, let s = Date.fromFlexibleISO8601(jc.clockIn) else { return 0 }
+        let nowDate = Date()
+        var ms = nowDate.timeIntervalSince(s) * 1000
+        ms -= (jc.totalPausedMs ?? 0)
+        if let p = jc.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
+            ms -= nowDate.timeIntervalSince(pStart) * 1000
+        }
+        return max(0, ms / 1000 / 3600)
+    }
+
+    /// My completed job sessions inside the pay period, newest first.
+    var jobSessionsInPeriod: [JobSession] {
+        let w = periodWindow
+        let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
+        return appState.jobSessions
+            .filter { s in
+                guard myId == nil || s.personId == myId else { return false }
+                guard let d = isoDay(s.clockIn) ?? parseISO(s.date ?? "") else { return false }
+                return d >= w.start && d < end
+            }
+            .sorted { ($0.clockIn ?? "") > ($1.clockIn ?? "") }
+    }
+
+    var jobPeriodHours: Double {
+        jobSessionsInPeriod.reduce(0.0) { $0 + ($1.hours ?? 0) } + liveJobHours
+    }
+
+    /// Job sessions grouped by day for the dated log.
+    var jobSessionGroups: [EntryGroup] {
+        let cal = Calendar.current
+        let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
+        let groups = Dictionary(grouping: jobSessionsInPeriod) { s -> Date in
+            cal.startOfDay(for: isoDay(s.clockIn) ?? Date())
+        }
+        return groups.keys.sorted(by: >).map { day in
+            let items = (groups[day] ?? []).map { s -> TimeEntry in
+                let job = appState.jobs.first(where: { $0.id == s.jobId })
+                let dept = job.map(deptForJob) ?? (label: "JOB", color: Color(hex: T.magenta))
+                return TimeEntry(id: s.id,
+                                 start: isoDay(s.clockIn) ?? day,
+                                 end: isoDay(s.clockOut),
+                                 jobTitle: s.jobTitle ?? job?.title ?? "Job",
+                                 deptLabel: dept.label,
+                                 deptColor: dept.color,
+                                 running: false,
+                                 hours: s.hours)
+            }
+            return EntryGroup(id: isoFormatter.string(from: day),
+                              label: df.string(from: day),
+                              entries: items)
+        }
+    }
+
+    /// Pay-period boundaries from the org's time-clock settings (same source
+    /// TimeClockView uses). Fresh Date() — the window only shifts at pay-period
+    /// boundaries, so it needs no per-second ticker.
+    var periodWindow: (start: Date, end: Date) {
+        appState.payPeriodWindow(now: Date())
+    }
+
+    func isoDay(_ iso: String?) -> Date? {
+        guard let iso else { return nil }
+        return Date.fromFlexibleISO8601(iso)
+    }
+
+    func parseISO(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
+        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
     }
 }
 
@@ -617,5 +747,185 @@ private struct WeekPickerSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Past Jobs subviews (moved from the Hours page's Job Hours section)
+
+// MARK: - Job-hours period summary
+
+private struct JobHoursSummaryRow: View {
+    let periodHours: Double
+    let sessions: Int
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("THIS PAY PERIOD")
+                    .font(TTypo.xsBold(11))
+                    .tLabel(tracking: 1.4)
+                    .foregroundStyle(Color(hex: T.muted))
+                Text(String(format: "%.2f h on jobs", periodHours))
+                    .font(.custom(TFontName.bold.rawValue, size: 17))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .tnum()
+            }
+            Spacer()
+            Text("\(sessions) session\(sessions == 1 ? "" : "s")")
+                .font(TTypo.xs(11))
+                .foregroundStyle(Color(hex: T.muted))
+        }
+        .padding(14)
+        .frostedCard(radius: T.cornerMd)
+    }
+}
+
+// MARK: - Running entry card (frosted, gradient STOP)
+
+private struct RunningEntryCard: View {
+    let jobClock: ActiveJobClock
+    let now: Date
+    let isStopping: Bool
+    let onStop: () -> Void
+
+    private var elapsedLabel: String {
+        guard let s = Date.fromFlexibleISO8601(jobClock.clockIn) else { return "—" }
+        var ms = now.timeIntervalSince(s) * 1000
+        ms -= (jobClock.totalPausedMs ?? 0)
+        if let p = jobClock.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
+            ms -= now.timeIntervalSince(pStart) * 1000
+        }
+        let secs = max(0, Int(ms / 1000))
+        return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IconChip(icon: .hours, color: Color(hex: T.accentGradientStart))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(jobClock.jobTitle ?? "Job")
+                    .font(TTypo.smBold(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    TagPill(label: "RUNNING", kind: .indigo, dot: true)
+                    Text(elapsedLabel)
+                        .font(TTypo.monoBold(13))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .tnum()
+                }
+            }
+            Spacer(minLength: 8)
+            GradientCTA(disabled: isStopping, dimmed: false, fullWidth: false,
+                        verticalPadding: 8, action: onStop) {
+                HStack(spacing: 5) {
+                    if isStopping {
+                        ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.6)
+                        Text("STOPPING…").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
+                    } else {
+                        Image(systemName: "stop.fill")
+                        Text("STOP").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
+                    }
+                }
+            }
+            .fixedSize()
+        }
+        .padding(14)
+        .frostedCard()
+    }
+}
+
+// MARK: - Recent entries (used by the Past Jobs dated log)
+
+struct TimeEntry: Identifiable {
+    let id: String
+    let start: Date
+    let end: Date?
+    let jobTitle: String
+    let deptLabel: String
+    let deptColor: Color
+    let running: Bool
+    var hours: Double? = nil
+}
+
+struct EntryGroup: Identifiable {
+    let id: String
+    let label: String
+    let entries: [TimeEntry]
+}
+
+private struct EntryGroupCard: View {
+    let group: EntryGroup
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(group.label)
+                .font(TTypo.xsBold(11))
+                .foregroundStyle(Color(hex: T.muted))
+                .tLabel(tracking: 1.4)
+            VStack(spacing: 0) {
+                ForEach(group.entries.indices, id: \.self) { i in
+                    EntryRow(entry: group.entries[i])
+                    if i < group.entries.count - 1 {
+                        SLine().padding(.leading, 60)
+                    }
+                }
+            }
+            .frostedCard(radius: T.cornerMd)
+        }
+    }
+}
+
+private struct EntryRow: View {
+    let entry: TimeEntry
+
+    private var timeRange: String {
+        let f = DateFormatter(); f.dateFormat = "HH:mm"
+        let s = f.string(from: entry.start)
+        let e = entry.end.map(f.string(from:)) ?? "live"
+        return "\(s) – \(e)"
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            IconChip(icon: .hours, color: entry.deptColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.jobTitle)
+                    .font(TTypo.smBold(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                Text(timeRange)
+                    .font(TTypo.mono(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .tnum()
+            }
+            Spacer(minLength: 8)
+            if entry.running {
+                TagPill(label: "LIVE", kind: .indigo, dot: true)
+            } else if let h = entry.hours {
+                Text(String(format: "%.2fh", h))
+                    .font(TTypo.monoBold(13))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .tnum()
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+    }
+}
+
+private struct HoursEmptyState: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            TIconView(icon: .hours, size: 24, color: Color(hex: T.muted))
+            Text("No job time this pay period")
+                .font(TTypo.smBold(13))
+                .foregroundStyle(Color(hex: T.muted))
+            Text("Start a job from the Jobs tab to log time.")
+                .font(TTypo.xs(11))
+                .foregroundStyle(Color(hex: T.muted))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(22)
+        .frostedCard()
     }
 }
