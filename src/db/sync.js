@@ -41,7 +41,9 @@ export async function applyDelta(resp) {
   const changed = [];
 
   for (const entity of ARRAY_ENTITIES) {
-    const recs = resp[entity];
+    // `payhours` is the canonical /sync key; fall back to the deprecated
+    // `timeclock` alias the server still emits during rollout, for safety.
+    const recs = entity === "payhours" && resp.payhours === undefined ? resp.timeclock : resp[entity];
     if (!Array.isArray(recs) || recs.length === 0) continue;
     const toPut = recs.filter((r) => r && !r.deletedAt);
     const toDelete = recs.filter((r) => r && r.deletedAt).map((r) => String(r.id));
@@ -68,7 +70,7 @@ export async function applyDelta(resp) {
 // Full snapshot into empty tables (first ever load, or a forced rebuild).
 export async function fullResync() {
   const resp = await fetchDelta("0");
-  await db.transaction("rw", db.tasks, db.people, db.clients, db.messages, db.groups, db.timeclock, db.orgConfig, db.settings, async () => {
+  await db.transaction("rw", [...ARRAY_ENTITIES.map((e) => db[e]), db.orgConfig, db.settings], async () => {
     await Promise.all([...ARRAY_ENTITIES.map((e) => db[e].clear()), db.orgConfig.clear(), db.settings.clear()]);
   });
   const changed = await applyDelta(resp);

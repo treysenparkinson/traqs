@@ -2554,8 +2554,8 @@ Extraction rules:
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
-    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; }
+    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
+    catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; }
   });
   // Custom job-list columns are ORG-WIDE: stored in orgSettings (synced to S3), so a column an
   // admin (or anyone) adds shows up for everyone. Per-user prefs (alignment, filters, colors,
@@ -3626,7 +3626,7 @@ Extraction rules:
       try {
         if (!(await hasCachedData())) return;
         const [cT, cP, cC, cTC] = await Promise.all([
-          readSlice("tasks"), readSlice("people"), readSlice("clients"), readSlice("timeclock"),
+          readSlice("tasks"), readSlice("people"), readSlice("clients"), readSlice("payhours"),
         ]);
         if (cancelled || dataLoadedRef.current) return;
         _setTasks(normalizeTasks(cT || []));
@@ -3692,7 +3692,7 @@ Extraction rules:
         if (!server || Object.keys(server).length === 0) return;
         skipNextOrgSave.current = true;
         setOrgSettings(() => {
-          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } };
+          const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } };
           const merged = { ...base, ...server };
           if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
           if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = server.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
@@ -4173,8 +4173,8 @@ Extraction rules:
           setMessages((await readSlice("messages")) || []);
         } else if (entity === "groups") {
           setGroups((await readSlice("groups")) || []);
-        } else if (entity === "timeclock") {
-          setTimeclock((await readSlice("timeclock")) || []);
+        } else if (entity === "payhours") {
+          setTimeclock((await readSlice("payhours")) || []);
         } else if (entity === "settings") {
           const s = await readSlice("settings");
           if (s && typeof s === "object") { skipNextOrgSave.current = true; setOrgSettings(prev => ({ ...prev, ...s })); }
@@ -4182,7 +4182,7 @@ Extraction rules:
         // orgConfig is a prop owned by App.jsx — can't be updated from here (see report).
       } catch (e) { console.warn(`[rehydrate ${entity}] failed:`, e?.message || e); }
     };
-    const names = ["tasks", "people", "clients", "messages", "groups", "timeclock", "settings"];
+    const names = ["tasks", "people", "clients", "messages", "groups", "payhours", "settings"];
     const handlers = names.map(entity => { const h = () => applySlice(entity); syncBus.addEventListener(`${entity}-changed`, h); return [entity, h]; });
     return () => { handlers.forEach(([entity, h]) => syncBus.removeEventListener(`${entity}-changed`, h)); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4199,7 +4199,7 @@ Extraction rules:
     (async () => {
       const client = await realtime.connect({ orgCode, getToken, onReconnect: () => deltaSync().catch(() => {}) });
       if (!active || !client) return;
-      for (const entity of ["tasks", "people", "clients", "messages", "groups", "timeclock", "orgConfig", "settings"]) {
+      for (const entity of ["tasks", "people", "clients", "messages", "groups", "payhours", "productionhours", "orgConfig", "settings"]) {
         unsubs.push(realtime.subscribe(entity, () => { deltaSync().catch(() => {}); }));
       }
       // timeoff is NOT a /sync delta entity — it has its own GET endpoint — so
@@ -11698,6 +11698,23 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>Not a hard stop — people can still clock past this. Anything over the cap shows as overtime everywhere.</div>
             </div>}
 
+            {/* iOS Pay Clock */}
+            {isAdmin && <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                Mobile Clock-In
+                <span title={"Pay Hours: time on the clock earning wages, regardless of job attribution.\nProduction Hours: time attributed to a specific job for progress tracking."} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", border: `1px solid ${T.border}`, color: T.textDim, fontSize: 9, fontWeight: 700, cursor: "help", lineHeight: 1 }}>i</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button type="button" className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, iosPayClockEnabled: !s.iosPayClockEnabled }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: "none", background: orgSettings.iosPayClockEnabled ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                  <span style={{ position: "absolute", top: 3, left: orgSettings.iosPayClockEnabled ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
+                </button>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Allow workers to clock in for pay from iOS app</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>When off, pay clock-in is kiosk-only; the iOS app can still track production hours per job.</div>
+                </div>
+              </div>
+            </div>}
+
             {/* Clock Events */}
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Clock Events</div>
@@ -12619,6 +12636,21 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 14, color: T.text }}>hours per pay period</span>
                 </div>
                 <div style={{ fontSize: 12, color: T.textDim }}>Not a hard stop — people can still clock past this. Anything over the cap shows as overtime everywhere.</div>
+              </div>}
+              {isAdmin && <div style={{ marginBottom: 24 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+                  Mobile Clock-In
+                  <span title={"Pay Hours: time on the clock earning wages, regardless of job attribution.\nProduction Hours: time attributed to a specific job for progress tracking."} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 15, height: 15, borderRadius: "50%", border: `1px solid ${T.border}`, color: T.textDim, fontSize: 10, fontWeight: 700, cursor: "help", lineHeight: 1 }}>i</span>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <button type="button" onClick={() => setOrgSettings(s => ({ ...s, iosPayClockEnabled: !s.iosPayClockEnabled }))} style={{ flexShrink: 0, width: 46, height: 26, borderRadius: 13, border: "none", background: orgSettings.iosPayClockEnabled ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                    <span style={{ position: "absolute", top: 3, left: orgSettings.iosPayClockEnabled ? 23 : 3, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.2s" }} />
+                  </button>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>Allow workers to clock in for pay from iOS app</div>
+                    <div style={{ fontSize: 12, color: T.textDim }}>When off, pay clock-in is kiosk-only; the iOS app can still track production hours per job.</div>
+                  </div>
+                </div>
               </div>}
               <div style={{ marginBottom: 24 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Clock Events</div>

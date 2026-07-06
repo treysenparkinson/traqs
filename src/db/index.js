@@ -21,6 +21,14 @@ db.version(1).stores({
   settings: "key",    // single row { key: "current", value: {...} }
   meta: "key",        // { key: "sync-cursor", serverTime, lastFullSyncAt }
 });
+// v2: pay/production split — timeclock.json → payhours.json (+ productionhours.json).
+// Drop the old `timeclock` table (data re-syncs into `payhours` on next deltaSync)
+// and add the two renamed slices. See PAYHOURS/PRODUCTIONHOURS contract.
+db.version(2).stores({
+  timeclock: null,    // dropped — replaced by payhours
+  payhours: "id, lastModifiedAt, personId",
+  productionhours: "id, lastModifiedAt, personId",
+});
 
 // Event bus so the write-through cache can tell React which slices to re-hydrate.
 // applyDelta() dispatches `${entity}-changed` (and a summary `any-changed`);
@@ -28,5 +36,5 @@ db.version(1).stores({
 export const syncBus = new EventTarget();
 
 // Entities stored as arrays of records (vs the two object entities).
-export const ARRAY_ENTITIES = ["tasks", "people", "clients", "messages", "groups", "timeclock"];
+export const ARRAY_ENTITIES = ["tasks", "people", "clients", "messages", "groups", "payhours", "productionhours"];
 export const OBJECT_ENTITIES = ["orgConfig", "settings"];
