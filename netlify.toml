@@ -22,6 +22,11 @@
 [functions."backup-daily"]
   schedule = "0 5 * * *"
 
+# Daily sweep for forgotten clock-outs: flags pay shifts open > 12h and pushes
+# a reminder to the worker + an alert to admins (once per shift). 5am UTC.
+[functions."forgot-clockout"]
+  schedule = "0 5 * * *"
+
 # ── Security headers ─────────────────────────────────────────────────────────
 # Applied to every response Netlify serves from the SPA build. Keep them
 # permissive enough not to break the existing toolchain (DM Sans from Google
