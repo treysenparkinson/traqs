@@ -16561,7 +16561,7 @@ ${jobsCtx || "No jobs found."}`;
 
   // ── Section bodies ──
   // Shared style helpers for settings sections (card surface + labeled inputs).
-  const stCard = { background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "20px" };
+  const stCard = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 22, padding: "22px 24px" };
   const stLabel = { fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 };
   const stFieldLabel = { fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, fontFamily: T.font };
   const stInput = { width: "100%", padding: "11px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.2s, box-shadow 0.2s" };
@@ -17030,7 +17030,7 @@ ${jobsCtx || "No jobs found."}`;
     const pSysText = pT.systemText || pT.text;
     const pSysBorder = pT.systemBorder || pT.border;
     const lbl = { fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 };
-    const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px 18px", marginBottom: 16 };
+    const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: 22, padding: "18px 20px", marginBottom: 16 };
     const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
     const ROSTER = 132;
     const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
@@ -17071,7 +17071,7 @@ ${jobsCtx || "No jobs found."}`;
         `}</style>
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
           {/* Controls */}
-          <div style={{ width: 460, flexShrink: 0, borderRight: `1px solid ${T.border}`, overflowY: "auto", padding: "20px 22px", background: T.surfaceSolid || T.card }}>
+          <div style={{ width: 460, flexShrink: 0, overflowY: "auto", padding: "20px 22px", background: T.surfaceSolid || T.card }}>
             <div style={card}>
               <div style={lbl}>Theme</div>
               <div style={{ display: "flex", gap: 8 }}>
@@ -17376,11 +17376,11 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.bg, fontFamily: T.font, overflow: "hidden" }}>
         {/* Pinned background image — section cards (.tq-frost) blur over it, matching the rest of the app */}
         {showBg && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", zIndex: 0, pointerEvents: "none" }} />}
-        {/* Top row — breadcrumb + section title (Exit is now the Back button at the top of the sidebar) */}
-        <div style={{ position: "relative", zIndex: 1, flexShrink: 0, padding: "20px 32px 12px" }}>
+        {/* Top row — breadcrumb + section title. Hidden on Customization so the split view fills the page. */}
+        {!wide && <div style={{ position: "relative", zIndex: 1, flexShrink: 0, padding: "20px 32px 12px" }}>
           <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: T.textDim, marginBottom: 2 }}>{meta.crumb}</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>{meta.title}</div>
-        </div>
+        </div>}
         {/* Section body — full-bleed flex for Customization (split view), padded scroll otherwise.
             Save/Discard now render inline below the section's elements (see renderSettingsActions). */}
         {wide
