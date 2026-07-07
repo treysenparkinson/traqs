@@ -2245,6 +2245,35 @@ Extraction rules:
   // Design + Organization launchers in the sidebar Settings tree open dedicated modals (TRAQS fade pattern).
   const [designModalOpen, setDesignModalOpen] = useState(false);
   const [orgSettingsModalOpen, setOrgSettingsModalOpen] = useState(false);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Full-page Settings — replaces the old modal/dropdown settings. Pressing
+  // "Settings" enters settingsMode: the sidebar nav cross-fades to the settings
+  // section list and the content panel renders renderSettingsPage() instead of
+  // the AnimatedView. Each section buffers edits in settingsDraft and commits on
+  // an explicit bottom Save; exiting or switching sections while dirty is guarded.
+  // ═══════════════════════════════════════════════════════════════════════════
+  const [settingsMode, setSettingsMode] = useState(false);
+  const [priorView, setPriorView] = useState("tasks");        // view to restore on Exit
+  const [settingsSection, setSettingsSection] = useState("general");
+  const [settingsOrgExpanded, setSettingsOrgExpanded] = useState(true); // the ONLY dropdown in the settings nav
+  const [settingsDraft, setSettingsDraft] = useState(null);   // per-section edit buffer (deep copy of the slice)
+  const settingsPristineRef = useRef(null);                   // JSON snapshot of the draft at load, for dirty compare
+  const [settingsSaving, setSettingsSaving] = useState(false);// true while a section Save is in flight
+  const [settingsGuard, setSettingsGuard] = useState(null);   // null | { kind: "exit" } | { kind: "section", target }
+  // Cross-fade between the app and the settings view: while true, BOTH layers are mounted so
+  // one can fade out as the other fades in (entering AND exiting). Cleared after the fade.
+  const [settingsTransitioning, setSettingsTransitioning] = useState(false);
+  const settingsAnimTimer = useRef(null);
+  // Warn on hard browser navigation (reload/close tab) while a settings section is dirty.
+  // NOTE: this hook lives here — among the top-level hooks, before any early return — so the
+  // hook count never changes between renders. computeSettingsDirty is defined later in the
+  // component but is only invoked inside the (deferred) effect callback, so it's initialized by then.
+  useEffect(() => {
+    if (!settingsMode) return;
+    const h = (e) => { if (computeSettingsDirty()) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [settingsMode, settingsSection, settingsDraft, draftMode, draftCustom, draftSidebar]); // eslint-disable-line react-hooks/exhaustive-deps
   // Admin tool — quick PIN reset surfaced inside the Organization Settings panel.
   const [taskSubView, setTaskSubView] = useState("list"); // "cards" | "list"
   const [tasks, _setTasks] = useState([]);
@@ -2410,7 +2439,16 @@ Extraction rules:
   const placeNavPill = () => {
     const pill = navPillRef.current;
     if (!pill) return;
-    const btn = navBtnRefs.current[view];
+    // In settings mode the pill follows the active settings section button. Org children live in a
+    // collapsible dropdown — if it's collapsed, point the pill at the Organization parent instead.
+    let key;
+    if (settingsMode) {
+      const isOrgChild = settingsSection.startsWith("org-");
+      key = (isOrgChild && !(settingsOrgExpanded && sidebarExpanded)) ? "settings:org-parent" : "settings:" + settingsSection;
+    } else {
+      key = view;
+    }
+    const btn = navBtnRefs.current[key];
     if (!btn) { pill.style.opacity = "0"; return; }
     pill.style.opacity = "1";
     pill.style.left = `${btn.offsetLeft}px`;
@@ -2439,7 +2477,7 @@ Extraction rules:
     const t2 = setTimeout(placeNavPill, 280);
     return () => { clearTimeout(t1); clearTimeout(t2); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, sidebarExpanded, sidebarTimeOpen, sidebarSettingsOpen, sidebarMode]);
+  }, [view, sidebarExpanded, sidebarTimeOpen, sidebarSettingsOpen, sidebarMode, settingsMode, settingsSection, settingsOrgExpanded]);
   const [timeOffModal, setTimeOffModal] = useState(false);
   const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
@@ -16343,6 +16381,1016 @@ ${jobsCtx || "No jobs found."}`;
   // Filter out admin users from the shop crew display (they don't get assigned tasks)
   const shopPeople = people.filter(p => p.userRole === "user");
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // FULL-PAGE SETTINGS — helpers + renderers
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Organization is the only expandable group in the settings nav.
+  const SETTINGS_ORG_CHILDREN = [
+    { key: "org-general", label: "General" },
+    { key: "org-departments", label: "Departments" },
+    { key: "org-permissions", label: "Worker Permissions" },
+    { key: "org-schedule", label: "Schedule Preferences" },
+    { key: "org-approval-templates", label: "Approval Queue Templates" },
+    { key: "org-timeclock", label: "Time Clock" },
+  ];
+  const settingsSectionMeta = {
+    "general": { title: "General", crumb: "Profile" },
+    "org-general": { title: "General", crumb: "Organization" },
+    "org-departments": { title: "Departments", crumb: "Organization" },
+    "org-permissions": { title: "Worker Permissions", crumb: "Organization" },
+    "org-schedule": { title: "Schedule Preferences", crumb: "Organization" },
+    "org-approval-templates": { title: "Approval Queue Templates", crumb: "Organization" },
+    "org-timeclock": { title: "Time Clock", crumb: "Organization" },
+    "customization": { title: "Customization", crumb: "Appearance" },
+  };
+
+  // Merge a patch into the current section draft (function or object patch).
+  const patchDraft = (patch) => setSettingsDraft(d => ({ ...(d || {}), ...(typeof patch === "function" ? patch(d || {}) : patch) }));
+
+  // Snapshot the slice a section edits into settingsDraft + a pristine JSON baseline.
+  const loadSectionDraft = (section) => {
+    let d = null;
+    if (section === "general") {
+      const me = loggedInUser || {};
+      d = { name: me.name || "", email: me.email || "", phone: me.phone || "", color: me.color || "", image: me.image || null };
+    } else if (section === "org-general") {
+      d = { orgName: orgName || "" };
+    } else if (section === "org-departments") {
+      d = { roles: [...(orgSettings.roles || [])] };
+    } else if (section === "org-permissions") {
+      d = { people: people.map(p => ({ ...p, adminPerms: p.adminPerms ? { ...p.adminPerms } : p.adminPerms })) };
+    } else if (section === "org-schedule") {
+      d = { workStart: orgSettings.workStart, workEnd: orgSettings.workEnd, hpd: orgSettings.hpd, workDays: [...(orgSettings.workDays || [])], holidays: [...(orgSettings.holidays || [])], breaks: (orgSettings.breaks || []).map(b => ({ ...b })), lunch: { ...(orgSettings.lunch || {}) } };
+    } else if (section === "org-approval-templates") {
+      d = { signOffTemplates: (orgSettings.signOffTemplates || []).map(t => ({ ...t, steps: [...(t.steps || [])] })) };
+    } else if (section === "org-timeclock") {
+      d = { payDates: [...(orgSettings.payDates || [5, 20])], payPeriodHourCap: orgSettings.payPeriodHourCap ?? 80, iosPayClockEnabled: !!orgSettings.iosPayClockEnabled, trackLunch: !!orgSettings.trackLunch, trackBreaks: !!orgSettings.trackBreaks, people: people.map(p => ({ ...p })) };
+    } else if (section === "customization") {
+      // Theme uses its own draft trio (draftMode/draftCustom/draftSidebar); mirror the live theme in.
+      setDraftMode(themeMode); setDraftCustom({ ...customTheme }); setDraftSidebar(sidebarMode); setPreviewView("jobs"); setDisplayedPreview("jobs");
+    }
+    setSettingsDraft(d);
+    settingsPristineRef.current = d ? JSON.stringify(d) : null;
+    setSignOffTemplateEditing(null);
+    setOrgEditing(null); setOrgCodeError(""); setOrgNameError("");
+  };
+
+  // Is the current section dirty vs its pristine baseline?
+  const computeSettingsDirty = () => {
+    if (settingsSection === "customization") {
+      return draftMode !== themeMode || draftSidebar !== sidebarMode || (draftMode === "custom" && JSON.stringify(draftCustom) !== JSON.stringify(customTheme));
+    }
+    if (!settingsDraft || settingsPristineRef.current == null) return false;
+    return JSON.stringify(settingsDraft) !== settingsPristineRef.current;
+  };
+
+  // Commit the current section's draft to real state (which the existing auto-save
+  // effects then persist). Returns true on success. Org code is intentionally NOT
+  // handled here — it reloads the app and lives in its own isolated action.
+  const saveSection = async () => {
+    const sec = settingsSection;
+    setSettingsSaving(true);
+    try {
+      if (sec === "general") {
+        const dd = settingsDraft || {};
+        const updated = latestPeopleRef.current.map(p => p.id === loggedInUser.id ? { ...p, name: dd.name, email: dd.email, phone: dd.phone, color: dd.color, image: dd.image } : p);
+        await savePeople(updated, getToken, orgCode);
+        setPeople(updated);
+      } else if (sec === "org-general") {
+        const dd = settingsDraft || {};
+        const newName = (dd.orgName || "").trim();
+        if (newName && newName !== orgName) {
+          const res = await updateOrgName(newName, getToken, orgCode);
+          setOrgName(res?.config?.name || newName);
+          try { const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {}; sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {}
+        }
+      } else if (sec === "org-departments") {
+        setOrgSettings(s => ({ ...s, roles: [...(settingsDraft.roles || [])] }));
+      } else if (sec === "org-permissions") {
+        const updated = (settingsDraft.people || []).map(p => ({ ...p }));
+        await savePeople(updated, getToken, orgCode);
+        setPeople(updated);
+      } else if (sec === "org-schedule") {
+        const dd = settingsDraft || {};
+        setOrgSettings(s => ({ ...s, workStart: dd.workStart, workEnd: dd.workEnd, hpd: dd.hpd, workDays: [...(dd.workDays || [])], holidays: [...(dd.holidays || [])], breaks: (dd.breaks || []).map(b => ({ ...b })), lunch: { ...(dd.lunch || {}) } }));
+      } else if (sec === "org-approval-templates") {
+        setOrgSettings(s => ({ ...s, signOffTemplates: (settingsDraft.signOffTemplates || []).map(t => ({ ...t, steps: [...(t.steps || [])] })) }));
+      } else if (sec === "org-timeclock") {
+        const dd = settingsDraft || {};
+        setOrgSettings(s => ({ ...s, payDates: [...(dd.payDates || [5, 20])], payPeriodHourCap: dd.payPeriodHourCap, iosPayClockEnabled: dd.iosPayClockEnabled, trackLunch: dd.trackLunch, trackBreaks: dd.trackBreaks }));
+        const updated = (dd.people || []).map(p => ({ ...p }));
+        await savePeople(updated, getToken, orgCode);
+        setPeople(updated);
+      } else if (sec === "customization") {
+        setThemeMode(draftMode);
+        if (draftMode === "custom") setCustomTheme(draftCustom);
+        setSidebarMode(draftSidebar);
+      }
+      // Reset the dirty baseline: the draft we just committed is the new truth.
+      if (sec !== "customization" && settingsDraft) settingsPristineRef.current = JSON.stringify(settingsDraft);
+      setSettingsSaving(false);
+      return true;
+    } catch (e) {
+      console.error("Settings save failed:", e);
+      setSettingsSaving(false);
+      return false;
+    }
+  };
+
+  // Mount both app + settings layers for ~300ms so they can cross-fade in either direction.
+  const runSettingsCrossfade = () => {
+    setSettingsTransitioning(true);
+    if (settingsAnimTimer.current) clearTimeout(settingsAnimTimer.current);
+    settingsAnimTimer.current = setTimeout(() => setSettingsTransitioning(false), 420);
+  };
+  const enterSettings = () => {
+    setPriorView(view);
+    setSettingsSection("general");
+    loadSectionDraft("general");
+    setSettingsMode(true);
+    runSettingsCrossfade();
+  };
+  const doExitSettings = () => {
+    // Keep settingsDraft/pristine intact so the fading-out settings layer still shows its
+    // content; the next enterSettings reloads the draft fresh.
+    setSettingsMode(false);
+    setSettingsGuard(null);
+    setView(priorView || "tasks");
+    runSettingsCrossfade();
+  };
+  const requestExitSettings = () => {
+    if (computeSettingsDirty()) { setSettingsGuard({ kind: "exit" }); return; }
+    doExitSettings();
+  };
+  const navigateSection = (target) => {
+    if (target === settingsSection) return;
+    if (computeSettingsDirty()) { setSettingsGuard({ kind: "section", target }); return; }
+    setSettingsSection(target);
+    loadSectionDraft(target);
+  };
+  const discardSection = () => { loadSectionDraft(settingsSection); };
+
+  // Sidebar nav groups (app nav ↔ settings nav) swap instantly — no fade. Only the content
+  // area cross-fades on enter/exit; the sidebar just switches its button list.
+  const settingsNavLayer = () => ({ display: "flex", flexDirection: "column", gap: 2 });
+
+  // Unsaved-changes confirm — shown when exiting or switching section while dirty.
+  const renderSettingsGuard = () => {
+    const g = settingsGuard;
+    if (!g) return null;
+    const proceed = () => {
+      setSettingsGuard(null);
+      if (g.kind === "exit") doExitSettings();
+      else if (g.kind === "section") { setSettingsSection(g.target); loadSectionDraft(g.target); }
+    };
+    const ghost = { padding: "9px 18px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
+    return (
+      <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10050, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}>
+        <div className="anim-modal-box" style={{ width: "min(420px, 92vw)", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radius, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", padding: "24px" }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: T.text, marginBottom: 8 }}>Unsaved changes</div>
+          <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.5, marginBottom: 22 }}>You have unsaved changes in <strong style={{ color: T.text }}>{settingsSectionMeta[settingsSection]?.title}</strong>. Save them before leaving?</div>
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <button onClick={() => setSettingsGuard(null)} style={ghost}>Cancel</button>
+            <button onClick={proceed} style={{ ...ghost, color: "#ef4444", borderColor: "#ef444455" }}>Discard</button>
+            <Btn size="sm" disabled={settingsSaving} onClick={async () => { const ok = await saveSection(); if (ok) proceed(); }}>{settingsSaving ? "Saving…" : "Save & continue"}</Btn>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Section bodies ──
+  // Shared style helpers for settings sections (card surface + labeled inputs).
+  const stCard = { background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "20px" };
+  const stLabel = { fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 };
+  const stFieldLabel = { fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, fontFamily: T.font };
+  const stInput = { width: "100%", padding: "11px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.2s, box-shadow 0.2s" };
+  const stInputFocus = e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; };
+  const stInputBlur = e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; };
+  const stGhostBtn = { padding: "8px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
+  const PROFILE_COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#ef4444", "#f59e0b", "#10b981", "#14b8a6", "#6366f1", "#64748b", "#0ea5e9"];
+
+  const renderSettingsGeneral = () => {
+    const d = settingsDraft || {};
+    const avatarColor = d.color || "#3b82f6";
+    const onPickImage = async (file) => {
+      if (!file) return;
+      try { const data = await downscaleImage(file, 512, 0.85, "image/jpeg"); patchDraft({ image: data }); } catch (e) { console.error("Avatar resize failed:", e); }
+    };
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Profile Photo</div>
+          <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ width: 84, height: 84, borderRadius: 42, background: d.image ? T.surface : avatarColor, backgroundImage: d.image ? `url(${d.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, fontWeight: 800, color: accentText(avatarColor), flexShrink: 0, border: `2px solid ${T.border}` }}>{d.image ? "" : ((d.name || "?").trim()[0] || "?").toUpperCase()}</div>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: d.image ? 0 : 14 }}>
+                <label style={{ ...stGhostBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                  {d.image ? "Change photo" : "Upload photo"}
+                  <input type="file" accept="image/*" onChange={e => onPickImage(e.target.files?.[0])} style={{ display: "none" }} />
+                </label>
+                {d.image && <button onClick={() => patchDraft({ image: null })} style={stGhostBtn}>Remove photo</button>}
+              </div>
+              {!d.image && <>
+                <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Or choose an avatar color</div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                  {PROFILE_COLORS.map(c => <button key={c} onClick={() => patchDraft({ color: c })} title={c} style={{ width: 28, height: 28, borderRadius: 14, background: c, border: (d.color || "").toLowerCase() === c ? `2px solid ${T.text}` : "2px solid transparent", boxShadow: (d.color || "").toLowerCase() === c ? `0 0 0 2px ${T.card}` : "none", cursor: "pointer", padding: 0 }} />)}
+                </div>
+                <HexColorPicker color={avatarColor} onChange={c => patchDraft({ color: c })} style={{ width: 190, height: 120 }} />
+              </>}
+            </div>
+          </div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Your Details</div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={stFieldLabel}>Full Name</div>
+            <input value={d.name || ""} onChange={e => patchDraft({ name: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="Full name" style={stInput} />
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={stFieldLabel}>Email</div>
+            <input type="email" value={d.email || ""} onChange={e => patchDraft({ email: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="you@company.com" style={stInput} />
+          </div>
+          <div>
+            <div style={stFieldLabel}>Phone</div>
+            <input type="tel" value={d.phone || ""} onChange={e => patchDraft({ phone: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="(555) 123-4567" style={stInput} />
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const renderSettingsOrgGeneral = () => {
+    const d = settingsDraft || {};
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Organization Name</div>
+          <input value={d.orgName || ""} onChange={e => patchDraft({ orgName: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} maxLength={80} placeholder="Company name" style={stInput} />
+          <div style={{ fontSize: 12, color: T.textDim, marginTop: 8 }}>Shown across the app and on exports. Saved with the Save button below.</div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Organization Code</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: T.text, fontFamily: T.mono, letterSpacing: "0.08em" }}>{orgCode || "—"}</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Everyone signs in with this code.</div>
+            </div>
+            {orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={stGhostBtn}>Change code</button>}
+          </div>
+          {orgEditing === "code" && <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
+            <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 10, display: "flex", gap: 8, alignItems: "flex-start", lineHeight: 1.5 }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+              <span>Changing the code reloads the app immediately and everyone must sign in with the new code. This can't be batched with the Save button.</span>
+            </div>
+            <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="NEW CODE" maxLength={20} style={{ ...stInput, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", marginBottom: 8, textTransform: "uppercase" }} />
+            {orgCodeError && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 8 }}>{orgCodeError}</div>}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={stGhostBtn}>Cancel</button>
+              <Btn size="sm" disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }}>{orgCodeSaving ? "Changing…" : "Change code & reload"}</Btn>
+            </div>
+          </div>}
+        </div>
+      </div>
+    );
+  };
+  const renderSettingsDepartments = () => {
+    const d = settingsDraft || {};
+    const roles = d.roles || [];
+    const addRole = () => { const v = roleInput.trim(); if (v && !roles.includes(v)) { patchDraft(dd => ({ roles: [...(dd.roles || []), v] })); setRoleInput(""); } };
+    const commitEdit = () => { const v = roleEditVal.trim(); if (v && !roles.some((x, i) => x === v && i !== roleEditId)) { patchDraft(dd => ({ roles: (dd.roles || []).map((x, i) => i === roleEditId ? v : x) })); } setRoleEditId(null); };
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Departments</div>
+          <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.6, marginBottom: 16 }}>Departments determine scheduling eligibility — workers are only assigned to tasks matching their department.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
+            {roles.length === 0 && <div style={{ fontSize: 13, color: T.textDim, padding: "12px 0", textAlign: "center" }}>No departments yet — add one below</div>}
+            {roles.map((r, idx) => (
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: T.surface, border: `1px solid ${roleEditId === idx ? T.accent + "66" : T.border}`, borderRadius: T.radiusSm, transition: "border-color 0.15s" }}>
+                {roleEditId === idx
+                  ? <input autoFocus value={roleEditVal} onChange={e => setRoleEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commitEdit(); else if (e.key === "Escape") setRoleEditId(null); }} onBlur={commitEdit} style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 14, color: T.text, fontFamily: T.font }} />
+                  : <span style={{ flex: 1, fontSize: 14, color: T.text }}>{r}</span>}
+                {roleEditId !== idx && <Tip label="Edit"><button onClick={() => { setRoleEditId(idx); setRoleEditVal(r); }} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 13, padding: "0 4px", lineHeight: 1, display: "flex", alignItems: "center" }}>✎</button></Tip>}
+                <Tip label="Delete"><button onClick={() => { patchDraft(dd => ({ roles: (dd.roles || []).filter((_, i) => i !== idx) })); if (roleEditId === idx) setRoleEditId(null); }} style={{ background: "none", border: "none", color: T.danger || "#ef4444", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", display: "flex", alignItems: "center" }}>✕</button></Tip>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
+            <input value={roleInput} onChange={e => setRoleInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") addRole(); }} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="New department name, e.g. Wiring, Fabrication…" style={{ ...stInput, flex: 1 }} />
+            <Btn size="sm" onClick={addRole}>Add</Btn>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const renderSettingsPermissions = () => {
+    const d = settingsDraft || {};
+    const dp = d.people || [];
+    const updDraftPerson = (id, upd) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, ...upd } : p) }));
+    const sorted = [...dp].sort((a, b) => a.name.localeCompare(b.name));
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Worker Permissions</div>
+          <div style={{ marginBottom: 14, fontSize: 12, color: T.textDim }}>Click a person to expand their permissions. New members have no admin permissions until explicitly granted. Changes save when you press Save below.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {sorted.map(person => {
+              const isSelected = settingsUser === person.id;
+              const isAdm = person.userRole === "admin";
+              const permsEnabled = perm => person.adminPerms == null || person.adminPerms[perm] === true;
+              const togglePerm = (key, val) => updDraftPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } });
+              const showPin = showPinIds.has(person.id);
+              const pc = elColor(person.color || "#555");
+              return <div key={person.id}>
+                <div onClick={() => setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 10, background: person.image ? T.surface : pc, backgroundImage: person.image ? `url(${person.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: accentText(pc), flexShrink: 0 }}>{person.image ? "" : person.name[0]}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
+                    <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
+                    {person.canSignOff && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Approver</span>}
+                    {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
+                  </div>
+                  <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateRows: isSelected ? "1fr" : "0fr", transition: "grid-template-rows 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, margin 0.28s cubic-bezier(0.22,1,0.36,1)", opacity: isSelected ? 1 : 0, margin: isSelected ? "2px 0 4px" : "0", pointerEvents: isSelected ? "auto" : "none" }}>
+                  <div style={{ overflow: "hidden", minHeight: 0 }}>
+                    <div style={{ padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div onClick={() => updDraftPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
+                        <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
+                          <div style={{ fontSize: 11, color: T.textDim }}>Full control over jobs and team</div>
+                        </div>
+                        <div style={{ width: 36, height: 20, borderRadius: 10, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        </div>
+                      </div>
+                      {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
+                        {ADMIN_PERMS.map(({ key, icon, label }) => {
+                          const on = permsEnabled(key);
+                          return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                            <span style={{ fontSize: 13, width: 18, textAlign: "center", flexShrink: 0 }}>{icon}</span>
+                            <span style={{ flex: 1, fontSize: 12, color: on ? T.text : T.textDim, fontWeight: on ? 500 : 400 }}>{label}</span>
+                            <div style={{ width: 28, height: 16, borderRadius: 8, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                              <div style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: 6, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }} />
+                            </div>
+                          </div>;
+                        })}
+                      </div>}
+                      <div onClick={() => updDraftPerson(person.id, { canSignOff: !person.canSignOff })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canSignOff ? T.accent + "44" : T.border}`, background: person.canSignOff ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
+                        <span style={{ lineHeight: 0, color: person.canSignOff ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Approval Queue Access</div>
+                          <div style={{ fontSize: 11, color: T.textDim }}>Can view the Approval Queue and sign off assigned steps</div>
+                        </div>
+                        <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        </div>
+                      </div>
+                      <div onClick={() => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
+                        <span style={{ lineHeight: 0, color: person.noAutoSchedule ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Exclude from Auto-Scheduling</div>
+                          <div style={{ fontSize: 11, color: T.textDim }}>Never auto-assigned by the scheduler</div>
+                        </div>
+                        <div style={{ width: 36, height: 20, borderRadius: 10, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        </div>
+                      </div>
+                      <div style={{ padding: "10px 10px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                          <span style={{ lineHeight: 0, color: T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Clock-In PIN</div>
+                            <div style={{ fontSize: 11, color: T.textDim }}>PIN used to clock in and out</div>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.bg, overflow: "hidden" }}>
+                            <input type={showPin ? "text" : "password"} value={person.pin || ""} onChange={e => updDraftPerson(person.id, { pin: e.target.value })} placeholder="PIN" style={{ width: 110, padding: "6px 10px", border: "none", background: "transparent", color: T.bgText, fontSize: 16, fontFamily: T.mono, letterSpacing: showPin ? "0.15em" : "0.3em", outline: "none", textAlign: "center" }} />
+                            <button onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(person.id) ? n.delete(person.id) : n.add(person.id); return n; })} style={{ flexShrink: 0, padding: "0 8px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: 30 }}>
+                              {showPin
+                                ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>;
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const renderSettingsSchedule = () => {
+    const d = settingsDraft || {};
+    const parseH = t => { const [h, m] = (t || "00:00").split(":").map(Number); return h + m / 60; };
+    const timeInput = { padding: "7px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, colorScheme: T.colorScheme };
+    const xBtn = { background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" };
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Work Hours</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, color: T.textDim }}>Opens</span>
+              <input type="time" value={d.workStart || "07:00"} onChange={e => { const ns = e.target.value; const hpd = Math.max(0.5, parseFloat((parseH(d.workEnd || "15:00") - parseH(ns)).toFixed(2))); patchDraft({ workStart: ns, hpd }); }} style={timeInput} />
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 12, color: T.textDim }}>Closes</span>
+              <input type="time" value={d.workEnd || "15:00"} onChange={e => { const ne = e.target.value; const hpd = Math.max(0.5, parseFloat((parseH(ne) - parseH(d.workStart || "07:00")).toFixed(2))); patchDraft({ workEnd: ne, hpd }); }} style={timeInput} />
+            </div>
+            <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>= {d.hpd} hrs/day</span>
+          </div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Breaks</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(d.breaks || []).map((brk, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input type="time" value={brk.time} onChange={e => { const v = e.target.value; patchDraft(dd => ({ breaks: (dd.breaks || []).map((b, j) => j === i ? { ...b, time: v } : b) })); }} style={timeInput} />
+                <input type="number" min="1" max="120" value={brk.durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ breaks: (dd.breaks || []).map((b, j) => j === i ? { ...b, durationMinutes: v } : b) })); }} style={{ ...timeInput, width: 56 }} />
+                <span style={{ fontSize: 12, color: T.textDim }}>min</span>
+                <button onClick={() => patchDraft(dd => ({ breaks: (dd.breaks || []).filter((_, j) => j !== i) }))} style={xBtn}>✕</button>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => patchDraft(dd => ({ breaks: [...(dd.breaks || []), { time: "10:00", durationMinutes: 15 }] }))} style={{ marginTop: 10, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Add Break</button>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Lunch</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input type="time" value={(d.lunch || { time: "12:00" }).time} onChange={e => { const v = e.target.value; patchDraft(dd => ({ lunch: { ...(dd.lunch || { durationMinutes: 30 }), time: v } })); }} style={timeInput} />
+            <input type="number" min="1" max="120" value={(d.lunch || { durationMinutes: 30 }).durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); patchDraft(dd => ({ lunch: { ...(dd.lunch || { time: "12:00" }), durationMinutes: v } })); }} style={{ ...timeInput, width: 56 }} />
+            <span style={{ fontSize: 12, color: T.textDim }}>min</span>
+          </div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Working Days</div>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>Days that can be scheduled. Existing jobs are unaffected — only new jobs use the current selection.</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[{ idx: 0, label: "Sun" }, { idx: 1, label: "Mon" }, { idx: 2, label: "Tue" }, { idx: 3, label: "Wed" }, { idx: 4, label: "Thu" }, { idx: 5, label: "Fri" }, { idx: 6, label: "Sat" }].map(({ idx, label }) => {
+              const on = (d.workDays || []).includes(idx); const isLast = on && (d.workDays || []).length === 1;
+              return <button key={idx} onClick={() => patchDraft(dd => { const has = (dd.workDays || []).includes(idx); if (has && (dd.workDays || []).length === 1) return {}; const next = has ? (dd.workDays || []).filter(x => x !== idx) : [...(dd.workDays || []), idx].sort((a, b) => a - b); return { workDays: next }; })} title={isLast ? "At least one working day is required" : (on ? "Click to disable" : "Click to enable")} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusSm, border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, color: on ? "#fff" : T.textDim, fontSize: 12, fontWeight: 600, cursor: isLast ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.15s", letterSpacing: "0.04em" }}>{label}</button>;
+            })}
+          </div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Holidays</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <TraqsDatePicker compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
+            <Btn size="sm" onClick={() => { if (!holidayInput || (d.holidays || []).includes(holidayInput)) return; patchDraft(dd => ({ holidays: [...(dd.holidays || []), holidayInput].sort() })); setHolidayInput(""); }}>Add</Btn>
+          </div>
+          {(d.holidays || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No holidays added</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {(d.holidays || []).map(h => { const dt = new Date(h + "T12:00:00"); const label = dt.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" }); return (
+              <div key={h} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
+                <span style={{ fontSize: 13, color: T.text, flex: 1 }}>{label}</span>
+                <button onClick={() => patchDraft(dd => ({ holidays: (dd.holidays || []).filter(x => x !== h) }))} style={xBtn}>✕</button>
+              </div>
+            ); })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const renderSettingsApprovalTemplates = () => {
+    const d = settingsDraft || {};
+    const templates = d.signOffTemplates || [];
+    const ed = signOffTemplateEditing;
+    if (ed) {
+      return (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="tq-frost" style={stCard}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+              <button onClick={() => setSignOffTemplateEditing(null)} style={{ ...stGhostBtn, padding: "6px 12px" }}>← Back</button>
+              <div style={{ fontSize: 14, fontWeight: 800, color: T.text }}>{ed.id ? "Edit Template" : "New Template"}</div>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <div style={stFieldLabel}>Template Name</div>
+              <input autoFocus value={ed.name} onChange={e => setSignOffTemplateEditing(p => ({ ...p, name: e.target.value }))} onFocus={stInputFocus} onBlur={stInputBlur} placeholder="e.g. Engineering, Sales, QA…" style={stInput} />
+            </div>
+            <div>
+              <div style={stFieldLabel}>Steps</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {(ed.steps || []).map((step, i) => (
+                  <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, width: 18, textAlign: "center", flexShrink: 0 }}>{i + 1}</span>
+                    <input value={step} onChange={e => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? e.target.value : s) }))} onFocus={stInputFocus} onBlur={stInputBlur} placeholder={`Step ${i + 1} label…`} style={{ ...stInput, padding: "8px 10px", fontSize: 13 }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setSignOffTemplateEditing(p => ({ ...p, steps: [...p.steps.slice(0, i + 1), "", ...p.steps.slice(i + 1)] })); } }} />
+                    {(ed.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>✕</button>}
+                  </div>
+                ))}
+                <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))} style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 10px", borderRadius: 6, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Step</button>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
+              <button onClick={() => setSignOffTemplateEditing(null)} style={stGhostBtn}>Cancel</button>
+              <Btn size="sm" onClick={() => { const name = (ed.name || "").trim(); const steps = (ed.steps || []).map(s => s.trim()).filter(Boolean); if (!name || steps.length === 0) return; if (ed.id) { patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).map(t => t.id === ed.id ? { ...t, name, steps } : t) })); } else { patchDraft(dd => ({ signOffTemplates: [...(dd.signOffTemplates || []), { id: uid(), name, steps }] })); } setSignOffTemplateEditing(null); }}>{ed.id ? "Save Changes" : "Create Template"}</Btn>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Approval Queue Templates</div>
+          <div style={{ fontSize: 13, color: T.textDim, lineHeight: 1.6, marginBottom: 16 }}>Reusable approval workflows. Each template defines a name and an ordered series of steps that must be signed off. Changes here save when you press Save below.</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+            {templates.length === 0 && <div style={{ fontSize: 13, color: T.textDim, padding: "16px 0", textAlign: "center" }}>No templates yet — add one below</div>}
+            {templates.map(tmpl => (
+              <div key={tmpl.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{(tmpl.steps || []).map((s, i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>{i + 1}. {s}</span>)}</div>
+                </div>
+                <Tip label="Edit"><button onClick={() => setSignOffTemplateEditing({ ...tmpl, steps: [...(tmpl.steps || [])] })} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 13, padding: "2px 6px", lineHeight: 1 }}>✎</button></Tip>
+                <Tip label="Delete"><button onClick={() => patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).filter(t => t.id !== tmpl.id) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, padding: "2px 6px", lineHeight: 1 }}>✕</button></Tip>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setSignOffTemplateEditing({ name: "", steps: [""] })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "10px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}44`, background: T.accent + "06", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ New Template</button>
+        </div>
+      </div>
+    );
+  };
+  const renderSettingsTimeClock = () => {
+    const d = settingsDraft || {};
+    const payDates = d.payDates || [5, 20];
+    const dp = d.people || [];
+    const updDraftPerson = (id, upd) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, ...upd } : p) }));
+    const numInput = { width: 56, padding: "6px 8px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" };
+    const Toggle = ({ on, onClick }) => (
+      <button type="button" onClick={onClick} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
+      </button>
+    );
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Pay Period</div>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Pay period dates (day of month)</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: T.text }}>From the</span>
+            <input type="number" min="1" max="31" value={payDates[0]} onChange={e => { const v = Math.min(31, Math.max(1, parseInt(e.target.value) || 1)); patchDraft(dd => ({ payDates: [v, (dd.payDates || [5, 20])[1]] })); }} style={numInput} />
+            <span style={{ fontSize: 13, color: T.text }}>to the</span>
+            <input type="number" min="1" max="31" value={payDates[1]} onChange={e => { const v = Math.min(31, Math.max(1, parseInt(e.target.value) || 1)); patchDraft(dd => ({ payDates: [(dd.payDates || [5, 20])[0], v] })); }} style={numInput} />
+            <span style={{ fontSize: 13, color: T.text }}>of each month</span>
+          </div>
+          <div style={{ fontSize: 11, color: T.textDim }}>
+            {(() => { const pp = getPayPeriodFromDates(payDates, TD); const fmtD = dd2 => new Date(dd2 + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }); return `Current period: ${fmtD(pp.start)} – ${fmtD(pp.end)}`; })()}
+          </div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Hours Cap</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: T.text }}>Cap each person at</span>
+            <input type="number" min="1" max="999" step="1" value={d.payPeriodHourCap ?? 80} onChange={e => { const v = Math.min(999, Math.max(1, parseInt(e.target.value) || 80)); patchDraft({ payPeriodHourCap: v }); }} style={{ ...numInput, width: 60 }} />
+            <span style={{ fontSize: 13, color: T.text }}>hours per pay period</span>
+          </div>
+          <div style={{ fontSize: 11, color: T.textDim }}>Not a hard stop — people can still clock past this. Anything over the cap shows as overtime everywhere.</div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={{ ...stLabel, display: "flex", alignItems: "center", gap: 6 }}>
+            Mobile Clock-In
+            <span title={"Pay Hours: time on the clock earning wages, regardless of job attribution.\nProduction Hours: time attributed to a specific job for progress tracking."} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", border: `1px solid ${T.border}`, color: T.textDim, fontSize: 9, fontWeight: 700, cursor: "help", lineHeight: 1 }}>i</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Toggle on={!!d.iosPayClockEnabled} onClick={() => patchDraft(dd => ({ iosPayClockEnabled: !dd.iosPayClockEnabled }))} />
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Allow workers to clock in for pay from iOS app</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>When off, pay clock-in is kiosk-only; the iOS app can still track production hours per job.</div>
+            </div>
+          </div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Clock Events</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <Toggle on={!!d[key]} onClick={() => patchDraft(dd => ({ [key]: !dd[key] }))} />
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
+                  <div style={{ fontSize: 11, color: T.textDim }}>{desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Team</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 150px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
+            {["Name", "Pay Type", "PIN"].map(h => <span key={h} style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</span>)}
+          </div>
+          {dp.map(p => {
+            const payType = p.payType || "hourly";
+            const showPin = showPinIds.has(p.id);
+            return (
+              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 150px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim, flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                </div>
+                <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                  {["hourly", "salary"].map(pt => (
+                    <button key={pt} type="button" onClick={() => updDraftPerson(p.id, { payType: pt })} style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? elColor("#6366f1") : T.accent) : T.surface, color: payType === pt ? (pt === "salary" ? "#fff" : T.accentText) : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}>{pt}</button>
+                  ))}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
+                  <input type={showPin ? "text" : "password"} value={p.pin || ""} onChange={e => updDraftPerson(p.id, { pin: e.target.value })} placeholder="PIN" style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPin ? "normal" : "0.15em", outline: "none", minWidth: 0 }} />
+                  <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
+                    {showPin
+                      ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+  const renderSettingsCustomization = () => {
+    const isCustom = draftMode === "custom";
+    const dc = draftCustom;
+    const setDc = upd => setDraftCustom(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
+    const pT = isCustom ? buildCustomTheme(dc.bg, dc.accent, dc.surface, { bgImage: dc.bgImage, cardOpacity: dc.cardOpacity, bgOpacity: dc.bgOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid, systemColor: dc.systemColor }) : (THEMES[draftMode] || THEMES.midnight);
+    const pAdaptive = !!(isCustom && dc.bgImage);
+    const pFrostBg = pAdaptive ? hexA(pT.surfaceSolid || pT.surface, (dc.cardOpacity ?? 80) / 100) : pT.card;
+    const pSolid = pT.systemBg || pT.surfaceSolid || pT.surface;
+    const pSysText = pT.systemText || pT.text;
+    const pSysBorder = pT.systemBorder || pT.border;
+    const lbl = { fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 };
+    const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px 18px", marginBottom: 16 };
+    const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
+    const ROSTER = 132;
+    const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
+    const SCHED_GROUPS = [
+      [ [{ l: 28, w: 18, c: 0 }], [{ l: 4, w: 14, c: 0 }, { l: 58, w: 20, c: 1 }], [{ l: 42, w: 12, c: 2 }] ],
+      [ [{ l: 10, w: 22, c: 0 }], [{ l: 54, w: 16, c: 3 }] ],
+      [ [{ l: 18, w: 10, c: 1 }, { l: 68, w: 16, c: 4 }] ],
+      [ [], [{ l: 34, w: 24, c: 2 }] ],
+    ];
+    const PRI_PAL = ["#10b981", "#f59e0b", "#f43f5e"];
+    const CLIENT_PAL = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16"];
+    const pMode = pT.jobBarMode || "system";
+    const pCellMode = pT.cellColorMode || "system";
+    const pCellShade = (i, n) => blendHex(pT.accent, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6);
+    const pPriColor = i => pCellMode === "adaptive" ? pCellShade(i % 3, 3) : PRI_PAL[i % PRI_PAL.length];
+    const pGridOn = pT.scheduleGrid !== false;
+    const pGridLine = blendHex(pT.surfaceSolid || pT.surface, hexLum(pT.surfaceSolid || pT.surface) < 0.5 ? 0.15 : -0.15);
+    const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
+    const swatch = (key, label, sub) => (
+      <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
+          <div style={{ width: "100%", height: "100%", background: dc[key] }} />
+          <input type="color" value={dc[key] || "#000000"} onChange={e => setDc({ [key]: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+        </label>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
+          <div style={{ fontSize: 11, color: T.textDim }}>{sub}</div>
+        </div>
+        <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc[key]}</div>
+      </div>
+    );
+    return (
+      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <style>{`
+          .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.45s ease-out, background 0.45s ease-out, color 0.45s ease-out, border-color 0.45s ease-out, box-shadow 0.45s ease-out, fill 0.45s ease-out, opacity 0.45s ease-out, filter 0.45s ease-out, height 0.3s ease, margin-bottom 0.3s ease, transform 0.3s ease !important; }
+          @keyframes tqFadeOnly { from { opacity: 0; } to { opacity: 1; } }
+          @keyframes tqWipe { from { opacity: 1; } to { opacity: 0; } }
+        `}</style>
+        <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+          {/* Controls */}
+          <div style={{ width: 460, flexShrink: 0, borderRight: `1px solid ${T.border}`, overflowY: "auto", padding: "20px 22px", background: T.surfaceSolid || T.card }}>
+            <div style={card}>
+              <div style={lbl}>Theme</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
+                  const active = draftMode === th.id;
+                  return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
+                })}
+              </div>
+            </div>
+            <div style={card}>
+              <div style={lbl}>Sidebar Behavior</div>
+              <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
+                  const active = draftSidebar === opt.id;
+                  return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? T.accent : "transparent", color: active ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
+                })}
+              </div>
+              <div style={{ fontSize: 11, color: T.textDim, marginTop: 8 }}>Hover expands the sidebar on mouse-over; Button toggles it with a menu icon.</div>
+            </div>
+            {isCustom && <>
+              <div style={card}>
+                <div style={lbl}>Colors</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                  {swatch("systemColor", "System Color", "Header, sidebar & logo")}
+                  {swatch("surface", "Lists & Cards", "Tables, lists & panels")}
+                  {swatch("accent", "Buttons", "Buttons, highlights & indicators")}
+                </div>
+                <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>System Elements</div>
+                  <div style={{ fontSize: 11, color: T.textDim, margin: "3px 0 10px" }}>Job bars, profile avatars, client colors &amp; dots. (Not the jobs-list cells.)</div>
+                  <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                    {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }, { id: "custom", label: "Custom" }].map(o => {
+                      const a = (dc.jobBarMode || "system") === o.id;
+                      return <button key={o.id} onClick={() => { setDc({ jobBarMode: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                    })}
+                  </div>
+                  {(dc.jobBarMode || "system") === "custom" && <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
+                    <label style={{ position: "relative", width: 36, height: 36, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
+                      <div style={{ width: "100%", height: "100%", background: dc.jobBarColor || dc.accent }} />
+                      <input type="color" value={dc.jobBarColor || dc.accent || "#000000"} onChange={e => setDc({ jobBarColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
+                    </label>
+                    <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>All colored elements use this color.</div>
+                    <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{dc.jobBarColor || dc.accent}</div>
+                  </div>}
+                </div>
+                <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>List Cells</div>
+                  <div style={{ fontSize: 11, color: T.textDim, margin: "3px 0 10px" }}>Status, priority &amp; other value-colored cells on the Jobs list page only.</div>
+                  <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                    {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }].map(o => {
+                      const a = (dc.cellColorMode || "system") === o.id;
+                      return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                    })}
+                  </div>
+                </div>
+                <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.text }}>Schedule Grid</div>
+                  <div style={{ fontSize: 11, color: T.textDim, margin: "3px 0 10px" }}>The day &amp; row separator lines on the Schedule page.</div>
+                  <div style={{ display: "flex", gap: 4, background: T.surface, borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                    {[{ id: true, label: "On" }, { id: false, label: "Off" }].map(o => {
+                      const a = (dc.scheduleGrid !== false) === o.id;
+                      return <button key={String(o.id)} onClick={() => { setDc({ scheduleGrid: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div style={card}>
+                <div style={lbl}>Background Image</div>
+                <div style={{ marginBottom: 16 }}>
+                  {swatch("bg", "Color Hue", "Page background & image tint")}
+                </div>
+                {dc.bgImage
+                  ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ width: 64, height: 42, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
+                      <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>Image set · cards frost over it</div>
+                      <button onClick={() => setDc({ bgImage: null })} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
+                    </div>
+                  : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
+                      Upload background image
+                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); pushBgImage(data); setDc(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
+                    </label>}
+                {recentImgs.length > 0 && <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: T.textDim, marginBottom: 8 }}>Recent images</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {recentImgs.map((img, i) => {
+                      const isCur = img === dc.bgImage;
+                      return <button key={i} title={isCur ? "Current background" : "Use this background"} onClick={() => setDc(p => ({ ...p, bgImage: img, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity }))}
+                        style={{ position: "relative", width: 58, height: 40, borderRadius: T.radiusXs, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
+                        {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: T.accent, color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                        <span onClick={e => { e.stopPropagation(); setBgImageHistory(prev => prev.filter(x => x !== img)); if (isCur) setDc({ bgImage: null }); }} title="Remove from history" style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: T.surfaceSolid || T.surface, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</span>
+                      </button>;
+                    })}
+                  </div>
+                </div>}
+                {dc.bgImage && <div style={{ marginTop: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 6 }}><span>Background image opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.bgOpacity ?? 100}%</span></div>
+                  <input type="range" min="0" max="100" value={dc.bgOpacity ?? 100} onChange={e => setDc({ bgOpacity: Number(e.target.value) })} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
+                </div>}
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 6 }}><span>Card frost opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.cardOpacity ?? 100}%</span></div>
+                  <input type="range" min="20" max="100" value={dc.cardOpacity ?? 100} onChange={e => setDc({ cardOpacity: Number(e.target.value) })} style={{ width: "100%", accentColor: T.accent, cursor: "pointer" }} />
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 6 }}>Lower = more transparent; cards & lists show more of the background.</div>
+                </div>
+              </div>
+            </>}
+            <div style={{ ...card, marginBottom: 0 }}>
+              <div style={lbl}>Saved Presets</div>
+              {themePresets.length === 0 && <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>No saved presets yet.</div>}
+              {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                {themePresets.map((p, idx) => (
+                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
+                    onClick={() => { setDraftMode("custom"); setDraftCustom(c => ({ ...c, bg: p.bg, accent: p.accent, text: p.text || c.text, surface: p.surface || c.surface })); }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
+                    <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }} style={{ background: "none", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
+                  </div>
+                ))}
+              </div>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)} placeholder="Preset name…"
+                  onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); } }}
+                  style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
+                <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); }}
+                  style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
+              </div>
+            </div>
+            {renderSettingsActions()}
+          </div>
+          {/* Live preview */}
+          <div style={{ flex: 1, minWidth: 0, padding: 36, display: "flex", flexDirection: "column", gap: 14, background: T.bg }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ display: "flex", gap: 3, background: hexA(T.text, 0.06), borderRadius: 999, padding: 3, border: `1px solid ${T.border}` }}>
+                {[{ id: "jobs", label: "Jobs" }, { id: "schedule", label: "Schedule" }].map(v => {
+                  const a = previewView === v.id;
+                  return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 16px", borderRadius: 999, border: "none", background: a ? T.accent : "transparent", color: a ? T.accentText : T.textDim, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
+                })}
+              </div>
+            </div>
+            <div className="tq-preview-anim" style={{ flex: 1, borderRadius: 16, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.4)", background: pSolid }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
+                <span style={{ fontSize: 30, fontWeight: 800, color: pSysText, letterSpacing: "-0.03em", marginLeft: 46 }}>traqs</span>
+                <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                  <span style={{ width: 16, height: 16, borderRadius: 8, background: pSysBorder }} />
+                  <span style={{ width: 16, height: 16, borderRadius: 8, background: pSysBorder }} />
+                </span>
+              </div>
+              <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+                <div style={{ width: 48, flexShrink: 0, background: pSolid, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14 }}>
+                  <div style={{ height: draftSidebar === "button" ? 26 : 0, opacity: draftSidebar === "button" ? 1 : 0, marginBottom: draftSidebar === "button" ? 16 : 0, overflow: "hidden", transition: "height 0.3s ease, opacity 0.3s ease, margin-bottom 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+                      {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 1, background: pSysText }} />)}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                    {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 6, background: i === 0 ? pT.accent : pSysBorder }} />)}
+                  </div>
+                </div>
+                <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
+                  {pAdaptive && <>
+                    <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: -40, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", filter: "blur(18px) saturate(1.4)", animation: "tqFadeOnly 0.35s ease" }} />
+                    <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: pT.bg, opacity: 1 - (dc.bgOpacity ?? 100) / 100 }} />
+                  </>}
+                  {(() => { const renderMock = (which) => which === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+                      <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "7px 14px" }}>+ New Job</span>
+                    </div>
+                    {[[70, 56, 82], [62, 78, 48, 66], [74, 50, 60]].map((rowWidths, sec) => {
+                      const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
+                      return <div key={sec}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
+                          <div style={{ height: 9, width: 88, borderRadius: 4, background: pT.text, opacity: 0.55 }} />
+                          <div style={{ height: 15, width: 24, borderRadius: 8, background: pT.accent + "2e" }} />
+                        </div>
+                        <div style={{ background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden" }}>
+                          <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "8px 14px", borderBottom: `1.5px solid ${pT.border}` }}>
+                            {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 3, background: pT.textDim, opacity: 0.45 }} />)}
+                          </div>
+                          {rowWidths.map((nameW, r) => (
+                            <div key={r} style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "10px 14px", borderBottom: r < rowWidths.length - 1 ? `1px solid ${pT.border}` : "none" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <div style={{ width: 9, height: 9, borderRadius: 5, background: pT.accent, flexShrink: 0, opacity: 0.85 }} />
+                                <div style={{ height: 8, width: `${nameW}%`, borderRadius: 4, background: pT.textDim, opacity: 0.32 }} />
+                              </div>
+                              <div style={{ height: 8, width: "80%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
+                              <span style={{ height: 15, width: 48, borderRadius: 7, background: pPriColor(r) + "33", border: `1px solid ${pPriColor(r)}66` }} />
+                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: pClientColor(r), flexShrink: 0 }} /><div style={{ height: 8, width: "62%", borderRadius: 4, background: pClientColor(r), opacity: 0.55 }} /></div>
+                              <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
+                              <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
+                              <div style={{ height: 6, borderRadius: 3, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 3 }} /></div>
+                              <div style={{ width: 16, height: 16, borderRadius: 8, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
+                            </div>
+                          ))}
+                        </div>
+                      </div>;
+                    })}
+                  </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "6px 14px" }}>Select</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 8, padding: "6px 12px", opacity: 0.75 }}>Today</span>
+                      <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                        <span style={{ width: 22, height: 22, borderRadius: 6, background: pT.border }} />
+                        <span style={{ width: 22, height: 22, borderRadius: 6, background: pT.border }} />
+                      </span>
+                    </div>
+                    <div style={{ flex: 1, minHeight: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                      <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pGridOn ? pGridLine : "transparent"}` }}>
+                        <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }} />
+                        <div style={{ flex: 1, display: "flex" }}>
+                          {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pGridOn ? pGridLine : "transparent"}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>)}
+                        </div>
+                      </div>
+                      <div style={{ flex: 1, overflow: "hidden" }}>
+                        {SCHED_GROUPS.map((rows, gi) => <div key={gi}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", background: hexA(pT.text, 0.05) }}>
+                            <div style={{ height: 7, width: 54, borderRadius: 3, background: pT.text, opacity: 0.5 }} />
+                            <div style={{ height: 12, width: 20, borderRadius: 6, background: pT.accent + "2e" }} />
+                          </div>
+                          {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
+                            <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
+                              <div style={{ width: 16, height: 16, borderRadius: 5, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[(gi + ri) % BARC.length], flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 6, width: `${52 + ((gi + ri) % 4) * 11}%`, borderRadius: 3, background: pT.textDim, opacity: 0.34 }} /></div>
+                              <div style={{ height: 11, width: 22, borderRadius: 5, background: pT.accent + "26", flexShrink: 0 }} />
+                            </div>
+                            <div style={{ flex: 1, position: "relative", height: 32 }}>
+                              <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(to right, ${pGridLine} 0 1px, transparent 1px calc(100% / 14))`, opacity: pGridOn ? 1 : 0, pointerEvents: "none" }} />
+                              {bars.map((b, bi) => <div key={bi} style={{ position: "absolute", top: 7, height: 18, left: `${b.l}%`, width: `${b.w}%`, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[b.c], borderRadius: 5 }} />)}
+                            </div>
+                          </div>)}
+                        </div>)}
+                      </div>
+                    </div>
+                    <div style={{ flexShrink: 0 }}>
+                      <div style={{ height: 7, width: 96, borderRadius: 3, background: pT.textDim, opacity: 0.4, marginBottom: 8 }} />
+                      <div style={{ display: "flex", gap: 10 }}>
+                        {[0, 1, 2, 3, 4].map(i => {
+                          const ac = pMode === "adaptive" ? pT.accent : pMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[i % BARC.length];
+                          return <div key={i} style={{ width: 124, flexShrink: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, padding: 12, display: "flex", flexDirection: "column", gap: 9 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 24, height: 24, borderRadius: "50%", background: ac, flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 7, width: "72%", borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>
+                              <div style={{ height: 5, width: 24, borderRadius: 3, background: pT.accent, opacity: 0.7, flexShrink: 0 }} />
+                            </div>
+                            <div style={{ height: 1, background: pT.border }} />
+                            <div style={{ height: 6, width: "86%", borderRadius: 3, background: pT.textDim, opacity: 0.3 }} />
+                            <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 3, background: ac, opacity: 0.5 }} /></div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 6, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 3, background: pT.textDim, opacity: 0.25 }} /></div>
+                          </div>;
+                        })}
+                      </div>
+                    </div>
+                  </div>;
+                  return <>
+                    {renderMock(previewView)}
+                    {displayedPreview !== previewView && <div key={`fadeout-${displayedPreview}`} aria-hidden="true" style={{ position: "absolute", inset: 0, zIndex: 6, animation: "tqWipe 0.22s ease-out forwards", pointerEvents: "none" }}>{renderMock(displayedPreview)}</div>}
+                  </>;
+                  })()}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+  const renderSettingsBody = () => {
+    switch (settingsSection) {
+      case "general": return renderSettingsGeneral();
+      case "org-general": return renderSettingsOrgGeneral();
+      case "org-departments": return renderSettingsDepartments();
+      case "org-permissions": return renderSettingsPermissions();
+      case "org-schedule": return renderSettingsSchedule();
+      case "org-approval-templates": return renderSettingsApprovalTemplates();
+      case "org-timeclock": return renderSettingsTimeClock();
+      case "customization": return renderSettingsCustomization();
+      default: return null;
+    }
+  };
+
+  // Full-page settings content (rendered into the main content panel when settingsMode).
+  // Save / Discard row — rendered inline BELOW a section's elements (not a page-bottom bar).
+  const renderSettingsActions = () => {
+    const dirty = computeSettingsDirty();
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 22, paddingTop: 18, borderTop: `1px solid ${T.border}` }}>
+        <Btn size="sm" disabled={!dirty || settingsSaving} onClick={async () => { await saveSection(); }}>{settingsSaving ? "Saving…" : "Save"}</Btn>
+        <button onClick={discardSection} disabled={!dirty || settingsSaving} style={{ ...stGhostBtn, padding: "9px 18px", fontSize: 13, cursor: (!dirty || settingsSaving) ? "not-allowed" : "pointer", opacity: (!dirty || settingsSaving) ? 0.45 : 1 }}>Discard</button>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 12, fontWeight: 600, color: dirty ? "#f59e0b" : "#10b981", display: "inline-flex", alignItems: "center", gap: 7 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 4, background: dirty ? "#f59e0b" : "#10b981" }} />
+          {dirty ? "Unsaved changes" : "All changes saved"}
+        </span>
+      </div>
+    );
+  };
+
+  const renderSettingsPage = () => {
+    const meta = settingsSectionMeta[settingsSection] || { title: "Settings", crumb: "" };
+    const wide = settingsSection === "customization";
+    const showBg = T.adaptive && T.bgImage;
+    return (
+      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.bg, fontFamily: T.font, overflow: "hidden" }}>
+        {/* Pinned background image — section cards (.tq-frost) blur over it, matching the rest of the app */}
+        {showBg && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", zIndex: 0, pointerEvents: "none" }} />}
+        {/* Top row — breadcrumb + section title (Exit is now the Back button at the top of the sidebar) */}
+        <div style={{ position: "relative", zIndex: 1, flexShrink: 0, padding: "20px 32px 12px" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: T.textDim, marginBottom: 2 }}>{meta.crumb}</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>{meta.title}</div>
+        </div>
+        {/* Section body — full-bleed flex for Customization (split view), padded scroll otherwise.
+            Save/Discard now render inline below the section's elements (see renderSettingsActions). */}
+        {wide
+          ? <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{renderSettingsBody()}</div>
+          : <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 32px 32px" }}><div style={{ maxWidth: 1120, margin: "0 auto" }}>{renderSettingsBody()}{renderSettingsActions()}</div></div>}
+        {renderSettingsGuard()}
+      </div>
+    );
+  };
+
   // Chrome theme — the outer header + sidebar render through this so they follow the "System Color"
   // instead of the card surface. Text/border/hover CONTRAST the system bg (sysText etc). Built-in
   // themes have no system* props, so the fallbacks below keep them identical to today's chrome.
@@ -16501,59 +17549,12 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {/* Shared active-indicator bar — slides between nav buttons (positioned in placeNavPill) */}
         <span ref={navPillRef} aria-hidden="true" style={{ position: "absolute", top: 0, width: 3, height: 28, borderRadius: 2, background: T.accent, pointerEvents: "none", willChange: "transform, height, opacity" }} />
+        {/* ─── App navigation (swaps out instantly when entering settings) ─── */}
+        {!settingsMode && <div style={settingsNavLayer(false)}>
         {views.map(v => {
           const active = view === v.id;
-          // Time Clock is a collapsible group: a parent that defaults to the Time Sheet
-          // page when clicked, plus Time Sheet + Time Settings children.
-          if (v.id === "timestamp") {
-            const onSheet = view === "timestamp" && !tsSettingsOpen;
-            const onSettings = view === "timestamp" && tsSettingsOpen;
-            const openTimeSettings = () => { switchView("timestamp"); setTsSettingsDraft(people.map(p => ({ ...p }))); setTsSettingsOpen(true); };
-            return (
-              <div key={v.id}>
-                <button ref={el => { navBtnRefs.current[v.id] = el; }}
-                  onClick={() => {
-                    if (sidebarMode === "button" && !sidebarExpanded) { setSidebarExpanded(true); setSidebarTimeOpen(true); switchView("timestamp"); setTsSettingsOpen(false); return; }
-                    setSidebarTimeOpen(o => { const next = !o; if (next) { switchView("timestamp"); setTsSettingsOpen(false); } return next; });
-                  }}
-                  onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
-                  onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-                  onMouseDown={() => tipCtx.hide()}
-                  style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
-                      <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
-                  <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarTimeOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-                {/* Time Clock children — animated retract (mirrors the Settings group) */}
-                <div style={{ display: "grid", gridTemplateRows: sidebarTimeOpen && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: sidebarTimeOpen && sidebarExpanded ? 1 : 0, pointerEvents: sidebarTimeOpen && sidebarExpanded ? "auto" : "none" }}>
-                  <div style={{ overflow: "hidden", minHeight: 0 }}>
-                    <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
-                      {/* Time Sheet — the normal page */}
-                      <button onClick={() => { switchView("timestamp"); setTsSettingsOpen(false); }}
-                        onMouseEnter={e => { if (!onSheet) e.currentTarget.style.background = T.hover; }}
-                        onMouseLeave={e => { if (!onSheet) e.currentTarget.style.background = "transparent"; }}
-                        style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: onSheet ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: onSheet ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                        <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: onSheet ? T.text : T.textSec }}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
-                        </span>
-                        <span style={{ flex: 1, textAlign: "left" }}>Time Sheet</span>
-                      </button>
-                      {/* Time Settings — opens the Time Clock Settings panel */}
-                      <button onClick={openTimeSettings}
-                        onMouseEnter={e => { if (!onSettings) e.currentTarget.style.background = T.hover; }}
-                        onMouseLeave={e => { if (!onSettings) e.currentTarget.style.background = "transparent"; }}
-                        style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: onSettings ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: onSettings ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                        <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: onSettings ? T.text : T.textSec }}>
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-                        </span>
-                        <span style={{ flex: 1, textAlign: "left" }}>Time Settings</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          }
+          // Time Clock is a plain nav button → the Time Sheet page. Its old "Time Settings"
+          // child moved into the full-page Settings (Organization › Time Clock).
           return (
             <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
               style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}
@@ -16599,8 +17600,8 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           );
         })()}
-        {/* Settings parent — collapsible */}
-        <button onClick={() => { if (sidebarMode === "button" && !sidebarExpanded) { setSidebarExpanded(true); setSidebarSettingsOpen(true); } else { setSidebarSettingsOpen(o => !o); } }}
+        {/* Settings — enters the full-page Settings view (available to everyone) */}
+        <button onClick={enterSettings}
           onMouseEnter={e => { if (!sidebarExpanded) tipCtx.show("Settings", e.clientX, e.clientY); e.currentTarget.style.background = T.hover; }}
           onMouseLeave={e => { tipCtx.hide(); e.currentTarget.style.background = "transparent"; }}
           onMouseDown={() => tipCtx.hide()}
@@ -16609,65 +17610,75 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </span>
           <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
-          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: sidebarSettingsOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
         </button>
-        {/* Settings children — animated retract (mirrors PM / queue collapse pattern) */}
-        <div style={{ display: "grid", gridTemplateRows: sidebarSettingsOpen && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: sidebarSettingsOpen && sidebarExpanded ? 1 : 0, pointerEvents: sidebarSettingsOpen && sidebarExpanded ? "auto" : "none" }}>
-          <div style={{ overflow: "hidden", minHeight: 0 }}>
-            <div style={{ paddingLeft: 14, paddingRight: 0, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
-              {/* Design — opens modal */}
-              <button onClick={() => setCustomizationOpen(true)}
-                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left" }}>Design</span>
+        {/* (Old sidebar Settings dropdown removed — replaced by the full-page Settings view above.) */}
+        </div>}
+        {/* ─── Settings navigation — General / Organization ▾ / Customization / FAST TRAQS ─── */}
+        {settingsMode && (() => {
+          const navItem = (key, label, icon) => { const activeS = settingsSection === key; return (
+            <button key={key} ref={el => { navBtnRefs.current["settings:" + key] = el; }} onClick={() => navigateSection(key)}
+              onMouseEnter={e => { if (!activeS) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(label, e.clientX, e.clientY); }}
+              onMouseLeave={e => { if (!activeS) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+              onMouseDown={() => tipCtx.hide()}
+              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: activeS ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: activeS ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{icon}</span>
+              <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+            </button>
+          ); };
+          const orgActive = SETTINGS_ORG_CHILDREN.some(c => c.key === settingsSection);
+          return (
+            <div style={settingsNavLayer(true)}>
+              {/* Back — exits the full-page settings (guards unsaved changes) */}
+              <button onClick={requestExitSettings}
+                onMouseEnter={e => { e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Back", e.clientX, e.clientY); }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+                onMouseDown={() => tipCtx.hide()}
+                style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap", marginBottom: 6 }}>
+                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></span>
+                <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
               </button>
-              {/* Fast TRAQS — opens the upload flow */}
+              {/* Divider — separates Back from the settings sections */}
+              <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 8px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
+              {navItem("general", "General", <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>)}
+              {isAdmin && <>
+                <button ref={el => { navBtnRefs.current["settings:org-parent"] = el; }} onClick={() => { if (!sidebarExpanded) setSidebarExpanded(true); setSettingsOrgExpanded(o => !o); }}
+                  onMouseEnter={e => { if (!orgActive) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Organization", e.clientX, e.clientY); }}
+                  onMouseLeave={e => { if (!orgActive) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+                  onMouseDown={() => tipCtx.hide()}
+                  style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: orgActive ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: orgActive ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+                  <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
+                  <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: settingsOrgExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+                <div style={{ display: "grid", gridTemplateRows: settingsOrgExpanded && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: settingsOrgExpanded && sidebarExpanded ? 1 : 0, pointerEvents: settingsOrgExpanded && sidebarExpanded ? "auto" : "none" }}>
+                  <div style={{ overflow: "hidden", minHeight: 0 }}>
+                    <div style={{ paddingLeft: 14, paddingTop: 4, paddingBottom: 4, display: "flex", flexDirection: "column", gap: 2 }}>
+                      {SETTINGS_ORG_CHILDREN.map(c => { const a = settingsSection === c.key; return (
+                        <button key={c.key} ref={el => { navBtnRefs.current["settings:" + c.key] = el; }} onClick={() => navigateSection(c.key)}
+                          onMouseEnter={e => { if (!a) e.currentTarget.style.background = T.hover; }}
+                          onMouseLeave={e => { if (!a) e.currentTarget.style.background = "transparent"; }}
+                          style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: a ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: a ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s", textAlign: "left" }}>
+                          <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
+                        </button>
+                      ); })}
+                    </div>
+                  </div>
+                </div>
+              </>}
+              {navItem("customization", "Customization", <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>)}
+              {/* Divider — sets FAST TRAQS apart from the settings sections */}
+              {can("editJobs") && <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "8px 12px 4px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />}
               {can("editJobs") && <button onClick={() => { setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadModal(true); }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left" }}>Fast TRAQS</span>
-              </button>}
-              {/* Permissions — opens existing modal */}
-              {isAdmin && <button onClick={() => { setUsersOpen(true); setSettingsUser(null); }}
-                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left" }}>Permissions</span>
-              </button>}
-              {/* Departments — opens existing modal */}
-              {isAdmin && <button onClick={() => setRolesSettingsOpen(true)}
-                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left" }}>Departments</span>
-              </button>}
-              {/* Organization — opens modal */}
-              {isAdmin && <button onClick={() => setOrgSettingsModalOpen(true)}
-                onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
-                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-                style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s" }}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0, color: T.textSec }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                </span>
-                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Organization</span>
+                onMouseEnter={e => { e.currentTarget.style.background = T.accent + "22"; if (!sidebarExpanded) tipCtx.show("FAST TRAQS", e.clientX, e.clientY); }}
+                onMouseLeave={e => { e.currentTarget.style.background = T.accent + "12"; tipCtx.hide(); }}
+                onMouseDown={() => tipCtx.hide()}
+                style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}44`, background: T.accent + "12", color: T.accent, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s", overflow: "hidden", whiteSpace: "nowrap", marginTop: 6 }}>
+                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
+                <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.03em" }}>FAST TRAQS</span>
               </button>}
             </div>
-          </div>
-        </div>
+          );
+        })()}
       </div>
       {/* Org name — subtly displayed above the profile, only when sidebar is expanded */}
       <div style={{ padding: "0 16px", flexShrink: 0, overflow: "hidden", maxHeight: sidebarExpanded && orgName ? 22 : 0, opacity: sidebarExpanded && orgName ? 0.55 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s 0.06s ease" }}>
@@ -16676,7 +17687,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Profile — avatar always; name + logout fade in when expanded */}
       <div style={{ padding: "4px 16px 12px", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ position: "relative", width: 32, height: 32, flexShrink: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 16, background: elColor(loggedInUser.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: accentText(elColor(loggedInUser.color)), fontWeight: 700 }}>{loggedInUser.name[0]}</div>
+          <div style={{ width: 32, height: 32, borderRadius: 16, background: loggedInUser.image ? T.surface : elColor(loggedInUser.color), backgroundImage: loggedInUser.image ? `url(${loggedInUser.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: accentText(elColor(loggedInUser.color)), fontWeight: 700 }}>{loggedInUser.image ? "" : loggedInUser.name[0]}</div>
           {!sidebarExpanded && <Tip label={`${loggedInUser.name}${isAdmin ? " · Admin" : " · Crew"}`}>
             <div style={{ position: "absolute", inset: 0 }} />
           </Tip>}
@@ -16704,7 +17715,26 @@ ${jobsCtx || "No jobs found."}`;
       {/* Darkened/muted (not blurred) so message text stays legible over the image. */}
       {T.bgImage && view === "messages" && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", opacity: (T.bgOpacity ?? 100) / 100, pointerEvents: "none" }} />}
       <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", padding: 0 }}>
-        {isMobile ? renderMobileApp() : <AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}</AnimatedView>}
+        {isMobile ? renderMobileApp() : (() => {
+          // Cross-fade the whole content area between the app and the settings view. During the
+          // transition BOTH layers mount: the incoming one (in flow) fades in, the outgoing one
+          // (absolute overlay, on top) fades out — so everything changes at once, not stacked.
+          const showApp = !settingsMode || settingsTransitioning;
+          const showSettings = settingsMode || settingsTransitioning;
+          const layer = (isSettings) => {
+            const active = isSettings ? settingsMode : !settingsMode;
+            const anim = settingsTransitioning ? (active ? "tqCFIn 0.28s ease" : "tqCFOut 0.28s ease forwards") : "none";
+            const pos = (settingsTransitioning && !active) ? { position: "absolute", inset: 0 } : { flex: 1, minHeight: 0 };
+            return { ...pos, display: "flex", flexDirection: "column", overflow: "hidden", animation: anim, pointerEvents: active ? "auto" : "none", zIndex: active ? 1 : 2 };
+          };
+          return (
+            <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+              <style>{`@keyframes tqCFIn{from{opacity:0}to{opacity:1}}@keyframes tqCFOut{from{opacity:1}to{opacity:0}}`}</style>
+              {showApp && <div style={layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}</AnimatedView></div>}
+              {showSettings && <div style={layer(true)}>{renderSettingsPage()}</div>}
+            </div>
+          );
+        })()}
       </div>
     </div>
     </div>
