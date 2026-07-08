@@ -962,16 +962,10 @@ struct ThreadDetailView: View {
                     // Clear this thread's inbox unread badge the instant it's
                     // opened (observable → the inbox re-renders immediately).
                     appState.markThreadRead(threadKey)
-                    // defaultScrollAnchor(.bottom) sets the initial offset; these
-                    // non-animated nudges re-pin to the newest message after late
-                    // layout (safe-area insets, attachment images resizing).
-                    scrollToBottom(proxy, animated: false)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        scrollToBottom(proxy, animated: false)
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                        scrollToBottom(proxy, animated: false)
-                    }
+                    // Initial position is owned entirely by .defaultScrollAnchor(.bottom).
+                    // We deliberately do NOT call proxy.scrollTo(bottomAnchor) here:
+                    // on open the trailing anchor is often still lazily un-realized,
+                    // so scrollTo estimates its offset and jumps mid-conversation.
                     // Pull latest request statuses so any timeoff_request
                     // bubble shows live state + Approve/Deny (admins get all).
                     Task { await appState.refreshTimeOffRequests() }
