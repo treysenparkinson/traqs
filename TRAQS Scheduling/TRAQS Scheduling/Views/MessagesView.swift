@@ -2505,7 +2505,6 @@ struct NewMessageSheet: View {
         }
     }
 
-    private var ctaLabel: String { isGroup ? "Create Group" : "Start Chat" }
     private var subtitle: String {
         if selectedIds.isEmpty { return "One person for a DM · several for a group" }
         return isGroup ? "\(selectedIds.count) people · group" : "Direct message"
@@ -2520,117 +2519,123 @@ struct NewMessageSheet: View {
         ZStack {
             AmbientBackground()
 
-            VStack(spacing: 0) {
-                // Sheet chrome — close button, matching Settings.
-                HStack {
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Color(hex: T.surface)))
-                            .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 4)
+            ScrollView {
+                VStack(spacing: 18) {
+                    PageTitle(title: "New Message", subtitle: subtitle)
+                        .padding(.top, 8)
 
-                ScrollView {
-                    VStack(spacing: 18) {
-                        PageTitle(title: "New Message", subtitle: subtitle)
-                            .padding(.top, 4)
-
-                        // Group name — appears once it's a group (2+ selected).
-                        if isGroup {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("GROUP NAME")
-                                    .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                                    .foregroundStyle(Color(hex: T.muted))
-                                TextField(autoGroupName, text: $groupName)
-                                    .textFieldStyle(.plain)
-                                    .font(TTypo.sm(15))
-                                    .foregroundStyle(Color(hex: T.ink))
-                                    .padding(14)
-                                    .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-                                    .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
-                            }
-                            .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
-
-                        // Recipients
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("RECIPIENTS")
+                    // Group name — appears once it's a group (2+ selected).
+                    if isGroup {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("GROUP NAME")
                                 .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
                                 .foregroundStyle(Color(hex: T.muted))
-
-                            // Search field
-                            HStack(spacing: 8) {
-                                Image(systemName: "magnifyingglass")
-                                    .font(.system(size: 13, weight: .semibold))
-                                    .foregroundStyle(Color(hex: T.muted))
-                                TextField("Search people", text: $query)
-                                    .textFieldStyle(.plain)
-                                    .font(TTypo.sm(14))
-                                    .foregroundStyle(Color(hex: T.ink))
-                            }
-                            .padding(.horizontal, 14).padding(.vertical, 11)
-                            .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-                            .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
-
-                            VStack(spacing: 8) {
-                                ForEach(others) { person in
-                                    recipientRow(person)
-                                }
-                                if others.isEmpty {
-                                    Text("No people match “\(query)”")
-                                        .font(TTypo.sm(13))
-                                        .foregroundStyle(Color(hex: T.muted))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 20)
-                                }
-                            }
+                            TextField(autoGroupName, text: $groupName)
+                                .textFieldStyle(.plain)
+                                .font(TTypo.sm(15))
+                                .foregroundStyle(Color(hex: T.ink))
+                                .padding(14)
+                                .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
+                                .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
                         }
-
-                        // Box-shaped, really-rounded gradient CTA.
-                        Button {
-                            let ids = Array(selectedIds)
-                            guard !ids.isEmpty else { return }
-                            let name: String? = ids.count > 1
-                                ? { let t = groupName.trimmingCharacters(in: .whitespaces); return t.isEmpty ? autoGroupName : t }()
-                                : nil
-                            dismiss()
-                            onStart(ids, name)
-                        } label: {
-                            HStack(spacing: 8) {
-                                Image(systemName: isGroup ? "person.3.fill" : "bubble.left.fill")
-                                    .font(.system(size: 15, weight: .semibold))
-                                Text(ctaLabel.uppercased())
-                                    .font(TTypo.xsBold(13)).tLabel(tracking: 0.8)
-                            }
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(
-                                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .fill(selectedIds.isEmpty ? AnyShapeStyle(Color(hex: T.progressTrack))
-                                                              : AnyShapeStyle(T.brandGradient()))
-                            )
-                            .shadow(color: Color(hex: T.ctaGlowColor).opacity(selectedIds.isEmpty ? 0 : T.ctaGlowOpacity),
-                                    radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(selectedIds.isEmpty)
-                        .padding(.top, 4)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 28)
-                    .animation(.easeInOut(duration: 0.18), value: isGroup)
+
+                    // Recipients
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("RECIPIENTS")
+                            .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
+                            .foregroundStyle(Color(hex: T.muted))
+
+                        // Search field
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: T.muted))
+                            TextField("Search people", text: $query)
+                                .textFieldStyle(.plain)
+                                .font(TTypo.sm(14))
+                                .foregroundStyle(Color(hex: T.ink))
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 11)
+                        .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
+                        .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+
+                        VStack(spacing: 8) {
+                            ForEach(others) { person in
+                                recipientRow(person)
+                            }
+                            if others.isEmpty {
+                                Text("No people match “\(query)”")
+                                    .font(TTypo.sm(13))
+                                    .foregroundStyle(Color(hex: T.muted))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 20)
+                            }
+                        }
+                    }
                 }
-                .scrollIndicators(.hidden)
-                .scrollDismissesKeyboard(.interactively)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                // Clear the floating action bar so the last row stays reachable.
+                .padding(.bottom, 96)
+                .animation(.easeInOut(duration: 0.18), value: isGroup)
+            }
+            .scrollIndicators(.hidden)
+            .scrollDismissesKeyboard(.interactively)
+
+            // Floating action bar — Cancel (left) + Create (right). Stays pinned
+            // to the bottom while the recipient list scrolls behind it.
+            VStack {
+                Spacer()
+                HStack(spacing: 12) {
+                    Button { dismiss() } label: {
+                        Text("Cancel")
+                            .font(TTypo.smBold(15))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .padding(.horizontal, 24).padding(.vertical, 14)
+                            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(hex: T.surface)))
+                            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+                            .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 0)
+
+                    Button { start() } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "plus").font(.system(size: 15, weight: .bold))
+                            Text("Create").font(TTypo.smBold(15))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 24).padding(.vertical, 14)
+                        .background(
+                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                                .fill(selectedIds.isEmpty ? AnyShapeStyle(Color(hex: T.progressTrack))
+                                                          : AnyShapeStyle(T.brandGradient()))
+                        )
+                        .shadow(color: Color(hex: T.ctaGlowColor).opacity(selectedIds.isEmpty ? 0 : T.ctaGlowOpacity),
+                                radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+                        .opacity(selectedIds.isEmpty ? 0.7 : 1)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedIds.isEmpty)
+                    .animation(.easeInOut(duration: 0.18), value: selectedIds.isEmpty)
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 18)
             }
         }
+    }
+
+    private func start() {
+        let ids = Array(selectedIds)
+        guard !ids.isEmpty else { return }
+        let name: String? = ids.count > 1
+            ? { let t = groupName.trimmingCharacters(in: .whitespaces); return t.isEmpty ? autoGroupName : t }()
+            : nil
+        dismiss()
+        onStart(ids, name)
     }
 
     // One selectable recipient — frosted rounded row with the person's avatar
