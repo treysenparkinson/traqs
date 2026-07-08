@@ -64,8 +64,8 @@ struct MoreView: View {
                             statGrid
                                 .padding(.horizontal, 16)
 
-                            EfficiencyCard(percent: "\(efficiencyPercent)%", days: efficiencyDays,
-                                           info: "Job hours logged ÷ pay hours for the week (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
+                            EfficiencyCard(percent: "\(efficiencyPercent(for: nil))%", days: efficiencyDays(for: nil),
+                                           info: "Job hours logged ÷ pay hours for the week across everyone (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
                                 .padding(.horizontal, 16)
                                 .padding(.top, 16)
 
@@ -92,6 +92,12 @@ struct MoreView: View {
                             personalStatGrid(for: pid)
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 8)
+
+                            // This person's own efficiency for the selected week.
+                            EfficiencyCard(percent: "\(efficiencyPercent(for: pid))%", days: efficiencyDays(for: pid),
+                                           info: "Job hours logged ÷ pay hours for the week (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
+                                .padding(.horizontal, 16)
+                                .padding(.top, 16)
                         }
 
                         // ── Past Jobs (this user's own job-clock history) ──
@@ -159,6 +165,9 @@ struct MoreView: View {
         // re-filters locally, no refetch.
         .task {
             await appState.refreshJobSessions(personId: appState.currentPersonId)
+            // Own pay hours so a non-admin's personal Efficiency has data (admins
+            // overwrite with the whole-org pull below).
+            await appState.refreshTimeclock(personId: appState.currentPersonId)
             guard appState.isAdmin else { return }
             await appState.refreshTimeclock(personId: nil)
             await appState.refreshJobSessions(personId: nil)
@@ -357,9 +366,13 @@ struct MoreView: View {
 // MARK: - Efficiency (job hours ÷ pay hours) · MoreView
 
 private extension MoreView {
-    /// Pay-clock work rows across everyone (exclude lunch/break event rows).
-    var payEntries: [TimeclockEntry] {
-        appState.timeclockEntries.filter { $0.eventType == nil && $0.clockIn != nil && $0.clockOut != nil }
+    /// Pay-clock work rows (exclude lunch/break event rows). `personId` nil =
+    /// everyone (org view); otherwise just that person's rows.
+    func payEntries(for personId: String?) -> [TimeclockEntry] {
+        appState.timeclockEntries.filter {
+            $0.eventType == nil && $0.clockIn != nil && $0.clockOut != nil
+                && (personId == nil || $0.personId == personId)
+        }
     }
 
     /// Best calendar day for a row: its ISO clockIn, else its "YYYY-MM-DD" date.
@@ -372,19 +385,22 @@ private extension MoreView {
         return nil
     }
 
-    /// The seven days of the selected week with total pay + job hours (everyone).
-    var efficiencyDays: [EffDay] {
+    /// The seven days of the selected week with pay + job hours. `personId` nil =
+    /// everyone (team efficiency); otherwise that person's own efficiency.
+    func efficiencyDays(for personId: String?) -> [EffDay] {
         let cal = Calendar.current
         let week = weekInterval
         let dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+        let pays = payEntries(for: personId)
+        let sessions = appState.jobSessions.filter { personId == nil || $0.personId == personId }
         var out: [EffDay] = []
         for offset in 0..<7 {
             guard let day = cal.date(byAdding: .day, value: offset, to: week.start) else { continue }
-            let pay = payEntries.reduce(0.0) { acc, e in
+            let pay = pays.reduce(0.0) { acc, e in
                 guard let ed = dayOf(e.clockIn, e.date) else { return acc }
                 return cal.isDate(ed, inSameDayAs: day) ? acc + (e.hours ?? 0) : acc
             }
-            let job = appState.jobSessions.reduce(0.0) { acc, s in
+            let job = sessions.reduce(0.0) { acc, s in
                 guard let sd = dayOf(s.clockIn, s.date) else { return acc }
                 return cal.isDate(sd, inSameDayAs: day) ? acc + (s.hours ?? 0) : acc
             }
@@ -395,9 +411,10 @@ private extension MoreView {
     }
 
     /// Efficiency = week job hours ÷ week pay hours (e.g. 30 logged of 40 paid = 75%).
-    var efficiencyPercent: Int {
-        let totalPay = efficiencyDays.reduce(0.0) { $0 + $1.pay }
-        let totalJob = efficiencyDays.reduce(0.0) { $0 + $1.job }
+    func efficiencyPercent(for personId: String?) -> Int {
+        let days = efficiencyDays(for: personId)
+        let totalPay = days.reduce(0.0) { $0 + $1.pay }
+        let totalJob = days.reduce(0.0) { $0 + $1.job }
         guard totalPay > 0 else { return 0 }
         return Int((totalJob / totalPay * 100).rounded())
     }
@@ -406,8 +423,9 @@ private extension MoreView {
     /// (everyone) — the complement of Efficiency. Uses gross pay hours (lunch/
     /// break not subtracted — same basis as Efficiency).
     var idleHours: Double {
-        let pay = efficiencyDays.reduce(0.0) { $0 + $1.pay }
-        let job = efficiencyDays.reduce(0.0) { $0 + $1.job }
+        let days = efficiencyDays(for: nil)
+        let pay = days.reduce(0.0) { $0 + $1.pay }
+        let job = days.reduce(0.0) { $0 + $1.job }
         return max(0, pay - job)
     }
 
