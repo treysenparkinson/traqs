@@ -844,4 +844,60 @@ struct FadingBlur: UIViewRepresentable {
     func makeUIView(context: Context) -> _GradientBlurView { _GradientBlurView(flip: flip) }
     func updateUIView(_ uiView: _GradientBlurView, context: Context) {}
 }
+
+// MARK: - Interactive swipe-back (edge swipe → go back)
+
+/// Re-enables the native left-edge swipe-to-go-back on a PUSHED screen whose
+/// navigation bar is hidden — hiding the bar otherwise disables UIKit's
+/// interactivePopGestureRecognizer. Drop `.background(SwipeBackEnabler())` on a
+/// pushed view. The delegate only lets the swipe begin when there's something to
+/// pop, so a root screen still yields the left edge to the side drawer.
+final class PopGestureCoordinator: NSObject, UIGestureRecognizerDelegate {
+    weak var nav: UINavigationController?
+    func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
+        (nav?.viewControllers.count ?? 0) > 1
+    }
+}
+
+struct SwipeBackEnabler: UIViewControllerRepresentable {
+    func makeCoordinator() -> PopGestureCoordinator { PopGestureCoordinator() }
+    func makeUIViewController(context: Context) -> UIViewController { UIViewController() }
+    func updateUIViewController(_ vc: UIViewController, context: Context) {
+        DispatchQueue.main.async {
+            var current: UIViewController? = vc
+            while let c = current {
+                if let nav = c.navigationController {
+                    context.coordinator.nav = nav
+                    nav.interactivePopGestureRecognizer?.isEnabled = true
+                    nav.interactivePopGestureRecognizer?.delegate = context.coordinator
+                    return
+                }
+                current = c.parent
+            }
+        }
+    }
+}
+
+/// Left-edge swipe that triggers `action` (typically dismiss). For modally
+/// presented pages (fullScreenCover / sheet) that aren't in a navigation stack,
+/// so the native pop gesture doesn't apply. Runs as a simultaneous gesture and
+/// only fires on a clear left-edge horizontal swipe, so it won't hijack scrolls.
+struct EdgeSwipeBack: ViewModifier {
+    let action: () -> Void
+    func body(content: Content) -> some View {
+        content.simultaneousGesture(
+            DragGesture(minimumDistance: 20, coordinateSpace: .global)
+                .onEnded { v in
+                    if v.startLocation.x < 24, v.translation.width > 90, abs(v.translation.height) < 60 {
+                        action()
+                    }
+                }
+        )
+    }
+}
+extension View {
+    func edgeSwipeBack(_ action: @escaping () -> Void) -> some View {
+        modifier(EdgeSwipeBack(action: action))
+    }
+}
 #endif

@@ -154,7 +154,9 @@ struct SettingsView: View {
             }
         }
         .sheet(isPresented: $showAppearance) { CustomizeView() }
-        .sheet(isPresented: $showEditProfile) { EditProfileView() }
+        .sheet(isPresented: $showEditProfile) {
+            EditProfileView().edgeSwipeBack { showEditProfile = false }
+        }
     }
 
     private var appVersionString: String {

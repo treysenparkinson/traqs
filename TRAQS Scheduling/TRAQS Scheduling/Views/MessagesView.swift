@@ -293,6 +293,9 @@ struct MessagesView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { key in
                 ThreadDetailView(threadKey: key, onOpenThread: { navigationPath.append($0) })
+                    // Re-enable the native left-edge swipe-back (the thread hides
+                    // the nav bar, which would otherwise disable it).
+                    .background(SwipeBackEnabler())
             }
             .sheet(isPresented: $showNewGroup) {
                 NewGroupSheet { name, memberIds in

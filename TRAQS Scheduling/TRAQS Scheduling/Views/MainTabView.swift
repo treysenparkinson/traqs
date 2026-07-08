@@ -113,9 +113,17 @@ struct MainTabView: View {
                 .offset(x: drawerX)
                 .zIndex(2)
         }
-        .sheet(isPresented: $showSettings) { SettingsView() }
-        .fullScreenCover(isPresented: $showAdmin) { AdminView() }
-        .fullScreenCover(isPresented: $showTimeOff) { TimeOffView() }
+        // Modal sub-pages support a left-edge swipe to go back (dismiss), matching
+        // the native back-swipe elsewhere.
+        .sheet(isPresented: $showSettings) {
+            SettingsView().edgeSwipeBack { showSettings = false }
+        }
+        .fullScreenCover(isPresented: $showAdmin) {
+            AdminView().edgeSwipeBack { showAdmin = false }
+        }
+        .fullScreenCover(isPresented: $showTimeOff) {
+            TimeOffView().edgeSwipeBack { showTimeOff = false }
+        }
         // A tapped time-off push flips appNav.openTimeOffPage → present the
         // Time Off page and reset the flag so it fires once. `initial: true`
         // also catches a cold-start tap where the flag is already set.
