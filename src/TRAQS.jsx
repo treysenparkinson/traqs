@@ -11794,7 +11794,7 @@ ${jobsCtx || "No jobs found."}`;
                         ))}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
-                        <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder="PIN"
+                        <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder={p.hasPin ? "•••• set" : "Set PIN"}
                           style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.15em", outline: "none", minWidth: 0 }}
                         />
                         <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
@@ -12729,7 +12729,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div>
                             <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>PIN</div>
                             <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
-                              <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder="PIN"
+                              <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder={p.hasPin ? "•••• set — type to change" : "Set PIN"}
                                 style={{ flex: 1, padding: "8px 10px", border: "none", background: "transparent", color: T.text, fontSize: 18, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.25em", outline: "none", minWidth: 0 }}
                               />
                               <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
@@ -17005,7 +17005,7 @@ ${jobsCtx || "No jobs found."}`;
                   ))}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
-                  <input type={showPin ? "text" : "password"} value={p.pin || ""} onChange={e => updDraftPerson(p.id, { pin: e.target.value })} placeholder="PIN" style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPin ? "normal" : "0.15em", outline: "none", minWidth: 0 }} />
+                  <input type={showPin ? "text" : "password"} value={p.pin || ""} onChange={e => updDraftPerson(p.id, { pin: e.target.value })} placeholder={p.hasPin ? "•••• set" : "Set PIN"} style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPin ? "normal" : "0.15em", outline: "none", minWidth: 0 }} />
                   <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
                     {showPin
                       ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
