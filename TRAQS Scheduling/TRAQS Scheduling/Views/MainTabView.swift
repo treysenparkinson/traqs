@@ -382,49 +382,36 @@ private struct SideMenu: View {
             }
             .frame(width: drawerWidth)
             .frame(maxHeight: .infinity, alignment: .top)
+            // Full-bleed drawer: fill the rounded shape itself (extended into the
+            // safe area) so the gradient reaches the very top & bottom, flush on
+            // the left, with only the two right-hand corners rounded. Filling the
+            // shape (rather than clipping a safe-area-sized background) is what
+            // keeps the fill and the outline the same size.
             .background {
+                let shape = UnevenRoundedRectangle(bottomTrailingRadius: 40,
+                                                   topTrailingRadius: 40,
+                                                   style: .continuous)
                 ZStack {
+                    shape.fill(themeSettings.isLightTheme
+                               ? LinearGradient(colors: [Color(hex: T.bgGradTop), Color(hex: T.surface)],
+                                                startPoint: .top, endPoint: .bottom)
+                               : LinearGradient(colors: [Color(hex: "#2C2C2E"), Color(hex: "#000000")],
+                                                startPoint: .top, endPoint: .bottom))
                     if themeSettings.isLightTheme {
-                        // Light: soft top-to-bottom wash + faint lavender
-                        // ambient pool, echoing the revamp's AmbientBackground.
-                        LinearGradient(colors: [Color(hex: T.bgGradTop),
-                                                Color(hex: T.surface)],
-                                       startPoint: .top, endPoint: .bottom)
                         GlowBlob(size: T.glowSize * 0.9, opacity: T.glowOpacity * 0.7)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity,
-                                   alignment: .topLeading)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                             .offset(x: -40, y: 160)
-                    } else {
-                        // Dark: grey → black vertical wash so the white
-                        // wordmark, org name, and nav labels read clearly.
-                        // (The light wash made them vanish at the near-white
-                        // top stop.)
-                        LinearGradient(colors: [Color(hex: "#2C2C2E"),
-                                                Color(hex: "#000000")],
-                                       startPoint: .top, endPoint: .bottom)
+                            .clipShape(shape)
                     }
-                }
-                // Full-bleed height (flush top & bottom), then round ONLY the two
-                // right-hand (inner) corners.
-                .ignoresSafeArea()
-                .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: 30,
-                                                  topTrailingRadius: 30,
-                                                  style: .continuous))
-            }
-            .overlay {
-                // Soft edge highlight that follows the rounded inner corners.
-                UnevenRoundedRectangle(bottomTrailingRadius: 30,
-                                       topTrailingRadius: 30,
-                                       style: .continuous)
-                    .strokeBorder(
+                    shape.strokeBorder(
                         LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.5),
                                                 Color(hex: T.hair)],
                                        startPoint: .top, endPoint: .bottom),
                         lineWidth: 1)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
+                }
+                .ignoresSafeArea()
+                .shadow(color: Color.black.opacity(0.18), radius: 24, x: 6, y: 0)
             }
-            .shadow(color: Color.black.opacity(0.18), radius: 24, x: 6, y: 0)
 
             Spacer(minLength: 0)
         }
