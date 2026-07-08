@@ -876,177 +876,186 @@ struct ThreadDetailView: View {
         ZStack {
             AmbientBackground()
 
-            VStack(spacing: 0) {
-                ThreadHeader(title: displayTitle,
-                             subtitle: headerSubtitle,
-                             isDM: threadKey.hasPrefix("dm:"),
-                             participants: threadParticipants,
-                             onBack: { dismiss() },
-                             onTapPeople: {
-                                 withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                                     showPeople.toggle()
-                                 }
-                             })
-
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 12) {
-                            if liveMessages.isEmpty {
-                                Text("No messages yet. Say hello!")
-                                    .font(.subheadline)
-                                    .foregroundColor(Color(hex: T.muted))
-                                    .padding(.top, 40)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        if liveMessages.isEmpty {
+                            Text("No messages yet. Say hello!")
+                                .font(.subheadline)
+                                .foregroundColor(Color(hex: T.muted))
+                                .padding(.top, 40)
+                        }
+                        ForEach(messageSections) { section in
+                            SectionTimeHeader(text: section.header)
+                            ForEach(section.messages) { msg in
+                                if msg.type == "timeoff_request" {
+                                    TimeOffRequestBubble(message: msg)
+                                        .id(msg.id)
+                                } else {
+                                    MessageBubble(message: msg,
+                                                  isMe: isMyMessage(msg),
+                                                  animateIn: shouldAnimate(msg),
+                                                  status: deliveryStatus(for: msg),
+                                                  onAppeared: { markAnimated(msg.id) })
+                                        .id(msg.id)
+                                }
                             }
-                            ForEach(messageSections) { section in
-                                SectionTimeHeader(text: section.header)
-                                ForEach(section.messages) { msg in
-                                    if msg.type == "timeoff_request" {
-                                        TimeOffRequestBubble(message: msg)
-                                            .id(msg.id)
+                        }
+                        // Stable bottom anchor. Scrolling to a fixed id is far
+                        // more reliable than scrolling to the last message id,
+                        // which changes on the optimistic→server swap.
+                        Color.clear
+                            .frame(height: 1)
+                            .id(Self.bottomAnchor)
+                    }
+                    .padding()
+                }
+                // Start pinned to the newest message and stay pinned as
+                // content grows — the reliable iOS-17+ way to open a chat at
+                // the bottom (scrollTo on a lazy trailing anchor at .onAppear
+                // often no-ops because the anchor isn't realized yet).
+                .defaultScrollAnchor(.bottom)
+                .refreshable { await appState.refreshMessages() }
+                // Follow the conversation: any new message (count change) or an
+                // id swap on the last message re-pins to the bottom. A new
+                // message also means there's something new to mark read.
+                .onChange(of: liveMessages.count) {
+                    scrollToBottom(proxy, animated: true)
+                    appState.markThreadRead(threadKey)   // keep inbox badge clear while viewing
+                    Task { await markThreadReadNow() }
+                }
+                .onChange(of: liveMessages.last?.id) { scrollToBottom(proxy, animated: true) }
+                // Keyboard opening shrinks the viewport — re-pin so the newest
+                // message stays visible above the composer.
+                .onChange(of: composerFocused) { _, focused in
+                    if focused { scrollToBottom(proxy, animated: true) }
+                }
+                .onAppear {
+                    captureBaselineIfNeeded()
+                    // Clear this thread's inbox unread badge the instant it's
+                    // opened (observable → the inbox re-renders immediately).
+                    appState.markThreadRead(threadKey)
+                    // defaultScrollAnchor(.bottom) sets the initial offset;
+                    // these are a belt-and-suspenders nudge for late layout.
+                    scrollToBottom(proxy, animated: false)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        scrollToBottom(proxy, animated: false)
+                    }
+                    // Pull latest request statuses so any timeoff_request
+                    // bubble shows live state + Approve/Deny (admins get all).
+                    Task { await appState.refreshTimeOffRequests() }
+                }
+                // Header pinned to the top via safeAreaInset so it stays put when
+                // the keyboard opens — previously it lived inside the keyboard-
+                // avoiding VStack and got shoved off-screen. Frosted so messages
+                // scrolling under it stay legible.
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    ThreadHeader(title: displayTitle,
+                                 subtitle: headerSubtitle,
+                                 isDM: threadKey.hasPrefix("dm:"),
+                                 participants: threadParticipants,
+                                 onBack: { dismiss() },
+                                 onTapPeople: {
+                                     withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
+                                         showPeople.toggle()
+                                     }
+                                 })
+                        .frame(maxWidth: .infinity)
+                        .background(.ultraThinMaterial)
+                }
+                // Composer pinned to the bottom: the keyboard raises THIS inset,
+                // leaving the header and the message list in place.
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 8) {
+                        // Pending attachment preview (thumbnail + remove) above the row.
+                        if hasAttachment {
+                            HStack {
+                                attachmentPreview
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 6)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+
+                        HStack(spacing: 10) {
+                            // Attachment button — photo / camera / file, same sources
+                            // as the end-job panel photo.
+                            Button { showSourceDialog = true } label: {
+                                Image(systemName: "paperclip")
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                    .frame(width: 44, height: 44)
+                                    .background(Circle().fill(Color(hex: T.surface)))
+                                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(isSending)
+
+                            TextField("Message…", text: $newText, axis: .vertical)
+                                .textFieldStyle(.plain)
+                                .focused($composerFocused)
+                                .font(TTypo.sm(14))
+                                .foregroundColor(Color(hex: T.ink))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 12)
+                                .background(Capsule().fill(Color(hex: T.surface)))
+                                .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                                .lineLimit(1...5)
+
+                            // Send is allowed with text OR an attachment (or both).
+                            let sendDisabled = (newText.trimmingCharacters(in: .whitespaces).isEmpty && !hasAttachment) || isSending
+                            Button {
+                                Task { await sendMessage() }
+                            } label: {
+                                Group {
+                                    if isSending {
+                                        ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.85)
                                     } else {
-                                        MessageBubble(message: msg,
-                                                      isMe: isMyMessage(msg),
-                                                      animateIn: shouldAnimate(msg),
-                                                      status: deliveryStatus(for: msg),
-                                                      onAppeared: { markAnimated(msg.id) })
-                                            .id(msg.id)
+                                        TIconView(icon: .send, size: 18, color: .white, weight: .bold)
                                     }
                                 }
-                            }
-                            // Stable bottom anchor. Scrolling to a fixed id is far
-                            // more reliable than scrolling to the last message id,
-                            // which changes on the optimistic→server swap.
-                            Color.clear
-                                .frame(height: 1)
-                                .id(Self.bottomAnchor)
-                        }
-                        .padding()
-                    }
-                    // Start pinned to the newest message and stay pinned as
-                    // content grows — the reliable iOS-17+ way to open a chat at
-                    // the bottom (scrollTo on a lazy trailing anchor at .onAppear
-                    // often no-ops because the anchor isn't realized yet).
-                    .defaultScrollAnchor(.bottom)
-                    .refreshable { await appState.refreshMessages() }
-                    // Follow the conversation: any new message (count change) or an
-                    // id swap on the last message re-pins to the bottom. A new
-                    // message also means there's something new to mark read.
-                    .onChange(of: liveMessages.count) {
-                        scrollToBottom(proxy, animated: true)
-                        appState.markThreadRead(threadKey)   // keep inbox badge clear while viewing
-                        Task { await markThreadReadNow() }
-                    }
-                    .onChange(of: liveMessages.last?.id) { scrollToBottom(proxy, animated: true) }
-                    // Keyboard opening shrinks the viewport — re-pin so the newest
-                    // message stays visible above the composer.
-                    .onChange(of: composerFocused) { _, focused in
-                        if focused { scrollToBottom(proxy, animated: true) }
-                    }
-                    .onAppear {
-                        captureBaselineIfNeeded()
-                        // Clear this thread's inbox unread badge the instant it's
-                        // opened (observable → the inbox re-renders immediately).
-                        appState.markThreadRead(threadKey)
-                        // defaultScrollAnchor(.bottom) sets the initial offset;
-                        // these are a belt-and-suspenders nudge for late layout.
-                        scrollToBottom(proxy, animated: false)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            scrollToBottom(proxy, animated: false)
-                        }
-                        // Pull latest request statuses so any timeoff_request
-                        // bubble shows live state + Approve/Deny (admins get all).
-                        Task { await appState.refreshTimeOffRequests() }
-                    }
-                }
-
-                VStack(spacing: 8) {
-                    // Pending attachment preview (thumbnail + remove) above the row.
-                    if hasAttachment {
-                        HStack {
-                            attachmentPreview
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 6)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-
-                    HStack(spacing: 10) {
-                        // Attachment button — photo / camera / file, same sources
-                        // as the end-job panel photo.
-                        Button { showSourceDialog = true } label: {
-                            Image(systemName: "paperclip")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(Color(hex: T.ink))
                                 .frame(width: 44, height: 44)
-                                .background(Circle().fill(Color(hex: T.surface)))
-                                .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isSending)
-
-                        TextField("Message…", text: $newText, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .focused($composerFocused)
-                            .font(TTypo.sm(14))
-                            .foregroundColor(Color(hex: T.ink))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 12)
-                            .background(Capsule().fill(Color(hex: T.surface)))
-                            .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                            .lineLimit(1...5)
-
-                        // Send is allowed with text OR an attachment (or both).
-                        let sendDisabled = (newText.trimmingCharacters(in: .whitespaces).isEmpty && !hasAttachment) || isSending
-                        Button {
-                            Task { await sendMessage() }
-                        } label: {
-                            Group {
-                                if isSending {
-                                    ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.85)
-                                } else {
-                                    TIconView(icon: .send, size: 18, color: .white, weight: .bold)
-                                }
+                                .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
+                                .shadow(color: Color(hex: T.ctaGlowColor).opacity(sendDisabled ? 0 : T.ctaGlowOpacity),
+                                        radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+                                .opacity(sendDisabled ? 0.5 : 1)
                             }
-                            .frame(width: 44, height: 44)
-                            .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
-                            .shadow(color: Color(hex: T.ctaGlowColor).opacity(sendDisabled ? 0 : T.ctaGlowOpacity),
-                                    radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
-                            .opacity(sendDisabled ? 0.5 : 1)
+                            .buttonStyle(.plain)
+                            .disabled(sendDisabled)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(sendDisabled)
-                    }
-                    .shakeIfChanged(sendShakeToken)   // Phase 6: shake on send failure
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 6)
-                .animation(.easeInOut(duration: 0.18), value: hasAttachment)
-                .confirmationDialog("Add attachment", isPresented: $showSourceDialog, titleVisibility: .visible) {
-                    Button("Take Photo") {
-                        if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
-                        else { sendError = "No camera available on this device." }
-                    }
-                    Button("Photo Album") { showLibrary = true }
-                    Button("Choose File") { showFiles = true }
-                    Button("Cancel", role: .cancel) {}
-                }
-                .sheet(isPresented: $showCamera) {
-                    CameraPicker { image in pickedImage = image; pickedFile = nil; sendError = nil }
-                        .ignoresSafeArea()
-                }
-                .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
-                .fileImporter(isPresented: $showFiles,
-                              allowedContentTypes: [.image, .pdf],
-                              allowsMultipleSelection: false) { handleFileImport($0) }
-                .onChange(of: photoItem) { _, item in loadLibraryItem(item) }
+                        .shakeIfChanged(sendShakeToken)   // Phase 6: shake on send failure
 
-                if let err = sendError {
-                    Text(err)
-                        .font(.caption)
-                        .foregroundColor(.red)
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 4)
+                        if let err = sendError {
+                            Text(err)
+                                .font(.caption)
+                                .foregroundColor(.red)
+                                .padding(.horizontal, 16)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 8)
+                    .padding(.bottom, 6)
+                    .frame(maxWidth: .infinity)
+                    .background(.ultraThinMaterial)
+                    .animation(.easeInOut(duration: 0.18), value: hasAttachment)
+                    .confirmationDialog("Add attachment", isPresented: $showSourceDialog, titleVisibility: .visible) {
+                        Button("Take Photo") {
+                            if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
+                            else { sendError = "No camera available on this device." }
+                        }
+                        Button("Photo Album") { showLibrary = true }
+                        Button("Choose File") { showFiles = true }
+                        Button("Cancel", role: .cancel) {}
+                    }
+                    .sheet(isPresented: $showCamera) {
+                        CameraPicker { image in pickedImage = image; pickedFile = nil; sendError = nil }
+                            .ignoresSafeArea()
+                    }
+                    .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+                    .fileImporter(isPresented: $showFiles,
+                                  allowedContentTypes: [.image, .pdf],
+                                  allowsMultipleSelection: false) { handleFileImport($0) }
+                    .onChange(of: photoItem) { _, item in loadLibraryItem(item) }
                 }
             }
         }
