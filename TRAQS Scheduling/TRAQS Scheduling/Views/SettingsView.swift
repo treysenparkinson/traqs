@@ -1,4 +1,6 @@
 import SwiftUI
+import PhotosUI
+import UIKit
 
 // MARK: - Settings · TRAQS Revamp
 // Lightweight V1 settings — appearance, notifications, account, about.
@@ -12,6 +14,7 @@ struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var showAppearance = false
+    @State private var showEditProfile = false
 
     // ── Derived display values (no state — pure read of appState) ──
     private var personName: String { appState.currentPerson?.name ?? "—" }
@@ -60,10 +63,11 @@ struct SettingsView: View {
                         PageTitle(title: "Settings")
                             .padding(.top, 4)
 
-                        // ── Profile card (frosted) — tap opens appearance ──
-                        Button { showAppearance = true } label: {
+                        // ── Profile card (frosted) — tap opens Edit Profile ──
+                        Button { showEditProfile = true } label: {
                             HStack(spacing: 14) {
-                                Avatar(initials: avatarInitials, size: 52, gradient: true)
+                                Avatar(initials: avatarInitials, size: 52, gradient: true,
+                                       imageData: appState.currentPerson?.image)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(nameRoleLine)
                                         .font(TTypo.h3(17))
@@ -150,6 +154,7 @@ struct SettingsView: View {
             }
         }
         .sheet(isPresented: $showAppearance) { CustomizeView() }
+        .sheet(isPresented: $showEditProfile) { EditProfileView() }
     }
 
     private var appVersionString: String {
@@ -252,5 +257,160 @@ private struct SettingsValueRow: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
+    }
+}
+
+// MARK: - Edit Profile (name / email / phone / color / photo)
+
+struct EditProfileView: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var email = ""
+    @State private var phone = ""
+    @State private var color = "#7C3AED"
+    @State private var imageData: String?
+    @State private var photoItem: PhotosPickerItem?
+    @State private var showLibrary = false
+    @State private var showCamera = false
+    @State private var showSourceDialog = false
+    @State private var saving = false
+    @State private var error: String?
+    @State private var loaded = false
+
+    private let palette = ["#7C3AED", "#4169E1", "#0EA5E9", "#14B8A6", "#10B981",
+                           "#F59E0B", "#F97316", "#EF4444", "#EC4899", "#8B5CF6"]
+
+    private var initials: String {
+        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        let j = parts.joined(); return j.isEmpty ? "?" : j
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                AmbientBackground()
+                ScrollView {
+                    VStack(spacing: 22) {
+                        VStack(spacing: 12) {
+                            Avatar(initials: initials, size: 96, fill: Color(hex: color), imageData: imageData)
+                            Button { showSourceDialog = true } label: {
+                                Text(imageData == nil ? "Add Photo" : "Change Photo")
+                                    .font(TTypo.smBold(13))
+                                    .foregroundStyle(Color(hex: T.accentGradientStart))
+                            }
+                            .buttonStyle(.plain)
+                            if imageData != nil {
+                                Button { imageData = nil } label: {
+                                    Text("Remove Photo").font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted))
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.top, 8)
+
+                        VStack(spacing: 14) {
+                            labeledField("NAME", text: $name, autocap: .words)
+                            labeledField("EMAIL", text: $email, keyboard: .emailAddress)
+                            labeledField("PHONE", text: $phone, keyboard: .phonePad)
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("PROFILE COLOR")
+                                .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
+                                .foregroundStyle(Color(hex: T.muted))
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 12) {
+                                ForEach(palette, id: \.self) { hex in
+                                    Circle()
+                                        .fill(Color(hex: hex))
+                                        .frame(height: 40)
+                                        .overlay(Circle().stroke(.white, lineWidth: color.lowercased() == hex.lowercased() ? 3 : 0))
+                                        .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                                        .onTapGesture { color = hex }
+                                }
+                            }
+                        }
+                        .padding(16)
+                        .frostedCard(radius: T.cornerHero)
+
+                        if let error {
+                            Text(error).font(TTypo.xs(12)).foregroundStyle(Color(hex: T.red))
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
+                }
+            }
+            .navigationTitle("Edit Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? "Saving…" : "Save") { save() }
+                        .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .confirmationDialog("Profile Photo", isPresented: $showSourceDialog, titleVisibility: .visible) {
+                Button("Take Photo") {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
+                }
+                Button("Choose from Library") { showLibrary = true }
+                Button("Cancel", role: .cancel) {}
+            }
+            .sheet(isPresented: $showCamera) {
+                CameraPicker { img in setImage(img) }.ignoresSafeArea()
+            }
+            .photosPicker(isPresented: $showLibrary, selection: $photoItem, matching: .images)
+            .onChange(of: photoItem) { _, item in loadPhoto(item) }
+        }
+        .onAppear {
+            guard !loaded, let p = appState.currentPerson else { return }
+            name = p.name; email = p.email; phone = p.phone ?? ""
+            color = p.color.isEmpty ? "#7C3AED" : p.color
+            imageData = p.image
+            loaded = true
+        }
+    }
+
+    private func labeledField(_ label: String, text: Binding<String>,
+                              autocap: TextInputAutocapitalization = .never,
+                              keyboard: UIKeyboardType = .default) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(TTypo.xsBold(11)).tLabel(tracking: 1.4).foregroundStyle(Color(hex: T.muted))
+            TextField("", text: text)
+                .textInputAutocapitalization(autocap)
+                .keyboardType(keyboard)
+                .autocorrectionDisabled(keyboard == .emailAddress)
+                .font(TTypo.sm(15))
+                .foregroundStyle(Color(hex: T.ink))
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
+                .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.hair), lineWidth: 1))
+        }
+    }
+
+    private func setImage(_ img: UIImage) {
+        if let data = ImageDownscaler.jpeg(from: img, maxEdge: 512, quality: 0.85) {
+            imageData = "data:image/jpeg;base64," + data.base64EncodedString()
+        }
+    }
+    private func loadPhoto(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        Task {
+            if let data = try? await item.loadTransferable(type: Data.self), let img = UIImage(data: data) {
+                await MainActor.run { setImage(img) }
+            }
+        }
+    }
+    private func save() {
+        saving = true; error = nil
+        let n = name.trimmingCharacters(in: .whitespaces)
+        let e = email.trimmingCharacters(in: .whitespaces)
+        let ph = phone.trimmingCharacters(in: .whitespaces)
+        Task {
+            let ok = await appState.updateMyProfile(name: n, email: e, phone: ph, color: color, image: imageData)
+            saving = false
+            if ok { dismiss() } else { error = "Couldn't save your profile. Try again." }
+        }
     }
 }

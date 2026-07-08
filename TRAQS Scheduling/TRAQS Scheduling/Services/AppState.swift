@@ -669,6 +669,48 @@ class AppState {
         threadReadAt = map
     }
 
+    /// Total unread text messages across every thread I'm in — any message newer
+    /// than the thread's last-read stamp that I didn't send. `messages` is already
+    /// ACL-filtered server-side, so iterating it only counts threads I can see.
+    /// Drives the Messages-tab count and the sidebar notification dot.
+    var totalUnreadMessages: Int {
+        guard let myId = currentPersonId else { return 0 }
+        var total = 0
+        for (key, msgs) in Dictionary(grouping: messages, by: { $0.threadKey }) {
+            let readAt = threadReadAt[key].flatMap { Date.fromFlexibleISO8601($0) } ?? .distantPast
+            for m in msgs where m.authorId != myId {
+                if (Date.fromFlexibleISO8601(m.timestamp) ?? .distantPast) > readAt { total += 1 }
+            }
+        }
+        return total
+    }
+    /// Whether there's anything unread worth surfacing (sidebar pulsing dot).
+    var hasUnreadNotifications: Bool { totalUnreadMessages > 0 }
+
+    /// Update the current user's editable profile (name/email/phone/color/image),
+    /// optimistically then via the granular people PATCH. Returns success.
+    @discardableResult
+    func updateMyProfile(name: String, email: String, phone: String, color: String, image: String?) async -> Bool {
+        guard let api, let personId = currentPersonId else { return false }
+        let prev = people
+        if let idx = people.firstIndex(where: { $0.id == personId }) {
+            var p = people[idx]
+            p.name = name; p.email = email; p.phone = phone; p.color = color
+            p.image = image   // nil clears the photo
+            var newPeople = people; newPeople[idx] = p; people = newPeople
+        }
+        var fields: [String: Any] = ["name": name, "email": email, "phone": phone, "color": color]
+        // Always send image so removing a photo (nil → JSON null) clears it too.
+        fields["image"] = image ?? NSNull()
+        do {
+            try await api.patchPerson(personId: personId, fields: fields)
+            return true
+        } catch {
+            people = prev            // revert optimistic change
+            return false
+        }
+    }
+
     // MARK: - Messages
 
     func sendMessage(_ message: Message) async {

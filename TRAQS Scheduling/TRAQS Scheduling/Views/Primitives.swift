@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // MARK: - TRAQS Primitives
 // SwiftUI ports of the wireframe primitives in screens/shared.jsx.
@@ -173,25 +174,35 @@ struct Avatar: View {
     var textColor: Color? = nil
     var gradient: Bool = false  // fill with the signature brand gradient (wins over fill)
     var presence: Color? = nil  // optional bottom-right presence dot (work/break/idle)
+    var imageData: String? = nil // optional profile picture as a data: URL / base64
 
     private var isColored: Bool { fill != nil || gradient }
+    private var profileImage: UIImage? { Avatar.decodeImage(imageData) }
 
     var body: some View {
         ZStack {
-            if gradient {
-                Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing))
+            if let profileImage {
+                // Profile picture wins over initials/gradient.
+                Image(uiImage: profileImage)
+                    .resizable()
+                    .scaledToFill()
             } else {
-                Circle().fill(fill ?? Color(hex: T.surface))
+                if gradient {
+                    Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing))
+                } else {
+                    Circle().fill(fill ?? Color(hex: T.surface))
+                }
+                if !isColored {
+                    Circle()
+                        .strokeBorder(stroke ?? Color(hex: T.hair), lineWidth: 1)
+                }
+                Text(initials)
+                    .font(.custom(TFontName.bold.rawValue, size: size * 0.4))
+                    .foregroundStyle(textColor ?? (isColored ? .white : Color(hex: T.ink)))
             }
-            if !isColored {
-                Circle()
-                    .strokeBorder(stroke ?? Color(hex: T.hair), lineWidth: 1)
-            }
-            Text(initials)
-                .font(.custom(TFontName.bold.rawValue, size: size * 0.4))
-                .foregroundStyle(textColor ?? (isColored ? .white : Color(hex: T.ink)))
         }
         .frame(width: size, height: size)
+        .clipShape(Circle())
         .overlay(alignment: .bottomTrailing) {
             if let presence {
                 Circle().fill(presence)
@@ -199,6 +210,15 @@ struct Avatar: View {
                     .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: max(1.5, size * 0.05)))
             }
         }
+    }
+
+    /// Decode a stored profile image — a `data:image/...;base64,XXXX` URL (as the
+    /// web writes) or a bare base64 string — into a UIImage.
+    static func decodeImage(_ s: String?) -> UIImage? {
+        guard let s, !s.isEmpty else { return nil }
+        let b64 = s.contains(",") ? String(s.split(separator: ",").last ?? "") : s
+        guard let data = Data(base64Encoded: b64) else { return nil }
+        return UIImage(data: data)
     }
 }
 

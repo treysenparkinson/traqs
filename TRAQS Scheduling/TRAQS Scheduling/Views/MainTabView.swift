@@ -170,6 +170,7 @@ struct MainTabView: View {
 
 struct TRAQSMenuButton: View {
     @Environment(AppNav.self) private var appNav
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         Button {
@@ -184,8 +185,38 @@ struct TRAQSMenuButton: View {
             }
             .frame(width: 32, height: 32)
             .contentShape(Rectangle())
+            // Missed-notification indicator: a pulsing red dot on the corner.
+            .overlay(alignment: .topTrailing) {
+                if appState.hasUnreadNotifications {
+                    PulsingDot().offset(x: 4, y: -4)
+                }
+            }
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Pulsing notification dot
+// A red dot with an expanding halo ring that pulses to draw the eye. Used on the
+// sidebar/hamburger button when there are missed notifications.
+struct PulsingDot: View {
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color(hex: T.red).opacity(0.5))
+                .frame(width: 9, height: 9)
+                .scaleEffect(pulse ? 2.2 : 1)
+                .opacity(pulse ? 0 : 0.6)
+            Circle()
+                .fill(Color(hex: T.red))
+                .frame(width: 9, height: 9)
+                .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 1.5))
+        }
+        .onAppear {
+            withAnimation(.easeOut(duration: 1.3).repeatForever(autoreverses: false)) { pulse = true }
+        }
     }
 }
 
@@ -235,6 +266,12 @@ private struct SideMenu: View {
     /// (shared with the Home screen).
     private var shiftStatus: ShiftStatus { appState.myShiftStatus }
 
+    /// Salaried employees don't punch a clock, so hide the Hours tab for them.
+    private var visibleTabs: [TTab] {
+        let salary = appState.currentPerson?.isSalary ?? false
+        return TTab.allCases.filter { !(salary && $0 == .hours) }
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -280,12 +317,13 @@ private struct SideMenu: View {
                     .padding(.horizontal, 20)
                     .padding(.bottom, 16)
 
-                // Tab list — primary 5 wireframe tabs.
+                // Tab list — primary wireframe tabs (Hours hidden for salary).
                 VStack(spacing: 4) {
-                    ForEach(TTab.allCases, id: \.self) { tab in
+                    ForEach(visibleTabs, id: \.self) { tab in
                         SideMenuRow(icon: tab.icon,
                                     label: tab.label,
-                                    isOn: appNav.selected == tab) {
+                                    isOn: appNav.selected == tab,
+                                    badge: tab == .chat ? appState.totalUnreadMessages : 0) {
                             withAnimation(.easeInOut(duration: 0.22)) {
                                 appNav.selected = tab
                             }
@@ -326,6 +364,7 @@ private struct SideMenu: View {
                 ProfileFooter(initials: initials,
                               name: person?.name ?? "—",
                               status: shiftStatus,
+                              imageData: person?.image,
                               onLogout: {
                                   auth.logout()
                                   close()
@@ -383,6 +422,7 @@ private struct SideMenuRow: View {
     let icon: TIcon
     let label: String
     let isOn: Bool
+    var badge: Int = 0
     let action: () -> Void
 
     var body: some View {
@@ -396,6 +436,14 @@ private struct SideMenuRow: View {
                     .font(.custom(isOn ? TFontName.bold.rawValue : TFontName.medium.rawValue, size: 16))
                     .foregroundStyle(isOn ? .white : Color(hex: T.muted))
                 Spacer(minLength: 0)
+                if badge > 0 {
+                    Text(badge > 99 ? "99+" : "\(badge)")
+                        .font(.custom(TFontName.bold.rawValue, size: 12))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color(hex: T.red)))
+                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 13)
@@ -449,13 +497,14 @@ private struct ProfileFooter: View {
     let initials: String
     let name: String
     let status: ShiftStatus
+    var imageData: String? = nil
     let onLogout: () -> Void
 
     var body: some View {
         // Bottom-align the avatar with the text so the status + name sit lower,
         // riding the avatar's baseline rather than floating at its center.
         HStack(alignment: .bottom, spacing: 12) {
-            Avatar(initials: initials, size: 40, gradient: true)
+            Avatar(initials: initials, size: 40, gradient: true, imageData: imageData)
 
             // Status pill directly above the name — one tight, left-aligned
             // unit. Email lives in Settings now, so it's dropped here.

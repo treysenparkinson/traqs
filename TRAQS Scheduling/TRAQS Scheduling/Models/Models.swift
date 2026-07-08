@@ -533,8 +533,14 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     // Server-derived: whether this person has a clock-in PIN set. The raw PIN is
     // never sent to clients; this flag drives the clock-in PIN prompt.
     var hasPin: Bool?
+    // Pay classification + editable profile fields (all present in people.json).
+    var payType: String?   // "hourly" (default) | "salary"
+    var phone: String?
+    var image: String?     // profile picture: attachment key or data: URL
 
     var isAdmin: Bool { userRole == "admin" }
+    /// Salaried employees don't punch a clock (Hours page + clock-in are hidden).
+    var isSalary: Bool { (payType ?? "hourly").lowercased() == "salary" }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -556,6 +562,9 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         activeJobClock = try? c.decodeIfPresent(ActiveJobClock.self, forKey: .activeJobClock)
         activeBreak = try? c.decodeIfPresent(ActiveBreak.self, forKey: .activeBreak)
         hasPin = try? c.decodeIfPresent(Bool.self, forKey: .hasPin)
+        payType = try? c.decodeIfPresent(String.self, forKey: .payType)
+        phone   = try? c.decodeIfPresent(String.self, forKey: .phone)
+        image   = try? c.decodeIfPresent(String.self, forKey: .image)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
@@ -567,7 +576,8 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
          activeClockIn: ActiveClockIn? = nil,
          activeJobClock: ActiveJobClock? = nil,
          activeBreak: ActiveBreak? = nil,
-         hasPin: Bool? = nil) {
+         hasPin: Bool? = nil,
+         payType: String? = nil, phone: String? = nil, image: String? = nil) {
         self.id = id; self.name = name; self.role = role; self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
@@ -577,6 +587,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         self.activeJobClock = activeJobClock
         self.activeBreak = activeBreak
         self.hasPin = hasPin
+        self.payType = payType; self.phone = phone; self.image = image
     }
 
     static func == (lhs: Person, rhs: Person) -> Bool { lhs.id == rhs.id }

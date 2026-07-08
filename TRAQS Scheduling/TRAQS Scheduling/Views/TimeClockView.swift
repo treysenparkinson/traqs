@@ -46,7 +46,7 @@ struct TimeClockView: View {
                         // Live shift status — always shown when the pay clock is
                         // enabled for mobile (task 4), including a resting
                         // "Clocked out" state so the card never disappears.
-                        if appState.orgSettings.iosPayClockEnabled {
+                        if showPayClock {
                             PayStatusCard(active: appState.payClockInActive,
                                           onLunch: appState.payOnLunch,
                                           liveHours: liveShiftHours,
@@ -63,7 +63,7 @@ struct TimeClockView: View {
                         // Sits below the bar graph so the hero number reads first.
                         // Clocked out → one Clock In button. Clocked in → Lunch +
                         // Clock Out (task 1).
-                        if appState.orgSettings.iosPayClockEnabled {
+                        if showPayClock {
                             PayClockControls(active: appState.payClockInActive,
                                              onLunch: appState.payOnLunch,
                                              source: appState.payClockInSource,
@@ -133,6 +133,11 @@ struct TimeClockView: View {
 
     private var myId: String? { appState.currentPersonId }
     private var activePayClock: ActiveClockIn? { appState.currentPerson?.activeClockIn }
+    /// Pay clock UI shows only when the org enabled it AND the person is hourly —
+    /// salaried employees don't punch a clock.
+    private var showPayClock: Bool {
+        appState.orgSettings.iosPayClockEnabled && !(appState.currentPerson?.isSalary ?? false)
+    }
 
     /// Wall-clock elapsed for the pay-clock CTA (H:MM:SS once past an hour, else
     /// MM:SS). Driven by the 1s `now` ticker. Net-of-break hours live in the

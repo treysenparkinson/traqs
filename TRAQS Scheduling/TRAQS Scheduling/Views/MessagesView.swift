@@ -25,6 +25,7 @@ struct MessagesView: View {
     @Environment(AppNav.self) private var appNav
     @State private var showNewGroup = false
     @State private var showNewDM = false
+    @State private var showNewMessage = false   // unified compose: 1 = DM, 2+ = group
     @State private var filter: ChatFilter = .all
     @State private var filterOpen = false   // filter FAB dropdown open?
     @State private var navigationPath = NavigationPath()
@@ -209,7 +210,7 @@ struct MessagesView: View {
                                 if showSearch { searchFocused = true }
                             }
                             IconBtn(icon: .plus, size: 18) {
-                                showNewGroup = true   // default to group creation; DM is in sheet
+                                showNewMessage = true   // pick recipients: 1 = DM, 2+ = group
                             }
                         }
                     }
@@ -309,6 +310,23 @@ struct MessagesView: View {
                     guard let myId = appState.currentPersonId else { return }
                     let ids = [myId, personId].sorted()
                     navigationPath.append("dm:\(ids.joined(separator: "_"))")
+                }
+            }
+            // Unified compose: exactly ONE recipient opens a DM, TWO OR MORE
+            // create a group (auto-named unless the user typed a name).
+            .sheet(isPresented: $showNewMessage) {
+                NewMessageSheet { recipientIds, groupName in
+                    guard let myId = appState.currentPersonId, !recipientIds.isEmpty else { return }
+                    if recipientIds.count == 1 {
+                        let ids = [myId, recipientIds[0]].sorted()
+                        navigationPath.append("dm:\(ids.joined(separator: "_"))")
+                    } else {
+                        var members = recipientIds
+                        if !members.contains(myId) { members.insert(myId, at: 0) }
+                        let name = groupName ?? "Group"
+                        Task { await appState.createGroup(name: name, memberIds: members) }
+                        navigationPath.append("group:\(name)")
+                    }
                 }
             }
             .alert("Delete \(selectedKeys.count) conversation\(selectedKeys.count == 1 ? "" : "s")?",
@@ -915,6 +933,9 @@ struct ThreadDetailView: View {
                 // the bottom (scrollTo on a lazy trailing anchor at .onAppear
                 // often no-ops because the anchor isn't realized yet).
                 .defaultScrollAnchor(.bottom)
+                // Swipe down on the transcript to dismiss the keyboard smoothly
+                // (interactive) instead of it snapping shut and the layout jumping.
+                .scrollDismissesKeyboard(.interactively)
                 .refreshable { await appState.refreshMessages() }
                 // Follow the conversation: any new message (count change) or an
                 // id swap on the last message re-pins to the bottom. A new
@@ -1719,6 +1740,11 @@ struct MessageBubble: View {
                 if !message.text.isEmpty {
                 Text(message.text)
                     .font(TTypo.sm(14))
+                    .multilineTextAlignment(.leading)
+                    // Wrap to the text's natural height and cap the bubble width so
+                    // long messages wrap inside a bounded bubble instead of
+                    // stretching across the row / overlapping the avatar or edge.
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
                     .foregroundStyle(isMe ? .white : Color(hex: T.ink))
@@ -1739,6 +1765,7 @@ struct MessageBubble: View {
                                         radius: T.ambientShadowRadius * 0.6, x: 0, y: T.ambientShadowY * 0.6)
                         }
                     }
+                    .frame(maxWidth: 300, alignment: isMe ? .trailing : .leading)
                     .contentShape(RoundedRectangle(cornerRadius: 20))
                     .onTapGesture { toggleTimestamp() }
                     // Overlay rather than a sibling view so the timestamp
@@ -2432,6 +2459,146 @@ struct NewDMSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                         .foregroundColor(Color(hex: T.accent))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - New Message Sheet (unified: 1 recipient = DM, 2+ = group)
+
+struct NewMessageSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    /// (recipientIds excluding me, groupName) — groupName is nil for a 1:1 DM.
+    let onStart: ([String], String?) -> Void
+
+    @State private var selectedIds: Set<String> = []
+    @State private var groupName = ""
+
+    private var others: [Person] { appState.people.filter { $0.id != appState.currentPersonId } }
+    private var isGroup: Bool { selectedIds.count > 1 }
+
+    /// Auto name for a group when the user leaves the name blank — first names of
+    /// the selected people, e.g. "Alex & Sam" or "Alex, Sam +2".
+    private var autoGroupName: String {
+        let names = others.filter { selectedIds.contains($0.id) }
+            .map { String($0.name.split(separator: " ").first ?? Substring($0.name)) }
+        switch names.count {
+        case 0:  return "Group"
+        case 1:  return names[0]
+        case 2:  return "\(names[0]) & \(names[1])"
+        default: return "\(names.prefix(2).joined(separator: ", ")) +\(names.count - 2)"
+        }
+    }
+
+    private var ctaLabel: String {
+        if selectedIds.isEmpty { return "Select recipients" }
+        return isGroup ? "Create Group" : "Start Chat"
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(hex: T.bg).ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 20) {
+                        VStack(spacing: 8) {
+                            ZStack {
+                                Circle().fill(Color(hex: T.accent).opacity(0.12)).frame(width: 64, height: 64)
+                                Image(systemName: isGroup ? "person.3.fill" : "person.fill")
+                                    .font(.system(size: 26)).foregroundColor(Color(hex: T.accent))
+                            }
+                            Text("New Message").font(.title3.bold()).foregroundColor(Color(hex: T.text))
+                            Text(selectedIds.isEmpty ? "Pick one person for a DM, or several for a group"
+                                                     : (isGroup ? "\(selectedIds.count) people · group" : "Direct message"))
+                                .font(.caption).foregroundColor(Color(hex: T.muted))
+                        }
+                        .padding(.top, 16)
+
+                        // Group name — only meaningful once it's a group (2+).
+                        if isGroup {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("Group Name").font(.caption.bold()).foregroundColor(Color(hex: T.muted))
+                                    .padding(.horizontal, 16)
+                                TextField(autoGroupName, text: $groupName)
+                                    .textFieldStyle(.plain)
+                                    .foregroundColor(Color(hex: T.text))
+                                    .padding(12)
+                                    .background(Color(hex: T.surface))
+                                    .cornerRadius(10)
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+                                    .padding(.horizontal, 16)
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Recipients").font(.caption.bold()).foregroundColor(Color(hex: T.muted))
+                                .padding(.horizontal, 16)
+                            ForEach(others) { person in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        if selectedIds.contains(person.id) { selectedIds.remove(person.id) }
+                                        else { selectedIds.insert(person.id) }
+                                    }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Circle().fill(Color(hex: person.color)).frame(width: 36, height: 36)
+                                            .overlay(Text(String(person.name.prefix(1)).uppercased())
+                                                .font(.subheadline.bold()).foregroundColor(.white))
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(person.name).font(.subheadline.bold()).foregroundColor(Color(hex: T.text))
+                                            Text(person.role).font(.caption).foregroundColor(Color(hex: T.muted))
+                                        }
+                                        Spacer()
+                                        Image(systemName: selectedIds.contains(person.id) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundColor(selectedIds.contains(person.id) ? Color(hex: T.accent) : Color(hex: T.muted))
+                                    }
+                                    .padding(12)
+                                    .background(Color(hex: T.card))
+                                    .cornerRadius(10)
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(
+                                        selectedIds.contains(person.id) ? Color(hex: T.accent).opacity(0.4) : Color(hex: T.border),
+                                        lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 16)
+                            }
+                        }
+
+                        Button {
+                            let ids = Array(selectedIds)
+                            guard !ids.isEmpty else { return }
+                            let name: String? = ids.count > 1
+                                ? { let t = groupName.trimmingCharacters(in: .whitespaces); return t.isEmpty ? autoGroupName : t }()
+                                : nil
+                            dismiss()
+                            onStart(ids, name)
+                        } label: {
+                            Text(ctaLabel)
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(selectedIds.isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
+                                .foregroundColor(.white)
+                                .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(selectedIds.isEmpty)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                    }
+                    .animation(.easeInOut(duration: 0.18), value: isGroup)
+                }
+            }
+            .navigationTitle("New Message")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }.foregroundColor(Color(hex: T.accent))
                 }
             }
         }
