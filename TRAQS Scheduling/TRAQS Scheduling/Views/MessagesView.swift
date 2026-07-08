@@ -1022,8 +1022,12 @@ struct ThreadDetailView: View {
                                 .foregroundColor(Color(hex: T.ink))
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 12)
-                                .background(Capsule().fill(Color(hex: T.surface)))
-                                .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                                // Fixed 20pt corner radius (not a Capsule): reads as a
+                                // pill on one line, but grows into a rounded-square as
+                                // the text wraps — a Capsule's height/2 radius would
+                                // curve the sides inward and clip the text.
+                                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color(hex: T.surface)))
+                                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
                                 .lineLimit(1...5)
 
                             // Send is allowed with text OR an attachment (or both).
