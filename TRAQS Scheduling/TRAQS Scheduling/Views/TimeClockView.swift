@@ -14,7 +14,6 @@ private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 struct TimeClockView: View {
     @Environment(AppState.self) private var appState
     @State private var now = Date()
-    @State private var showSettings = false
     @State private var showPinPrompt = false
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -23,9 +22,7 @@ struct TimeClockView: View {
             AmbientBackground()
 
             VStack(spacing: 0) {
-                TRAQSNavHeader {
-                    IconBtn(icon: .settings, size: 18) { showSettings = true }
-                }
+                TRAQSNavHeader()
 
                 ScrollViewReader { _ in
                   ScrollView {
@@ -121,7 +118,6 @@ struct TimeClockView: View {
             }
         }
         .animation(.easeInOut(duration: 0.18), value: showPinPrompt)
-        .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
     private func reload() async {
