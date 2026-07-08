@@ -517,16 +517,35 @@ struct APIService {
         let action: String
         let personId: String
         let source = "ios-app"
+        // Sent only on clock-in when the person has a PIN set. Omitted (encodes
+        // to null → server treats as absent) when they have none.
+        var pin: String? = nil
     }
 
-    func payClockIn(personId: String) async throws {
-        let body = try JSONEncoder().encode(PayClockPayload(action: "payClockIn", personId: personId))
+    /// Clock in for pay. `pin` is required only if the person has a PIN set
+    /// (`hasPin`); the server auto-accepts when they have none.
+    func payClockIn(personId: String, pin: String? = nil) async throws {
+        let body = try JSONEncoder().encode(PayClockPayload(action: "payClockIn", personId: personId, pin: pin))
         let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
 
     func payClockOut(personId: String) async throws {
         let body = try JSONEncoder().encode(PayClockPayload(action: "payClockOut", personId: personId))
+        let req = try await request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    /// Toggle lunch on the current pay shift (Bearer, self-or-admin). Appends a
+    /// lunchStart/lunchEnd event that pauses the paid clock until lunch ends.
+    func payLunchStart(personId: String) async throws {
+        let body = try JSONEncoder().encode(PayClockPayload(action: "payLunchStart", personId: personId))
+        let req = try await request("timeclock", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
+    func payLunchEnd(personId: String) async throws {
+        let body = try JSONEncoder().encode(PayClockPayload(action: "payLunchEnd", personId: personId))
         let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }

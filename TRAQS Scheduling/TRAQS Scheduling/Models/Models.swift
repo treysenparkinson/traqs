@@ -530,6 +530,9 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var activeClockIn: ActiveClockIn?
     var activeJobClock: ActiveJobClock?
     var activeBreak: ActiveBreak?
+    // Server-derived: whether this person has a clock-in PIN set. The raw PIN is
+    // never sent to clients; this flag drives the clock-in PIN prompt.
+    var hasPin: Bool?
 
     var isAdmin: Bool { userRole == "admin" }
 
@@ -552,6 +555,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         activeClockIn = try? c.decodeIfPresent(ActiveClockIn.self, forKey: .activeClockIn)
         activeJobClock = try? c.decodeIfPresent(ActiveJobClock.self, forKey: .activeJobClock)
         activeBreak = try? c.decodeIfPresent(ActiveBreak.self, forKey: .activeBreak)
+        hasPin = try? c.decodeIfPresent(Bool.self, forKey: .hasPin)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
@@ -562,7 +566,8 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
          timeOff: [TimeOffEntry] = [], pushToken: String? = nil,
          activeClockIn: ActiveClockIn? = nil,
          activeJobClock: ActiveJobClock? = nil,
-         activeBreak: ActiveBreak? = nil) {
+         activeBreak: ActiveBreak? = nil,
+         hasPin: Bool? = nil) {
         self.id = id; self.name = name; self.role = role; self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
@@ -571,6 +576,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         self.activeClockIn = activeClockIn
         self.activeJobClock = activeJobClock
         self.activeBreak = activeBreak
+        self.hasPin = hasPin
     }
 
     static func == (lhs: Person, rhs: Person) -> Bool { lhs.id == rhs.id }

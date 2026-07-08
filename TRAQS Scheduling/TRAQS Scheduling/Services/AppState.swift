@@ -1200,8 +1200,12 @@ class AppState {
     /// Clock the current user IN for pay from iOS. Optimistic: flips the CTA
     /// immediately, then reconciles to the server. 409 = already clocked in
     /// (treat as success, reconcile to truth); 401 = revert.
-    func payClockIn() async {
-        guard let api, let personId = currentPersonId, !isPayClocking else { return }
+    /// `pin` is passed through when the person has a PIN set; the server verifies
+    /// it (and auto-accepts when they have none). A wrong PIN comes back as 401
+    /// and reverts the optimistic flip with an "Invalid PIN" error.
+    @discardableResult
+    func payClockIn(pin: String? = nil) async -> Bool {
+        guard let api, let personId = currentPersonId, !isPayClocking else { return false }
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         isPayClocking = true
         defer { isPayClocking = false }
@@ -1211,7 +1215,7 @@ class AppState {
         payClockInSource = "ios-app"
         clockChangeAt = Date()
         do {
-            try await api.payClockIn(personId: personId)
+            try await api.payClockIn(personId: personId, pin: pin)
             await loadAll()
         } catch APIError.httpError(409) {
             // Already clocked in (possibly via kiosk) — align to server truth.
@@ -1220,12 +1224,24 @@ class AppState {
         } catch APIError.httpError(401) {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
             clockChangeAt = Date()
-            clockError = APIError.httpError(401).localizedDescription
+            // When a PIN was supplied, a 401 means the PIN was wrong (not an auth
+            // expiry) — surface that instead of the generic session message.
+            clockError = pin != nil ? "Invalid PIN. Please try again."
+                                    : APIError.httpError(401).localizedDescription
+            return false
+        } catch APIError.httpError(400) {
+            // Server rejected the request — most likely "PIN required".
+            payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            clockChangeAt = Date()
+            clockError = "PIN required."
+            return false
         } catch {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
             clockChangeAt = Date()
             clockError = "Failed to clock in for pay: \(error.localizedDescription)"
+            return false
         }
+        return true
     }
 
     /// Clock the current user OUT for pay from iOS. Optimistic clear; 409 =
@@ -1256,6 +1272,65 @@ class AppState {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
             clockChangeAt = Date()
             clockError = "Failed to clock out for pay: \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Pay Lunch (Bearer) — pauses the pay clock for lunch
+
+    /// True if the current pay shift is on lunch (its last lunch event is a
+    /// start). Read straight off the canonical activeClockIn so it reflects both
+    /// optimistic taps and server truth.
+    var payOnLunch: Bool {
+        guard let events = currentPerson?.activeClockIn?.events else { return false }
+        return events.last(where: { $0.type == "lunchStart" || $0.type == "lunchEnd" })?.type == "lunchStart"
+    }
+
+    /// Optimistically append a clock event to the current person's activeClockIn
+    /// so the Lunch pill flips on the first tap; grace-guarded like the others.
+    private func appendLocalClockEvent(personId: String, _ event: ClockEvent) {
+        guard let idx = people.firstIndex(where: { $0.id == personId }),
+              var clock = people[idx].activeClockIn else { return }
+        clock.events.append(event)
+        var newPeople = people
+        newPeople[idx].activeClockIn = clock
+        people = newPeople
+        clockChangeAt = Date()
+    }
+
+    /// Undo the most recent optimistic event of `type` (used to revert a failed
+    /// lunch toggle before the server has recorded it).
+    private func removeLastLocalClockEvent(personId: String, type: String) {
+        guard let idx = people.firstIndex(where: { $0.id == personId }),
+              var clock = people[idx].activeClockIn,
+              let last = clock.events.lastIndex(where: { $0.type == type }) else { return }
+        clock.events.remove(at: last)
+        var newPeople = people
+        newPeople[idx].activeClockIn = clock
+        people = newPeople
+        clockChangeAt = Date()
+    }
+
+    /// Toggle lunch on the pay shift. Optimistically appends the event, calls the
+    /// server, then reconciles. 409 = server already in that state (align, no error).
+    func payLunchToggle() async {
+        guard let api, let personId = currentPersonId, !isPayClocking else { return }
+        let starting = !payOnLunch
+        isPayClocking = true
+        defer { isPayClocking = false }
+        let evt = ClockEvent(type: starting ? "lunchStart" : "lunchEnd",
+                             ts: ISO8601DateFormatter().string(from: Date()))
+        appendLocalClockEvent(personId: personId, evt)
+        do {
+            if starting { try await api.payLunchStart(personId: personId) }
+            else        { try await api.payLunchEnd(personId: personId) }
+            await loadAll()
+        } catch APIError.httpError(409) {
+            await loadAll()                 // server already in the target state
+            reconcilePayClock(force: true)
+        } catch {
+            removeLastLocalClockEvent(personId: personId, type: evt.type)   // revert
+            clockChangeAt = Date()
+            clockError = "Failed to \(starting ? "start" : "end") lunch: \(error.localizedDescription)"
         }
     }
 

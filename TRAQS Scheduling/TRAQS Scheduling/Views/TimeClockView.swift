@@ -15,6 +15,7 @@ struct TimeClockView: View {
     @Environment(AppState.self) private var appState
     @State private var now = Date()
     @State private var showSettings = false
+    @State private var showPinPrompt = false
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -42,9 +43,14 @@ struct TimeClockView: View {
                                      onPace: payPeriodHours <= periodTarget)
                             .padding(.horizontal, 16)
 
-                        // Live current shift (only while clocked in for pay).
-                        if let pay = activePayClock {
-                            PayStatusCard(clock: pay, liveHours: liveShiftHours)
+                        // Live shift status — always shown when the pay clock is
+                        // enabled for mobile (task 4), including a resting
+                        // "Clocked out" state so the card never disappears.
+                        if appState.orgSettings.iosPayClockEnabled {
+                            PayStatusCard(active: appState.payClockInActive,
+                                          onLunch: appState.payOnLunch,
+                                          liveHours: liveShiftHours,
+                                          source: appState.payClockInSource)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 14)
                         }
@@ -53,20 +59,33 @@ struct TimeClockView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 14)
 
-                        // ── Pay clock-in/out (admin opt-in via iosPayClockEnabled) ──
+                        // ── Pay clock controls (admin opt-in via iosPayClockEnabled) ──
                         // Sits below the bar graph so the hero number reads first.
+                        // Clocked out → one Clock In button. Clocked in → Lunch +
+                        // Clock Out (task 1).
                         if appState.orgSettings.iosPayClockEnabled {
-                            PayClockCTA(active: appState.payClockInActive,
-                                        source: appState.payClockInSource,
-                                        elapsed: payClockElapsed,
-                                        inFlight: appState.isPayClocking,
-                                        onToggle: {
-                                            guard !appState.isPayClocking else { return }
-                                            Task {
-                                                if appState.payClockInActive { await appState.payClockOut() }
-                                                else { await appState.payClockIn() }
-                                            }
-                                        })
+                            PayClockControls(active: appState.payClockInActive,
+                                             onLunch: appState.payOnLunch,
+                                             source: appState.payClockInSource,
+                                             elapsed: payClockElapsed,
+                                             inFlight: appState.isPayClocking,
+                                             onClockIn: {
+                                                 guard !appState.isPayClocking else { return }
+                                                 // task 2: require the person's PIN if they have one set.
+                                                 if appState.currentPerson?.hasPin == true {
+                                                     showPinPrompt = true
+                                                 } else {
+                                                     Task { await appState.payClockIn() }
+                                                 }
+                                             },
+                                             onClockOut: {
+                                                 guard !appState.isPayClocking else { return }
+                                                 Task { await appState.payClockOut() }
+                                             },
+                                             onLunchToggle: {
+                                                 guard !appState.isPayClocking else { return }
+                                                 Task { await appState.payLunchToggle() }
+                                             })
                                 .padding(.horizontal, 16)
                                 .padding(.top, 14)
                         }
@@ -84,7 +103,24 @@ struct TimeClockView: View {
             .task {
                 await appState.refreshTimeclock(personId: appState.currentPersonId)
             }
+
+            // PIN entry for clock-in (task 2) — an overlay rather than a second
+            // .sheet, since the view already presents the Settings sheet.
+            if showPinPrompt {
+                ClockInPinOverlay(
+                    personName: appState.currentPerson?.name,
+                    onCancel: { withAnimation(.easeOut(duration: 0.15)) { showPinPrompt = false } },
+                    onSubmit: { pin in
+                        let ok = await appState.payClockIn(pin: pin)
+                        if ok { withAnimation(.easeOut(duration: 0.15)) { showPinPrompt = false } }
+                        return ok
+                    }
+                )
+                .transition(.opacity)
+                .zIndex(10)
+            }
         }
+        .animation(.easeInOut(duration: 0.18), value: showPinPrompt)
         .sheet(isPresented: $showSettings) { SettingsView() }
     }
 
@@ -259,44 +295,62 @@ private struct HeroRingCard: View {
     }
 }
 
-// MARK: - Pay clock-in/out CTA (top of Hours; admin opt-in via iosPayClockEnabled)
+// MARK: - Pay clock controls (Hours; admin opt-in via iosPayClockEnabled)
 
-private struct PayClockCTA: View {
+// Clocked out → a single Clock In button on the signature brand gradient.
+// Clocked in → a Lunch toggle + a red Clock Out, side by side (task 1). While a
+// request is in flight both active buttons dim and disable.
+private struct PayClockControls: View {
     let active: Bool
+    let onLunch: Bool
     let source: String?
     let elapsed: String
     let inFlight: Bool
-    let onToggle: () -> Void
+    let onClockIn: () -> Void
+    let onClockOut: () -> Void
+    let onLunchToggle: () -> Void
+
+    // Indigo matches the "On lunch" status pill; green signals "back to work".
+    private let lunchColor  = "#6366F1"
 
     // Clocked in, but the open shift was started somewhere else (e.g. a kiosk).
     private var viaOtherSource: Bool { active && source != nil && source != "ios-app" }
 
     var body: some View {
         VStack(spacing: 8) {
-            Button(action: onToggle) {
-                HStack(spacing: 9) {
-                    if inFlight {
-                        ProgressView().tint(.white)
-                    } else {
-                        Image(systemName: active ? "stop.circle.fill" : "play.circle.fill")
-                            .font(.system(size: 17, weight: .semibold))
+            if active {
+                HStack(spacing: 10) {
+                    Button(action: onLunchToggle) {
+                        pill(icon: onLunch ? "play.circle.fill" : "fork.knife",
+                             text: onLunch ? "End Lunch" : "Lunch",
+                             fill: Color(hex: onLunch ? T.green : lunchColor))
                     }
-                    Text(active ? "Clock Out" : "Clock In")
-                        .font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
-                    if active && !inFlight {
-                        Text(elapsed).font(TTypo.monoBold(13)).tnum()
+                    .buttonStyle(.plain)
+                    .disabled(inFlight)
+
+                    Button(action: onClockOut) {
+                        pill(icon: "stop.circle.fill", text: "Clock Out", fill: Color(hex: T.red))
                     }
+                    .buttonStyle(.plain)
+                    .disabled(inFlight)
                 }
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                // Clock In uses the signature brand/accent gradient (like other
-                // primary CTAs); Clock Out stays red as the "stop" affordance.
-                .background(Capsule().fill(active ? AnyShapeStyle(Color(hex: T.red)) : AnyShapeStyle(T.brandGradient())))
                 .opacity(inFlight ? 0.6 : 1)
+            } else {
+                Button(action: onClockIn) {
+                    HStack(spacing: 9) {
+                        if inFlight { ProgressView().tint(.white) }
+                        else { Image(systemName: "play.circle.fill").font(.system(size: 17, weight: .semibold)) }
+                        Text("Clock In").font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Capsule().fill(T.brandGradient()))
+                    .opacity(inFlight ? 0.6 : 1)
+                }
+                .buttonStyle(.plain)
+                .disabled(inFlight)
             }
-            .buttonStyle(.plain)
-            .disabled(inFlight)
 
             if viaOtherSource {
                 Text("Clocked in via \(source ?? "another device")")
@@ -305,20 +359,34 @@ private struct PayClockCTA: View {
             }
         }
     }
+
+    // Shared capsule label for the two clocked-in buttons.
+    private func pill(icon: String, text: String, fill: Color) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 16, weight: .semibold))
+            Text(text).font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(Capsule().fill(fill))
+    }
 }
 
 // MARK: - Live pay-shift status (clocked in / lunch / break + elapsed)
 
+// Always visible when the pay clock is enabled (task 4): shows Clocked in / On
+// lunch with a live elapsed timer, or a resting "Clocked out" state.
 private struct PayStatusCard: View {
-    let clock: ActiveClockIn
+    let active: Bool
+    let onLunch: Bool
     let liveHours: Double
+    let source: String?
 
-    private var status: (label: String, kind: TagKind, dot: Bool) {
-        switch clock.events.last?.type {
-        case "lunchStart": return ("On lunch", .indigo, true)
-        case "breakStart": return ("On break", .amber, true)
-        default:           return ("Clocked in", .green, true)
-        }
+    private var status: (label: String, kind: TagKind) {
+        if !active { return ("Clocked out", .neutral) }
+        if onLunch { return ("On lunch", .indigo) }
+        return ("Clocked in", .green)
     }
     private var elapsedLabel: String {
         let secs = max(0, Int(liveHours * 3600))
@@ -327,17 +395,23 @@ private struct PayStatusCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            IconChip(icon: .hours, color: Color(hex: T.accentGradientStart))
+            IconChip(icon: .hours, color: Color(hex: active ? T.accentGradientStart : T.muted))
             VStack(alignment: .leading, spacing: 4) {
                 Text("This shift")
                     .font(TTypo.smBold(14))
                     .foregroundStyle(Color(hex: T.ink))
                 HStack(spacing: 8) {
-                    TagPill(label: status.label, kind: status.kind, dot: status.dot)
-                    Text(elapsedLabel)
-                        .font(TTypo.monoBold(13))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .tnum()
+                    TagPill(label: status.label, kind: status.kind, dot: active)
+                    if active {
+                        Text(elapsedLabel)
+                            .font(TTypo.monoBold(13))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .tnum()
+                    } else {
+                        Text("Not on the clock")
+                            .font(TTypo.xs(12))
+                            .foregroundStyle(Color(hex: T.muted))
+                    }
                 }
             }
             Spacer(minLength: 8)
@@ -396,5 +470,130 @@ private struct WeekBarsCard: View {
         }
         .padding(16)
         .frostedCard()
+    }
+}
+
+// MARK: - Clock-in PIN overlay (task 2)
+
+// A focused numeric PIN pad shown before clocking in when the person has a PIN
+// set. `onSubmit` returns whether the PIN was accepted; a rejection clears the
+// entry and shows "Incorrect PIN" so the worker can retry.
+private struct ClockInPinOverlay: View {
+    let personName: String?
+    let onCancel: () -> Void
+    let onSubmit: (String) async -> Bool
+
+    @State private var pin = ""
+    @State private var error: String?
+    @State private var submitting = false
+    private let maxDigits = 8
+
+    private var keypadRows: [[String]] {
+        [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["⌫", "0", "✓"]]
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { if !submitting { onCancel() } }
+
+            VStack(spacing: 16) {
+                VStack(spacing: 4) {
+                    Text("Clock In")
+                        .font(.custom(TFontName.bold.rawValue, size: 20))
+                        .foregroundStyle(Color(hex: T.ink))
+                    Text(personName.map { "Enter \($0)'s PIN" } ?? "Enter your PIN")
+                        .font(TTypo.xs(12))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
+
+                // PIN dots — at least four, growing with longer PINs.
+                HStack(spacing: 12) {
+                    ForEach(0..<max(pin.count, 4), id: \.self) { i in
+                        Circle()
+                            .fill(i < pin.count ? Color(hex: T.accentGradientStart) : Color(hex: T.progressTrack))
+                            .frame(width: 12, height: 12)
+                    }
+                }
+                .frame(height: 14)
+                .animation(.easeOut(duration: 0.1), value: pin)
+
+                if let error {
+                    Text(error)
+                        .font(TTypo.xs(12))
+                        .foregroundStyle(Color(hex: T.red))
+                }
+
+                VStack(spacing: 10) {
+                    ForEach(keypadRows, id: \.self) { row in
+                        HStack(spacing: 10) {
+                            ForEach(row, id: \.self) { key in keyButton(key) }
+                        }
+                    }
+                }
+
+                Button(action: { if !submitting { onCancel() } }) {
+                    Text("Cancel")
+                        .font(TTypo.smBold(14))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+            .padding(24)
+            .frostedCard(radius: T.cornerHero)
+            .frame(maxWidth: 320)
+            .padding(.horizontal, 32)
+            .opacity(submitting ? 0.7 : 1)
+        }
+    }
+
+    private func keyButton(_ key: String) -> some View {
+        let isSubmit = key == "✓"
+        return Button(action: { tap(key) }) {
+            Group {
+                if isSubmit && submitting {
+                    ProgressView().tint(.white)
+                } else {
+                    Text(key)
+                        .font(.custom(TFontName.bold.rawValue, size: 24))
+                        .foregroundStyle(isSubmit ? Color.white : Color(hex: T.ink))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(isSubmit ? AnyShapeStyle(T.brandGradient())
+                                   : AnyShapeStyle(Color(hex: T.progressTrack).opacity(0.4)))
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(submitting || (isSubmit && pin.isEmpty))
+    }
+
+    private func tap(_ key: String) {
+        guard !submitting else { return }
+        error = nil
+        switch key {
+        case "⌫": if !pin.isEmpty { pin.removeLast() }
+        case "✓": submit()
+        default:  if pin.count < maxDigits { pin.append(key) }
+        }
+    }
+
+    private func submit() {
+        guard !pin.isEmpty, !submitting else { return }
+        submitting = true
+        Task {
+            let ok = await onSubmit(pin)
+            submitting = false
+            if !ok {
+                error = "Incorrect PIN"
+                pin = ""
+            }
+        }
     }
 }
