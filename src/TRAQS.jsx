@@ -3944,6 +3944,11 @@ Extraction rules:
     if (!orgCode) return;
     const refetch = async () => {
       if (document.hidden) return;
+      // Reconcile the non-save-tracked slices (messages/groups/payhours/settings)
+      // every cycle so a missed or coalesced Ably delta self-heals app-wide — not
+      // just while the Messages page is open. Runs BEFORE the unsaved-edits bail
+      // below (with Fix A, the resulting *-changed events now actually rehydrate).
+      deltaSync().catch(() => {});
       if (saveStatusRef.current === "saving" || saveStatusRef.current === "unsaved") return;
       try {
         const [newTasks, newPeople, newClients] = await Promise.all([
@@ -4184,7 +4189,14 @@ Extraction rules:
       return out;
     };
     const applySlice = async (entity) => {
-      if (busy()) return;
+      // Only the save-tracked slices must bail while the user has unsaved edits
+      // (tasks/people/clients each re-check busy() before their own setState
+      // below). messages/groups/payhours/settings are NOT save-tracked, so they
+      // apply directly — this is the SOLE path that lands live incoming chat
+      // messages when the user isn't on the Messages page, so gating it on
+      // busy() silently dropped them (push fired, message never appeared).
+      const saveTracked = entity === "tasks" || entity === "people" || entity === "clients";
+      if (saveTracked && busy()) return;
       try {
         if (entity === "tasks") {
           const fresh = normalizeTasks((await readSlice("tasks")) || []);
