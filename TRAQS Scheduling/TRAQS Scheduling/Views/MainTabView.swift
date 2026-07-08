@@ -404,23 +404,27 @@ private struct SideMenu: View {
                                        startPoint: .top, endPoint: .bottom)
                     }
                 }
+                // Full-bleed height (flush top & bottom), then round ONLY the two
+                // right-hand (inner) corners.
+                .ignoresSafeArea()
+                .clipShape(UnevenRoundedRectangle(bottomTrailingRadius: 30,
+                                                  topTrailingRadius: 30,
+                                                  style: .continuous))
             }
-            // Bubbly rounded panel — the drawer's corners curve inward at top and
-            // bottom to match the app's rounded cards. It sits within the safe
-            // area (no ignoresSafeArea) so the rounding shows, then floats a touch
-            // off the top/bottom edges.
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
+            .overlay {
+                // Soft edge highlight that follows the rounded inner corners.
+                UnevenRoundedRectangle(bottomTrailingRadius: 30,
+                                       topTrailingRadius: 30,
+                                       style: .continuous)
                     .strokeBorder(
                         LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.5),
                                                 Color(hex: T.hair)],
                                        startPoint: .top, endPoint: .bottom),
                         lineWidth: 1)
+                    .ignoresSafeArea()
                     .allowsHitTesting(false)
-            )
-            .padding(.vertical, 8)
-            .shadow(color: Color.black.opacity(0.20), radius: 22, x: 4, y: 2)
+            }
+            .shadow(color: Color.black.opacity(0.18), radius: 24, x: 6, y: 0)
 
             Spacer(minLength: 0)
         }
