@@ -404,20 +404,23 @@ private struct SideMenu: View {
                                        startPoint: .top, endPoint: .bottom)
                     }
                 }
-                .ignoresSafeArea()
             }
-            .overlay(alignment: .top) {
-                // Glassy white top-edge highlight along the trailing seam.
-                LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.5), .clear],
-                               startPoint: .top, endPoint: .bottom)
-                    .frame(width: 1)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+            // Bubbly rounded panel — the drawer's corners curve inward at top and
+            // bottom to match the app's rounded cards. It sits within the safe
+            // area (no ignoresSafeArea) so the rounding shows, then floats a touch
+            // off the top/bottom edges.
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.5),
+                                                Color(hex: T.hair)],
+                                       startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1)
                     .allowsHitTesting(false)
-            }
-            .overlay(alignment: .trailing) {
-                Rectangle().fill(Color(hex: T.hair)).frame(width: 1)
-            }
-            .shadow(color: Color.black.opacity(0.18), radius: 24, x: 6, y: 0)
+            )
+            .padding(.vertical, 8)
+            .shadow(color: Color.black.opacity(0.20), radius: 22, x: 4, y: 2)
 
             Spacer(minLength: 0)
         }
