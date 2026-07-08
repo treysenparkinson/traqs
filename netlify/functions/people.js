@@ -6,6 +6,7 @@ import { stampArray, nowIso, reconcileDeletions, softDelete, changedIds } from "
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
+import { hashPin } from "./_utils/pin.js";
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
@@ -51,10 +52,15 @@ export async function handler(event) {
       const data = (await readJson(s3Key)) ?? [];
       // Hide soft-deleted (tombstoned) people from normal readers; /sync does
       // NOT filter these so delta-sync clients can evict the deleted row.
+      // The raw PIN never leaves the server; expose only a `hasPin` boolean so
+      // clients can tell whether a PIN is set (drives the iOS clock-in prompt
+      // and the web "Time Clock Settings" set/unset indicator) without leaking
+      // the value itself.
       const safe = filterLive(data)
-        .map(({ pin: _pin, ...rest }) => {
-          if (isMember) return rest;
-          const { pushToken: _pt, timeOff: _to, ...pub } = rest;
+        .map(({ pin, ...rest }) => {
+          const withFlag = { ...rest, hasPin: !!pin };
+          if (isMember) return withFlag;
+          const { pushToken: _pt, timeOff: _to, ...pub } = withFlag;
           return pub;
         });
       return json(200, safe);
@@ -91,8 +97,14 @@ export async function handler(event) {
       // accurate. An existing startedAt is always preserved — never reset.
       const merged = incoming.map(p => {
         const stored = existingMap.get(p.id);
-        let np = (stored?.pin && !p.pin) ? { ...p, pin: stored.pin } : p;
+        // `hasPin` is a server-derived read flag — never persist it back.
+        const { hasPin: _hp, ...pIn } = p;
+        let np = (stored?.pin && !pIn.pin) ? { ...pIn, pin: stored.pin } : pIn;
         np = withBreakStart(np, stored);
+        // Store PINs hashed. hashPin is idempotent, so a newly-typed plaintext
+        // PIN gets hashed and any legacy plaintext PIN preserved above is
+        // upgraded in place on this write (lazy migration).
+        if (np.pin) np = { ...np, pin: hashPin(np.pin) };
         return np;
       });
 
@@ -160,9 +172,9 @@ export async function handler(event) {
       await publishChange(member.orgCode, "people", { ids: [String(personId)] });
       await sendSilentPush(member.orgCode, { entity: "people" });
 
-      // Strip PIN before returning, matching the GET behavior.
+      // Strip PIN before returning, matching the GET behavior; surface hasPin.
       const { pin: _omit, ...safe } = existing[idx];
-      return json(200, safe);
+      return json(200, { ...safe, hasPin: !!existing[idx].pin });
     } catch (e) {
       console.error("people PATCH error:", e);
       return err(500, "Failed to patch person");

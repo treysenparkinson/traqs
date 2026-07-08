@@ -78,8 +78,9 @@ export async function handler(event) {
     const isAdmin = member.isAdmin;
     const myId = member.personId != null ? String(member.personId) : null;
 
-    // People: drop the PIN (as the people GET does); sync is always a member.
-    const peopleDelta = arrDelta(people).map(({ pin: _pin, ...rest }) => rest);
+    // People: drop the raw PIN (as the people GET does); sync is always a
+    // member. Expose only `hasPin` so clients know whether a PIN is set.
+    const peopleDelta = arrDelta(people).map(({ pin, ...rest }) => ({ ...rest, hasPin: !!pin }));
 
     // Payhours + productionhours: both are payroll PII, so non-admins are
     // confined to their own entries, exactly like the old timeclock GET. An

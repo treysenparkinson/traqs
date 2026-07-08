@@ -6,6 +6,7 @@ import { stampArray, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush, sendVisiblePush } from "./_utils/push.js";
+import { verifyPin } from "./_utils/pin.js";
 
 const failedAttempts = new Map(); // ip -> { count, firstAttempt }
 
@@ -674,6 +675,25 @@ export async function handler(event) {
         if (!pcSettings || pcSettings.iosPayClockEnabled !== true) {
           return err(403, "iOS pay clock-in is disabled for this org");
         }
+        // PIN gate: if this person has a clock-in PIN set, the app must supply
+        // it (rate-limited, same bucket as the kiosk). If they have NO PIN set,
+        // clocking in is auto-accepted — the Bearer token already proves it's
+        // them. This lets shops opt individuals into a PIN without forcing one.
+        if (pcPerson.pin) {
+          const pcIp = clientIp(event);
+          const pcAttempts = failedAttempts.get(pcIp) || { count: 0, firstAttempt: Date.now() };
+          if (Date.now() - pcAttempts.firstAttempt > 15 * 60 * 1000) {
+            failedAttempts.delete(pcIp);
+          } else if (pcAttempts.count >= 5) {
+            return err(429, "Too many failed attempts. Try again later.");
+          }
+          if (!body.pin) return err(400, "PIN required");
+          if (!verifyPin(body.pin, pcPerson.pin)) {
+            failedAttempts.set(pcIp, { count: (pcAttempts.count || 0) + 1, firstAttempt: pcAttempts.firstAttempt || Date.now() });
+            return err(401, "Invalid PIN");
+          }
+          failedAttempts.delete(pcIp);
+        }
         const clockIn = new Date().toISOString();
         // Re-read + single-person merge right before the write so this can't
         // clobber a concurrent change to another person, and re-check the 409
@@ -736,6 +756,39 @@ export async function handler(event) {
       return json(200, { ok: true, entry });
     }
 
+    // ── Pay Lunch Start / End (Bearer — toggles lunch on the pay shift) ──────
+    // Mirrors the PIN kiosk lunchStart/lunchEnd but authenticated by the Bearer
+    // token (self or admin) so the iOS pay clock can pause for lunch without a
+    // PIN round-trip. Appends the event to activeClockIn.events (the net-of-lunch
+    // math runs at clock-out via hoursElapsedMinusPauses) and logs a row to
+    // payhours.json for payroll.
+    if (action === "payLunchStart" || action === "payLunchEnd") {
+      let _pl;
+      try { _pl = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      const { personId: plPId } = body;
+      if (!plPId) return err(400, "Missing personId");
+      if (!_pl.isAdmin && String(_pl.personId) !== String(plPId)) return err(403, "Can only change your own shift");
+
+      const starting = action === "payLunchStart";
+      const timestamp = new Date().toISOString();
+      let committed;
+      try {
+        committed = await mutatePersonFresh(peopleKey, plPId, (fresh) => {
+          if (!fresh.activeClockIn) { const e = new Error("Not currently clocked in"); e.status = 409; throw e; }
+          const events = fresh.activeClockIn.events || [];
+          const lastLunch = [...events].reverse().find(ev => ev.type === "lunchStart" || ev.type === "lunchEnd");
+          if (starting && lastLunch?.type === "lunchStart") { const e = new Error("Already on lunch"); e.status = 409; throw e; }
+          if (!starting && (!lastLunch || lastLunch.type !== "lunchStart")) { const e = new Error("Not on lunch"); e.status = 409; throw e; }
+          return { ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...events, { type: starting ? "lunchStart" : "lunchEnd", ts: timestamp }] } };
+        });
+      } catch (e) { return err(e.status || 500, e.status ? e.message : "Failed to save"); }
+
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: plPId, date: timestamp.slice(0, 10), eventType: starting ? "lunchStart" : "lunchEnd", timestamp };
+      let plLog; try { plLog = await readJson(payKey) ?? []; } catch { plLog = []; }
+      plLog.push(evt); try { await writeStampedArray(payKey, plLog); } catch { /* non-fatal — the shift event is already on the person record */ }
+      return json(200, { ok: true, event: evt });
+    }
+
     // ── PIN-authenticated actions ──────────────────────────────────────────
     const { personId, pin } = body;
     if (!pin) return err(400, "Missing pin");
@@ -756,7 +809,7 @@ export async function handler(event) {
       // able to clock in even though their record (and, for legacy tombstones,
       // their PIN) is still in the raw array. No live match → 401, same as a
       // wrong PIN, so we never leak that a removed employee's PIN once existed.
-      const person = filterLive(people).find(p => p.pin && String(p.pin) === String(pin));
+      const person = filterLive(people).find(p => p.pin && verifyPin(pin, p.pin));
       if (!person) {
         failedAttempts.set(ip, { count: (attempts.count || 0) + 1, firstAttempt: attempts.firstAttempt || Date.now() });
         return err(401, "Invalid PIN");
@@ -779,7 +832,7 @@ export async function handler(event) {
     } else if (_attempts.count >= 5) {
       return err(429, "Too many failed attempts. Try again later.");
     }
-    if (!person.pin || String(person.pin) !== String(pin)) {
+    if (!person.pin || !verifyPin(pin, person.pin)) {
       failedAttempts.set(_ip, { count: (_attempts.count || 0) + 1, firstAttempt: _attempts.firstAttempt || Date.now() });
       return err(401, "Invalid PIN");
     }
