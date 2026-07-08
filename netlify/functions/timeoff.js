@@ -85,7 +85,16 @@ async function pushTo(orgCode, people, targetIds, heading, content, data) {
 const adminIdsOf = (people) =>
   filterLive(people).filter((p) => p.userRole === "admin").map((p) => String(p.id));
 
-const fmtRange = (start, end) => (start === end ? start : `${start} – ${end}`);
+// Human-friendly dates for notifications: "July 6" (single day) or
+// "July 6 - July 10" (range). start/end are date-only "YYYY-MM-DD"; parse as UTC
+// midnight and format in UTC so there's no timezone off-by-one.
+const fmtDate = (iso) => {
+  if (!iso) return "";
+  const d = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
+  if (isNaN(d.getTime())) return String(iso);
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+};
+const fmtRange = (start, end) => (start === end ? fmtDate(start) : `${fmtDate(start)} - ${fmtDate(end)}`);
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();

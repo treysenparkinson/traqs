@@ -675,6 +675,11 @@ export async function handler(event) {
         if (!pcSettings || pcSettings.iosPayClockEnabled !== true) {
           return err(403, "iOS pay clock-in is disabled for this org");
         }
+        // Salaried employees don't punch a clock (clock-OUT stays allowed below
+        // so anyone switched to salary mid-shift can still close an open shift).
+        if (String(pcPerson.payType || "hourly") === "salary") {
+          return err(403, "Salaried employees don't clock in");
+        }
         // PIN gate: if this person has a clock-in PIN set, the app must supply
         // it (rate-limited, same bucket as the kiosk). If they have NO PIN set,
         // clocking in is auto-accepted — the Bearer token already proves it's
@@ -840,6 +845,9 @@ export async function handler(event) {
 
     // ── Clock In ────────────────────────────────────────────────────────────
     if (action === "clockIn") {
+      if (String(person.payType || "hourly") === "salary") {
+        return err(403, "Salaried employees don't clock in");
+      }
       if (person.activeClockIn) {
         return err(409, `Already clocked in via ${person.activeClockIn.source || "kiosk"}. Clock out first.`);
       }
