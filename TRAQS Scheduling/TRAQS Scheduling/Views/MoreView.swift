@@ -66,8 +66,13 @@ struct MoreView: View {
                             .padding(.top, 16)
                             .padding(.bottom, 24)
                         } else {
-                            NonAdminEmpty()
-                                .padding(.top, 80)
+                            // Non-admins see their OWN stats (task 5).
+                            statsTitle
+                                .padding(.top, pageTitleTopInset)
+                                .padding(.bottom, 16)
+                            myStatGrid
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 8)
                         }
 
                         // ── Past Jobs (this user's own job-clock history) ──
@@ -234,6 +239,34 @@ struct MoreView: View {
                     info: "Rework hits: when a completed job sent to buyoff is brought back because a task was done wrong, the person who did that task takes one rework hit — one per hit. Not tracked yet (awaiting the rework button).")
             StatBox(label: "Idle Time", value: fmtIdle(idleHours), caption: "clocked in, off jobs",
                     info: "Paid clocked-in time not logged onto any job this week — pay hours minus job hours.")
+        }
+    }
+
+    // MARK: Personal stats (non-admins see their own)
+
+    /// Operations the current user is assigned to (leaf ops across all jobs).
+    private var myOps: [Operation] {
+        guard let myId else { return [] }
+        return appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }.filter { $0.team.contains(myId) }
+    }
+    /// This user's own utilization for the selected week (assigned ÷ capacity).
+    private var myUtilizationPercent: Int {
+        guard let myId else { return 0 }
+        let s = appState.orgSettings
+        let capacity = max(1.0, s.hpd * Double(max(1, s.workDays.count)))
+        return Int(min(100.0, assignedHours(personId: myId, in: weekInterval) / capacity * 100.0).rounded())
+    }
+    private var myStatGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
+                            GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            StatBox(label: "Utilization", value: "\(myUtilizationPercent)%",
+                    info: "Share of your scheduled capacity booked with work this week — your assigned job hours ÷ your weekly capacity (hours-per-day × workdays), capped at 100%.")
+            StatBox(label: "Jobs Done", value: "\(myOps.filter { $0.status == .finished }.count)",
+                    info: "Operations you're assigned to that are finished.")
+            StatBox(label: "In Progress", value: "\(myOps.filter { $0.status == .inProgress }.count)",
+                    info: "Operations you're assigned to that are currently in progress.")
+            StatBox(label: "My Hours", value: String(format: "%.1fh", jobPeriodHours), caption: "this pay period",
+                    info: "Job hours you've logged this pay period.")
         }
     }
 

@@ -812,7 +812,10 @@ struct ThreadDetailView: View {
     /// and hasn't already animated (guards against LazyVStack recycling and the
     /// optimistic→server id swap replaying the effect).
     private func shouldAnimate(_ msg: Message) -> Bool {
-        !baselineIds.contains(msg.id) && !animatedIds.contains(msg.id)
+        // Until the opening backlog is captured (first .onAppear), animate
+        // NOTHING — otherwise baselineIds is still empty on the first render and
+        // the entire thread slides/pops in, fighting the scroll-to-bottom.
+        didCaptureBaseline && !baselineIds.contains(msg.id) && !animatedIds.contains(msg.id)
     }
 
     private func markAnimated(_ id: String) {
@@ -959,10 +962,14 @@ struct ThreadDetailView: View {
                     // Clear this thread's inbox unread badge the instant it's
                     // opened (observable → the inbox re-renders immediately).
                     appState.markThreadRead(threadKey)
-                    // defaultScrollAnchor(.bottom) sets the initial offset;
-                    // these are a belt-and-suspenders nudge for late layout.
+                    // defaultScrollAnchor(.bottom) sets the initial offset; these
+                    // non-animated nudges re-pin to the newest message after late
+                    // layout (safe-area insets, attachment images resizing).
                     scrollToBottom(proxy, animated: false)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        scrollToBottom(proxy, animated: false)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         scrollToBottom(proxy, animated: false)
                     }
                     // Pull latest request statuses so any timeoff_request
