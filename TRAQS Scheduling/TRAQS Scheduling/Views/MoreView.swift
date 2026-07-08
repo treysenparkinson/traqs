@@ -25,20 +25,38 @@ struct MoreView: View {
     @State private var overHoursExpanded = false
     /// Drives the STOP affordance on the live "Past Jobs" running-clock card.
     @State private var isStopping = false
+    /// Admin-only: pick a worker to view THEIR personal stats. nil = the org
+    /// dashboard (admins) / your own stats (everyone else).
+    @State private var showWorkerPicker = false
+    @State private var selectedWorkerId: String? = nil
 
     var body: some View {
         ZStack {
             AmbientBackground()
 
             VStack(spacing: 0) {
-                // Sticky header. Calendar button jumps to any week's stats.
+                // Sticky header. Calendar jumps weeks; the person button (admins)
+                // picks a worker to view their personal stats.
                 TRAQSNavHeader {
+                    if appState.isAdmin {
+                        IconBtn(icon: .person, size: 18) { showWorkerPicker = true }
+                    }
                     IconBtn(icon: .cal, size: 18) { showCalendar = true }
+                }
+                .overlay(alignment: .center) {
+                    if let name = selectedWorkerName {
+                        Text("\(name)'s Stats")
+                            .font(TTypo.smBold(15))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .lineLimit(1)
+                            .padding(.horizontal, 60)   // keep clear of the edge buttons
+                            .allowsHitTesting(false)
+                    }
                 }
 
                 ScrollView {
                     VStack(spacing: 0) {
-                        if appState.isAdmin {
+                        if appState.isAdmin && selectedWorkerId == nil {
                             statsTitle
                                 .padding(.top, pageTitleTopInset)
                                 .padding(.bottom, 16)
@@ -65,12 +83,13 @@ struct MoreView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 16)
                             .padding(.bottom, 24)
-                        } else {
-                            // Non-admins see their OWN stats (task 5).
+                        } else if let pid = statsPersonId {
+                            // Personal stats — your own (non-admin) or a worker an
+                            // admin picked from the person button.
                             statsTitle
                                 .padding(.top, pageTitleTopInset)
                                 .padding(.bottom, 16)
-                            myStatGrid
+                            personalStatGrid(for: pid)
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 8)
                         }
@@ -81,9 +100,11 @@ struct MoreView: View {
                         // clock is running. Scoped to the current person.
                         TSectionTitle(title: "Past Jobs")
 
-                        if let active = activeJobClock {
+                        if let active = activeJobClock, isViewingSelf {
                             // Own ticker so the per-second elapsed re-renders ONLY
                             // this card — not MoreView's whole (admin-heavy) body.
+                            // Only when viewing yourself — STOP acts on the current
+                            // user, so we don't show it for an admin-selected worker.
                             TimelineView(.periodic(from: .now, by: 1)) { context in
                                 RunningEntryCard(jobClock: active, now: context.date,
                                                  isStopping: isStopping,
@@ -121,6 +142,11 @@ struct MoreView: View {
         .sheet(isPresented: $showCalendar) {
             WeekPickerSheet(selection: $weekAnchor)
                 .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: $showWorkerPicker) {
+            WorkerStatsPicker(selectedId: selectedWorkerId) { id in selectedWorkerId = id }
+                .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
         // Everyone: this person's own job sessions feed the "Past Jobs" history.
@@ -242,31 +268,47 @@ struct MoreView: View {
         }
     }
 
-    // MARK: Personal stats (non-admins see their own)
+    // MARK: Personal stats (your own, or an admin-selected worker)
 
-    /// Operations the current user is assigned to (leaf ops across all jobs).
-    private var myOps: [Operation] {
-        guard let myId else { return [] }
-        return appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }.filter { $0.team.contains(myId) }
+    /// Whose personal view (stat grid + Past Jobs) is shown: the admin-selected
+    /// worker, else the current user.
+    private var statsPersonId: String? {
+        appState.isAdmin ? (selectedWorkerId ?? appState.currentPersonId) : appState.currentPersonId
     }
-    /// This user's own utilization for the selected week (assigned ÷ capacity).
-    private var myUtilizationPercent: Int {
-        guard let myId else { return 0 }
+    private var statsPerson: Person? {
+        guard let pid = statsPersonId else { return nil }
+        return appState.people.first { $0.id == pid }
+    }
+    private var isViewingSelf: Bool { statsPersonId == appState.currentPersonId }
+    /// Name shown centered in the header while an admin views a specific worker.
+    private var selectedWorkerName: String? {
+        guard let id = selectedWorkerId else { return nil }
+        return appState.people.first { $0.id == id }?.name
+    }
+
+    /// Operations a person is assigned to (leaf ops across all jobs).
+    private func ops(for personId: String) -> [Operation] {
+        appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }.filter { $0.team.contains(personId) }
+    }
+    /// A person's utilization for the selected week (assigned ÷ capacity).
+    private func utilizationPercent(for personId: String) -> Int {
         let s = appState.orgSettings
         let capacity = max(1.0, s.hpd * Double(max(1, s.workDays.count)))
-        return Int(min(100.0, assignedHours(personId: myId, in: weekInterval) / capacity * 100.0).rounded())
+        return Int(min(100.0, assignedHours(personId: personId, in: weekInterval) / capacity * 100.0).rounded())
     }
-    private var myStatGrid: some View {
+    @ViewBuilder
+    private func personalStatGrid(for personId: String) -> some View {
+        let pOps = ops(for: personId)
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            StatBox(label: "Utilization", value: "\(myUtilizationPercent)%",
-                    info: "Share of your scheduled capacity booked with work this week — your assigned job hours ÷ your weekly capacity (hours-per-day × workdays), capped at 100%.")
-            StatBox(label: "Jobs Done", value: "\(myOps.filter { $0.status == .finished }.count)",
-                    info: "Operations you're assigned to that are finished.")
-            StatBox(label: "In Progress", value: "\(myOps.filter { $0.status == .inProgress }.count)",
-                    info: "Operations you're assigned to that are currently in progress.")
-            StatBox(label: "My Hours", value: String(format: "%.1fh", jobPeriodHours), caption: "this pay period",
-                    info: "Job hours you've logged this pay period.")
+            StatBox(label: "Utilization", value: "\(utilizationPercent(for: personId))%",
+                    info: "Share of scheduled capacity booked with work this week — assigned job hours ÷ weekly capacity (hours-per-day × workdays), capped at 100%.")
+            StatBox(label: "Jobs Done", value: "\(pOps.filter { $0.status == .finished }.count)",
+                    info: "Operations they're assigned to that are finished.")
+            StatBox(label: "In Progress", value: "\(pOps.filter { $0.status == .inProgress }.count)",
+                    info: "Operations they're assigned to that are currently in progress.")
+            StatBox(label: "Hours", value: String(format: "%.1fh", jobPeriodHours), caption: "this pay period",
+                    info: "Job hours logged this pay period.")
         }
     }
 
@@ -395,7 +437,8 @@ private extension MoreView {
 
 private extension MoreView {
     var myId: String? { appState.currentPersonId }
-    var activeJobClock: ActiveJobClock? { appState.myActiveJobClock }
+    /// The viewed person's running job clock (self, or an admin-selected worker).
+    var activeJobClock: ActiveJobClock? { statsPerson?.activeJobClock }
 
     /// Live hours of the in-progress job clock (independent of the pay clock).
     var liveJobHours: Double {
@@ -415,7 +458,7 @@ private extension MoreView {
         let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
         return appState.jobSessions
             .filter { s in
-                guard myId == nil || s.personId == myId else { return false }
+                guard let pid = statsPersonId, s.personId == pid else { return false }
                 guard let d = isoDay(s.clockIn) ?? parseISO(s.date ?? "") else { return false }
                 return d >= w.start && d < end
             }
@@ -749,6 +792,122 @@ private struct NonAdminEmpty: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
+    }
+}
+
+// MARK: - Worker stats picker (admin → view a person's personal stats)
+
+private struct WorkerStatsPicker: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+    let selectedId: String?
+    let onSelect: (String?) -> Void
+
+    @State private var query = ""
+
+    private var people: [Person] {
+        let base = appState.people.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return base }
+        return base.filter { $0.name.lowercased().contains(q) || $0.role.lowercased().contains(q) }
+    }
+
+    var body: some View {
+        ZStack {
+            AmbientBackground()
+            VStack(spacing: 0) {
+                HStack {
+                    Text("View Stats")
+                        .font(.custom(TFontName.bold.rawValue, size: 20))
+                        .foregroundStyle(Color(hex: T.ink))
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Color(hex: T.muted))
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(Color(hex: T.surface)))
+                            .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
+
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: T.muted))
+                    TextField("Search people", text: $query)
+                        .textFieldStyle(.plain)
+                        .font(TTypo.sm(14))
+                        .foregroundStyle(Color(hex: T.ink))
+                }
+                .padding(.horizontal, 14).padding(.vertical, 11)
+                .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
+                .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+                .padding(.horizontal, 16).padding(.bottom, 10)
+
+                ScrollView {
+                    VStack(spacing: 8) {
+                        // Reset to the org-wide dashboard.
+                        row(title: "Team overview", subtitle: "Org-wide stats", selected: selectedId == nil) {
+                            ZStack {
+                                Circle().fill(T.brandGradient()).frame(width: 42, height: 42)
+                                Image(systemName: "person.3.fill").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
+                            }
+                        } action: {
+                            onSelect(nil); dismiss()
+                        }
+
+                        ForEach(people) { p in
+                            row(title: p.name, subtitle: p.role, selected: selectedId == p.id) {
+                                Avatar(initials: initials(p), size: 42, fill: Color(hex: p.color), imageData: p.image)
+                            } action: {
+                                onSelect(p.id); dismiss()
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.bottom, 24)
+                }
+                .scrollIndicators(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+            }
+        }
+    }
+
+    private func initials(_ p: Person) -> String {
+        let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        let j = parts.joined(); return j.isEmpty ? "?" : j
+    }
+
+    @ViewBuilder
+    private func row<Leading: View>(title: String, subtitle: String, selected: Bool,
+                                    @ViewBuilder leading: () -> Leading,
+                                    action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                leading()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink)).lineLimit(1)
+                    if !subtitle.isEmpty {
+                        Text(subtitle).font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted)).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    ZStack {
+                        Circle().fill(T.brandGradient())
+                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                    }
+                    .frame(width: 24, height: 24)
+                }
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
+            .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
+                .stroke(selected ? Color(hex: T.accentGradientStart) : Color(hex: T.hair), lineWidth: selected ? 1.6 : 1))
+        }
+        .buttonStyle(.plain)
     }
 }
 
