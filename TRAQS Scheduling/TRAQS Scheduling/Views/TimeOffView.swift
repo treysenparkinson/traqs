@@ -49,12 +49,27 @@ struct TimeOffView: View {
                                     Text("REQUEST TIME OFF").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
                                 }
                             }
-                            ForEach(myTimeOffRequests) { req in
-                                TimeOffRequestCard(request: req) {
-                                    Task { await appState.cancelTimeOff(id: req.id) }
+
+                            // Admins: pending requests from others, with
+                            // Approve/Deny. This is where a tapped time-off push
+                            // lands, so the approver can act right here.
+                            if !pendingApprovals.isEmpty {
+                                sectionHeader("Pending Approvals")
+                                ForEach(pendingApprovals) { req in
+                                    TimeOffApprovalCard(request: req)
                                 }
                             }
-                            if myTimeOffRequests.isEmpty {
+
+                            if !myTimeOffRequests.isEmpty {
+                                if !pendingApprovals.isEmpty { sectionHeader("My Requests") }
+                                ForEach(myTimeOffRequests) { req in
+                                    TimeOffRequestCard(request: req) {
+                                        Task { await appState.cancelTimeOff(id: req.id) }
+                                    }
+                                }
+                            }
+
+                            if myTimeOffRequests.isEmpty && pendingApprovals.isEmpty {
                                 TimeOffEmptyState()
                             }
                         }
@@ -75,14 +90,39 @@ struct TimeOffView: View {
         }
     }
 
-    /// My time-off requests, pending first, then newest start date.
+    private var myId: String? { appState.currentPersonId }
+
+    /// My OWN time-off requests, pending first, then newest start date. The
+    /// admin member endpoint returns everyone's requests, so scope to me here —
+    /// others' requests live in `pendingApprovals`.
     private var myTimeOffRequests: [TimeOffRequest] {
         let order: [String: Int] = ["pending": 0, "approved": 1, "denied": 2, "cancelled": 3]
-        return appState.timeOffRequests.sorted { a, b in
-            let oa = order[a.status] ?? 9, ob = order[b.status] ?? 9
-            if oa != ob { return oa < ob }
-            return a.start > b.start
+        return appState.timeOffRequests
+            .filter { myId == nil || $0.personId == myId }
+            .sorted { a, b in
+                let oa = order[a.status] ?? 9, ob = order[b.status] ?? 9
+                if oa != ob { return oa < ob }
+                return a.start > b.start
+            }
+    }
+
+    /// Admin only: pending requests from OTHER people awaiting a decision,
+    /// soonest start first.
+    private var pendingApprovals: [TimeOffRequest] {
+        guard appState.isAdmin else { return [] }
+        return appState.timeOffRequests
+            .filter { $0.status == "pending" && (myId == nil || $0.personId != myId) }
+            .sorted { $0.start < $1.start }
+    }
+
+    private func sectionHeader(_ title: String) -> some View {
+        HStack {
+            Text(title.uppercased())
+                .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
+                .foregroundStyle(Color(hex: T.muted))
+            Spacer()
         }
+        .padding(.top, 6)
     }
 }
 
@@ -150,6 +190,118 @@ private struct TimeOffRequestCard: View {
         }
         .padding(14)
         .frostedCard(radius: T.cornerMd)
+    }
+}
+
+// MARK: - Approval card (admin) — approve/deny a pending request
+
+private struct TimeOffApprovalCard: View {
+    @Environment(AppState.self) private var appState
+    let request: TimeOffRequest
+
+    @State private var denying = false
+    @State private var reason = ""
+    @State private var busy = false
+    @State private var failed = false
+
+    private var typeColor: Color { request.type == "UTO" ? Color(hex: "#F59E0B") : Color(hex: "#10B981") }
+    private var rangeLabel: String {
+        let out = DateFormatter(); out.dateFormat = "MMM d"
+        let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]
+        let sL = inF.date(from: request.start).map(out.string(from:)) ?? request.start
+        let eL = inF.date(from: request.end).map(out.string(from:)) ?? request.end
+        return request.start == request.end ? sL : "\(sL) – \(eL)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                IconChip(icon: .cal, color: typeColor)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(request.personName)
+                        .font(TTypo.smBold(15))
+                        .foregroundStyle(Color(hex: T.ink))
+                    HStack(spacing: 8) {
+                        Text(request.type)
+                            .font(TTypo.xsBold(11)).tLabel(tracking: 0.4)
+                            .foregroundStyle(typeColor)
+                            .padding(.horizontal, 9).padding(.vertical, 3)
+                            .background(Capsule().fill(typeColor.opacity(0.14)))
+                        Text(rangeLabel)
+                            .font(TTypo.smBold(14))
+                            .foregroundStyle(Color(hex: T.ink))
+                    }
+                }
+                Spacer(minLength: 8)
+                TagPill(label: "Pending", kind: .amber, dot: true)
+            }
+
+            if !request.note.isEmpty {
+                Text(request.note)
+                    .font(TTypo.sm(13))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+
+            if failed {
+                Text("Couldn't save — tap to try again")
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: "#ef4444"))
+            }
+
+            if denying {
+                VStack(spacing: 8) {
+                    TextField("Reason (optional)…", text: $reason)
+                        .textFieldStyle(.plain)
+                        .font(TTypo.sm(13))
+                        .padding(.horizontal, 12).padding(.vertical, 9)
+                        .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.surface)))
+                        .overlay(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
+                    HStack(spacing: 8) {
+                        Button { denying = false; reason = "" } label: {
+                            Text("Cancel").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+                                .frame(maxWidth: .infinity).padding(.vertical, 11)
+                                .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
+                        }.buttonStyle(.plain).disabled(busy)
+                        Button { decide("deny") } label: {
+                            Text(busy ? "Saving…" : "Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(.white)
+                                .frame(maxWidth: .infinity).padding(.vertical, 11)
+                                .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                        }.buttonStyle(.plain).disabled(busy)
+                    }
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Button { denying = true } label: {
+                        Text("Deny").font(TTypo.smBold(15)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                    }.buttonStyle(.plain).disabled(busy)
+                    Button { decide("approve") } label: {
+                        Text(busy ? "Saving…" : "Approve").font(TTypo.smBold(15)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
+                    }.buttonStyle(.plain).disabled(busy)
+                }
+            }
+        }
+        .padding(14)
+        .frostedCard(radius: T.cornerMd)
+    }
+
+    private func decide(_ action: String) {
+        guard !busy else { return }
+        busy = true
+        failed = false
+        Task {
+            let ok = await appState.decideTimeOff(id: request.id, action: action, reason: reason)
+            busy = false
+            if ok {
+                denying = false
+                reason = ""
+            } else {
+                failed = true
+            }
+        }
     }
 }
 

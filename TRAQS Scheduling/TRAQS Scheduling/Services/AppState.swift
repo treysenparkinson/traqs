@@ -775,13 +775,25 @@ class AppState {
         await refreshTimeOffRequests()
     }
 
-    /// Approve/deny a request from the chat bubble (admin only). On approve the
-    /// server also writes person.timeOff, so reload everything afterward.
-    func decideTimeOff(id: String, action: String, reason: String = "") async {
-        guard let api else { return }
-        _ = try? await api.decideTimeOff(id: id, action: action, reason: reason)
-        await refreshTimeOffRequests()
-        await loadAll()
+    /// Approve/deny a request from the Time Off page or a chat bubble (admin
+    /// only). On approve the server also writes person.timeOff, so reload
+    /// everything afterward. Returns whether the decision was saved — the caller
+    /// surfaces a retry affordance on failure rather than silently doing nothing.
+    @discardableResult
+    func decideTimeOff(id: String, action: String, reason: String = "") async -> Bool {
+        guard let api else { return false }
+        do {
+            _ = try await api.decideTimeOff(id: id, action: action, reason: reason)
+            await refreshTimeOffRequests()
+            await loadAll()
+            return true
+        } catch {
+            // Keep local state in sync with the server (in case it partially
+            // changed) and report failure so the UI can show a retry.
+            await refreshTimeOffRequests()
+            clockError = "Couldn't \(action == "approve" ? "approve" : "deny") the request: \(error.localizedDescription)"
+            return false
+        }
     }
 
     /// Pull just the org settings. Views like the Schedule and Tasks
