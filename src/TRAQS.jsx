@@ -292,6 +292,12 @@ const nameFromEmail = (raw) => {
 const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,"0"); const d = String(dt.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; };
 const NOW = new Date(); const TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
+// Feature flag: gate the "must be clocked in to work a job" + "can't clock out
+// while on a job" rules. DISABLED for now — flip to true to re-enable (also flip
+// ENFORCE_CLOCK_JOB_DEPENDENCY in timeclock.js + enforceClockJobDependency in
+// the iOS AppConfig).
+const ENFORCE_CLOCK_JOB_DEPENDENCY = false;
+
 // Derive session state from a person's `activeClockIn`.
 // Returns { isClocked, isOnLunch, isOnBreak, status: "out"|"in"|"lunch"|"break", pausedMs, runningMs }.
 // runningMs subtracts both closed and still-open lunch/break ranges so the on-screen timer freezes
@@ -11890,7 +11896,7 @@ ${jobsCtx || "No jobs found."}`;
     const openClockIn = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("clockIn_pin"); };
     const openClockOut = () => {
       // Can't clock out while still logged into a job — end the job first.
-      if (loggedInUser?.activeJobClock) { alert("Log out of your job before clocking out."); return; }
+      if (ENFORCE_CLOCK_JOB_DEPENDENCY && loggedInUser?.activeJobClock) { alert("Log out of your job before clocking out."); return; }
       setPinInput(""); setPinError(false); setPinState("clockOut_pin");
     };
     const openLunch = () => { setPinInput(""); setPinError(false); setPinState(isOnLunch ? "lunchEnd_pin" : "lunchStart_pin"); };
@@ -12356,7 +12362,7 @@ ${jobsCtx || "No jobs found."}`;
       // You can only work on a job while clocked in for pay. Salaried employees
       // don't punch the pay clock, so they're exempt.
       const salary = (loggedInUser?.payType || "hourly") === "salary";
-      if (!salary && !loggedInUser?.activeClockIn?.clockIn) {
+      if (ENFORCE_CLOCK_JOB_DEPENDENCY && !salary && !loggedInUser?.activeClockIn?.clockIn) {
         alert("You must clock in before working on a job.");
         return;
       }

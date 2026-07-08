@@ -66,7 +66,7 @@ struct TimeClockView: View {
                                              source: appState.payClockInSource,
                                              elapsed: payClockElapsed,
                                              inFlight: appState.isPayClocking,
-                                             clockOutBlocked: appState.isOnJobClock,
+                                             clockOutBlocked: appState.clockOutBlockedByJob,
                                              onClockIn: {
                                                  guard !appState.isPayClocking else { return }
                                                  // task 2: require the person's PIN if they have one set.

@@ -1123,10 +1123,16 @@ class AppState {
     /// synced shift (which also reflects a kiosk/desktop clock-in).
     var isClockedInForPay: Bool { payClockInActive || (currentPerson?.activeClockIn != nil) }
     /// May start/work a job right now: clocked in, or salaried (salaried
-    /// employees don't punch the pay clock, so they're exempt).
-    var canWorkOnJobs: Bool { (currentPerson?.isSalary ?? false) || isClockedInForPay }
-    /// Currently logged into a job — blocks pay clock-out until they log out.
+    /// employees don't punch the pay clock, so they're exempt). When the
+    /// clock/job dependency flag is off, always allowed.
+    var canWorkOnJobs: Bool {
+        guard AppConfig.enforceClockJobDependency else { return true }
+        return (currentPerson?.isSalary ?? false) || isClockedInForPay
+    }
+    /// Currently logged into a job.
     var isOnJobClock: Bool { myActiveJobClock != nil }
+    /// Pay clock-out is blocked because a job is still running (flag-gated).
+    var clockOutBlockedByJob: Bool { AppConfig.enforceClockJobDependency && isOnJobClock }
 
     /// Refresh JUST the jobs list (status / loggedHours updates) without
     /// clobbering the optimistic activeJobClock state on the current person.
@@ -1317,7 +1323,7 @@ class AppState {
     func payClockOut() async {
         guard let api, let personId = currentPersonId, !isPayClocking else { return }
         // Must log out of the current job before clocking out (server enforces too).
-        guard !isOnJobClock else {
+        guard !clockOutBlockedByJob else {
             clockError = "Log out of your job before clocking out."
             return
         }

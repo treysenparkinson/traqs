@@ -29,6 +29,11 @@ extension Date {
 enum AppConfig {
     static let netlifyBase = "https://traqs.netlify.app/.netlify/functions"
 
+    /// Feature flag: gate the "must be clocked in to work a job" + "can't clock
+    /// out while on a job" rules. DISABLED for now — flip to true to re-enable
+    /// (also flip ENFORCE_CLOCK_JOB_DEPENDENCY in timeclock.js + TRAQS.jsx).
+    static let enforceClockJobDependency = false
+
     enum Auth0 {
         static let domain = "matrixpci.us.auth0.com"
         static let clientId = "xnuXY9QAr8VaB7so8DfBHydUgTgKbGtt"
