@@ -66,6 +66,7 @@ struct TimeClockView: View {
                                              source: appState.payClockInSource,
                                              elapsed: payClockElapsed,
                                              inFlight: appState.isPayClocking,
+                                             clockOutBlocked: appState.isOnJobClock,
                                              onClockIn: {
                                                  guard !appState.isPayClocking else { return }
                                                  // task 2: require the person's PIN if they have one set.
@@ -307,6 +308,7 @@ private struct PayClockControls: View {
     let source: String?
     let elapsed: String
     let inFlight: Bool
+    var clockOutBlocked: Bool = false   // on a job → can't clock out yet
     let onClockIn: () -> Void
     let onClockOut: () -> Void
     let onLunchToggle: () -> Void
@@ -333,9 +335,16 @@ private struct PayClockControls: View {
                         pill(icon: "stop.circle.fill", text: "Clock Out", fill: Color(hex: T.red))
                     }
                     .buttonStyle(.plain)
-                    .disabled(inFlight)
+                    .disabled(inFlight || clockOutBlocked)
+                    .opacity(clockOutBlocked ? 0.5 : 1)
                 }
                 .opacity(inFlight ? 0.6 : 1)
+
+                if clockOutBlocked {
+                    Text("Stop your job before clocking out")
+                        .font(TTypo.xs(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
             } else {
                 Button(action: onClockIn) {
                     HStack(spacing: 9) {

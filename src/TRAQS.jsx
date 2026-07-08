@@ -11888,7 +11888,11 @@ ${jobsCtx || "No jobs found."}`;
     // pinState: "closed" | "clockIn_pin" | "clockIn_jobs" | "clockOut_pin"
 
     const openClockIn = () => { setPinInput(""); setPinError(false); setPinSelectedOps([]); setPinState("clockIn_pin"); };
-    const openClockOut = () => { setPinInput(""); setPinError(false); setPinState("clockOut_pin"); };
+    const openClockOut = () => {
+      // Can't clock out while still logged into a job — end the job first.
+      if (loggedInUser?.activeJobClock) { alert("Log out of your job before clocking out."); return; }
+      setPinInput(""); setPinError(false); setPinState("clockOut_pin");
+    };
     const openLunch = () => { setPinInput(""); setPinError(false); setPinState(isOnLunch ? "lunchEnd_pin" : "lunchStart_pin"); };
     const openBreak = () => { setPinInput(""); setPinError(false); setPinState(isOnBreak ? "breakEnd_pin" : "breakStart_pin"); };
     const closePin = () => { setPinState("closed"); setPinInput(""); setPinError(false); setPinSelectedOps([]); };
@@ -12348,7 +12352,16 @@ ${jobsCtx || "No jobs found."}`;
     const myTodayHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0);
 
     // ── Job clock helpers ─────────────────────────────────────────────────────
-    const openStartJobPicker = () => setStartJobPickerOpen(true);
+    const openStartJobPicker = () => {
+      // You can only work on a job while clocked in for pay. Salaried employees
+      // don't punch the pay clock, so they're exempt.
+      const salary = (loggedInUser?.payType || "hourly") === "salary";
+      if (!salary && !loggedInUser?.activeClockIn?.clockIn) {
+        alert("You must clock in before working on a job.");
+        return;
+      }
+      setStartJobPickerOpen(true);
+    };
     const closeStartJobPicker = () => { setStartJobPickerOpen(false); setStartJobSearch(""); setPickerExpandedJobs(new Set()); setPickerExpandedPanels(new Set()); };
 
     const handleStartJob = async ({ jobId, jobTitle, panelId, panelTitle, opId, opTitle }) => {

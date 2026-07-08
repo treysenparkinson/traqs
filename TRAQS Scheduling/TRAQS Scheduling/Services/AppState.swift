@@ -1119,6 +1119,15 @@ class AppState {
 
     var myActiveJobClock: ActiveJobClock? { currentPerson?.activeJobClock }
 
+    /// On the pay clock (clocked in for wages) — via the optimistic flag or the
+    /// synced shift (which also reflects a kiosk/desktop clock-in).
+    var isClockedInForPay: Bool { payClockInActive || (currentPerson?.activeClockIn != nil) }
+    /// May start/work a job right now: clocked in, or salaried (salaried
+    /// employees don't punch the pay clock, so they're exempt).
+    var canWorkOnJobs: Bool { (currentPerson?.isSalary ?? false) || isClockedInForPay }
+    /// Currently logged into a job — blocks pay clock-out until they log out.
+    var isOnJobClock: Bool { myActiveJobClock != nil }
+
     /// Refresh JUST the jobs list (status / loggedHours updates) without
     /// clobbering the optimistic activeJobClock state on the current person.
     /// Same empty-payload guard as `loadAll()` so a flaky response can't wipe
@@ -1144,6 +1153,11 @@ class AppState {
     func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
                     jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
         guard let api, let personId = currentPersonId else { return }
+        // You can only work on a job while clocked in (server enforces this too).
+        guard canWorkOnJobs else {
+            clockError = "You must clock in before working on a job."
+            return
+        }
 
         // Optimistically set the active job clock BEFORE the network round-trip
         // so the card slides up to the hero slot IMMEDIATELY instead of waiting
@@ -1302,6 +1316,11 @@ class AppState {
     /// already clocked out (align to server); 401 = revert.
     func payClockOut() async {
         guard let api, let personId = currentPersonId, !isPayClocking else { return }
+        // Must log out of the current job before clocking out (server enforces too).
+        guard !isOnJobClock else {
+            clockError = "Log out of your job before clocking out."
+            return
+        }
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         isPayClocking = true
         defer { isPayClocking = false }

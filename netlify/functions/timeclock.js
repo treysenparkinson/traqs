@@ -418,6 +418,10 @@ export async function handler(event) {
       if (jciIdx === -1) return err(404, "Person not found");
 
       const jciPerson = jciPeople[jciIdx];
+      // Must be clocked in for pay before working on a job. Salaried employees
+      // don't punch the pay clock, so they're exempt from this gate.
+      const jciSalary = String(jciPerson.payType || "hourly") === "salary";
+      if (!jciSalary && !jciPerson.activeClockIn) return err(409, "You must clock in before working on a job.");
       if (jciPerson.activeJobClock) return err(409, "Already clocked into a job");
 
       const jciClockIn = new Date().toISOString();
@@ -719,6 +723,8 @@ export async function handler(event) {
 
       // ── Pay Clock Out ──────────────────────────────────────────────────────
       if (!pcPerson.activeClockIn) return err(409, "Not currently clocked in");
+      // Can't clock out while still logged into a job — end the job first.
+      if (pcPerson.activeJobClock) return err(409, "Log out of your job before clocking out.");
       const clockOut = new Date().toISOString();
       const { clockIn, jobRefs = [], events = [], source: acSource = "ios-app" } = pcPerson.activeClockIn;
       const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
@@ -864,6 +870,10 @@ export async function handler(event) {
     if (action === "clockOut") {
       if (!person.activeClockIn) {
         return err(409, "Not currently clocked in");
+      }
+      // Can't clock out while still logged into a job — end the job first.
+      if (person.activeJobClock) {
+        return err(409, "Log out of your job before clocking out.");
       }
       const clockOut = new Date().toISOString();
       const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk" } = person.activeClockIn;

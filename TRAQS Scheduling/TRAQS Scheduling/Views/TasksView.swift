@@ -963,6 +963,7 @@ struct TaskCardV1: View {
     @Environment(AppState.self) private var appState
     let task: TaskAssignment
     @State private var showLogConfirm = false
+    @State private var showClockInRequired = false
     @State private var isStopping = false
     @State private var isStarting = false
     @State private var isBreakBusy = false
@@ -1187,6 +1188,11 @@ struct TaskCardV1: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
+        .alert("Clock in first", isPresented: $showClockInRequired) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("You need to clock in on the Hours page before you can work on a job.")
+        }
         .fullScreenCover(item: $endJobTarget) { target in
             EndJobPhotoOverlay(target: target) { clockOut in
                 // Dismiss by clearing the item binding (reliable), then clock
@@ -1362,7 +1368,9 @@ struct TaskCardV1: View {
                 GradientCTA(disabled: isStarting, dimmed: false, fullWidth: false,
                             verticalPadding: 9, action: {
                                 guard !isStarting else { return }
-                                showLogConfirm = true
+                                // You can only work on a job while clocked in.
+                                if appState.canWorkOnJobs { showLogConfirm = true }
+                                else { showClockInRequired = true }
                             }) {
                     HStack(spacing: 6) {
                         if isStarting {
