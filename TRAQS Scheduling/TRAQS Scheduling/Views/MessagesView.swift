@@ -160,8 +160,7 @@ struct MessagesView: View {
                                     .foregroundStyle(Color(hex: T.ink))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
-                                    .background(Capsule().fill(Color(hex: T.surface)))
-                                    .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                                    .glassEffect(.regular.interactive(), in: Capsule())
                             }
                             .buttonStyle(.plain)
 
@@ -179,7 +178,7 @@ struct MessagesView: View {
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 9)
-                                .background(Capsule().fill(Color.red.opacity(selectedKeys.isEmpty ? 0.4 : 1.0)))
+                                .glassEffect(.regular.tint(.red.opacity(selectedKeys.isEmpty ? 0.4 : 1.0)).interactive(), in: Capsule())
                             }
                             .buttonStyle(.plain)
                             .disabled(selectedKeys.isEmpty)
@@ -194,11 +193,7 @@ struct MessagesView: View {
                                     .foregroundStyle(Color(hex: T.ink))
                                     .padding(.horizontal, 14)
                                     .frame(height: 36)
-                                    .background(Capsule().fill(Color(hex: T.surface)))
-                                    .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                                    .compositingGroup()
-                                    .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
-                                            radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
+                                    .glassEffect(.regular.interactive(), in: Capsule())
                             }
                             .buttonStyle(.plain)
 
@@ -2082,8 +2077,7 @@ struct ThreadTopBar: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color(hex: T.ink))
                     .frame(width: 38, height: 38)
-                    .background(Circle().fill(Color(hex: T.surface)))
-                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                    .glassEffect(.regular.interactive(), in: Circle())
             }
             .buttonStyle(.plain)
 

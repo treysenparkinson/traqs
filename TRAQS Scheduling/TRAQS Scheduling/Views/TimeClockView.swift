@@ -13,6 +13,7 @@ private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 
 struct TimeClockView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
     @State private var now = Date()
     @State private var showPinPrompt = false
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -22,7 +23,21 @@ struct TimeClockView: View {
             AmbientBackground()
 
             VStack(spacing: 0) {
-                TRAQSNavHeader()
+                TRAQSNavHeader {
+                    // Time Off lives here now (removed from the side drawer).
+                    Button { appNav.openTimeOffPage = true } label: {
+                        HStack(spacing: 6) {
+                            TIconView(icon: .cal, size: 14, color: Color(hex: T.ink))
+                            Text("Time Off")
+                                .font(TTypo.smBold(13))
+                                .foregroundStyle(Color(hex: T.ink))
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 36)
+                        .glassEffect(.regular.interactive(), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
 
                 ScrollViewReader { _ in
                   ScrollView {

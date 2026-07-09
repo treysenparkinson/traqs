@@ -103,12 +103,6 @@ struct MainTabView: View {
                          DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                              showAdmin = true
                          }
-                     },
-                     openTimeOff: {
-                         closeMenu()
-                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
-                             showTimeOff = true
-                         }
                      })
                 .offset(x: drawerX)
                 .zIndex(2)
@@ -255,7 +249,6 @@ private struct SideMenu: View {
     let close: () -> Void
     let openSettings: () -> Void
     let openAdmin: () -> Void
-    let openTimeOff: () -> Void
 
     private var person: Person? { appState.currentPerson }
     private var initials: String {
@@ -349,10 +342,7 @@ private struct SideMenu: View {
                     .padding(.vertical, 12)
 
                 VStack(spacing: 4) {
-                    SideMenuRow(icon: .cal,
-                                label: "Time Off",
-                                isOn: false,
-                                action: openTimeOff)
+                    // Time Off moved to a button on the Hours page's header.
                     if appState.isAdmin {
                         SideMenuRow(icon: .admin,
                                     label: "Admin",

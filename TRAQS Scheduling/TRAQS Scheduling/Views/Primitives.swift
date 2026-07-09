@@ -397,13 +397,16 @@ struct IconBtn: View {
         Button(action: action) {
             TIconView(icon: icon, size: size, color: iconColor)
                 .padding(pad)
-                .background(Circle().fill(fill ?? Color(hex: T.surface)))
-                .overlay(Circle().stroke(stroke ?? Color(hex: T.hair), lineWidth: 1))
-                .compositingGroup()
-                .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
-                        radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
+                .glassEffect(glassStyle, in: Circle())
         }
         .buttonStyle(.plain)
+    }
+
+    /// iOS 26 Liquid Glass chrome. If a caller passed an explicit `fill`, carry
+    /// it through as a glass tint; otherwise use plain regular glass.
+    private var glassStyle: Glass {
+        let base: Glass = fill == nil ? .regular : .regular.tint(fill!)
+        return base.interactive()
     }
 }
 
