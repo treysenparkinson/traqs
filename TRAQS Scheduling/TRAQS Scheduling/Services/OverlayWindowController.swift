@@ -22,9 +22,19 @@ struct OverlayHeaderContent: View {
 
     var body: some View {
         if let ctx = context {
-            ThreadTopBar(height: 56, onBack: ctx.onBack)
-                .padding(.top, topInset)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            ZStack(alignment: .top) {
+                // Fill the whole overlay (incl. the status-bar area) with the
+                // theme background so it reads as part of the header, not
+                // transparent glass over the messages below.
+                Color(hex: T.bg)
+                ThreadTopBar(title: ctx.title,
+                             subtitle: ctx.subtitle,
+                             isDM: ctx.isDM,
+                             participants: ctx.participants,
+                             onBack: ctx.onBack)
+                    .padding(.top, topInset)   // drop below the status bar
+            }
+            .ignoresSafeArea()
         } else {
             Color.clear
         }
@@ -38,7 +48,8 @@ final class OverlayWindowController {
     private var host: UIHostingController<OverlayHeaderContent>?
     private weak var scene: UIWindowScene?
 
-    private let barHeight: CGFloat = 56
+    // Matches ThreadTopBar's intrinsic height (14 top + 42 avatar + 12 bottom).
+    private let barHeight: CGFloat = 68
 
     init(appState: AppState) { self.appState = appState }
 

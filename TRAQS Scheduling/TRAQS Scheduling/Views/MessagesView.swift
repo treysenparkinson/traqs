@@ -692,8 +692,22 @@ struct ThreadDetailView: View {
     /// The header is rendered in a separate UIWindow (OverlayWindowController) so
     /// the keyboard can't move it; here we just leave room so messages start
     /// beneath it. (Only the bar height — the status bar is already in the safe
-    /// area.)
-    private let overlayBarHeight: CGFloat = 56
+    /// area.) Matches OverlayWindowController.barHeight / ThreadTopBar height.
+    private let overlayBarHeight: CGFloat = 68
+
+    /// Publishes the current thread to the overlay header window. Called on
+    /// appear and whenever the derived header data (title / participants) changes,
+    /// since those load in asynchronously after the view first appears.
+    private func publishThreadContext() {
+        appState.activeMessageThread = ThreadContext(
+            id: threadKey,
+            title: displayTitle,
+            subtitle: headerSubtitle,
+            isDM: threadKey.hasPrefix("dm:"),
+            participants: threadParticipants,
+            onBack: { dismiss() }
+        )
+    }
 
     // #1 auto-follow + #4 entrance animations. `baselineIds` is the set of
     // messages already present when the thread first appeared — those never
@@ -1090,13 +1104,10 @@ struct ThreadDetailView: View {
         // Hand the current thread to the overlay header window; clear it on exit
         // (back button or swipe-back) so the window hides. onBack captures this
         // view's dismiss so the windowed back button pops the NavigationStack.
-        .onAppear {
-            appState.activeMessageThread = ThreadContext(
-                id: threadKey,
-                title: displayTitle,
-                onBack: { dismiss() }
-            )
-        }
+        // Re-publish as title/participants resolve (they load after onAppear).
+        .onAppear { publishThreadContext() }
+        .onChange(of: displayTitle) { publishThreadContext() }
+        .onChange(of: threadParticipants.map(\.id)) { publishThreadContext() }
         .onDisappear { appState.activeMessageThread = nil }
         .task(id: threadKey) {
             // Poll every 3s while this conversation is open. The global
@@ -1892,17 +1903,28 @@ struct TimeOffRequestBubble: View {
     }
 }
 
-// MARK: - Thread Top Bar (back button only — built from scratch)
+// MARK: - Thread Top Bar (back button · identity · participant avatars)
 
-/// A minimal top bar for a conversation: a single back button, left-aligned.
-/// It's rendered as its own layer in ThreadDetailView and given a fixed height;
-/// nothing else lives here yet.
+/// The conversation header: back button, then the identity — a single avatar for
+/// a DM or an overlapping stack for a group — beside the title and subtitle.
+/// Rendered inside the overlay window (see OverlayWindowController) and fed via
+/// ThreadContext, so the keyboard can't displace it.
 struct ThreadTopBar: View {
-    let height: CGFloat
+    let title: String
+    let subtitle: String
+    let isDM: Bool
+    let participants: [Person]
     let onBack: () -> Void
 
+    /// Initials for the DM's single leading avatar, derived from the title
+    /// (which already resolves to the other person's name).
+    private var titleInitials: String {
+        let parts = title.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        return parts.joined()
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 12) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
@@ -1913,12 +1935,38 @@ struct ThreadTopBar: View {
             }
             .buttonStyle(.plain)
 
-            Spacer(minLength: 0)
+            HStack(spacing: 11) {
+                // Identity: a single large avatar for a DM, an overlapping stack
+                // for a group / job / panel / op thread.
+                if isDM {
+                    Avatar(initials: titleInitials.isEmpty ? "?" : titleInitials,
+                           size: 42, gradient: true)
+                } else if !participants.isEmpty {
+                    ParticipantStack(people: participants,
+                                     avatarSize: 34, overlap: 12, maxShown: 3)
+                } else {
+                    Avatar(initials: "#", size: 42, gradient: true)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(TTypo.h3(20))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(subtitle)
+                        .font(TTypo.xs(12))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+
+                Spacer(minLength: 0)
+            }
         }
         .padding(.horizontal, 16)
-        .frame(height: height)
-        .frame(maxWidth: .infinity)
-        .background(Color(hex: T.bg))
+        .padding(.top, 14)
+        .padding(.bottom, 12)
     }
 }
 
