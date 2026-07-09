@@ -90,6 +90,10 @@ struct ClientsView: View {
         .sheet(isPresented: $showAddClient) {
             ClientEditView(client: nil)
         }
+        // Reconcile with the server the instant this page opens, so navigating
+        // here always shows the latest — not stale cache until the next Ably
+        // event or poll. Coalesced + rehydrates only on a real change.
+        .task { appState.foregroundSync() }
     }
 }
 

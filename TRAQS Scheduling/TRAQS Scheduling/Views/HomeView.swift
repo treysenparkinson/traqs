@@ -75,6 +75,7 @@ struct HomeView: View {
             // Home is the landing tab; pull the pay-clock entries + settings the
             // hero needs (jobs/people come from the app-level loadAll).
             .task {
+                appState.foregroundSync()   // pull the latest jobs/people on open
                 await appState.refreshTimeclock(personId: appState.currentPersonId)
                 await appState.refreshOrgSettings()
             }

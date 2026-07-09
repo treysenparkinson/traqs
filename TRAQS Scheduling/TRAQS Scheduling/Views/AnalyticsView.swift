@@ -87,6 +87,10 @@ struct AnalyticsView: View {
         .navigationTitle("Analytics")
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        // Stats are computed from jobs/people; pull the latest the instant the
+        // page opens instead of waiting for the next Ably event or 15s poll.
+        // Coalesced + rehydrates only on a real change, so no spurious re-render.
+        .task { appState.foregroundSync() }
     }
 
     // MARK: - Personal content (each person's own stats)

@@ -205,6 +205,10 @@ struct TeamView: View {
             }
             Button("Cancel", role: .cancel) { personToDelete = nil }
         }
+        // Pull the latest people/jobs the instant the page opens instead of
+        // waiting for the next Ably event or poll. Coalesced + rehydrates only
+        // on a real change.
+        .task { appState.foregroundSync() }
     }
 }
 

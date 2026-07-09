@@ -120,7 +120,10 @@ struct JobsHubView: View {
             }
             .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
             .toolbar(.hidden, for: .navigationBar)
-            .task { await appState.refreshOrgSettings() }
+            .task {
+                appState.foregroundSync()   // pull the latest jobs on open
+                await appState.refreshOrgSettings()
+            }
             // Resolve a tapped "new job / assigned / step / ready" push to its
             // job detail. `initial: true` covers a tap already pending when this
             // view first appears; the jobs.count watcher retries once a
