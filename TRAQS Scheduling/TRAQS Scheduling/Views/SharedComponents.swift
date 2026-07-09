@@ -34,6 +34,8 @@ struct TRAQSNavLogo: View {
 // No center title — the tab bar tells the user where they are.
 
 struct TRAQSNavHeader<Trailing: View>: View {
+    /// The wordmark only rides in the header on the home page.
+    var showLogo: Bool = false
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
@@ -41,7 +43,13 @@ struct TRAQSNavHeader<Trailing: View>: View {
         // padding drops the whole header (and page title) down from the status
         // bar for more breathing room.
         HStack(alignment: .center, spacing: 10) {
-            TRAQSMenuButton()
+            // Menu button, with the wordmark tucked in tight beside it on home.
+            HStack(spacing: 2) {
+                TRAQSMenuButton()
+                if showLogo {
+                    TRAQSWordmark(size: 60)
+                }
+            }
             Spacer()
             HStack(spacing: 6) {
                 trailing()
