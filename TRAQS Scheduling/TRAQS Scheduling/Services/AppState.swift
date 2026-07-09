@@ -32,6 +32,10 @@ class AppState {
     /// comes from the header in the overlay WINDOW, while the popover renders in
     /// ThreadDetailView's own (main-window) view tree.
     var showThreadMembers = false
+    /// Set by the overlay header's back button; MessagesView observes it and pops
+    /// its own NavigationStack in-context (a captured dismiss/DismissAction called
+    /// from a separate window degrades and stops working).
+    var messagesPopRequested = false
 
     var matchEmail: String? = nil  // set from AuthManager after login
     // MARK: - Core Data

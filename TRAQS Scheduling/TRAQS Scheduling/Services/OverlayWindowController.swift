@@ -105,17 +105,34 @@ final class OverlayWindowController {
         return key?.safeAreaInsets.top ?? 0
     }
 
+    private var hiding = false
+
     private func apply() {
         guard let w = window, let h = host, let scene else { return }
-        let ctx = appState.activeMessageThread
-        let top = topInset
-        h.rootView = OverlayHeaderContent(context: ctx, topInset: top)
-        if ctx != nil {
+        if let ctx = appState.activeMessageThread {
+            // Show / update. Reset any in-flight exit animation.
+            hiding = false
+            w.layer.removeAllAnimations()
+            h.rootView = OverlayHeaderContent(context: ctx, topInset: topInset)
             // Only as tall as the header, so touches below pass through.
-            w.frame = CGRect(x: 0, y: 0, width: scene.screen.bounds.width, height: top + barHeight)
+            w.frame = CGRect(x: 0, y: 0, width: scene.screen.bounds.width, height: topInset + barHeight)
+            w.alpha = 1
             w.isHidden = false
-        } else {
-            w.isHidden = true
+        } else if !w.isHidden && !hiding {
+            // Hide by fading + sliding right, in sync with the nav pop, keeping
+            // the last header on screen through the animation (don't clear the
+            // rootView until it finishes, or it would vanish instantly).
+            hiding = true
+            UIView.animate(withDuration: 0.24, delay: 0, options: [.curveEaseOut]) {
+                w.alpha = 0
+                w.frame.origin.x = w.bounds.width
+            } completion: { [weak self] _ in
+                guard let self else { return }
+                self.hiding = false
+                if self.appState.activeMessageThread == nil { w.isHidden = true }
+                w.alpha = 1
+                w.frame.origin.x = 0   // reset (the next show re-sets the frame anyway)
+            }
         }
     }
 

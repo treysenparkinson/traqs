@@ -355,6 +355,19 @@ struct MessagesView: View {
         // immediately without waiting on a refresh. `initial: true` handles a
         // tap that's already pending when the Chat tab first appears.
         .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeThreadDeepLink() }
+        // Overlay header's back button asked us to pop — do it here, in context,
+        // by mutating our own navigationPath (reliable across the window boundary).
+        .onChange(of: appState.messagesPopRequested) { _, requested in
+            guard requested else { return }
+            appState.messagesPopRequested = false
+            if !navigationPath.isEmpty { navigationPath.removeLast() }
+        }
+        // Clear the overlay header the moment the thread is popped (path empties),
+        // which is when the pop actually begins — so the header fades out in sync
+        // with the page and can't be left behind if a pop is dropped/interrupted.
+        .onChange(of: navigationPath.count) { _, count in
+            if count == 0 { appState.activeMessageThread = nil }
+        }
     }
 
     /// Floating filter options — stacked vertically above the filter FAB,
@@ -706,7 +719,11 @@ struct ThreadDetailView: View {
             title: displayTitle,
             isDM: threadKey.hasPrefix("dm:"),
             participants: threadParticipants,
-            onBack: { dismiss() },
+            // Ask MessagesView to pop (it mutates its own navigationPath in
+            // context — reliable, unlike a dismiss() captured across windows).
+            // The header is then cleared when the path empties (.onChange below),
+            // tying the header's exit to the actual pop.
+            onBack: { appState.messagesPopRequested = true },
             onTapIdentity: {
                 withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
                     appState.showThreadMembers.toggle()
