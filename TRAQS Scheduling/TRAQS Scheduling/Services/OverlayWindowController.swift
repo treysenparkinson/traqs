@@ -20,18 +20,31 @@ struct OverlayHeaderContent: View {
     let context: ThreadContext?
     let topInset: CGFloat
 
+    private let barHeight: CGFloat = 108
+    private let fade: CGFloat = 36   // bottom edge that dissolves into the page
+
     var body: some View {
         if let ctx = context {
+            let total = topInset + barHeight
+            let solid = total > 0 ? max(0, (total - fade) / total) : 1
             ZStack(alignment: .top) {
-                // Fill the whole overlay (incl. the status-bar area) with the
-                // theme background so it reads as part of the header, not
-                // transparent glass over the messages below.
-                Color(hex: T.bg)
+                // Frosted glass: the messages scrolling underneath show through,
+                // blurred. The bottom edge fades to clear so the header dissolves
+                // into the page instead of ending on a hard line.
+                Rectangle()
+                    .fill(.ultraThinMaterial)
+                    .mask(
+                        LinearGradient(stops: [
+                            .init(color: .black, location: 0),
+                            .init(color: .black, location: solid),
+                            .init(color: .clear, location: 1)
+                        ], startPoint: .top, endPoint: .bottom)
+                    )
                 ThreadTopBar(title: ctx.title,
-                             subtitle: ctx.subtitle,
                              isDM: ctx.isDM,
                              participants: ctx.participants,
-                             onBack: ctx.onBack)
+                             onBack: ctx.onBack,
+                             onTapIdentity: ctx.onTapIdentity)
                     .padding(.top, topInset)   // drop below the status bar
             }
             .ignoresSafeArea()
@@ -48,8 +61,9 @@ final class OverlayWindowController {
     private var host: UIHostingController<OverlayHeaderContent>?
     private weak var scene: UIWindowScene?
 
-    // Matches ThreadTopBar's intrinsic height (14 top + 42 avatar + 12 bottom).
-    private let barHeight: CGFloat = 68
+    // Header window height (status bar + this). Taller than the bar's intrinsic
+    // content so there's room below it for a long fade into the page.
+    private let barHeight: CGFloat = 108
 
     init(appState: AppState) { self.appState = appState }
 

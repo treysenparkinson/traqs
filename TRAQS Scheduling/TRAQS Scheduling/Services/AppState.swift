@@ -13,10 +13,11 @@ import Network
 struct ThreadContext: Equatable {
     let id: String
     let title: String
-    let subtitle: String
     let isDM: Bool
     let participants: [Person]   // for the avatar (1 = DM, N = group stack)
     let onBack: () -> Void
+    /// Tapping the header identity (avatar/title/▾) toggles the members popover.
+    let onTapIdentity: () -> Void
     // Compared by id only (closures/derived data aren't Equatable). Re-publishing
     // with the same id still fires @Observable, so the overlay refreshes.
     static func == (lhs: ThreadContext, rhs: ThreadContext) -> Bool { lhs.id == rhs.id }
@@ -27,6 +28,10 @@ class AppState {
     /// Non-nil while a message thread is open. The overlay header window observes
     /// this to show/hide and to render the current thread's back button.
     var activeMessageThread: ThreadContext? = nil
+    /// Members popover open/close. Shared here (not @State) because the toggle
+    /// comes from the header in the overlay WINDOW, while the popover renders in
+    /// ThreadDetailView's own (main-window) view tree.
+    var showThreadMembers = false
 
     var matchEmail: String? = nil  // set from AuthManager after login
     // MARK: - Core Data
