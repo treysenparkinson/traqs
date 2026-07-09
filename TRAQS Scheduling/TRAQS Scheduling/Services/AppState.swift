@@ -6,8 +6,23 @@ import SwiftData
 import Network
 
 @MainActor
+/// Describes the conversation currently on screen, for the overlay-window header.
+/// The header is rendered in a separate UIWindow (see OverlayWindowController) so
+/// the root UIHostingController's keyboard animation can't displace it; this is
+/// how ThreadDetailView hands the header its title + back action.
+struct ThreadContext: Equatable {
+    let id: String
+    let title: String
+    let onBack: () -> Void
+    static func == (lhs: ThreadContext, rhs: ThreadContext) -> Bool { lhs.id == rhs.id }
+}
+
 @Observable
 class AppState {
+    /// Non-nil while a message thread is open. The overlay header window observes
+    /// this to show/hide and to render the current thread's back button.
+    var activeMessageThread: ThreadContext? = nil
+
     var matchEmail: String? = nil  // set from AuthManager after login
     // MARK: - Core Data
     var jobs: [Job] = []

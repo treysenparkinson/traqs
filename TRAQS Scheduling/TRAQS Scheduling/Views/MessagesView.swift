@@ -683,13 +683,17 @@ struct ThreadDetailView: View {
     @State private var sendError: String? = nil
     @State private var sendShakeToken = 0      // bumped on send failure → shakes the composer
     @State private var myMessageIds: Set<String> = []
-    @State private var showPeople = false     // header people/add popover open?
-    @State private var showAddPeople = false  // add-people multi-select sheet?
-    @State private var peopleListHeight: CGFloat = 0   // measured pill-stack height
 
     // Composer focus — used to re-pin the scroll to the bottom when the
     // keyboard opens (#1 auto-follow).
     @FocusState private var composerFocused: Bool
+
+    /// Space reserved at the top of the message list for the overlay header bar.
+    /// The header is rendered in a separate UIWindow (OverlayWindowController) so
+    /// the keyboard can't move it; here we just leave room so messages start
+    /// beneath it. (Only the bar height — the status bar is already in the safe
+    /// area.)
+    private let overlayBarHeight: CGFloat = 56
 
     // #1 auto-follow + #4 entrance animations. `baselineIds` is the set of
     // messages already present when the thread first appeared — those never
@@ -897,8 +901,9 @@ struct ThreadDetailView: View {
     }
 
     var body: some View {
-        ZStack {
-            AmbientBackground()
+        ZStack(alignment: .top) {
+            // Flat page background, full-screen behind the status bar / home indicator.
+            Color(hex: T.bg).ignoresSafeArea()
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -970,26 +975,14 @@ struct ThreadDetailView: View {
                     // bubble shows live state + Approve/Deny (admins get all).
                     Task { await appState.refreshTimeOffRequests() }
                 }
-                // Header pinned to the top via safeAreaInset so it stays put when
-                // the keyboard opens — previously it lived inside the keyboard-
-                // avoiding VStack and got shoved off-screen. Frosted so messages
-                // scrolling under it stay legible.
+                // Reserve room at the top for the overlay header window
+                // (rendered in a SEPARATE UIWindow — see OverlayWindowController —
+                // so the keyboard can't displace it). Messages start beneath it.
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    ThreadHeader(title: displayTitle,
-                                 subtitle: headerSubtitle,
-                                 isDM: threadKey.hasPrefix("dm:"),
-                                 participants: threadParticipants,
-                                 onBack: { dismiss() },
-                                 onTapPeople: {
-                                     withAnimation(.spring(response: 0.34, dampingFraction: 0.82)) {
-                                         showPeople.toggle()
-                                     }
-                                 })
-                        .frame(maxWidth: .infinity)
-                        .background(.ultraThinMaterial)
+                    Color.clear.frame(height: overlayBarHeight)
                 }
-                // Composer pinned to the bottom: the keyboard raises THIS inset,
-                // leaving the header and the message list in place.
+                // Composer sits at the bottom; SwiftUI's default keyboard
+                // avoidance raises it while the (windowed) header stays put.
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 8) {
                         // Pending attachment preview (thumbnail + remove) above the row.
@@ -1065,7 +1058,12 @@ struct ThreadDetailView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 6)
                     .frame(maxWidth: .infinity)
-                    .background(.ultraThinMaterial)
+                    .background(Color(hex: T.bg))
+                    .overlay(alignment: .top) {
+                        Rectangle()
+                            .fill(Color(hex: T.hair))
+                            .frame(height: 1)
+                    }
                     .animation(.easeInOut(duration: 0.18), value: hasAttachment)
                     .confirmationDialog("Add attachment", isPresented: $showSourceDialog, titleVisibility: .visible) {
                         Button("Take Photo") {
@@ -1088,15 +1086,18 @@ struct ThreadDetailView: View {
                 }
             }
         }
-        .overlay { peoplePopoverOverlay }
-        .sheet(isPresented: $showAddPeople) {
-            AddPeopleSheet(excludedIds: Set(threadParticipants.map { $0.id })) { ids in
-                addPeople(ids)
-            }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-        }
         .toolbar(.hidden, for: .navigationBar)
+        // Hand the current thread to the overlay header window; clear it on exit
+        // (back button or swipe-back) so the window hides. onBack captures this
+        // view's dismiss so the windowed back button pops the NavigationStack.
+        .onAppear {
+            appState.activeMessageThread = ThreadContext(
+                id: threadKey,
+                title: displayTitle,
+                onBack: { dismiss() }
+            )
+        }
+        .onDisappear { appState.activeMessageThread = nil }
         .task(id: threadKey) {
             // Poll every 3s while this conversation is open. The global
             // 15s auto-refresh feels too slow when two people are actively
@@ -1122,108 +1123,6 @@ struct ThreadDetailView: View {
         if let email = appState.matchEmail, !email.isEmpty, id.lowercased() == email.lowercased() { return true }
         if let name = appState.currentPerson?.name, !name.isEmpty, msg.authorName == name { return true }
         return false
-    }
-
-    // MARK: - People / add-to-chat popover
-    //
-    // FAB-style popout from the header: the thread's people slide out as pills
-    // (staggered spring, like the inbox filter FAB), with an "Add person" pill
-    // below. Tapping it presents AddPeopleSheet (search + multi-select + Add).
-    /// Blur is only as tall as the pill stack (+ a soft fade tail): FadingBlur's
-    /// flipped gradient keeps the top ~66% solid, so sizing the frame to
-    /// listHeight / 0.66 lands the solid band right at the list's bottom and
-    /// eases out just below it.
-    private var peopleBlurHeight: CGFloat { max(90, peopleListHeight / 0.66) }
-
-    @ViewBuilder private var peoplePopoverOverlay: some View {
-        ZStack(alignment: .topTrailing) {
-            // Full-screen invisible tap-catcher so tapping anywhere dismisses,
-            // even below the (now-confined) blur.
-            Color.clear
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { showPeople = false }
-                }
-                .allowsHitTesting(showPeople)
-
-            // Blur only as tall as the list, easing out at its bottom.
-            FadingBlur(flip: true)
-                .frame(maxWidth: .infinity)
-                .frame(height: peopleBlurHeight)
-                .opacity(showPeople ? 1 : 0)
-                .allowsHitTesting(false)
-                .animation(.easeInOut(duration: 0.28), value: showPeople)
-
-            VStack(alignment: .trailing, spacing: 10) {
-                if showPeople {
-                    let people = threadParticipants
-                    // People slide in from the right, top-down, one-by-one.
-                    ForEach(Array(people.enumerated()), id: \.element.id) { idx, p in
-                        PersonPill(name: p.name, initials: personInitials(p.name))
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                            .animation(.spring(response: 0.32, dampingFraction: 0.74)
-                                        .delay(Double(idx) * 0.05), value: showPeople)
-                    }
-                    // Add-person pill sits below the roster (reveals last).
-                    if canAddPeople {
-                        AddPersonPill { showAddPeople = true }
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
-                            .animation(.spring(response: 0.32, dampingFraction: 0.74)
-                                        .delay(Double(people.count) * 0.05), value: showPeople)
-                    }
-                }
-            }
-            .padding(.top, 60)
-            .padding(.horizontal, 16)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: PeopleListHeightKey.self, value: geo.size.height)
-                }
-            )
-        }
-        .onPreferenceChange(PeopleListHeightKey.self) { peopleListHeight = $0 }
-    }
-
-    /// Adding people is supported for group chats (append members) and DMs
-    /// (spin up a group). Job/panel/op membership comes from the job team, so
-    /// it isn't edited here.
-    private var canAddPeople: Bool {
-        threadKey.hasPrefix("group:") || threadKey.hasPrefix("dm:")
-    }
-
-    /// Add the picked people. Group → append + persist. DM → spin up a group
-    /// from the pair + picks and open it (the original DM stays intact).
-    private func addPeople(_ ids: [String]) {
-        guard !ids.isEmpty else { return }
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { showPeople = false }
-        if threadKey.hasPrefix("group:") {
-            let name = String(threadKey.dropFirst(6))
-            Task { await appState.addGroupMembers(groupName: name, add: ids) }
-        } else if threadKey.hasPrefix("dm:") {
-            let members = Array(Set(threadParticipants.map { $0.id }).union(ids))
-            let name = suggestedGroupName(memberIds: members)
-            Task {
-                await appState.createGroup(name: name, memberIds: members)
-                await MainActor.run { onOpenThread("group:\(name)") }
-            }
-        }
-    }
-
-    /// Readable auto-name for a group spun up from a DM: comma-joined first
-    /// names, truncated with "+N" past three.
-    private func suggestedGroupName(memberIds: [String]) -> String {
-        let names = memberIds.compactMap { id in
-            appState.people.first(where: { $0.id == id })?.name
-                .split(separator: " ").first.map(String.init)
-        }
-        guard !names.isEmpty else { return "New Group" }
-        if names.count <= 3 { return names.joined(separator: ", ") }
-        return names.prefix(3).joined(separator: ", ") + " +\(names.count - 3)"
-    }
-
-    private func personInitials(_ name: String) -> String {
-        name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }.joined()
     }
 
     /// Thumbnail (image) or doc chip (file) for the pending attachment, with a
@@ -1993,26 +1892,17 @@ struct TimeOffRequestBubble: View {
     }
 }
 
-// MARK: - Thread Header (back · title · participant avatars)
+// MARK: - Thread Top Bar (back button only — built from scratch)
 
-private struct ThreadHeader: View {
-    let title: String
-    let subtitle: String
-    let isDM: Bool
-    let participants: [Person]
+/// A minimal top bar for a conversation: a single back button, left-aligned.
+/// It's rendered as its own layer in ThreadDetailView and given a fixed height;
+/// nothing else lives here yet.
+struct ThreadTopBar: View {
+    let height: CGFloat
     let onBack: () -> Void
-    /// Tapping the title, avatar, or subtitle opens the people/add popover.
-    var onTapPeople: (() -> Void)? = nil
-
-    /// Initials for the DM's single leading avatar, derived from the title
-    /// (which already resolves to the other person's name).
-    private var titleInitials: String {
-        let parts = title.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        return parts.joined()
-    }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 0) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 17, weight: .semibold))
@@ -2023,50 +1913,12 @@ private struct ThreadHeader: View {
             }
             .buttonStyle(.plain)
 
-            Button { onTapPeople?() } label: {
-                HStack(spacing: 11) {
-                    // Identity: a single large avatar for a DM, an overlapping
-                    // stack for a group / job / panel / op thread.
-                    if isDM {
-                        Avatar(initials: titleInitials.isEmpty ? "?" : titleInitials,
-                               size: 42, gradient: true)
-                    } else if !participants.isEmpty {
-                        ParticipantStack(people: participants,
-                                         avatarSize: 34, overlap: 12, maxShown: 3)
-                    } else {
-                        Avatar(initials: "#", size: 42, gradient: true)
-                    }
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(TTypo.h3(20))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        HStack(spacing: 4) {
-                            Text(subtitle)
-                                .font(TTypo.xs(12))
-                                .foregroundStyle(Color(hex: T.muted))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            if onTapPeople != nil {
-                                Image(systemName: "chevron.down")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundStyle(Color(hex: T.muted))
-                            }
-                        }
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(onTapPeople == nil)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 14)
-        .padding(.bottom, 12)
+        .frame(height: height)
+        .frame(maxWidth: .infinity)
+        .background(Color(hex: T.bg))
     }
 }
 
@@ -2105,57 +1957,6 @@ private struct ParticipantStack: View {
             .prefix(2)
             .map { String($0.prefix(1)).uppercased() }
             .joined()
-    }
-}
-
-// MARK: - Header popover pills
-
-/// Reports the measured height of the popover's pill stack so the blur behind
-/// it can be sized to the list instead of the whole screen.
-private struct PeopleListHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
-}
-
-/// A person in the header people popover — avatar + name in a capsule, styled
-/// like the FAB range pills.
-private struct PersonPill: View {
-    let name: String
-    let initials: String
-    var body: some View {
-        HStack(spacing: 8) {
-            Avatar(initials: initials, size: 24, gradient: true)
-            Text(name)
-                .font(TTypo.smBold(14))
-                .foregroundStyle(Color(hex: T.ink))
-                .lineLimit(1)
-        }
-        .padding(.leading, 6)
-        .padding(.trailing, 16)
-        .padding(.vertical, 7)
-        .background(Capsule().fill(Color(hex: T.surface)))
-        .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 4)
-    }
-}
-
-/// The "Add person" action pill below the roster — gradient, to stand out.
-private struct AddPersonPill: View {
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-                Text("Add person").font(TTypo.smBold(14))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 11)
-            .background(Capsule().fill(T.brandGradient()))
-            .shadow(color: Color(hex: T.sky).opacity(T.skyShadowOpacity),
-                    radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
-        }
-        .buttonStyle(.plain)
     }
 }
 

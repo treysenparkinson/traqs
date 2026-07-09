@@ -53,6 +53,11 @@ struct RootView: View {
                     .transition(.opacity)
             }
         }
+        // Installs the overlay UIWindow that renders the Messages header outside
+        // the main UIHostingController (so the keyboard can't displace it). Zero
+        // size, non-interactive; the window itself only appears while a thread is
+        // open (driven by appState.activeMessageThread).
+        .background(OverlayWindowInstaller(appState: appState))
     }
 
     private func handleAuthState() {
