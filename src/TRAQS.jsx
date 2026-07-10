@@ -2596,6 +2596,7 @@ Extraction rules:
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
   const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
+  const [clockAccessOpen, setClockAccessOpen] = useState(false); // Time Settings → per-worker clock-in access disclosure
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
@@ -16782,17 +16783,6 @@ ${jobsCtx || "No jobs found."}`;
                           <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
-                      {/* Mobile Clock In/Out — opt-out (enabled unless explicitly false) */}
-                      <div onClick={() => updDraftPerson(person.id, { canClockInOut: person.canClockInOut === false })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canClockInOut !== false ? "#10b98144" : T.border}`, background: person.canClockInOut !== false ? "#10b98108" : T.surface, transition: "all 0.15s" }}>
-                        <span style={{ lineHeight: 0, color: person.canClockInOut !== false ? "#10b981" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Mobile Clock In/Out</div>
-                          <div style={{ fontSize: 11, color: T.textDim }}>Can clock in and out from the mobile app</div>
-                        </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canClockInOut !== false ? "#10b981" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: person.canClockInOut !== false ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-                        </div>
-                      </div>
                       <div onClick={() => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
                         <span style={{ lineHeight: 0, color: person.noAutoSchedule ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
                         <div style={{ flex: 1 }}>
@@ -17011,6 +17001,42 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Allow workers to clock in for pay from iOS app</div>
               <div style={{ fontSize: 11, color: T.textDim }}>When off, pay clock-in is kiosk-only; the iOS app can still track production hours per job.</div>
             </div>
+          </div>
+          {/* Per-worker clock-in access: a master toggle (enable/disable all) plus a
+              collapsible list to flip individual workers. Per person it's opt-out
+              (absent/true = allowed); the master reflects "any enabled" with an X/N count. */}
+          <div style={{ marginTop: 12, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+            {(() => {
+              const workers = [...(d.people || [])].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+              const enabled = workers.filter(p => p.canClockInOut !== false).length;
+              const setAll = (val) => patchDraft(dd => ({ people: (dd.people || []).map(p => ({ ...p, canClockInOut: val })) }));
+              const setOne = (id) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, canClockInOut: p.canClockInOut === false } : p) }));
+              return (<>
+                <div onClick={() => setClockAccessOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Per-worker access</div>
+                    <div style={{ fontSize: 11, color: T.textDim }}>Choose who can clock in/out from the app</div>
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: enabled > 0 ? T.accent : T.textDim }}>{enabled}/{workers.length}</span>
+                  <span style={{ transform: clockAccessOpen ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+                </div>
+                {clockAccessOpen && <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>All Workers</div>
+                      <div style={{ fontSize: 11, color: T.textDim }}>{enabled} of {workers.length} enabled</div>
+                    </div>
+                    <Toggle on={enabled > 0} onClick={() => setAll(enabled > 0 ? false : true)} />
+                  </div>
+                  {workers.map(p => (
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: T.radiusXs }}>
+                      <div style={{ flex: 1, fontSize: 13, color: T.text }}>{p.name || "—"}</div>
+                      <Toggle on={p.canClockInOut !== false} onClick={() => setOne(p.id)} />
+                    </div>
+                  ))}
+                </div>}
+              </>);
+            })()}
           </div>
         </div>
         <div className="tq-frost" style={stCard}>
@@ -19812,17 +19838,6 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                       <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                         <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-                      </div>
-                    </div>
-                    {/* Mobile Clock In/Out toggle — opt-out (enabled unless explicitly false) */}
-                    <div onClick={() => isAdmin && updPerson(person.id, { canClockInOut: person.canClockInOut === false })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canClockInOut !== false ? "#10b98144" : T.border}`, background: person.canClockInOut !== false ? "#10b98108" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
-                      <span style={{ lineHeight: 0, color: person.canClockInOut !== false ? "#10b981" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Mobile Clock In/Out</div>
-                        <div style={{ fontSize: 11, color: T.textDim }}>Can clock in and out from the mobile app</div>
-                      </div>
-                      <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canClockInOut !== false ? "#10b981" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                        <div style={{ position: "absolute", top: 2, left: person.canClockInOut !== false ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>
                     {/* No Auto-Schedule toggle */}
