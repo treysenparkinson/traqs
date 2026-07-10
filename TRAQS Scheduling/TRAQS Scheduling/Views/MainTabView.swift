@@ -170,33 +170,6 @@ struct MainTabView: View {
 
 // MARK: - Hamburger (used inside TRAQSNavHeader's leading slot)
 
-// MARK: - TRAQS bars mark
-// The four stacked bars from the app icon, drawn natively (thin lines) so they
-// stay crisp at any size and follow the theme. Three neutral ink lines + one
-// accent line — the icon's blue bar — which tracks the app accent so the button
-// speaks the same design language as the rest of the app. Bar widths mirror the
-// icon's proportions (0.55 / 0.79 / 1.0 / 0.45), accent on the 3rd/widest bar.
-struct TRAQSBarsMark: View {
-    var width: CGFloat = 24
-    var barHeight: CGFloat = 2.5
-    var spacing: CGFloat = 3.75
-
-    private let ratios: [CGFloat] = [0.55, 0.79, 1.0, 0.45]
-    private let accentIndex = 2
-
-    // Compact stack height = 4·barHeight + 3·spacing = 21.25pt. The header wordmark
-    // rides a little larger than this by design (see TRAQSNavHeader).
-    var body: some View {
-        VStack(alignment: .leading, spacing: spacing) {
-            ForEach(ratios.indices, id: \.self) { i in
-                Capsule()
-                    .fill(Color(hex: i == accentIndex ? T.accent : T.ink))
-                    .frame(width: width * ratios[i], height: barHeight)
-            }
-        }
-    }
-}
-
 struct TRAQSMenuButton: View {
     @Environment(AppNav.self) private var appNav
     @Environment(AppState.self) private var appState
@@ -207,7 +180,13 @@ struct TRAQSMenuButton: View {
                 appNav.isMenuOpen.toggle()
             }
         } label: {
-            TRAQSBarsMark()
+            // The traced icon bars (3 grey + brand-blue accent) as the button.
+            Image("TRAQSIconBars")
+                .resizable()
+                .interpolation(.high)
+                .antialiased(true)
+                .scaledToFit()
+                .frame(height: 22)
             .frame(width: 32, height: 32)
             .contentShape(Rectangle())
             // Missed-notification indicator: a pulsing red dot on the corner.
@@ -299,15 +278,26 @@ private struct SideMenu: View {
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                // Header inside the drawer — just the (larger) wordmark, its
-                // left edge aligned with the nav buttons below (which sit at a
-                // 12pt inset via the tab list's horizontal padding).
-                HStack {
+                // Header inside the drawer — the wordmark + trailing bars mark,
+                // centered horizontally in the drawer.
+                HStack(spacing: 0) {
                     TRAQSWordmark(size: 64)
-                    Spacer()
+                    // Alternate lockup: the actual traced bars from the app icon
+                    // (3 grey + the brand-blue accent) ride right after the
+                    // wordmark like a trailing "=" mark. Pulled left to clear the
+                    // wordmark PNG's built-in right padding, and nudged up to sit
+                    // level with the letters.
+                    Image("TRAQSIconBars")
+                        .resizable()
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .scaledToFit()
+                        .frame(height: 21)   // = the lowercase "s" x-height at size 64
+                        .offset(x: -13, y: -1)
                 }
-                .padding(.leading, 12)
-                .padding(.trailing, 20)
+                .frame(maxWidth: .infinity)
+                .offset(x: -8)   // nudge the centered lockup slightly left
+                .padding(.horizontal, 20)
                 .padding(.top, 24)
                 .padding(.bottom, 18)
 

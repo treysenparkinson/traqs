@@ -59,8 +59,8 @@ struct TRAQSNavHeader<Trailing: View>: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.top, 10)
-        .padding(.bottom, 6)
+        .padding(.top, 22)
+        .padding(.bottom, 12)
     }
 }
 

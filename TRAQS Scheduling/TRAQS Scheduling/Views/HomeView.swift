@@ -17,7 +17,7 @@ struct HomeView: View {
             AmbientBackground()
 
             VStack(spacing: 0) {
-                TRAQSNavHeader(showLogo: true) {
+                TRAQSNavHeader {
                     // Profile: name on the left, avatar on the right.
                     HStack(spacing: 8) {
                         Text(personName)
