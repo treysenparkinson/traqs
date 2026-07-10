@@ -2597,7 +2597,6 @@ Extraction rules:
   const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockAccessOpen, setClockAccessOpen] = useState(false); // Time Settings → per-worker clock-in access disclosure
-  const [clockAccessClosing, setClockAccessClosing] = useState(false); // kept mounted through the collapse animation
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
@@ -17010,27 +17009,28 @@ ${jobsCtx || "No jobs found."}`;
             {(() => {
               const workers = [...(d.people || [])].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
               const enabled = workers.filter(p => p.canClockInOut !== false).length;
-              const open = clockAccessOpen && !clockAccessClosing;
               const setAll = (val) => patchDraft(dd => ({ people: (dd.people || []).map(p => ({ ...p, canClockInOut: val })) }));
               const setOne = (id) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, canClockInOut: p.canClockInOut === false } : p) }));
-              // Collapse plays panelDropOut before unmount; expand plays panelDropIn.
-              const toggleOpen = () => {
-                if (clockAccessOpen) { setClockAccessClosing(true); setTimeout(() => { setClockAccessOpen(false); setClockAccessClosing(false); }, 240); }
-                else { setClockAccessClosing(false); setClockAccessOpen(true); }
-              };
+              // Rows cascade in (staggerUp) only while open; toggling animation off↔on
+              // restarts it each time, so it replays on every expand.
+              const rowAnim = (i) => (clockAccessOpen
+                ? { animation: "staggerUp 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 32}ms` }
+                : {});
               return (<>
-                <div onClick={toggleOpen} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <div onClick={() => setClockAccessOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Per-worker access</div>
                     <div style={{ fontSize: 11, color: T.textDim }}>Choose who can clock in/out from the app</div>
                   </div>
                   <span style={{ fontSize: 12, fontWeight: 700, color: enabled > 0 ? T.accent : T.textDim }}>{enabled}/{workers.length}</span>
-                  <span style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)", color: T.textDim, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+                  <span style={{ transform: clockAccessOpen ? "rotate(90deg)" : "none", transition: "transform 0.22s ease", color: T.textDim, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
                 </div>
-                {(clockAccessOpen || clockAccessClosing) && (
-                  <div style={{ animation: clockAccessClosing ? "panelDropOut 0.24s ease-in forwards" : "panelDropIn 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
+                {/* Smooth real-height expand/collapse via grid-template-rows (no max-height
+                    guessing, no parent transform to fight the row stagger). */}
+                <div style={{ display: "grid", gridTemplateRows: clockAccessOpen ? "1fr" : "0fr", opacity: clockAccessOpen ? 1 : 0, transition: "grid-template-rows 0.3s ease, opacity 0.24s ease" }}>
+                  <div style={{ overflow: "hidden", minHeight: 0 }}>
                     <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, ...rowAnim(0) }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>All Workers</div>
                           <div style={{ fontSize: 11, color: T.textDim }}>{enabled} of {workers.length} enabled</div>
@@ -17038,14 +17038,14 @@ ${jobsCtx || "No jobs found."}`;
                         <Toggle on={enabled > 0} onClick={() => setAll(enabled > 0 ? false : true)} />
                       </div>
                       {workers.map((p, i) => (
-                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: T.radiusXs, animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i + 1, 14) * 35}ms` }}>
+                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: T.radiusXs, ...rowAnim(i + 1) }}>
                           <div style={{ flex: 1, fontSize: 13, color: T.text }}>{p.name || "—"}</div>
                           <Toggle on={p.canClockInOut !== false} onClick={() => setOne(p.id)} />
                         </div>
                       ))}
                     </div>
                   </div>
-                )}
+                </div>
               </>);
             })()}
           </div>
