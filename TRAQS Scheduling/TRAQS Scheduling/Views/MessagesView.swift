@@ -1769,6 +1769,7 @@ private struct DeliveryStatusLabel: View {
 // MARK: - MessageBubble
 
 struct MessageBubble: View {
+    @Environment(AppState.self) private var appState
     let message: Message
     let isMe: Bool
     /// When true this bubble plays an entrance animation the first time it
@@ -1798,7 +1799,8 @@ struct MessageBubble: View {
 
                 if !isMe {
                     Avatar(initials: String(message.authorName.prefix(1)).uppercased(),
-                           size: 28, gradient: true)
+                           size: 28, gradient: true,
+                           imageData: appState.people.first { $0.id == message.authorId }?.image)
                 }
 
                 VStack(alignment: isMe ? .trailing : .leading, spacing: 4) {
@@ -2134,7 +2136,8 @@ private struct ParticipantStack: View {
             ForEach(Array(people.prefix(maxShown).enumerated()), id: \.element.id) { _, p in
                 Avatar(initials: initials(p.name),
                        size: avatarSize,
-                       gradient: true)
+                       gradient: true,
+                       imageData: p.image)
                     .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 2))
             }
             if people.count > maxShown {

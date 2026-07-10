@@ -325,7 +325,8 @@ private struct PersonAvatar: View {
         Avatar(initials: initials,
                size: 38,
                gradient: true,
-               presence: statusColor == .clear ? nil : statusColor)
+               presence: statusColor == .clear ? nil : statusColor,
+               imageData: person.image)
     }
 }
 

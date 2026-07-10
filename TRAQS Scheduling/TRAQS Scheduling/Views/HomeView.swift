@@ -24,7 +24,8 @@ struct HomeView: View {
                             .font(TTypo.smBold(14))
                             .foregroundStyle(Color(hex: T.ink))
                             .lineLimit(1)
-                        Avatar(initials: initials, size: 34, gradient: true)
+                        Avatar(initials: initials, size: 34, gradient: true,
+                               imageData: appState.currentPerson?.image)
                     }
                 }
 

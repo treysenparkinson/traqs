@@ -163,7 +163,7 @@ private struct ProfileSheet: View {
             Color(hex: T.bg).ignoresSafeArea()
 
             VStack(spacing: 18) {
-                Avatar(initials: initials, size: 72, fill: Color(hex: T.magenta))
+                Avatar(initials: initials, size: 72, fill: Color(hex: T.magenta), imageData: person?.image)
                     .padding(.top, 12)
 
                 VStack(spacing: 4) {

@@ -248,7 +248,8 @@ struct PersonRow: View {
                     Avatar(initials: initials(live.name),
                            size: 44,
                            gradient: true,
-                           presence: presence.dot)
+                           presence: presence.dot,
+                           imageData: live.image)
 
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 6) {
@@ -399,7 +400,8 @@ struct PersonDetailView: View {
                         Avatar(initials: initials(person.name),
                                size: 64,
                                gradient: true,
-                               presence: TeamPresence.of(person).dot)
+                               presence: TeamPresence.of(person).dot,
+                               imageData: person.image)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(person.name).font(TTypo.h2(22)).foregroundStyle(Color(hex: T.ink))
                             Text(person.role).font(TTypo.sm(14)).foregroundStyle(Color(hex: T.muted))

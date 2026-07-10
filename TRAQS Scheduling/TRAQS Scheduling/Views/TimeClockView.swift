@@ -477,6 +477,11 @@ private struct WeekBarsCard: View {
             HStack(alignment: .bottom, spacing: 8) {
                 ForEach(days) { d in
                     VStack(spacing: 6) {
+                        // Exact hours logged that day, to the 100th.
+                        Text(String(format: "%.2f", d.hours))
+                            .font(TTypo.mono(9))
+                            .foregroundStyle(d.isToday ? Color(hex: T.ink) : Color(hex: T.muted))
+                            .tnum()
                         VStack {
                             Spacer(minLength: 0)
                             RoundedRectangle(cornerRadius: 7, style: .continuous)

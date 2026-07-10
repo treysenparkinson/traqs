@@ -511,6 +511,16 @@ struct ActiveBreak: Codable, Equatable {
 
 // MARK: - Person
 
+/// A free-form CodingKey used to read JSON fields that aren't in a type's
+/// synthesized CodingKeys (e.g. desktop's `department` on Person).
+private struct PersonRawKey: CodingKey {
+    var stringValue: String
+    init(_ s: String) { stringValue = s }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    var intValue: Int? { nil }
+    init?(intValue: Int) { nil }
+}
+
 struct Person: Codable, Identifiable, Equatable, Hashable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
     var id: String
@@ -549,7 +559,13 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id       = try c.decodeFlexID(forKey: .id)
         name     = (try? c.decode(String.self, forKey: .name)) ?? "Unknown"
-        role     = (try? c.decode(String.self, forKey: .role)) ?? ""
+        // Desktop's canonical field is `department`; older records only carry `role`.
+        // Read `department` via a raw-key container (keeping synthesized CodingKeys
+        // intact) and prefer it, so department edits sync live to iOS.
+        let legacyRole = (try? c.decode(String.self, forKey: .role)) ?? ""
+        let dept = (try? decoder.container(keyedBy: PersonRawKey.self))
+            .flatMap { try? $0.decode(String.self, forKey: PersonRawKey("department")) } ?? ""
+        role     = dept.isEmpty ? legacyRole : dept
         email    = (try? c.decode(String.self, forKey: .email)) ?? ""
         cap      = (try? c.decode(Double.self, forKey: .cap)) ?? 8.0
         color    = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
