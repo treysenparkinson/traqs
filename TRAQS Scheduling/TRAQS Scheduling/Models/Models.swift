@@ -786,6 +786,7 @@ struct OrgSettings: Codable, Equatable {
     var iosPayClockEnabled: Bool          // admin opt-in for the iOS pay clock-in/out CTA (default off)
     var breaks: [OrgBreak]
     var lunch: OrgBreak
+    var orgLogo: String?                  // org logo PNG (data URL) set on desktop; shown on the mobile sidebar
 
     static var `default`: OrgSettings {
         OrgSettings(
@@ -817,7 +818,8 @@ struct OrgSettings: Codable, Equatable {
          approvalSteps: [String], approverLabel: String, payDates: [Int],
          payMode: String, payAnchor: String?, trackLunch: Bool, trackBreaks: Bool,
          payPeriodType: String, payPeriodStart: String?, payPeriodHourCap: Double,
-         iosPayClockEnabled: Bool, breaks: [OrgBreak], lunch: OrgBreak) {
+         iosPayClockEnabled: Bool, breaks: [OrgBreak], lunch: OrgBreak,
+         orgLogo: String? = nil) {
         self.hpd = hpd; self.workStart = workStart; self.workEnd = workEnd
         self.workDays = workDays; self.holidays = holidays; self.roles = roles
         self.approvalQueueLabel = approvalQueueLabel
@@ -828,6 +830,7 @@ struct OrgSettings: Codable, Equatable {
         self.payPeriodHourCap = payPeriodHourCap
         self.iosPayClockEnabled = iosPayClockEnabled
         self.breaks = breaks; self.lunch = lunch
+        self.orgLogo = orgLogo
     }
 
     init(from decoder: Decoder) throws {
@@ -853,6 +856,7 @@ struct OrgSettings: Codable, Equatable {
         iosPayClockEnabled = (try? c.decode(Bool.self,      forKey: .iosPayClockEnabled)) ?? d.iosPayClockEnabled
         breaks             = (try? c.decode([OrgBreak].self,forKey: .breaks))             ?? d.breaks
         lunch              = (try? c.decode(OrgBreak.self,  forKey: .lunch))              ?? d.lunch
+        orgLogo            = try? c.decodeIfPresent(String.self, forKey: .orgLogo)
     }
 
     /// Productive hours per day = (workEnd - workStart) - lunch - breaks.

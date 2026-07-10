@@ -234,9 +234,12 @@ struct JobsViewToggleButton: View {
 
     var body: some View {
         IconBtn(icon: appNav.jobsMode == .list ? .list : .gantt, size: 18) {
-            withAnimation(.easeInOut(duration: 0.22)) {
-                appNav.jobsMode.toggle()
-            }
+            // No withAnimation here: it would animate the HEADER's layout change
+            // (the search button appearing/disappearing), jiggling the header +
+            // title. The content crossfade is driven by the ZStack's own
+            // .animation(value: jobsMode) in JobsHubView, so the header stays
+            // completely static while only the list/gantt content fades.
+            appNav.jobsMode.toggle()
         }
     }
 }
@@ -303,8 +306,12 @@ private struct SideMenu: View {
 
                 // Org card — gradient avatar + org name + plan/subtitle.
                 HStack(spacing: 12) {
+                    // Org logo (a PNG set on desktop) if present; otherwise the
+                    // gradient-initials avatar.
                     Avatar(initials: orgInitial.isEmpty ? "—" : orgInitial,
-                           size: 44, gradient: true)
+                           size: 44,
+                           gradient: appState.orgSettings.orgLogo == nil,
+                           imageData: appState.orgSettings.orgLogo)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(appState.orgName.isEmpty ? "TRAQS" : appState.orgName)
                             .font(.custom(TFontName.bold.rawValue, size: 14))

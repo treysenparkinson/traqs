@@ -42,11 +42,16 @@ struct HomeView: View {
                         TodayDateCard(now: now)
                             .padding(.horizontal, 16)
 
-                        // Hours today (hero) — just today's pay-clock total.
-                        HoursTodayHero(hoursToday: appState.hoursToday(now: now),
-                                       dayPct: dayPct)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 14)
+                        // Today's hours + new messages — two square cards side by side.
+                        HStack(spacing: 12) {
+                            HoursTodayHero(hoursToday: appState.hoursToday(now: now),
+                                           dayPct: dayPct)
+                            NewMessagesCard(senders: unreadBySender) {
+                                withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .chat }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
 
                         // Live shift status (clocked in / lunch / break + elapsed).
                         ClockStatusCard(status: appState.myShiftStatus,
@@ -103,6 +108,24 @@ struct HomeView: View {
             .prefix(2)
             .map { String($0.prefix(1)).uppercased() }
         return parts.joined()
+    }
+
+    /// Unread messages grouped by sender (person name + count), most first.
+    /// Mirrors AppState.totalUnreadMessages but keeps the per-author breakdown.
+    private var unreadBySender: [(id: String, name: String, count: Int)] {
+        guard let myId = appState.currentPersonId else { return [] }
+        var counts: [String: (name: String, count: Int)] = [:]
+        for (key, msgs) in Dictionary(grouping: appState.messages, by: { $0.threadKey }) {
+            let readAt = appState.threadReadAt[key].flatMap { Date.fromFlexibleISO8601($0) } ?? .distantPast
+            for m in msgs where m.authorId != myId {
+                if (Date.fromFlexibleISO8601(m.timestamp) ?? .distantPast) > readAt {
+                    let prev = counts[m.authorId]
+                    counts[m.authorId] = (name: m.authorName, count: (prev?.count ?? 0) + 1)
+                }
+            }
+        }
+        return counts.map { (id: $0.key, name: $0.value.name, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
     }
 
     private var today: [TaskAssignment] { appState.todayTasks(now: now) }
@@ -216,27 +239,93 @@ private struct HoursTodayHero: View {
     let dayPct: Double
 
     var body: some View {
-        HStack(spacing: 18) {
+        VStack(spacing: 10) {
+            Text("Today's hours")
+                .font(.custom(TFontName.bold.rawValue, size: 15))
+                .foregroundStyle(Color(hex: T.ink))
+                .frame(maxWidth: .infinity)
+            Spacer(minLength: 0)
             ZStack {
-                GradientRing(pct: dayPct, lineWidth: 12)
-                    .frame(width: 116, height: 116)
+                GradientRing(pct: dayPct, lineWidth: 10)
+                    .frame(width: 96, height: 96)
                 VStack(spacing: 0) {
                     Text(String(format: "%.1f", hoursToday))
-                        .font(.custom(TFontName.bold.rawValue, size: 30))
+                        .font(.custom(TFontName.bold.rawValue, size: 28))
                         .foregroundStyle(Color(hex: T.ink))
                         .tnum()
                     Text("h today")
-                        .font(TTypo.xs(11))
+                        .font(TTypo.xs(10))
                         .foregroundStyle(Color(hex: T.muted))
                 }
             }
             Spacer(minLength: 0)
-            Text("Today's hours")
-                .font(.custom(TFontName.bold.rawValue, size: 22))
-                .foregroundStyle(Color(hex: T.ink))
         }
-        .padding(18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(16)
         .frostedCard()
+        .aspectRatio(1, contentMode: .fit)
+    }
+}
+
+// MARK: - New messages hero (square, right of Today's hours)
+
+private struct NewMessagesCard: View {
+    let senders: [(id: String, name: String, count: Int)]
+    let onOpen: () -> Void
+
+    var body: some View {
+        Button(action: onOpen) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Messages")
+                    .font(.custom(TFontName.bold.rawValue, size: 15))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                if senders.isEmpty {
+                    Spacer(minLength: 0)
+                    HStack(spacing: 7) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(Color(hex: T.green))
+                        Text("No new messages!")
+                            .font(TTypo.sm(13))
+                            .foregroundStyle(Color(hex: T.muted))
+                    }
+                    .frame(maxWidth: .infinity)
+                    Spacer(minLength: 0)
+                } else {
+                    // One small tab per person with unread messages: name + count.
+                    VStack(spacing: 6) {
+                        ForEach(senders.prefix(3), id: \.id) { s in
+                            HStack(spacing: 6) {
+                                Text(s.name)
+                                    .font(TTypo.sm(13))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                    .lineLimit(1)
+                                Spacer(minLength: 4)
+                                Text("\(s.count)")
+                                    .font(.custom(TFontName.bold.rawValue, size: 12))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(T.brandGradient()))
+                            }
+                        }
+                        if senders.count > 3 {
+                            Text("+\(senders.count - 3) more")
+                                .font(TTypo.xs(11))
+                                .foregroundStyle(Color(hex: T.muted))
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(16)
+            .frostedCard()
+            .aspectRatio(1, contentMode: .fit)
+        }
+        .buttonStyle(.plain)
     }
 }
 

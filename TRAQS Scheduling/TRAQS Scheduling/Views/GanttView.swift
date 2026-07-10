@@ -28,6 +28,8 @@ struct GanttView: View {
         ScrollView {
             VStack(spacing: 0) {
 
+            // ("Jobs" title is rendered statically by JobsHubView above.)
+
             // Segmented Day/Week/Agenda — V1 default is Day
             HStack { Spacer()
                 Segmented(
@@ -72,6 +74,7 @@ struct GanttView: View {
                     .transition(.opacity)
             }
             }
+            .padding(.top, 2)
         }
         .scrollIndicators(.hidden)
         .animation(.easeInOut(duration: 0.18), value: segment)

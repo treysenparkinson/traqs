@@ -700,7 +700,6 @@ struct ThreadDetailView: View {
     @State private var pickedImage: UIImage?
     @State private var pickedFile: PickedAttachment?
     @State private var photoItem: PhotosPickerItem?
-    @State private var showSourceDialog = false
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var showFiles = false
@@ -954,10 +953,13 @@ struct ThreadDetailView: View {
                     // Clear this thread's inbox unread badge the instant it's
                     // opened (observable → the inbox re-renders immediately).
                     appState.markThreadRead(threadKey)
-                    // Initial position is owned entirely by .defaultScrollAnchor(.bottom).
-                    // We deliberately do NOT call proxy.scrollTo(bottomAnchor) here:
-                    // on open the trailing anchor is often still lazily un-realized,
-                    // so scrollTo estimates its offset and jumps mid-conversation.
+                    // Always open on the newest message. defaultScrollAnchor(.bottom)
+                    // gets us close, but a couple of non-animated nudges once the
+                    // lazy content realizes its trailing anchor guarantee we land
+                    // exactly at the bottom — and catch messages that load async
+                    // right after open (when the count doesn't change post-appear).
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { scrollToBottom(proxy, animated: false) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { scrollToBottom(proxy, animated: false) }
                     // Pull latest request statuses so any timeoff_request
                     // bubble shows live state + Approve/Deny (admins get all).
                     Task { await appState.refreshTimeOffRequests() }
@@ -983,17 +985,24 @@ struct ThreadDetailView: View {
                         }
 
                         HStack(spacing: 10) {
-                            // Attachment button — photo / camera / file, same sources
-                            // as the end-job panel photo.
-                            Button { showSourceDialog = true } label: {
+                            // Attachment button — a native liquid-glass menu of
+                            // sources (camera / photo album / file).
+                            Menu {
+                                Button {
+                                    if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
+                                    else { sendError = "No camera available on this device." }
+                                } label: { Label("Take Photo", systemImage: "camera") }
+                                Button { showLibrary = true } label: { Label("Photo Album", systemImage: "photo.on.rectangle") }
+                                Button { showFiles = true } label: { Label("Choose File", systemImage: "doc") }
+                            } label: {
                                 Image(systemName: "paperclip")
-                                    .font(.system(size: 18, weight: .semibold))
+                                    .font(.system(size: 17, weight: .semibold))
                                     .foregroundStyle(Color(hex: T.ink))
-                                    .frame(width: 44, height: 44)
-                                    .background(Circle().fill(.ultraThinMaterial))
-                                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.glass)
+                            .buttonBorderShape(.circle)
+                            .frame(width: 44, height: 44)
                             .disabled(isSending)
 
                             TextField("Message…", text: $newText, axis: .vertical)
@@ -1062,15 +1071,6 @@ struct ThreadDetailView: View {
                             .ignoresSafeArea(edges: .bottom)
                     )
                     .animation(.easeInOut(duration: 0.18), value: hasAttachment)
-                    .confirmationDialog("Add attachment", isPresented: $showSourceDialog, titleVisibility: .visible) {
-                        Button("Take Photo") {
-                            if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
-                            else { sendError = "No camera available on this device." }
-                        }
-                        Button("Photo Album") { showLibrary = true }
-                        Button("Choose File") { showFiles = true }
-                        Button("Cancel", role: .cancel) {}
-                    }
                     .sheet(isPresented: $showCamera) {
                         CameraPicker { image in pickedImage = image; pickedFile = nil; sendError = nil }
                             .ignoresSafeArea()

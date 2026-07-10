@@ -67,28 +67,38 @@ struct JobsHubView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
+                    // Static "Jobs" title — rendered once HERE (not inside the
+                    // swapped list/gantt views) so it sits in the exact same
+                    // place across both modes with zero shift.
+                    JobsHeaderBar()
+                        .padding(.top, pageTitleTopInset)
+                        .padding(.bottom, 6)
+
                     // Content area with a floating liquid-glass calendar FAB
                     // (bottom-right). Tapping it opens a native menu of ranges.
                     ZStack(alignment: .topTrailing) {
+                        // Both views stay mounted and crossfade via opacity, keyed
+                        // on jobsMode. A switch + per-branch .transition here could
+                        // leave the outgoing view stuck on rapid toggles; opacity
+                        // is glitch-free and also preserves each view's scroll state.
                         ZStack {
-                            switch appNav.jobsMode {
-                            case .list:
-                                TasksView(searchText: searchText, segment: $jobsSegment)
-                                    .transition(.opacity)
-                            case .gantt:
-                                GanttView()
-                                    .transition(.opacity)
-                            }
+                            TasksView(searchText: searchText, segment: $jobsSegment)
+                                .opacity(appNav.jobsMode == .list ? 1 : 0)
+                                .allowsHitTesting(appNav.jobsMode == .list)
+                            GanttView()
+                                .opacity(appNav.jobsMode == .gantt ? 1 : 0)
+                                .allowsHitTesting(appNav.jobsMode == .gantt)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
 
-                        if appNav.jobsMode == .list {
-                            dateRangeFab
-                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                                .padding(.trailing, 20)
-                                .padding(.bottom, 26)
-                        }
+                        dateRangeFab
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 26)
+                            .opacity(appNav.jobsMode == .list ? 1 : 0)
+                            .allowsHitTesting(appNav.jobsMode == .list)
+                            .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }

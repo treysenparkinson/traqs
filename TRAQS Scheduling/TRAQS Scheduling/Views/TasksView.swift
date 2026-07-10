@@ -27,12 +27,7 @@ struct TasksView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // Page title — now part of the scrolling content (the nav header
-                // above holds only the menu + action buttons), so it scrolls
-                // away with the list and leaves no fixed-vs-scroll seam.
-                JobsHeaderBar()
-                    .padding(.top, pageTitleTopInset)   // clear the fade band at rest
-                    .padding(.bottom, 10)
+                // ("Jobs" title is rendered statically by JobsHubView above.)
 
                 // The job being worked on right now sits at the top as a pinned
                 // hero; excluded from the lists below so it isn't shown twice.
