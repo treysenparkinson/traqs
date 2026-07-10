@@ -27,6 +27,11 @@
 [functions."forgot-clockout"]
   schedule = "0 5 * * *"
 
+# Daily cleanup: prune CANCELLED time-off requests older than 30 days from every
+# org's timeoff.json (they're otherwise kept forever). 5am UTC.
+[functions."timeoff-cleanup"]
+  schedule = "0 5 * * *"
+
 # ── Security headers ─────────────────────────────────────────────────────────
 # Applied to every response Netlify serves from the SPA build. Keep them
 # permissive enough not to break the existing toolchain (DM Sans from Google

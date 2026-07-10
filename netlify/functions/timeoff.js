@@ -96,6 +96,33 @@ const fmtDate = (iso) => {
 };
 const fmtRange = (start, end) => (start === end ? fmtDate(start) : `${fmtDate(start)} - ${fmtDate(end)}`);
 
+// Post a "timeoff_request" bubble into the request's group thread. The desktop +
+// iOS chat render Approve/Deny from this bubble (type + timeOffRequestId), so
+// re-posting on an edit re-opens the request for approval in the same thread.
+async function postTimeoffBubble(orgCode, groupId, memberIds, rec, authorColor) {
+  const messagesKey = `orgs/${orgCode}/messages.json`;
+  let messages = (await readJson(messagesKey)) ?? [];
+  if (!Array.isArray(messages)) messages = [];
+  const summary = `${rec.personName} requested ${rec.type} · ${fmtRange(rec.start, rec.end)}${rec.note ? ` — "${rec.note}"` : ""}`;
+  messages.push({
+    id: makeId(),
+    threadKey: `group:${groupId}`,
+    scope: "group",
+    jobId: null, panelId: null, opId: null,
+    text: summary,
+    authorId: String(rec.personId),
+    authorName: rec.personName,
+    authorColor: authorColor || "#4169e1",
+    participantIds: memberIds,
+    attachments: [],
+    timestamp: nowIso(),
+    type: "timeoff_request",
+    timeOffRequestId: rec.id,
+    toType: rec.type, toStart: rec.start, toEnd: rec.end, toNote: rec.note, toPersonName: rec.personName,
+  });
+  await writeJson(messagesKey, messages.slice(-2000));
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
@@ -157,6 +184,15 @@ export async function handler(event) {
       return err(500, "Failed to read time-off requests");
     }
 
+    // A request opens ONE group chat with the requester + all live admins, so
+    // approve/deny happens in a single shared thread (rendered from the
+    // type:"timeoff_request" bubble). One group per request; groupId is stored on
+    // the record so an edit can re-post into the same thread.
+    const adminMembers = filterLive(people).filter((p) => p.userRole === "admin" && String(p.id) !== String(meId));
+    const memberIds = [String(meId), ...adminMembers.map((a) => String(a.id))];
+    const groupId = makeId();
+    const hasAdmins = adminMembers.length > 0;
+
     const record = {
       id: makeId(),
       personId: String(meId),
@@ -171,6 +207,7 @@ export async function handler(event) {
       decidedByName: null,
       decidedAt: null,
       denialReason: null,
+      groupId: hasAdmins ? groupId : null,
     };
     requests.push(record);
 
@@ -180,43 +217,28 @@ export async function handler(event) {
       return err(500, "Failed to save request");
     }
 
-    // Surface the request in chat (Messages): a DM from the requester to each
-    // admin carrying the request, so admins approve/deny right in the bubble.
-    // Written straight to messages.json server-side (bypasses the member auth
-    // gate on /messages, which requires authorId === caller). Both DM
-    // participants can read it; approval still flows through the PATCH handler
-    // → person.timeOff, so the schedule/export are unaffected.
-    try {
-      const admins = filterLive(people).filter((p) => p.userRole === "admin" && String(p.id) !== String(meId));
-      if (admins.length > 0) {
-        const messagesKey = `orgs/${orgCode}/messages.json`;
-        let messages = (await readJson(messagesKey)) ?? [];
-        if (!Array.isArray(messages)) messages = [];
-        const summary = `${personName} requested ${type} · ${fmtRange(start, end)}${note ? ` — "${note}"` : ""}`;
-        const authorColor = me?.color || "#4169e1";
-        for (const a of admins) {
-          const threadKey = `dm:${[String(meId), String(a.id)].sort().join("_")}`;
-          messages.push({
-            id: makeId(),
-            threadKey,
-            scope: "dm",
-            jobId: null, panelId: null, opId: null,
-            text: summary,
-            authorId: String(meId),
-            authorName: personName,
-            authorColor,
-            participantIds: [String(meId), String(a.id)],
-            attachments: [],
-            timestamp: nowIso(),
-            type: "timeoff_request",
-            timeOffRequestId: record.id,
-            toType: type, toStart: start, toEnd: end, toNote: note, toPersonName: personName,
-          });
-        }
-        await writeJson(messagesKey, messages.slice(-2000));
+    // Create the group thread + drop the request bubble in it. Written straight
+    // to groups.json / messages.json server-side (bypasses the member auth gate
+    // on /messages). Approval still flows through the PATCH handler →
+    // person.timeOff, so the schedule/export are unaffected.
+    if (hasAdmins) {
+      try {
+        const groupsKey = `orgs/${orgCode}/groups.json`;
+        let groups = (await readJson(groupsKey)) ?? [];
+        if (!Array.isArray(groups)) groups = [];
+        groups.push({
+          id: groupId,
+          name: `Time Off · ${personName} · ${fmtRange(start, end)}`,
+          memberIds,
+          createdBy: String(meId),
+          createdAt: nowIso(),
+        });
+        await writeJson(groupsKey, groups);
+        await postTimeoffBubble(orgCode, groupId, memberIds, record, me?.color);
+        await publishChange(orgCode, "groups", { ids: [groupId] });
+      } catch (e) {
+        console.error("timeoff → group chat failed:", e);
       }
-    } catch (e) {
-      console.error("timeoff → chat post failed:", e);
     }
 
     await pushTo(
@@ -255,7 +277,7 @@ export async function handler(event) {
     const action = String(body.action || "").toLowerCase();
     const reason = String(body.reason || "").trim();
     if (!id) return err(400, "Missing request id");
-    if (!["approve", "deny", "cancel"].includes(action)) return err(400, "Unknown action");
+    if (!["approve", "deny", "cancel", "edit"].includes(action)) return err(400, "Unknown action");
     if (reason.length > 500) return err(400, "reason too long");
 
     let requests;
@@ -284,6 +306,84 @@ export async function handler(event) {
 
     const meRec = people.find((p) => String(p.id) === String(meId));
     const meName = meRec?.name || member.email || "An admin";
+
+    // ── edit: change dates/type/note; re-approval when dates move ──────────────
+    // Requester or admin. Editing DATES on an approved request sends it back to
+    // pending and pulls the schedule entry; a TYPE/note-only change updates the
+    // approved entry in place so it syncs to the worker (UTO↔PTO).
+    if (action === "edit") {
+      if (!isAdmin && String(reqRec.personId) !== String(meId)) return err(403, "Not your request");
+      if (reqRec.status === "denied" || reqRec.status === "cancelled") return err(400, "Can't edit a closed request");
+
+      const newStart = body.start != null ? String(body.start) : reqRec.start;
+      const newEnd = body.end != null ? String(body.end) : reqRec.end;
+      const newType = body.type != null ? String(body.type).toUpperCase() : reqRec.type;
+      const newNote = body.note != null ? String(body.note).trim() : (reqRec.note || "");
+      if (!DATE_RE.test(newStart) || !DATE_RE.test(newEnd)) return err(400, "start/end must be YYYY-MM-DD");
+      if (newEnd < newStart) return err(400, "end must be on or after start");
+      if (!TYPES.has(newType)) return err(400, "type must be PTO or UTO");
+      if (newNote.length > 500) return err(400, "note too long");
+
+      const datesChanged = newStart !== reqRec.start || newEnd !== reqRec.end;
+      const wasApproved = reqRec.status === "approved";
+      const needsReapproval = wasApproved && datesChanged;
+
+      const pIdx = people.findIndex((p) => String(p.id) === String(reqRec.personId));
+      let peopleChanged = false;
+      if (wasApproved && pIdx !== -1 && Array.isArray(people[pIdx].timeOff)) {
+        if (needsReapproval) {
+          // Pull the schedule entry until it's re-approved.
+          people[pIdx] = { ...people[pIdx], timeOff: people[pIdx].timeOff.filter((t) => t.reqId !== reqRec.id) };
+        } else {
+          // Type/note change while still approved → update the entry in place.
+          people[pIdx] = {
+            ...people[pIdx],
+            timeOff: people[pIdx].timeOff.map((t) => t.reqId === reqRec.id
+              ? { ...t, start: newStart, end: newEnd, type: newType, reason: newNote }
+              : t),
+          };
+        }
+        peopleChanged = true;
+      }
+
+      requests[idx] = {
+        ...reqRec,
+        start: newStart, end: newEnd, type: newType, note: newNote,
+        status: needsReapproval ? "pending" : reqRec.status,
+        decidedBy: needsReapproval ? null : reqRec.decidedBy,
+        decidedByName: needsReapproval ? null : reqRec.decidedByName,
+        decidedAt: needsReapproval ? null : reqRec.decidedAt,
+        denialReason: null,
+      };
+
+      try {
+        await writeJson(reqKey, requests);
+        if (peopleChanged) await writeJson(peopleKey, people);
+      } catch {
+        return err(500, "Failed to save edit");
+      }
+
+      const requesterColor = people.find((p) => String(p.id) === String(reqRec.personId))?.color;
+      const memberIds = [String(reqRec.personId), ...adminIdsOf(people)];
+      if (needsReapproval && reqRec.groupId) {
+        // Re-open the request in its group thread for a fresh approve/deny.
+        try {
+          await postTimeoffBubble(orgCode, reqRec.groupId, memberIds, requests[idx], requesterColor);
+          await publishChange(orgCode, "messages", { ids: [] });
+        } catch (e) { console.error("timeoff edit → bubble failed:", e); }
+        await pushTo(orgCode, people, adminIdsOf(people), "Time Off Updated",
+          `${reqRec.personName} updated their ${newType} to ${fmtRange(newStart, newEnd)} — needs re-approval.`,
+          { event: "edited", requestId: reqRec.id });
+      } else {
+        await pushTo(orgCode, people, [reqRec.personId], "Time Off Updated",
+          `Your ${newType} for ${fmtRange(newStart, newEnd)} was updated.`,
+          { event: "edited", requestId: reqRec.id });
+      }
+      await publishChange(orgCode, "timeoff", { ids: [reqRec.id] });
+      if (peopleChanged) await publishChange(orgCode, "people", { ids: [String(reqRec.personId)] });
+      await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
+      return json(200, { request: requests[idx] });
+    }
 
     if (action === "approve") {
       requests[idx] = {

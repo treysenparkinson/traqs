@@ -687,6 +687,20 @@ export async function decideTimeOffRequest(payload, getToken, orgCode) {
   return res.json(); // { request }
 }
 
+// Edit a request's dates/type/note. payload: { id, action:"edit", start?, end?, type?, note? }
+// Editing dates on an approved request sends it back to pending (re-approval);
+// a type/note-only change updates the approved entry in place (syncs to worker).
+export async function editTimeOffRequest(payload, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/timeoff`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ ...payload, action: "edit" }),
+  });
+  if (!res.ok) throw await saveError("editTimeOffRequest", res.status, res);
+  return res.json(); // { request }
+}
+
 // ─── Notifications ────────────────────────────────────────────────────────────
 // payload: { type, jobTitle, panelTitle, stepLabel, jobTeamIds, jobNumber }
 export async function callNotify(payload, getToken, orgCode) {
