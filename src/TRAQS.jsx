@@ -16690,6 +16690,23 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 12, color: T.textDim, marginTop: 8 }}>Shown across the app and on exports. Saved with the Save button below.</div>
         </div>
         <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Organization Logo</div>
+          <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div style={{ width: 84, height: 84, borderRadius: 20, background: orgSettings.orgLogo ? T.surface : T.bg, backgroundImage: orgSettings.orgLogo ? `url(${orgSettings.orgLogo})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 12, fontWeight: 700 }}>{orgSettings.orgLogo ? "" : "Logo"}</div>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <label style={{ ...stGhostBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" /></svg>
+                  {orgSettings.orgLogo ? "Change logo" : "Upload logo"}
+                  <input type="file" accept="image/png,image/*" onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 512, 0.92, "image/png"); setOrgSettings(s => ({ ...s, orgLogo: data })); } catch { alert("Could not load that image."); } }} style={{ display: "none" }} />
+                </label>
+                {orgSettings.orgLogo && <button onClick={() => setOrgSettings(s => ({ ...s, orgLogo: null }))} style={stGhostBtn}>Remove logo</button>}
+              </div>
+              <div style={{ fontSize: 12, color: T.textDim, marginTop: 10 }}>Shown on the mobile app sidebar. A transparent PNG works best. Saves immediately.</div>
+            </div>
+          </div>
+        </div>
+        <div className="tq-frost" style={stCard}>
           <div style={stLabel}>Organization Code</div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
