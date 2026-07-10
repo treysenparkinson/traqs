@@ -270,6 +270,19 @@ struct APIService {
         return try decoder.decode(TimeOffOneResponse.self, from: data).request
     }
 
+    /// Edit a request's dates/type/note. Editing dates on an approved request
+    /// sends it back to pending (re-approval); a type/note-only change updates
+    /// the approved entry in place. Server enforces owner-or-admin.
+    @discardableResult
+    func editTimeOff(id: String, start: String, end: String, type: String, note: String) async throws -> TimeOffRequest {
+        let body = try JSONSerialization.data(withJSONObject: [
+            "id": id, "action": "edit", "start": start, "end": end, "type": type, "note": note,
+        ])
+        let req = try await request("timeoff", method: "PATCH", body: body)
+        let data = try await perform(req)
+        return try decoder.decode(TimeOffOneResponse.self, from: data).request
+    }
+
     /// Approve or deny a request (admin only — the server enforces the role).
     @discardableResult
     func decideTimeOff(id: String, action: String, reason: String = "") async throws -> TimeOffRequest {

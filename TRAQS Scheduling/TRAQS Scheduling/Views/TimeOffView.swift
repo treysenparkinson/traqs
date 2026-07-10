@@ -12,6 +12,7 @@ struct TimeOffView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var showTimeOffSheet = false
+    @State private var editingRequest: TimeOffRequest?
 
     var body: some View {
         ZStack {
@@ -63,9 +64,11 @@ struct TimeOffView: View {
                             if !myTimeOffRequests.isEmpty {
                                 if !pendingApprovals.isEmpty { sectionHeader("My Requests") }
                                 ForEach(myTimeOffRequests) { req in
-                                    TimeOffRequestCard(request: req) {
+                                    TimeOffRequestCard(request: req, onCancel: {
                                         Task { await appState.cancelTimeOff(id: req.id) }
-                                    }
+                                    }, onEdit: {
+                                        editingRequest = req
+                                    })
                                 }
                             }
 
@@ -85,6 +88,11 @@ struct TimeOffView: View {
         .task { await appState.refreshTimeOffRequests() }
         .sheet(isPresented: $showTimeOffSheet) {
             RequestTimeOffSheet()
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+        }
+        .sheet(item: $editingRequest) { req in
+            RequestTimeOffSheet(editing: req)
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
         }
@@ -131,6 +139,10 @@ struct TimeOffView: View {
 private struct TimeOffRequestCard: View {
     let request: TimeOffRequest
     let onCancel: () -> Void
+    var onEdit: (() -> Void)? = nil
+
+    /// Editable while still open (dates edit re-triggers approval; type edit syncs).
+    private var canEdit: Bool { request.status == "pending" || request.status == "approved" }
 
     private var typeColor: Color { request.type == "UTO" ? Color(hex: "#F59E0B") : Color(hex: "#10B981") }
     private var statusPill: (label: String, kind: TagKind, dot: Bool) {
@@ -176,16 +188,29 @@ private struct TimeOffRequestCard: View {
                 }
             }
             Spacer(minLength: 8)
-            if request.status != "cancelled" {
-                Button(action: onCancel) {
-                    Text(request.status == "pending" ? "Cancel" : "Remove")
-                        .font(TTypo.xsBold(11))
-                        .tLabel(tracking: 0.4)
-                        .foregroundStyle(Color(hex: T.muted))
-                        .padding(.horizontal, 11).padding(.vertical, 6)
-                        .background(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+            HStack(spacing: 6) {
+                if canEdit, let onEdit {
+                    Button(action: onEdit) {
+                        Text("Edit")
+                            .font(TTypo.xsBold(11))
+                            .tLabel(tracking: 0.4)
+                            .foregroundStyle(Color(hex: T.accent))
+                            .padding(.horizontal, 11).padding(.vertical, 6)
+                            .background(Capsule().stroke(Color(hex: T.accent).opacity(0.4), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+                if request.status != "cancelled" {
+                    Button(action: onCancel) {
+                        Text(request.status == "pending" ? "Cancel" : "Remove")
+                            .font(TTypo.xsBold(11))
+                            .tLabel(tracking: 0.4)
+                            .foregroundStyle(Color(hex: T.muted))
+                            .padding(.horizontal, 11).padding(.vertical, 6)
+                            .background(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(14)
@@ -329,12 +354,18 @@ private struct RequestTimeOffSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
 
+    /// When set, the sheet edits this request instead of creating a new one.
+    var editing: TimeOffRequest? = nil
+
     @State private var type = "PTO"
     @State private var start = Date()
     @State private var end = Date()
     @State private var note = ""
     @State private var submitting = false
     @State private var error: String?
+    @State private var didPrefill = false
+
+    private var isEditing: Bool { editing != nil }
 
     private static let ymd: DateFormatter = {
         let f = DateFormatter()
@@ -354,7 +385,7 @@ private struct RequestTimeOffSheet: View {
 
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
-                    Text("Request Time Off")
+                    Text(isEditing ? "Edit Time Off" : "Request Time Off")
                         .font(TTypo.h3(20))
                         .foregroundStyle(Color(hex: T.ink))
                     Spacer()
@@ -420,7 +451,8 @@ private struct RequestTimeOffSheet: View {
                         if submitting {
                             ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
                         }
-                        Text(submitting ? "SUBMITTING…" : "SUBMIT REQUEST")
+                        Text(submitting ? (isEditing ? "SAVING…" : "SUBMITTING…")
+                                        : (isEditing ? "SAVE CHANGES" : "SUBMIT REQUEST"))
                             .font(TTypo.smBold(14)).tLabel(tracking: 0.8)
                     }
                 }
@@ -428,6 +460,17 @@ private struct RequestTimeOffSheet: View {
             }
             .padding(.horizontal, 20)
         }
+        .onAppear(perform: prefillIfNeeded)
+    }
+
+    /// Seed the fields from the request being edited (once).
+    private func prefillIfNeeded() {
+        guard let r = editing, !didPrefill else { return }
+        didPrefill = true
+        type = r.type
+        if let s = Self.ymd.date(from: r.start) { start = s }
+        if let e = Self.ymd.date(from: r.end) { end = e }
+        note = r.note
     }
 
     private func submit() {
@@ -439,7 +482,11 @@ private struct RequestTimeOffSheet: View {
         let n = note.trimmingCharacters(in: .whitespacesAndNewlines)
         Task {
             do {
-                try await appState.submitTimeOff(type: type, start: s, end: e, note: n)
+                if let r = editing {
+                    try await appState.editTimeOff(id: r.id, type: type, start: s, end: e, note: n)
+                } else {
+                    try await appState.submitTimeOff(type: type, start: s, end: e, note: n)
+                }
                 submitting = false
                 dismiss()
             } catch {

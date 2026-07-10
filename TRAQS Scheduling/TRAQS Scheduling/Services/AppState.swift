@@ -851,6 +851,19 @@ class AppState {
         await refreshTimeOffRequests()
     }
 
+    /// Edit an existing request's dates/type/note. Editing dates on an approved
+    /// request re-opens it for approval; a type/note change syncs in place.
+    /// Reloads afterward since the schedule entry may have moved. Throws so the
+    /// sheet can surface the error.
+    @discardableResult
+    func editTimeOff(id: String, type: String, start: String, end: String, note: String) async throws -> TimeOffRequest {
+        guard let api else { throw APIError.noOrgCode }
+        let updated = try await api.editTimeOff(id: id, start: start, end: end, type: type, note: note)
+        await refreshTimeOffRequests()
+        await loadAll()
+        return updated
+    }
+
     /// Approve/deny a request from the Time Off page or a chat bubble (admin
     /// only). On approve the server also writes person.timeOff, so reload
     /// everything afterward. Returns whether the decision was saved — the caller
