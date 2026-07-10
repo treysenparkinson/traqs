@@ -1318,6 +1318,20 @@ class AppState {
         }
     }
 
+    /// Write the just-made pay-clock change through to the local SwiftData
+    /// cache. payClockIn/Out refresh in-memory `people` via loadAll()'s direct
+    /// GETs, which BYPASS the delta cache — so without this the cache keeps the
+    /// pre-change person and the next launch's instant cache-paint shows a stale
+    /// open shift (clocked-in since the old time) that then "auto clocks out"
+    /// once the background delta sync reconciles. A deltaSync here pulls the
+    /// server's fresh person/payhours (S3 is read-after-write consistent, so the
+    /// punch is already visible) into the cache. No rehydrate: in-memory state
+    /// is already correct from loadAll(), and this only refreshes the cache so
+    /// the NEXT launch paints the right state.
+    private func persistClockChangeToCache() async {
+        _ = await runDeltaSync()
+    }
+
     /// Clock the current user IN for pay from iOS. Optimistic: flips the CTA
     /// immediately, then reconciles to the server. 409 = already clocked in
     /// (treat as success, reconcile to truth); 401 = revert.
@@ -1339,9 +1353,11 @@ class AppState {
         do {
             try await api.payClockIn(personId: personId, pin: pin)
             await loadAll()
+            await persistClockChangeToCache()
         } catch APIError.httpError(409) {
             // Already clocked in (possibly via kiosk) — align to server truth.
             await loadAll()
+            await persistClockChangeToCache()
             reconcilePayClock(force: true)
         } catch APIError.httpError(401) {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
@@ -1386,11 +1402,13 @@ class AppState {
         do {
             try await api.payClockOut(personId: personId)
             await loadAll()
+            await persistClockChangeToCache()
             // The completed punch now exists — refresh the pay-hours history so
             // the period total reflects it.
             await refreshTimeclock(personId: personId)
         } catch APIError.httpError(409) {
             await loadAll()
+            await persistClockChangeToCache()
             reconcilePayClock(force: true)
         } catch APIError.httpError(401) {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
