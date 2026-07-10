@@ -21,13 +21,11 @@ struct MoreView: View {
     /// Any day within the week being shown; defaults to the current week. The
     /// calendar button in the header repoints this to jump to another week.
     @State private var weekAnchor: Date = Date()
-    @State private var showCalendar = false
     @State private var overHoursExpanded = false
     /// Drives the STOP affordance on the live "Past Jobs" running-clock card.
     @State private var isStopping = false
     /// Admin-only: pick a worker to view THEIR personal stats. nil = the org
     /// dashboard (admins) / your own stats (everyone else).
-    @State private var showWorkerPicker = false
     @State private var selectedWorkerId: String? = nil
 
     var body: some View {
@@ -38,10 +36,8 @@ struct MoreView: View {
                 // Sticky header. Calendar jumps weeks; the person button (admins)
                 // picks a worker to view their personal stats.
                 TRAQSNavHeader {
-                    if appState.isAdmin {
-                        IconBtn(icon: .person, size: 18) { showWorkerPicker = true }
-                    }
-                    IconBtn(icon: .cal, size: 18) { showCalendar = true }
+                    if appState.isAdmin { workerMenu }
+                    weekMenu
                 }
                 .overlay(alignment: .center) {
                     if let name = selectedWorkerName {
@@ -144,16 +140,6 @@ struct MoreView: View {
                 .scrollIndicators(.hidden)
                 .topFadeMask()
             }
-        }
-        .sheet(isPresented: $showCalendar) {
-            WeekPickerSheet(selection: $weekAnchor)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(isPresented: $showWorkerPicker) {
-            WorkerStatsPicker(selectedId: selectedWorkerId) { id in selectedWorkerId = id }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
         }
         // Everyone: this person's own job sessions feed the "Past Jobs" history.
         // Runs FIRST so the admin org-wide fetch below overwrites it (both write
@@ -293,6 +279,74 @@ struct MoreView: View {
     private var selectedWorkerName: String? {
         guard let id = selectedWorkerId else { return nil }
         return appState.people.first { $0.id == id }?.name
+    }
+
+    // MARK: - Header glass menus (worker picker + week picker)
+
+    /// Liquid-glass person button → native menu of workers (admins). "Everyone"
+    /// returns to the org dashboard; the current selection is checked.
+    private var workerMenu: some View {
+        Menu {
+            Picker("Worker", selection: $selectedWorkerId) {
+                Text("Everyone").tag(String?.none)
+                ForEach(appState.people.sorted { $0.name < $1.name }) { p in
+                    Text(p.name).tag(String?.some(p.id))
+                }
+            }
+        } label: {
+            glassHeaderIcon(.person)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        // Own shadow tied to the button so it doesn't drop out for a frame when
+        // the menu dismisses (the system glass shadow briefly disappears there).
+        .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
+    }
+
+    /// Liquid-glass calendar button → native menu of recent weeks; picking one
+    /// repoints the stats week. The current week is checked.
+    private var weekMenu: some View {
+        Menu {
+            ForEach(weekStarts, id: \.self) { start in
+                Button { weekAnchor = start } label: {
+                    if sameWeek(start, weekAnchor) {
+                        Label(weekLabel(start), systemImage: "checkmark")
+                    } else {
+                        Text(weekLabel(start))
+                    }
+                }
+            }
+        } label: {
+            glassHeaderIcon(.cal)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
+    }
+
+    /// The menu label glyph. The native `.glass` button style (on the Menu)
+    /// supplies the circular glass chrome and morphs it into the dropdown, so the
+    /// button itself becomes the menu (no separate placeholder circle).
+    private func glassHeaderIcon(_ icon: TIcon) -> some View {
+        TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
+            .frame(width: 22, height: 22)
+    }
+
+    /// Start-of-week dates for the last 8 weeks (this week first).
+    private var weekStarts: [Date] {
+        let cal = Calendar.current
+        guard let thisStart = cal.dateInterval(of: .weekOfYear, for: Date())?.start else { return [] }
+        return (0..<8).compactMap { cal.date(byAdding: .day, value: -7 * $0, to: thisStart) }
+    }
+    private func weekLabel(_ start: Date) -> String {
+        let cal = Calendar.current
+        let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
+        let f = DateFormatter(); f.dateFormat = "MMM d"
+        let range = "\(f.string(from: start)) – \(f.string(from: end))"
+        return sameWeek(start, Date()) ? "This week · \(range)" : range
+    }
+    private func sameWeek(_ a: Date, _ b: Date) -> Bool {
+        Calendar.current.isDate(a, equalTo: b, toGranularity: .weekOfYear)
     }
 
     /// Operations a person is assigned to (leaf ops across all jobs).
@@ -810,153 +864,6 @@ private struct NonAdminEmpty: View {
         }
         .frame(maxWidth: .infinity)
         .padding(32)
-    }
-}
-
-// MARK: - Worker stats picker (admin → view a person's personal stats)
-
-private struct WorkerStatsPicker: View {
-    @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
-    let selectedId: String?
-    let onSelect: (String?) -> Void
-
-    @State private var query = ""
-
-    private var people: [Person] {
-        let base = appState.people.sorted { $0.name.lowercased() < $1.name.lowercased() }
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return base }
-        return base.filter { $0.name.lowercased().contains(q) || $0.role.lowercased().contains(q) }
-    }
-
-    var body: some View {
-        ZStack {
-            AmbientBackground()
-            VStack(spacing: 0) {
-                HStack {
-                    Text("View Stats")
-                        .font(.custom(TFontName.bold.rawValue, size: 20))
-                        .foregroundStyle(Color(hex: T.ink))
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .frame(width: 32, height: 32)
-                            .background(Circle().fill(Color(hex: T.surface)))
-                            .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 10)
-
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Color(hex: T.muted))
-                    TextField("Search people", text: $query)
-                        .textFieldStyle(.plain)
-                        .font(TTypo.sm(14))
-                        .foregroundStyle(Color(hex: T.ink))
-                }
-                .padding(.horizontal, 14).padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-                .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
-                .padding(.horizontal, 16).padding(.bottom, 10)
-
-                ScrollView {
-                    VStack(spacing: 8) {
-                        // Reset to the org-wide dashboard.
-                        row(title: "Team overview", subtitle: "Org-wide stats", selected: selectedId == nil) {
-                            ZStack {
-                                Circle().fill(T.brandGradient()).frame(width: 42, height: 42)
-                                Image(systemName: "person.3.fill").font(.system(size: 16, weight: .semibold)).foregroundStyle(.white)
-                            }
-                        } action: {
-                            onSelect(nil); dismiss()
-                        }
-
-                        ForEach(people) { p in
-                            row(title: p.name, subtitle: p.role, selected: selectedId == p.id) {
-                                Avatar(initials: initials(p), size: 42, fill: Color(hex: p.color), imageData: p.image)
-                            } action: {
-                                onSelect(p.id); dismiss()
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16).padding(.bottom, 24)
-                }
-                .scrollIndicators(.hidden)
-                .scrollDismissesKeyboard(.interactively)
-            }
-        }
-    }
-
-    private func initials(_ p: Person) -> String {
-        let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        let j = parts.joined(); return j.isEmpty ? "?" : j
-    }
-
-    @ViewBuilder
-    private func row<Leading: View>(title: String, subtitle: String, selected: Bool,
-                                    @ViewBuilder leading: () -> Leading,
-                                    action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                leading()
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink)).lineLimit(1)
-                    if !subtitle.isEmpty {
-                        Text(subtitle).font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted)).lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 8)
-                if selected {
-                    ZStack {
-                        Circle().fill(T.brandGradient())
-                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-                    }
-                    .frame(width: 24, height: 24)
-                }
-            }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-            .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
-                .stroke(selected ? Color(hex: T.accentGradientStart) : Color(hex: T.hair), lineWidth: selected ? 1.6 : 1))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Week picker (calendar → jump to a week's stats)
-
-private struct WeekPickerSheet: View {
-    @Binding var selection: Date
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
-                VStack(spacing: 12) {
-                    DatePicker("", selection: $selection, displayedComponents: .date)
-                        .datePickerStyle(.graphical)
-                        .tint(Color(hex: T.accent))
-                    Spacer(minLength: 0)
-                }
-                .padding(16)
-            }
-            .navigationTitle("Select week")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                        .fontWeight(.bold)
-                        .foregroundColor(Color(hex: T.accent))
-                }
-            }
-        }
     }
 }
 

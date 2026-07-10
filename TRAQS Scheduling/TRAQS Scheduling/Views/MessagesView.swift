@@ -27,7 +27,6 @@ struct MessagesView: View {
     @State private var showNewDM = false
     @State private var showNewMessage = false   // unified compose: 1 = DM, 2+ = group
     @State private var filter: ChatFilter = .all
-    @State private var filterOpen = false   // filter FAB dropdown open?
     @State private var navigationPath = NavigationPath()
     @State private var searchText = ""
     @State private var showSearch = false
@@ -229,9 +228,8 @@ struct MessagesView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
-                    // Inbox + the filter FAB. The list blurs behind the floating
-                    // filter options when the FAB is open (mirrors the Jobs tab's
-                    // range picker); tapping the backdrop dismisses it.
+                    // Inbox + a floating liquid-glass filter FAB (bottom-right)
+                    // that opens a native menu of chat filters.
                     ZStack(alignment: .topTrailing) {
                         ScrollView {
                             VStack(spacing: 0) {
@@ -256,31 +254,11 @@ struct MessagesView: View {
                         }
                         .scrollIndicators(.hidden)
                         .topFadeMask()
-                        .allowsHitTesting(!filterOpen)
 
-                        // Fading backdrop blur + tap-to-dismiss. Always mounted,
-                        // driven by opacity so it eases away when the FAB closes.
-                        FadingBlur()
-                            .ignoresSafeArea()
-                            .opacity(filterOpen ? 1 : 0)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
-                                    filterOpen = false
-                                }
-                            }
-                            .allowsHitTesting(filterOpen)
-                            .animation(.easeInOut(duration: 0.28), value: filterOpen)
-
-                        // Bottom-right: the filter FAB with its options stacked
-                        // ABOVE it (they float over the blurred inbox).
-                        VStack(alignment: .trailing, spacing: 12) {
-                            filterOptions
-                            FilterFab(open: $filterOpen)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                        .padding(.trailing, 20)
-                        .padding(.bottom, 26)
+                        filterFab
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                            .padding(.trailing, 20)
+                            .padding(.bottom, 26)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -365,27 +343,22 @@ struct MessagesView: View {
         }
     }
 
-    /// Floating filter options — stacked vertically above the filter FAB,
-    /// dropping in one-by-one (nearest the FAB reveals first). Empty (zero-size)
-    /// when closed. Mirrors the Jobs tab's range picker.
-    @ViewBuilder private var filterOptions: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            if filterOpen {
-                let opts = Array(ChatFilter.allCases.reversed())   // [mentions … all]
-                ForEach(Array(opts.enumerated()), id: \.element) { idx, opt in
-                    let fromFab = opts.count - 1 - idx   // 0 = nearest the FAB
-                    RangePill(label: opt.label, selected: opt == filter) {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
-                            filter = opt
-                            filterOpen = false
-                        }
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.spring(response: 0.32, dampingFraction: 0.74)
-                                .delay(Double(fromFab) * 0.05), value: filterOpen)
+    /// Liquid-glass filter FAB (same 62pt footprint) whose tap opens a native
+    /// menu of chat filters with the current one checked.
+    private var filterFab: some View {
+        Menu {
+            Picker("Filter", selection: $filter) {
+                ForEach(ChatFilter.allCases, id: \.self) { opt in
+                    Text(opt.label).tag(opt)
                 }
             }
+        } label: {
+            TIconView(icon: .filter, size: 22, color: Color(hex: T.ink))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .frame(width: 62, height: 62)
     }
 
     /// Navigate to the thread named by a pending `.thread` deep link.
@@ -448,28 +421,6 @@ struct MessagesView: View {
             selectMode = false
             selectedKeys = []
         }
-    }
-}
-
-// MARK: - Filter FAB
-// Bottom-right floating filter button, mirroring the Jobs tab's calendar FAB
-// (CalendarFab): a gradient circle that toggles a stack of filter options
-// (reusing RangePill) above it. Replaces the old horizontal filter pills.
-
-private struct FilterFab: View {
-    @Binding var open: Bool
-    var body: some View {
-        Button {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { open.toggle() }
-        } label: {
-            TIconView(icon: .filter, size: 24, color: .white, weight: .bold)
-                .frame(width: 62, height: 62)
-                .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
-                .shadow(color: Color(hex: T.ctaGlowColor).opacity(0.5), radius: 16, x: 0, y: 8)
-                .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                .scaleEffect(open ? 1.06 : 1)
-        }
-        .buttonStyle(.plain)
     }
 }
 

@@ -19,7 +19,6 @@ struct JobsHubView: View {
     @State private var searchText = ""
     @FocusState private var searchFocused: Bool
     @State private var jobsSegment: TasksView.JobsSegment = .today   // list range (Today/Week/Month/Year)
-    @State private var pickerOpen = false                            // range-picker dropdown open?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -68,10 +67,8 @@ struct JobsHubView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
-                    // Content area. When the range picker is open the cards
-                    // blur behind the floating options — they don't move. The
-                    // blur ramps in via a gradient (sharp near the title, full
-                    // lower down), so there's no hard edge.
+                    // Content area with a floating liquid-glass calendar FAB
+                    // (bottom-right). Tapping it opens a native menu of ranges.
                     ZStack(alignment: .topTrailing) {
                         ZStack {
                             switch appNav.jobsMode {
@@ -85,33 +82,12 @@ struct JobsHubView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
-                        .allowsHitTesting(!pickerOpen)
 
-                        // Fading backdrop blur + tap-anywhere-to-dismiss. Always
-                        // mounted and driven by opacity so it eases AWAY (not
-                        // snaps) when the picker collapses.
-                        FadingBlur()
-                            .ignoresSafeArea()
-                            .opacity(pickerOpen ? 1 : 0)
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) {
-                                    pickerOpen = false
-                                }
-                            }
-                            .allowsHitTesting(pickerOpen)
-                            .animation(.easeInOut(duration: 0.28), value: pickerOpen)
-
-                        // Bottom-right: the calendar FAB with the range options
-                        // stacked ABOVE it (they float over the blurred cards).
                         if appNav.jobsMode == .list {
-                            VStack(alignment: .trailing, spacing: 12) {
-                                rangeOptions
-                                CalendarFab(open: $pickerOpen)
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .padding(.trailing, 20)
-                            .padding(.bottom, 26)
+                            dateRangeFab
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                                .padding(.trailing, 20)
+                                .padding(.bottom, 26)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,28 +109,37 @@ struct JobsHubView: View {
         }
     }
 
-    /// Floating range-picker options — stacked vertically under the calendar
-    /// button, dropping in one-by-one. Empty (zero-size) when closed.
-    @ViewBuilder private var rangeOptions: some View {
-        VStack(alignment: .trailing, spacing: 10) {
-            if pickerOpen {
-                // Stacked ABOVE the FAB: Today nearest the button, rising up
-                // one-by-one (nearest the FAB reveals first).
-                let opts = Array(TasksView.JobsSegment.allCases.reversed())   // [year, month, week, today]
-                ForEach(Array(opts.enumerated()), id: \.element) { idx, opt in
-                    let fromFab = opts.count - 1 - idx   // 0 = nearest the FAB (today)
-                    RangePill(label: opt.label, selected: opt == jobsSegment) {
-                        withAnimation(.spring(response: 0.32, dampingFraction: 0.8)) {
-                            jobsSegment = opt
-                            pickerOpen = false
-                        }
-                    }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.spring(response: 0.32, dampingFraction: 0.74)
-                                .delay(Double(fromFab) * 0.05), value: pickerOpen)
+    /// Liquid-glass calendar FAB (same 62pt footprint) whose tap opens a native
+    /// menu of ranges (Today / Week / Month / Year) with the current one checked.
+    private var dateRangeFab: some View {
+        Menu {
+            Picker("Range", selection: $jobsSegment) {
+                ForEach(TasksView.JobsSegment.allCases, id: \.self) { opt in
+                    Text(opt.label).tag(opt)
                 }
             }
+        } label: {
+            VStack(spacing: -2) {
+                Text(todayMonth)
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(Color(hex: T.muted))
+                Text(todayDay)
+                    .font(.system(size: 22, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color(hex: T.ink))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .frame(width: 62, height: 62)
+    }
+
+    private var todayMonth: String {
+        let f = DateFormatter(); f.dateFormat = "MMM"; return f.string(from: Date()).uppercased()
+    }
+    private var todayDay: String {
+        let f = DateFormatter(); f.dateFormat = "d"; return f.string(from: Date())
     }
 
     /// Push the job named by a pending `.job` deep link, if it's loaded.
