@@ -170,6 +170,33 @@ struct MainTabView: View {
 
 // MARK: - Hamburger (used inside TRAQSNavHeader's leading slot)
 
+// MARK: - TRAQS bars mark
+// The four stacked bars from the app icon, drawn natively (thin lines) so they
+// stay crisp at any size and follow the theme. Three neutral ink lines + one
+// accent line — the icon's blue bar — which tracks the app accent so the button
+// speaks the same design language as the rest of the app. Bar widths mirror the
+// icon's proportions (0.55 / 0.79 / 1.0 / 0.45), accent on the 3rd/widest bar.
+struct TRAQSBarsMark: View {
+    var width: CGFloat = 24
+    var barHeight: CGFloat = 2.5
+    var spacing: CGFloat = 3.75
+
+    private let ratios: [CGFloat] = [0.55, 0.79, 1.0, 0.45]
+    private let accentIndex = 2
+
+    // Compact stack height = 4·barHeight + 3·spacing = 21.25pt. The header wordmark
+    // rides a little larger than this by design (see TRAQSNavHeader).
+    var body: some View {
+        VStack(alignment: .leading, spacing: spacing) {
+            ForEach(ratios.indices, id: \.self) { i in
+                Capsule()
+                    .fill(Color(hex: i == accentIndex ? T.accent : T.ink))
+                    .frame(width: width * ratios[i], height: barHeight)
+            }
+        }
+    }
+}
+
 struct TRAQSMenuButton: View {
     @Environment(AppNav.self) private var appNav
     @Environment(AppState.self) private var appState
@@ -180,11 +207,7 @@ struct TRAQSMenuButton: View {
                 appNav.isMenuOpen.toggle()
             }
         } label: {
-            VStack(spacing: 4) {
-                Capsule().fill(Color(hex: T.ink)).frame(width: 18, height: 2)
-                Capsule().fill(Color(hex: T.ink)).frame(width: 18, height: 2)
-                Capsule().fill(Color(hex: T.ink)).frame(width: 18, height: 2)
-            }
+            TRAQSBarsMark()
             .frame(width: 32, height: 32)
             .contentShape(Rectangle())
             // Missed-notification indicator: a pulsing red dot on the corner.

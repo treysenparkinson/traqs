@@ -46,8 +46,11 @@ struct TRAQSNavHeader<Trailing: View>: View {
             // Menu button, with the wordmark tucked in tight beside it on home.
             HStack(spacing: 2) {
                 TRAQSMenuButton()
+                    .offset(y: -2)   // nudge the bars up to sit optically level with the wordmark
                 if showLogo {
-                    TRAQSWordmark(size: 60)
+                    // Wordmark rides a bit larger than the compact bars button by
+                    // design — the mark is the anchor of the home header.
+                    TRAQSWordmark(size: 64)
                 }
             }
             Spacer()
