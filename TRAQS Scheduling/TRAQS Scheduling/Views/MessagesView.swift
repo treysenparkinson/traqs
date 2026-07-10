@@ -775,6 +775,20 @@ struct ThreadDetailView: View {
 
     // MARK: - Scroll follow (#1) + entrance animation (#4) helpers
 
+    /// Translate a UIKit keyboard animation (duration + curve from the
+    /// keyboard notification's userInfo) into the closest SwiftUI animation so
+    /// a scroll can ride the same timing as the keyboard. The keyboard's
+    /// private curve (raw 7) has no SwiftUI equivalent — easeOut matches it
+    /// closely enough that the motion reads as one synchronized movement.
+    private static func keyboardAnimation(duration: Double, curveRaw: Int) -> Animation {
+        switch UIView.AnimationCurve(rawValue: curveRaw) {
+        case .linear:    return .linear(duration: duration)
+        case .easeIn:    return .easeIn(duration: duration)
+        case .easeInOut: return .easeInOut(duration: duration)
+        default:         return .easeOut(duration: duration)   // .easeOut + private curve 7
+        }
+    }
+
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
         if animated {
             withAnimation(.easeOut(duration: 0.25)) {
@@ -944,9 +958,22 @@ struct ThreadDetailView: View {
                 }
                 .onChange(of: liveMessages.last?.id) { scrollToBottom(proxy, animated: true) }
                 // Keyboard opening shrinks the viewport — re-pin so the newest
-                // message stays visible above the composer.
-                .onChange(of: composerFocused) { _, focused in
-                    if focused { scrollToBottom(proxy, animated: true) }
+                // message stays visible above the composer. Drive this off the
+                // keyboard's OWN will-show notification (not a focus change +
+                // delayed nudge) and animate with the exact duration/curve the
+                // system reports, so the messages rise in lockstep with the
+                // keyboard in ONE synchronized animation — no "keyboard first,
+                // then text catches up" lag. keyboardWillShow fires in the same
+                // runloop SwiftUI applies its keyboard inset, so scrolling to the
+                // bottom anchor here targets the final (shrunk) layout and both
+                // animate together.
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+                    let info = note.userInfo
+                    let duration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+                    let curveRaw = (info?[UIResponder.keyboardAnimationCurveUserInfoKey] as? Int) ?? UIView.AnimationCurve.easeOut.rawValue
+                    withAnimation(Self.keyboardAnimation(duration: duration, curveRaw: curveRaw)) {
+                        proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                    }
                 }
                 .onAppear {
                     captureBaselineIfNeeded()

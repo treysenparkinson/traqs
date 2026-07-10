@@ -30,17 +30,24 @@ struct JobsHubView: View {
                     // specific (search in list, jump-to-date in gantt); the
                     // view toggle and add button are shared.
                     TRAQSNavHeader {
-                        // Search is list-only; the gantt view has no leading
-                        // utility button (its date controls live in its body).
-                        if appNav.jobsMode == .list {
-                            IconBtn(icon: .search, size: 18) {
-                                withAnimation(.easeInOut(duration: 0.18)) {
-                                    showSearch.toggle()
-                                    if !showSearch { searchText = "" }
-                                }
-                                if showSearch { searchFocused = true }
+                        // Search is list-only (the gantt view has its own date
+                        // controls in its body), but the button stays MOUNTED in
+                        // both modes and just fades its opacity. Conditionally
+                        // inserting/removing it made the icon pop out of the
+                        // header layout the instant you switched — reading as a
+                        // glitchy jump. Keeping the fixed-size slot and fading it
+                        // (non-interactive in gantt) keeps the header dead-stable.
+                        IconBtn(icon: .search, size: 18) {
+                            withAnimation(.easeInOut(duration: 0.18)) {
+                                showSearch.toggle()
+                                if !showSearch { searchText = "" }
                             }
+                            if showSearch { searchFocused = true }
                         }
+                        .opacity(appNav.jobsMode == .list ? 1 : 0)
+                        .allowsHitTesting(appNav.jobsMode == .list)
+                        .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
+
                         JobsViewToggleButton()
                         if appState.isAdmin {
                             IconBtn(icon: .plus, size: 18) { showAddJob = true }
