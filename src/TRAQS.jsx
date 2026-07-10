@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -5169,6 +5169,19 @@ Extraction rules:
   };
   const updTimeOff = (pid, idx, upd) => setPeople(pp => pp.map(p => p.id === pid ? { ...p, timeOff: (p.timeOff || []).map((to, i) => i === idx ? { ...to, ...upd } : to) } : p));
   const delTimeOff = (pid, idx) => setPeople(pp => pp.map(p => p.id === pid ? { ...p, timeOff: (p.timeOff || []).filter((_, i) => i !== idx) } : p));
+  // Keep a request-linked (reqId) schedule entry in step with its request record
+  // (so the request list + iOS never drift from the schedule). Admin edits stay
+  // approved (reapprove:false), so the endpoint and the people autosave converge
+  // on the same value — no race. No-op for manually-added entries (no reqId).
+  const syncTimeOffEntry = (entry) => {
+    if (!entry?.reqId) return;
+    editTimeOffRequest({ id: entry.reqId, start: entry.start, end: entry.end, type: entry.type || "PTO", note: entry.reason || "", reapprove: false }, getToken, orgCode).catch(() => {});
+  };
+  const cancelTimeOffEntry = (entry) => {
+    if (!entry?.reqId) return;
+    decideTimeOffRequest({ id: entry.reqId, action: "cancel" }, getToken, orgCode).catch(() => {});
+  };
+  const timeOffEntryAt = (pid, idx) => (latestPeopleRef.current.find(x => x.id === pid)?.timeOff || [])[idx];
   const [ptoCtx, setPtoCtx] = useState(null); // { x, y, bar, personId, toIdx }
   const [timeOffEdit, setTimeOffEdit] = useState(null); // { personId, idx, start, end, reason }
   const addPerson = (data) => { const { color: _dropColor, ...rest } = data; setPeople(p => [...p, { ...rest, id: uid() }]); setPersonModal(null); };
@@ -5179,6 +5192,21 @@ Extraction rules:
     // Enforce single team lead per team: clear isTeamLead from all other members of the same team
     if (ed.isTeamLead && ed.teamNumber) {
       setPeople(pp => pp.map(p => p.id !== ed.id && p.teamNumber && String(p.teamNumber) === String(ed.teamNumber) && p.isTeamLead ? { ...p, isTeamLead: false } : p));
+    }
+    // Keep request-linked time-off entries in sync with their request record (so
+    // the request list + iOS don't drift from the schedule). Admin edits stay
+    // approved (reapprove:false) and update the entry in place, so the endpoint
+    // and the people autosave converge on the same value — no race. Removing an
+    // entry cancels its request. Manually-added entries (no reqId) save normally.
+    if (ed.id) {
+      const orig = latestPeopleRef.current.find(p => p.id === ed.id);
+      const origLinked = (orig?.timeOff || []).filter(t => t.reqId);
+      const newLinked = new Map((ed.timeOff || []).filter(t => t.reqId).map(t => [t.reqId, t]));
+      for (const o of origLinked) {
+        const n = newLinked.get(o.reqId);
+        if (!n) cancelTimeOffEntry(o);
+        else if (n.start !== o.start || n.end !== o.end || (n.type || "PTO") !== (o.type || "PTO") || (n.reason || "") !== (o.reason || "")) syncTimeOffEntry(n);
+      }
     }
     if (ed.id && people.find(x => x.id === ed.id)) updPerson(ed.id, ed); else addPerson(ed);
     setPersonModal(null);
@@ -9954,7 +9982,7 @@ ${jobsCtx || "No jobs found."}`;
                         if (Math.abs(dx) > 0) moved = true;
                         if (dx !== lastDx) { lastDx = dx; updTimeOff(pid, idx, { start: addD(os, dx), end: addD(oe, dx) }); }
                       };
-                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); if (moved && lastDx !== 0) syncTimeOffEntry(timeOffEntryAt(pid, idx)); };
                       document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                       return;
                     }
@@ -10764,7 +10792,7 @@ ${jobsCtx || "No jobs found."}`;
                         if (side === "left") { const ns = addD(os, dx); if (ns <= oe) updTimeOff(pid, idx, { start: ns }); }
                         else { const ne = addD(oe, dx); if (ne >= os) updTimeOff(pid, idx, { end: ne }); }
                       };
-                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+                      const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); if (lastDx !== 0) syncTimeOffEntry(timeOffEntryAt(pid, idx)); };
                       document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                       return;
                     }
@@ -20772,7 +20800,7 @@ ${jobsCtx || "No jobs found."}`;
         setPtoCtx(null);
       }} animIdx={0} />
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-      <div onClick={() => { delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <div onClick={() => { cancelTimeOffEntry(timeOffEntryAt(ptoCtx.personId, ptoCtx.toIdx)); delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Time Off</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this entry</div></div>
       </div>
@@ -20924,7 +20952,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Btn variant="ghost" onClick={() => setTimeOffEdit(null)}>Cancel</Btn>
-          <Btn onClick={() => { updTimeOff(timeOffEdit.personId, timeOffEdit.idx, { start: timeOffEdit.start, end: timeOffEdit.end, reason: timeOffEdit.reason, type: timeOffEdit.type }); setTimeOffEdit(null); }}>Save</Btn>
+          <Btn onClick={() => { updTimeOff(timeOffEdit.personId, timeOffEdit.idx, { start: timeOffEdit.start, end: timeOffEdit.end, reason: timeOffEdit.reason, type: timeOffEdit.type }); syncTimeOffEntry({ ...timeOffEntryAt(timeOffEdit.personId, timeOffEdit.idx), start: timeOffEdit.start, end: timeOffEdit.end, reason: timeOffEdit.reason, type: timeOffEdit.type }); setTimeOffEdit(null); }}>Save</Btn>
         </div>
       </div>
     </div>}</FadeOnClose>

@@ -324,9 +324,13 @@ export async function handler(event) {
       if (!TYPES.has(newType)) return err(400, "type must be PTO or UTO");
       if (newNote.length > 500) return err(400, "note too long");
 
+      // reapprove:false (desktop admin edits, who ARE the approver) updates the
+      // approved entry in place and keeps it approved; the default (worker/iOS
+      // edits) sends a date change back to pending for a fresh approval.
+      const reapprove = body.reapprove !== false;
       const datesChanged = newStart !== reqRec.start || newEnd !== reqRec.end;
       const wasApproved = reqRec.status === "approved";
-      const needsReapproval = wasApproved && datesChanged;
+      const needsReapproval = wasApproved && datesChanged && reapprove;
 
       const pIdx = people.findIndex((p) => String(p.id) === String(reqRec.personId));
       let peopleChanged = false;
