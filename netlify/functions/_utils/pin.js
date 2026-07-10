@@ -16,11 +16,59 @@
 import crypto from "node:crypto";
 
 const PEPPER = process.env.PIN_PEPPER || "traqs-dev-pin-pepper-set-PIN_PEPPER-in-env";
-const PREFIX = "h1$";
+const PREFIX = "h1$";       // legacy one-way HMAC (unrevealable)
+const ENC_PREFIX = "e1$";   // reversible AES-256-GCM (admin-revealable)
 
-/** True if `v` is already a stored hash (vs. legacy plaintext). */
+// 32-byte key derived from the env pepper. Kept out of the DB, so a bucket-only
+// leak still can't decrypt PINs without the server env.
+const ENC_KEY = crypto.createHash("sha256").update(PEPPER).digest();
+
+/** True if `v` is a legacy one-way hash. */
 export function isHashed(v) {
   return typeof v === "string" && v.startsWith(PREFIX);
+}
+
+/** True if `v` is a reversible (encrypted) PIN. */
+export function isEncrypted(v) {
+  return typeof v === "string" && v.startsWith(ENC_PREFIX);
+}
+
+/**
+ * Encrypt a raw PIN for storage as `e1$<iv>$<ct>$<tag>` (base64). Reversible so
+ * admins can reveal it. Idempotent for already-encrypted values; legacy one-way
+ * hashes are returned unchanged (they can't be reversed, so they stay hashed and
+ * unrevealable until the PIN is re-entered). Empty/nullish → "" (no PIN).
+ */
+export function encryptPin(pin) {
+  if (pin == null || pin === "") return "";
+  if (isEncrypted(pin)) return pin;
+  if (isHashed(pin)) return pin; // can't recover the original to re-encrypt
+  const iv = crypto.randomBytes(12);
+  const c = crypto.createCipheriv("aes-256-gcm", ENC_KEY, iv);
+  const ct = Buffer.concat([c.update(String(pin), "utf8"), c.final()]);
+  const tag = c.getAuthTag();
+  return ENC_PREFIX + [iv.toString("base64"), ct.toString("base64"), tag.toString("base64")].join("$");
+}
+
+/**
+ * Reveal a stored PIN. Returns the plaintext for an encrypted or legacy-plaintext
+ * value, or null when it can't be recovered (legacy one-way hash / bad data).
+ */
+export function decryptPin(stored) {
+  if (stored == null || stored === "") return "";
+  if (isHashed(stored)) return null;          // one-way — unrevealable
+  if (!isEncrypted(stored)) return String(stored); // legacy plaintext
+  try {
+    const [, ivB, ctB, tagB] = stored.split("$");
+    const iv = Buffer.from(ivB, "base64");
+    const ct = Buffer.from(ctB, "base64");
+    const tag = Buffer.from(tagB, "base64");
+    const d = crypto.createDecipheriv("aes-256-gcm", ENC_KEY, iv);
+    d.setAuthTag(tag);
+    return Buffer.concat([d.update(ct), d.final()]).toString("utf8");
+  } catch {
+    return null;
+  }
 }
 
 /** True if this person record has any PIN set (hashed or legacy plaintext). */
@@ -47,6 +95,15 @@ export function hashPin(pin) {
  */
 export function verifyPin(candidate, stored) {
   if (candidate == null || candidate === "" || !stored) return false;
+  // Reversible PINs: decrypt then compare the plaintext.
+  if (isEncrypted(stored)) {
+    const plain = decryptPin(stored);
+    if (plain == null) return false;
+    const a = Buffer.from(String(candidate));
+    const b = Buffer.from(String(plain));
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
   const expected = isHashed(stored) ? stored : String(stored);
   const actual = isHashed(stored) ? hashPin(candidate) : String(candidate);
   const a = Buffer.from(actual);

@@ -6,7 +6,7 @@ import { stampArray, nowIso, reconcileDeletions, softDelete, changedIds } from "
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
-import { hashPin } from "./_utils/pin.js";
+import { encryptPin, decryptPin } from "./_utils/pin.js";
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
@@ -46,19 +46,25 @@ export async function handler(event) {
   //     harvest push tokens or employees' time-off PII. The kiosk only needs
   //     name/color/role/department/status/email, which remain.
   if (event.httpMethod === "GET") {
-    let isMember = false;
-    try { await requireOrgMember(event); isMember = true; } catch { /* unauthenticated kiosk */ }
+    let member = null;
+    try { member = await requireOrgMember(event); } catch { /* unauthenticated kiosk */ }
+    const isMember = !!member;
+    const isAdmin = !!member?.isAdmin;
     try {
       const data = (await readJson(s3Key)) ?? [];
       // Hide soft-deleted (tombstoned) people from normal readers; /sync does
       // NOT filter these so delta-sync clients can evict the deleted row.
-      // The raw PIN never leaves the server; expose only a `hasPin` boolean so
-      // clients can tell whether a PIN is set (drives the iOS clock-in prompt
-      // and the web "Time Clock Settings" set/unset indicator) without leaking
-      // the value itself.
+      // PIN tiering:
+      //   • Admin       → the decrypted PIN (so the desktop eye can reveal it).
+      //   • Non-admin    → only a `hasPin` boolean (drives the clock-in prompt /
+      //                    settings set/unset indicator), never the value.
+      //   • Kiosk        → no pin, pushToken or timeOff.
+      // Legacy one-way-hashed PINs decrypt to null → surfaced as "" (re-enter to
+      // make revealable), but hasPin still reflects that a PIN is set.
       const safe = filterLive(data)
         .map(({ pin, ...rest }) => {
           const withFlag = { ...rest, hasPin: !!pin };
+          if (isAdmin) return { ...withFlag, pin: decryptPin(pin) ?? "" };
           if (isMember) return withFlag;
           const { pushToken: _pt, timeOff: _to, ...pub } = withFlag;
           return pub;
@@ -101,10 +107,12 @@ export async function handler(event) {
         const { hasPin: _hp, ...pIn } = p;
         let np = (stored?.pin && !pIn.pin) ? { ...pIn, pin: stored.pin } : pIn;
         np = withBreakStart(np, stored);
-        // Store PINs hashed. hashPin is idempotent, so a newly-typed plaintext
-        // PIN gets hashed and any legacy plaintext PIN preserved above is
-        // upgraded in place on this write (lazy migration).
-        if (np.pin) np = { ...np, pin: hashPin(np.pin) };
+        // Store PINs reversibly encrypted. encryptPin is idempotent (leaves an
+        // already-encrypted value as-is), so a newly-typed plaintext PIN gets
+        // encrypted and any legacy plaintext PIN preserved above is upgraded in
+        // place on this write. Legacy one-way hashes are left untouched until
+        // re-entered.
+        if (np.pin) np = { ...np, pin: encryptPin(np.pin) };
         return np;
       });
 
