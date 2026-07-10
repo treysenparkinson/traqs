@@ -145,10 +145,13 @@ struct TimeClockView: View {
 
     private var myId: String? { appState.currentPersonId }
     private var activePayClock: ActiveClockIn? { appState.currentPerson?.activeClockIn }
-    /// Pay clock UI shows only when the org enabled it AND the person is hourly —
-    /// salaried employees don't punch a clock.
+    /// Pay clock UI shows only when the org enabled it, the person is hourly
+    /// (salaried employees don't punch a clock), AND the worker has clock in/out
+    /// permission (set per-person in the desktop "Worker Permissions" panel).
     private var showPayClock: Bool {
-        appState.orgSettings.iosPayClockEnabled && !(appState.currentPerson?.isSalary ?? false)
+        appState.orgSettings.iosPayClockEnabled
+            && !(appState.currentPerson?.isSalary ?? false)
+            && appState.canClockInOut
     }
 
     /// Wall-clock elapsed for the pay-clock CTA (H:MM:SS once past an hour, else

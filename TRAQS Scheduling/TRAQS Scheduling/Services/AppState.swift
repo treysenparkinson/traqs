@@ -28,6 +28,11 @@ class AppState {
     /// Non-nil while a message thread is open. The overlay header window observes
     /// this to show/hide and to render the current thread's back button.
     var activeMessageThread: ThreadContext? = nil
+    /// True while a full-screen attachment viewer is presented. The overlay header
+    /// window sits above the app's normal window level, so it would otherwise
+    /// float over the viewer and cover QuickLook's Done button — the controller
+    /// hides the header while this is set, and restores it on dismiss.
+    var attachmentViewerPresented = false
     /// Members popover open/close. Shared here (not @State) because the toggle
     /// comes from the header in the overlay WINDOW, while the popover renders in
     /// ThreadDetailView's own (main-window) view tree.
@@ -1309,6 +1314,7 @@ class AppState {
     @discardableResult
     func payClockIn(pin: String? = nil) async -> Bool {
         guard let api, let personId = currentPersonId, !isPayClocking else { return false }
+        guard canClockInOut else { return false }   // worker permission gate
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         isPayClocking = true
         defer { isPayClocking = false }
@@ -1351,6 +1357,7 @@ class AppState {
     /// already clocked out (align to server); 401 = revert.
     func payClockOut() async {
         guard let api, let personId = currentPersonId, !isPayClocking else { return }
+        guard canClockInOut else { return }   // worker permission gate
         // Must log out of the current job before clocking out (server enforces too).
         guard !clockOutBlockedByJob else {
             clockError = "Log out of your job before clocking out."
@@ -1599,6 +1606,8 @@ class AppState {
 
     var isAdmin: Bool     { currentPerson?.isAdmin ?? false }
     var isEngineer: Bool  { isAdmin || (currentPerson?.isEngineer ?? false) }
+    /// Worker permission: may the current person clock in/out? Opt-out default.
+    var canClockInOut: Bool { currentPerson?.canClockInOut ?? true }
 
     var isClocked: Bool { activeClockIn != nil }
 

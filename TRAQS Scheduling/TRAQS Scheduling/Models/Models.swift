@@ -537,6 +537,9 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var payType: String?   // "hourly" (default) | "salary"
     var phone: String?
     var image: String?     // profile picture: attachment key or data: URL
+    // Worker permission (set in the desktop "Worker Permissions" panel): may this
+    // person clock in/out on mobile? Opt-out — absent/true = allowed, false = off.
+    var canClockInOut: Bool?
 
     var isAdmin: Bool { userRole == "admin" }
     /// Salaried employees don't punch a clock (Hours page + clock-in are hidden).
@@ -565,6 +568,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         payType = try? c.decodeIfPresent(String.self, forKey: .payType)
         phone   = try? c.decodeIfPresent(String.self, forKey: .phone)
         image   = try? c.decodeIfPresent(String.self, forKey: .image)
+        canClockInOut = try? c.decodeIfPresent(Bool.self, forKey: .canClockInOut)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
@@ -577,7 +581,8 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
          activeJobClock: ActiveJobClock? = nil,
          activeBreak: ActiveBreak? = nil,
          hasPin: Bool? = nil,
-         payType: String? = nil, phone: String? = nil, image: String? = nil) {
+         payType: String? = nil, phone: String? = nil, image: String? = nil,
+         canClockInOut: Bool? = nil) {
         self.id = id; self.name = name; self.role = role; self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
@@ -588,6 +593,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         self.activeBreak = activeBreak
         self.hasPin = hasPin
         self.payType = payType; self.phone = phone; self.image = image
+        self.canClockInOut = canClockInOut
     }
 
     static func == (lhs: Person, rhs: Person) -> Bool { lhs.id == rhs.id }

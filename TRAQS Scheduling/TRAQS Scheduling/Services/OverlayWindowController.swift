@@ -91,12 +91,19 @@ final class OverlayWindowController {
     private func track() {
         withObservationTracking {
             _ = appState.activeMessageThread
+            _ = appState.attachmentViewerPresented
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.apply()
                 self?.track()
             }
         }
+    }
+
+    /// Show the header only when a thread is open AND no full-screen attachment
+    /// viewer is up (the viewer must own the whole screen, incl. its Done button).
+    private var headerContext: ThreadContext? {
+        appState.attachmentViewerPresented ? nil : appState.activeMessageThread
     }
 
     /// Top safe-area inset from the MAIN (key) window — stable, not the overlay's.
@@ -109,7 +116,7 @@ final class OverlayWindowController {
 
     private func apply() {
         guard let w = window, let h = host, let scene else { return }
-        if let ctx = appState.activeMessageThread {
+        if let ctx = headerContext {
             // Show / update. Reset any in-flight exit animation.
             hiding = false
             w.layer.removeAllAnimations()
@@ -129,7 +136,7 @@ final class OverlayWindowController {
             } completion: { [weak self] _ in
                 guard let self else { return }
                 self.hiding = false
-                if self.appState.activeMessageThread == nil { w.isHidden = true }
+                if self.headerContext == nil { w.isHidden = true }
                 w.alpha = 1
                 w.frame.origin.x = 0   // reset (the next show re-sets the frame anyway)
             }

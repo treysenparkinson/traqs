@@ -1540,15 +1540,21 @@ private struct SectionTimeHeader: View {
 private struct AttachmentBubble: View {
     let attachment: Attachment
     let isMe: Bool
+    @Environment(AppState.self) private var appState
     @State private var showViewer = false
 
     private var url: URL? { Attachment.viewURL(for: attachment.key) }
     private var isImage: Bool { attachment.mimeType.hasPrefix("image/") }
 
     var body: some View {
-        Button { showViewer = true } label: { thumbnail }
+        Button {
+            // Hide the overlay header window so it doesn't float over the viewer.
+            appState.attachmentViewerPresented = true
+            showViewer = true
+        } label: { thumbnail }
             .buttonStyle(.plain)
-            .fullScreenCover(isPresented: $showViewer) {
+            .fullScreenCover(isPresented: $showViewer,
+                             onDismiss: { appState.attachmentViewerPresented = false }) {
                 AttachmentViewer(attachment: attachment)
             }
     }
@@ -1786,78 +1792,78 @@ struct MessageBubble: View {
     @State private var appeared = false
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            if isMe { Spacer(minLength: 40) }
+        VStack(alignment: isMe ? .trailing : .leading, spacing: 2) {
+            HStack(alignment: .bottom, spacing: 8) {
+                if isMe { Spacer(minLength: 40) }
 
-            if !isMe {
-                Avatar(initials: String(message.authorName.prefix(1)).uppercased(),
-                       size: 28, gradient: true)
-            }
-
-            VStack(alignment: isMe ? .trailing : .leading, spacing: 4) {
                 if !isMe {
-                    Text(message.authorName).font(.caption2).foregroundColor(Color(hex: T.muted))
+                    Avatar(initials: String(message.authorName.prefix(1)).uppercased(),
+                           size: 28, gradient: true)
                 }
-                ForEach(message.attachments) { att in
-                    AttachmentBubble(attachment: att, isMe: isMe)
-                }
-                if !message.text.isEmpty {
-                Text(message.text)
-                    .font(TTypo.sm(14))
-                    .multilineTextAlignment(.leading)
-                    // Wrap to the text's natural height and cap the bubble width so
-                    // long messages wrap inside a bounded bubble instead of
-                    // stretching across the row / overlapping the avatar or edge.
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .foregroundStyle(isMe ? .white : Color(hex: T.ink))
-                    .background {
-                        let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        if isMe {
-                            shape.fill(T.brandGradient())
-                                .shadow(color: Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity * 0.7),
-                                        radius: T.ctaGlowRadius * 0.6, x: 0, y: T.ctaGlowY * 0.6)
-                        } else {
-                            shape.fill(Color(hex: T.surface))
-                                .overlay(shape.strokeBorder(
-                                    LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
-                                                   startPoint: .top, endPoint: .bottom),
-                                    lineWidth: 1))
-                                .compositingGroup()
-                                .shadow(color: .black.opacity(T.ambientShadowOpacity),
-                                        radius: T.ambientShadowRadius * 0.6, x: 0, y: T.ambientShadowY * 0.6)
-                        }
+
+                VStack(alignment: isMe ? .trailing : .leading, spacing: 4) {
+                    if !isMe {
+                        Text(message.authorName).font(.caption2).foregroundColor(Color(hex: T.muted))
                     }
-                    .frame(maxWidth: 300, alignment: isMe ? .trailing : .leading)
-                    .contentShape(RoundedRectangle(cornerRadius: 20))
-                    .onTapGesture { toggleTimestamp() }
-                    // Overlay rather than a sibling view so the timestamp
-                    // doesn't grow the VStack — otherwise the HStack's
-                    // .bottom alignment pulls the avatar (and the bubble)
-                    // downward when the stamp appears. `.move(edge: .top)`
-                    // for the inserted view slides it DOWN from behind
-                    // the bubble's bottom edge and back up on dismiss.
-                    .overlay(alignment: isMe ? .bottomTrailing : .bottomLeading) {
-                        if showTimestamp {
-                            Text(message.timestamp.messageStamp)
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(Color(hex: T.muted))
-                                .padding(.horizontal, 4)
-                                .offset(y: 18)
-                                .transition(.move(edge: .top).combined(with: .opacity))
-                        }
+                    ForEach(message.attachments) { att in
+                        AttachmentBubble(attachment: att, isMe: isMe)
+                    }
+                    if !message.text.isEmpty {
+                        Text(message.text)
+                            .font(TTypo.sm(14))
+                            .multilineTextAlignment(.leading)
+                            // Wrap to the text's natural height and cap the bubble width so
+                            // long messages wrap inside a bounded bubble instead of
+                            // stretching across the row / overlapping the avatar or edge.
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .foregroundStyle(isMe ? .white : Color(hex: T.ink))
+                            .background {
+                                let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                if isMe {
+                                    shape.fill(T.brandGradient())
+                                        .shadow(color: Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity * 0.7),
+                                                radius: T.ctaGlowRadius * 0.6, x: 0, y: T.ctaGlowY * 0.6)
+                                } else {
+                                    shape.fill(Color(hex: T.surface))
+                                        .overlay(shape.strokeBorder(
+                                            LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
+                                                           startPoint: .top, endPoint: .bottom),
+                                            lineWidth: 1))
+                                        .compositingGroup()
+                                        .shadow(color: .black.opacity(T.ambientShadowOpacity),
+                                                radius: T.ambientShadowRadius * 0.6, x: 0, y: T.ambientShadowY * 0.6)
+                                }
+                            }
+                            .frame(maxWidth: 300, alignment: isMe ? .trailing : .leading)
+                            .contentShape(RoundedRectangle(cornerRadius: 20))
+                            .onTapGesture { toggleTimestamp() }
+                    }
+
+                    if isMe, let status {
+                        DeliveryStatusLabel(status: status)
+                            .padding(.trailing, 4)
+                            .padding(.top, 1)
                     }
                 }
 
-                if isMe, let status {
-                    DeliveryStatusLabel(status: status)
-                        .padding(.trailing, 4)
-                        .padding(.top, 1)
-                }
+                if !isMe { Spacer(minLength: 40) }
             }
 
-            if !isMe { Spacer(minLength: 40) }
+            // Timestamp revealed on tap. This is a real, laid-out row BENEATH the
+            // whole bubble (not the old zero-height overlay offset below it), so it
+            // reserves space and always paints above the delivery-status label and
+            // the next row's attachment instead of being covered by them.
+            if showTimestamp {
+                Text(message.timestamp.messageStamp)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color(hex: T.muted))
+                    // Indent under the bubble (past the avatar) for incoming.
+                    .padding(.leading, isMe ? 0 : 36)
+                    .padding(.trailing, isMe ? 4 : 0)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .modifier(BubbleEntrance(isMe: isMe, active: animateIn, appeared: appeared))
         .onAppear {

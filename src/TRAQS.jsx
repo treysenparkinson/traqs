@@ -16782,6 +16782,17 @@ ${jobsCtx || "No jobs found."}`;
                           <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
+                      {/* Mobile Clock In/Out — opt-out (enabled unless explicitly false) */}
+                      <div onClick={() => updDraftPerson(person.id, { canClockInOut: person.canClockInOut === false })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canClockInOut !== false ? "#10b98144" : T.border}`, background: person.canClockInOut !== false ? "#10b98108" : T.surface, transition: "all 0.15s" }}>
+                        <span style={{ lineHeight: 0, color: person.canClockInOut !== false ? "#10b981" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Mobile Clock In/Out</div>
+                          <div style={{ fontSize: 11, color: T.textDim }}>Can clock in and out from the mobile app</div>
+                        </div>
+                        <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canClockInOut !== false ? "#10b981" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: person.canClockInOut !== false ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        </div>
+                      </div>
                       <div onClick={() => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
                         <span style={{ lineHeight: 0, color: person.noAutoSchedule ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
                         <div style={{ flex: 1 }}>
@@ -19801,6 +19812,17 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                       <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                         <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                      </div>
+                    </div>
+                    {/* Mobile Clock In/Out toggle — opt-out (enabled unless explicitly false) */}
+                    <div onClick={() => isAdmin && updPerson(person.id, { canClockInOut: person.canClockInOut === false })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: isAdmin ? "pointer" : "default", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canClockInOut !== false ? "#10b98144" : T.border}`, background: person.canClockInOut !== false ? "#10b98108" : T.surface, transition: "all 0.15s", opacity: isAdmin ? 1 : 0.6 }}>
+                      <span style={{ lineHeight: 0, color: person.canClockInOut !== false ? "#10b981" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Mobile Clock In/Out</div>
+                        <div style={{ fontSize: 11, color: T.textDim }}>Can clock in and out from the mobile app</div>
+                      </div>
+                      <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canClockInOut !== false ? "#10b981" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                        <div style={{ position: "absolute", top: 2, left: person.canClockInOut !== false ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>
                     {/* No Auto-Schedule toggle */}
