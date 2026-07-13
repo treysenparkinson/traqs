@@ -150,7 +150,7 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 16)
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
             }
         }
         .sheet(isPresented: $showAppearance) { CustomizeView() }

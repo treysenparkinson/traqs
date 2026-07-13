@@ -260,7 +260,7 @@ struct MessagesView: View {
                             }
                             .animation(.easeInOut(duration: 0.18), value: filter)
                         }
-                        .scrollIndicators(.hidden)
+                        .scrollIndicators(.visible)
                         .topFadeMask()
 
                         filterFab
@@ -2210,7 +2210,7 @@ struct AddPeopleSheet: View {
                         .padding(.top, 4)
                         .padding(.bottom, 24)
                     }
-                    .scrollIndicators(.hidden)
+                    .scrollIndicators(.visible)
                 }
             }
             .navigationTitle("Add People")
@@ -2578,7 +2578,7 @@ struct NewMessageSheet: View {
                 .padding(.bottom, 96)
                 .animation(.easeInOut(duration: 0.18), value: isGroup)
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(.visible)
             .scrollDismissesKeyboard(.interactively)
 
             // Floating action bar — Cancel (left) + Create (right). Stays pinned

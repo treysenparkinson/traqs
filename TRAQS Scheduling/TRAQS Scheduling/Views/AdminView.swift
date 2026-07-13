@@ -72,7 +72,7 @@ struct AdminView: View {
                     .padding(.bottom, 32)
                 }
                 .refreshable { await appState.loadAll() }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
             }
         }
         // While the board is on-screen, poll faster than the fallback loop so a

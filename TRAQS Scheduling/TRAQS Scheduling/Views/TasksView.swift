@@ -64,7 +64,7 @@ struct TasksView: View {
             // instead of hard-clipping into place.
             .animation(.easeInOut(duration: 0.42), value: activeTaskId)
         }
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.visible)
         .topFadeMask()   // app-wide soft fading header
         .animation(.easeInOut(duration: 0.22), value: segment)
         // Recenter the week/month/year picker to today when the range changes.

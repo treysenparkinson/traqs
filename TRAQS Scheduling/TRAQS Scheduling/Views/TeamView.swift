@@ -181,7 +181,7 @@ struct TeamView: View {
                         .padding(.bottom, 24)
                     }
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
                 .topFadeMask()
                 .refreshable { await appState.loadAll() }
             }

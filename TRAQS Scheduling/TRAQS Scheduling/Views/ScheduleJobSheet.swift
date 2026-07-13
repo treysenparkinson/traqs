@@ -51,7 +51,7 @@ struct ScheduleJobSheet: View {
                     .padding(.top, 4)
                     .padding(.bottom, 28)
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
             }
         }
         .presentationDetents([.large])

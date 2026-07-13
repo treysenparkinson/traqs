@@ -112,7 +112,7 @@ struct JobsHubView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .fullScreenCover(isPresented: $showApprovals) { ApprovalQueueView() }
+                .fullScreenCover(isPresented: $showApprovals) { ApprovalQueueView(isPresented: $showApprovals) }
             }
             .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
             .toolbar(.hidden, for: .navigationBar)

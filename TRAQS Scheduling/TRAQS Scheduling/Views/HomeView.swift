@@ -73,7 +73,7 @@ struct HomeView: View {
                     }
                     .padding(.top, 4)
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
                 .topFadeMask()
                 .refreshable { await reload() }
             }

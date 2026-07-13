@@ -137,7 +137,7 @@ struct MoreView: View {
                         .padding(.bottom, 24)
                     }
                 }
-                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
                 .topFadeMask()
             }
         }

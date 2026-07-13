@@ -18,7 +18,12 @@ struct ApprovalItem: Identifiable {
 
 struct ApprovalQueueView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
+    /// Drives the presenting `.fullScreenCover`. We dismiss by flipping this
+    /// binding rather than `@Environment(\.dismiss)`: this view hosts its own
+    /// NavigationStack, so at the root `\.dismiss` is ambiguous (it can resolve
+    /// to a no-op "pop empty stack" instead of "dismiss the cover"), which made
+    /// the back button work only intermittently.
+    @Binding var isPresented: Bool
     @State private var path: [Job] = []
     @State private var search = ""
     @FocusState private var searchFocused: Bool
@@ -71,7 +76,7 @@ struct ApprovalQueueView: View {
                 AmbientBackground()
                 VStack(spacing: 0) {
                     header
-                    PageTitle(title: "Approval Queue", size: 34)   // smaller → fits one line
+                    PageTitle(title: "Approval Queue", size: 34, tracking: -2)   // smaller, one line, slightly looser letters
                         .padding(.horizontal, 16)
                         .padding(.bottom, 6)
                     SearchBar(text: $search,
@@ -94,7 +99,7 @@ struct ApprovalQueueView: View {
     /// there's nothing to undo/redo.
     private var header: some View {
         HStack(spacing: 10) {
-            glassButton("chevron.left", enabled: true) { dismiss() }
+            glassButton("chevron.left", enabled: true) { isPresented = false }
             Spacer()
             glassButton("arrow.uturn.backward", enabled: appState.canUndo) { appState.undo() }
             glassButton("arrow.uturn.forward", enabled: appState.canRedo) { appState.redo() }
@@ -137,7 +142,7 @@ struct ApprovalQueueView: View {
                 }
                 .padding(.bottom, 40)
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(.visible)
             .topFadeMask()
         }
     }
@@ -200,14 +205,14 @@ struct ApprovalQueueView: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous).fill(T.brandGradient()))
+                .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(T.brandGradient()))
             }
             .buttonStyle(.plain)
             .disabled(appState.currentPerson == nil)
             .opacity(appState.currentPerson == nil ? 0.5 : 1)
         }
         .padding(14)
-        .frostedCard(radius: T.cornerMd)
+        .frostedCard(radius: T.cornerHero)   // even rounder card edges (matches Jobs hero cards)
     }
 
     private func jobLine(_ job: Job) -> String {

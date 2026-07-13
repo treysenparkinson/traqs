@@ -76,7 +76,7 @@ struct GanttView: View {
             }
             .padding(.top, 2)
         }
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.visible)
         .animation(.easeInOut(duration: 0.18), value: segment)
         .onReceive(nowTimer) { _ in now = Date() }
         .sheet(item: $selectedBlock) { block in

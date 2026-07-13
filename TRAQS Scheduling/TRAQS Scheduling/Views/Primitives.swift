@@ -691,6 +691,9 @@ struct PageTitle: View {
     let title: String
     var subtitle: String? = nil
     var size: CGFloat = 56
+    /// Letter spacing. Default is tight (-4) to match the big display titles;
+    /// callers can loosen it slightly for smaller titles.
+    var tracking: CGFloat = -4
     /// Title fill. Defaults to solid primary ink (theme-aware "black"). Pass a
     /// gradient to override.
     var gradient: LinearGradient? = nil
@@ -708,7 +711,7 @@ struct PageTitle: View {
         return VStack(alignment: .leading, spacing: 2) {
             Text(title)
                 .font(.custom(TFontName.extrabold.rawValue, size: size))
-                .tracking(-4)
+                .tracking(tracking)
                 .foregroundStyle(titleFill)
             if let subtitle {
                 Text(subtitle)
