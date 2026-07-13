@@ -14,7 +14,7 @@ struct JobsHubView: View {
 
     // Navigation + chrome state, lifted here so it survives a list↔gantt swap.
     @State private var path: [Job] = []
-    @State private var showAddJob = false
+    @State private var showApprovals = false
     @State private var showSearch = false
     @State private var searchText = ""
     @FocusState private var searchFocused: Bool
@@ -49,8 +49,11 @@ struct JobsHubView: View {
                         .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
 
                         JobsViewToggleButton()
-                        if appState.isAdmin {
-                            IconBtn(icon: .plus, size: 18) { showAddJob = true }
+                        // Approval Queue entry — replaces the old create-job "+".
+                        // Only approvers (admin || canSignOff) see it; a badge shows
+                        // how many panels are awaiting a sign-off step.
+                        if appState.canViewApprovalQueue {
+                            approvalQueueButton
                         }
                     }
 
@@ -109,7 +112,7 @@ struct JobsHubView: View {
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .sheet(isPresented: $showAddJob) { JobEditView(job: nil) }
+                .fullScreenCover(isPresented: $showApprovals) { ApprovalQueueView() }
             }
             .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
             .toolbar(.hidden, for: .navigationBar)
@@ -117,12 +120,31 @@ struct JobsHubView: View {
                 appState.foregroundSync()   // pull the latest jobs on open
                 await appState.refreshOrgSettings()
             }
-            // Resolve a tapped "new job / assigned / step / ready" push to its
-            // job detail. `initial: true` covers a tap already pending when this
-            // view first appears; the jobs.count watcher retries once a
+            // Resolve a tapped "new job / assigned" push to its job detail, and a
+            // "step / ready" push to the Approval Queue (approvers) or the job
+            // detail (everyone else). `initial: true` covers a tap already pending
+            // when this view first appears; the jobs.count watcher retries once a
             // cold-start load brings the job in.
             .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeJobDeepLink() }
             .onChange(of: appState.jobs.count) { _, _ in consumeJobDeepLink() }
+        }
+    }
+
+    /// The Approval Queue entry button with a pending-count badge.
+    private var approvalQueueButton: some View {
+        ZStack(alignment: .topTrailing) {
+            IconBtn(icon: .select, size: 18) { showApprovals = true }
+            if appState.pendingApprovalCount > 0 {
+                Text("\(appState.pendingApprovalCount)")
+                    .font(TTypo.xsBold(11))
+                    .tnum()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(Capsule().fill(T.brandGradient()))
+                    .offset(x: 5, y: -5)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
@@ -159,12 +181,31 @@ struct JobsHubView: View {
         let f = DateFormatter(); f.dateFormat = "d"; return f.string(from: Date())
     }
 
-    /// Push the job named by a pending `.job` deep link, if it's loaded.
-    /// Leaves the link pending (to retry) when the job isn't here yet.
+    /// Resolve a pending Jobs-tab deep link:
+    /// - `.job` → push that job's detail.
+    /// - `.approvals` → open the Approval Queue for approvers; otherwise fall back
+    ///   to the job detail (so a non-approver who taps a step/ready push still
+    ///   lands somewhere useful).
+    /// Leaves a `.job`/fallback link pending (to retry) when the job isn't loaded
+    /// yet; the `.approvals`→queue path needs no job lookup so it resolves at once.
     private func consumeJobDeepLink() {
-        guard case let .job(number)? = appNav.pendingDeepLink else { return }
-        guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
-        path = [job]
-        appNav.pendingDeepLink = nil
+        switch appNav.pendingDeepLink {
+        case let .job(number):
+            guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
+            path = [job]
+            appNav.pendingDeepLink = nil
+        case let .approvals(number):
+            if appState.canViewApprovalQueue {
+                showApprovals = true
+                appNav.pendingDeepLink = nil
+            } else {
+                // Not an approver → behave like a job deep link.
+                guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
+                path = [job]
+                appNav.pendingDeepLink = nil
+            }
+        default:
+            return
+        }
     }
 }

@@ -550,6 +550,9 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     // Worker permission (set in the desktop "Worker Permissions" panel): may this
     // person clock in/out on mobile? Opt-out — absent/true = allowed, false = off.
     var canClockInOut: Bool?
+    // Approver flag (desktop Permissions → "Approver"). Gates the Approval Queue,
+    // mirroring desktop's canSeeApprovalQueue = admin || canSignOff.
+    var canSignOff: Bool?
 
     var isAdmin: Bool { userRole == "admin" }
     /// Salaried employees don't punch a clock (Hours page + clock-in are hidden).
@@ -585,6 +588,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         phone   = try? c.decodeIfPresent(String.self, forKey: .phone)
         image   = try? c.decodeIfPresent(String.self, forKey: .image)
         canClockInOut = try? c.decodeIfPresent(Bool.self, forKey: .canClockInOut)
+        canSignOff = try? c.decodeIfPresent(Bool.self, forKey: .canSignOff)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
@@ -598,7 +602,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
          activeBreak: ActiveBreak? = nil,
          hasPin: Bool? = nil,
          payType: String? = nil, phone: String? = nil, image: String? = nil,
-         canClockInOut: Bool? = nil) {
+         canClockInOut: Bool? = nil, canSignOff: Bool? = nil) {
         self.id = id; self.name = name; self.role = role; self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
@@ -610,6 +614,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         self.hasPin = hasPin
         self.payType = payType; self.phone = phone; self.image = image
         self.canClockInOut = canClockInOut
+        self.canSignOff = canSignOff
     }
 
     static func == (lhs: Person, rhs: Person) -> Bool { lhs.id == rhs.id }

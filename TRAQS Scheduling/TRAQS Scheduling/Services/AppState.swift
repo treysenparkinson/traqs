@@ -790,6 +790,30 @@ class AppState {
     /// Whether there's anything unread worth surfacing (sidebar pulsing dot).
     var hasUnreadNotifications: Bool { totalUnreadMessages > 0 }
 
+    // MARK: - Approval queue
+
+    /// Who may open the Approval Queue — mirrors desktop's
+    /// `canSeeApprovalQueue = admin || canSignOff`.
+    var canViewApprovalQueue: Bool {
+        guard let p = currentPerson else { return false }
+        return p.isAdmin || p.canSignOff == true
+    }
+
+    /// Count of panels awaiting an engineering sign-off step — drives the Jobs-tab
+    /// approval badge. A panel counts when it has an engineering block whose chain
+    /// isn't fully signed off. Computed from `jobs` (@Observable), so it stays live
+    /// via delta-sync and updates instantly after an optimistic signOff.
+    var pendingApprovalCount: Int {
+        var n = 0
+        for job in jobs {
+            for panel in job.subs {
+                guard let eng = panel.engineering else { continue }
+                if eng.designed == nil || eng.verified == nil || eng.sentToPerforex == nil { n += 1 }
+            }
+        }
+        return n
+    }
+
     /// Update the current user's editable profile (name/email/phone/color/image),
     /// optimistically then via the granular people PATCH. Returns success.
     @discardableResult

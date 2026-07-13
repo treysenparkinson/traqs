@@ -7,6 +7,34 @@ Pick back up from **"Where I left off"** below.
 
 ---
 
+## ⏯️ Where I left off (2026-07-13) — Approval Queue
+
+New feature: an Approval Queue on the Jobs page, gated to approvers.
+- `Person.canSignOff: Bool?` added (desktop "Approver" flag).
+- `AppState.canViewApprovalQueue` (= isAdmin || canSignOff) and
+  `pendingApprovalCount` (panels with an incomplete engineering chain; reactive
+  on `jobs`).
+- `JobsHubView`: the top-right create-job `+` is REPLACED by a gated checkmark
+  (`IconBtn(.select)`) with a pending-count badge → presents `ApprovalQueueView`
+  as a full-screen cover. **Job creation removed from iOS** (editing via
+  JobDetailView unchanged).
+- `Views/ApprovalQueueView.swift` (new): own NavigationStack; smaller one-line
+  title (PageTitle size 34); top-right liquid-glass **undo/forward** buttons
+  wired to `appState.undo()/redo()` (a signOff pushes the job undo stack) +
+  a left close button; search bar (job#/title/panel/client); sections grouped by
+  pending step (Designed/Verified/Sent to Perforex) with counts; cards with
+  step-chips + "Approve <step>" → `appState.signOff(...)` (optimistic, no
+  loadAll; item re-buckets and badge updates instantly). Row tap → JobDetailView
+  (Undo per step lives there).
+- `AppNav`: new `.approvals(number:)` deep link; `step`/`ready` pushes (by
+  `data.type`) route approvers to the queue, others fall back to job detail.
+- Deviations from spec: no inline Undo in queue rows (moved to JobDetailView for
+  safety); section labels use iOS EngStep names, not desktop Review/Approve/Release.
+- Builds clean (simulator). **Device-test:** badge count, grouping, search,
+  Approve advances/clears an item, undo/redo, non-approver sees no checkmark.
+
+---
+
 ## ⏯️ Where I left off (2026-07-13, Sprint 0) — retire post-mutation loadAll
 
 Goal: kill the "dual refresh" (always-on 15s full-GET poll + post-mutation

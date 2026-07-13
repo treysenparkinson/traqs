@@ -41,6 +41,9 @@ final class AppNav {
     // `openTimeOffPage` instead, which MainTabView presents as a cover.
     enum DeepLink: Equatable {
         case job(number: String)        // open that job's detail
+        case approvals(number: String)  // step/ready push → open the Approval Queue
+                                         // (carries jobNumber so non-approvers fall
+                                         // back to the job detail)
         case thread(key: String)        // open that chat thread
         case timeOff(requestId: String) // documents the requestId push shape
     }
@@ -61,10 +64,18 @@ final class AppNav {
             pendingDeepLink = .thread(key: key)
         } else if let number = Self.stringValue(data["jobNumber"]), !number.isEmpty {
             selected = .jobs
-            // The job-detail deep-link consumer lives in the list view, so make
+            // The job/approvals deep-link consumers live in the list view, so make
             // sure the merged Jobs tab is showing the list (not gantt) for it.
             jobsMode = .list
-            pendingDeepLink = .job(number: number)
+            // Engineering sign-off pushes (step/ready) route to the Approval Queue
+            // for approvers; JobsHubView falls back to the job detail otherwise.
+            // Everything else (new_job/assigned) opens the job detail directly.
+            let type = data["type"] as? String
+            if type == "step" || type == "ready" {
+                pendingDeepLink = .approvals(number: number)
+            } else {
+                pendingDeepLink = .job(number: number)
+            }
         } else if let requestId = Self.stringValue(data["requestId"]), !requestId.isEmpty {
             // Time Off is its own nav page now (not the Hours tab): present it
             // as a cover instead of routing to a tab. The list shows the user's
