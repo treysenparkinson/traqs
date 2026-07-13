@@ -15,6 +15,12 @@ final class SyncService {
     private var inFlight = false
     private var rerun = false
 
+    /// Wall-clock time of the last delta-sync whose fetch succeeded (write or
+    /// not). Drives the stale-foreground safety net in AppState: if this is nil
+    /// or older than the threshold when the app foregrounds, do a heavy loadAll;
+    /// otherwise delta-sync + Ably reconnect are trusted to have kept us fresh.
+    private(set) var lastSuccessfulSyncAt: Date?
+
     init(api: APIService, cache: LocalCache) {
         self.api = api
         self.cache = cache
@@ -139,6 +145,7 @@ final class SyncService {
                 } else {
                     totalWrites += try await fullResync()
                 }
+                lastSuccessfulSyncAt = Date()   // fetch succeeded → we're fresh
             } catch {
                 print("[sync] deltaSync failed: \(error)")
             }

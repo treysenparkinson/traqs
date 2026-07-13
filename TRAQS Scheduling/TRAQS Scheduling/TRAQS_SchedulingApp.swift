@@ -76,13 +76,13 @@ struct TRAQS_SchedulingApp: App {
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
-                Task { await appState.loadAll() }
-                Task { await MainActor.run { appState.startAutoRefresh() } }
-                // Fallback catch-up when Ably is degraded / was suspended while
-                // backgrounded: pull the delta on every foreground.
-                Task { await MainActor.run { appState.foregroundSync() } }
+                // Foreground: immediate delta-sync catch-up + start the degraded
+                // fallback poll if Ably is down + a stale-foreground safety net
+                // (heavy loadAll only if we haven't synced in >5 min AND Ably
+                // doesn't reconnect within a few seconds). No unconditional loadAll.
+                Task { await MainActor.run { appState.handleForeground() } }
             } else if newPhase == .background {
-                Task { await MainActor.run { appState.stopAutoRefresh() } }
+                Task { await MainActor.run { appState.handleBackground() } }
             }
         }
         #if os(macOS)

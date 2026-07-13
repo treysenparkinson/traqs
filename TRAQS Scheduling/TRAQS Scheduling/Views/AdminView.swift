@@ -75,18 +75,17 @@ struct AdminView: View {
                 .scrollIndicators(.hidden)
             }
         }
-        // While the board is on-screen, poll faster than the global
-        // 15s loop so a clock-in/lunch/break from another device lands
-        // in seconds instead of waiting on the next global tick. The
-        // .task lifecycle cancels the loop automatically on dismiss.
-        // loadAll() guards itself with `!isLoading` so an overlapping
-        // tick from the global timer is a harmless no-op.
+        // While the board is on-screen, poll faster than the fallback loop so a
+        // clock-in/lunch/break from another device lands in seconds. Uses
+        // deltaSyncNow (delta-sync + rehydrate) rather than the heavy full-GET
+        // loadAll — the presence data lives on the `people` entity, which
+        // delta-sync covers. The .task lifecycle cancels the loop on dismiss.
         .task {
-            await appState.loadAll()
+            await appState.deltaSyncNow()
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 5_000_000_000)
                 guard !Task.isCancelled else { break }
-                await appState.loadAll()
+                await appState.deltaSyncNow()
             }
         }
     }

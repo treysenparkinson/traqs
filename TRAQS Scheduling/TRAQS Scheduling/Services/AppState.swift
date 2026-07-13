@@ -158,11 +158,18 @@ class AppState {
 
     // MARK: - Auto-save / Auto-refresh
     private var saveTask: Task<Void, Never>?
-    private var refreshTask: Task<Void, Never>?
+    /// Fallback poll task — runs ONLY while Ably realtime is not connected (see
+    /// updateDegradedPoll). Replaces the old always-on 15s loop.
+    private var degradedPollTask: Task<Void, Never>?
+    /// Delayed stale-foreground safety-net task (see handleForeground).
+    private var staleForegroundTask: Task<Void, Never>?
+    /// Whether the app is currently foregrounded — gates the degraded poll.
+    private var isForeground = true
     private var api: APIService?
 
-    // Live sync (Phase 4): SwiftData cache + Ably realtime, layered on top of
-    // loadAll()/startAutoRefresh() (which remain the fallback).
+    // Live sync (Phase 4): SwiftData cache + Ably realtime — the primary refresh
+    // path. loadAll() is now reserved for cold launch, pull-to-refresh, and the
+    // stale-foreground safety net; a degraded-only poll covers Ably outages.
     private var localCache: LocalCache?
     private var syncService: SyncService?
     private let realtime = RealtimeService()
@@ -196,9 +203,9 @@ class AppState {
         KeychainHelper.save(orgCode, forKey: KeychainHelper.orgCodeKey)
 
         // ── Live sync (Phase 4): SwiftData cache + Ably realtime ──
-        // Layered ON TOP of loadAll()/startAutoRefresh() below (the fallback):
-        // paint from cache instantly, delta-sync in the background, then
-        // subscribe to Ably for ~1s live updates.
+        // The primary refresh path: paint from cache instantly, delta-sync in the
+        // background, then subscribe to Ably for ~1s live updates. loadAll() and
+        // the degraded-only poll below are fallbacks.
         realtime.disconnect()                 // drop any previous org's connection
         auth.onLogout = { [weak self] in self?.clearForLogout() }  // full-logout cleanup (runs before the Auth0 session ends)
         let cache = LocalCache()
@@ -219,7 +226,7 @@ class AppState {
                                    onReads: { [weak self] in Task { await self?.refreshReadReceipts() } })
         }
 
-        startAutoRefresh()
+        updateDegradedPoll()   // starts the fallback poll until Ably connects
         Task { await loadAll() }
         // Resolve the org's display name (cached server-side) so the sidebar
         // can render it above the current user. Failure is non-fatal — we
@@ -378,6 +385,10 @@ class AppState {
             if wasDown { flashReconnected() }
             realtimeEverConnected = true
         }
+        // Flip the fallback poll on/off to match realtime: it runs only while
+        // NOT connected. On connect it stops (Ably drives updates); on drop it
+        // starts (15s deltaSync until reconnect).
+        updateDegradedPoll()
     }
 
     private func flashReconnected() {
@@ -431,25 +442,74 @@ class AppState {
         }
     }
 
-    func startAutoRefresh() {
-        refreshTask?.cancel()
-        refreshTask = Task {
-            while !Task.isCancelled {
-                // Poll every 15s. The previous 5s cadence visibly re-rendered
-                // the screen three times per minute, which surfaced any
-                // micro-difference in server payloads as a "switched data" blink.
-                // Foreground transitions still call loadAll() directly for
-                // immediate freshness, and user-driven pull-to-refresh works.
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                guard !Task.isCancelled, !isLoading else { continue }
-                await loadAll()
+    /// Degraded-mode fallback poll. When Ably realtime is CONNECTED, live
+    /// updates arrive via the "changed" channels + silent push, so no polling is
+    /// needed. This 15s poll runs ONLY while realtime is NOT connected
+    /// (disconnected / suspended / failed, the 503-degraded case, or the
+    /// not-yet-connected startup window) AND the app is foregrounded. It calls
+    /// deltaSync — NEVER loadAll (loadAll is reserved for cold launch,
+    /// pull-to-refresh, and the stale-foreground safety net). Idempotent: safe to
+    /// call on every realtime-status change; it starts or stops the timer to
+    /// match the current state.
+    private func updateDegradedPoll() {
+        let shouldPoll = isForeground && api != nil && realtimeStatus != .connected
+        if shouldPoll {
+            guard degradedPollTask == nil else { return }   // already polling
+            print("[poll] realtime=\(realtimeStatus) — starting degraded 15s deltaSync poll")
+            degradedPollTask = Task { [weak self] in
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 15_000_000_000)
+                    guard let self, !Task.isCancelled else { break }
+                    guard !self.isLoading else { continue }
+                    if await self.runDeltaSync() { self.deferRehydrate() }
+                }
             }
+        } else {
+            if degradedPollTask != nil {
+                print("[poll] realtime connected/backgrounded — stopping degraded poll")
+            }
+            degradedPollTask?.cancel()
+            degradedPollTask = nil
         }
     }
 
-    func stopAutoRefresh() {
-        refreshTask?.cancel()
-        refreshTask = nil
+    /// App entered the foreground. Immediately delta-syncs (cheap catch-up),
+    /// re-evaluates the degraded poll, and arms a stale-foreground safety net:
+    /// if we haven't synced in >5 min, wait ~4s for Ably to reconnect + its
+    /// catch-up delta to land; only if realtime is STILL not connected and no
+    /// fresh sync arrived do we fall back to a heavy loadAll.
+    func handleForeground() {
+        isForeground = true
+        foregroundSync()          // immediate deltaSync + rehydrate
+        updateDegradedPoll()      // start the fallback poll if realtime is down
+        let last = syncService?.lastSuccessfulSyncAt
+        let stale = last == nil || Date().timeIntervalSince(last!) > 300   // 5 min
+        guard stale else { return }
+        staleForegroundTask?.cancel()
+        staleForegroundTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 4_000_000_000)   // give Ably reconnect a beat
+            guard let self, !Task.isCancelled else { return }
+            if self.realtimeStatus == .connected { return }     // Ably caught us up
+            if let l = self.syncService?.lastSuccessfulSyncAt,
+               Date().timeIntervalSince(l) < 300 { return }      // a fresh delta already landed
+            print("[foreground] stale >5min and realtime not connected — running loadAll() safety net")
+            await self.loadAll()
+        }
+    }
+
+    /// App went to the background: stop the fallback poll and cancel any pending
+    /// safety-net fetch so nothing runs while suspended.
+    func handleBackground() {
+        isForeground = false
+        staleForegroundTask?.cancel(); staleForegroundTask = nil
+        updateDegradedPoll()   // shouldPoll is now false → cancels the timer
+    }
+
+    /// Public awaitable delta-sync + rehydrate for views that want an explicit
+    /// refresh cadence (e.g. the Admin presence board) WITHOUT the heavy full-GET
+    /// loadAll. Ably already pushes changes live; this is for a deliberate poll.
+    func deltaSyncNow() async {
+        if await runDeltaSync() { rehydrateFromCache() }
     }
 
     // MARK: - Load
@@ -519,10 +579,16 @@ class AppState {
         if let r = try? await api.fetchOrgSettings() { withoutAnimation { orgSettings = r } }
         withoutAnimation { autoMatchPerson() }
 
-        // Race fix: if a live delta (Ably) advanced the sync cursor WHILE we were
+        // Race guard: if a live delta (Ably) advanced the sync cursor WHILE we were
         // fetching, this network snapshot is stale relative to the cache. The
         // cache is authoritative, so re-hydrate from it (no extra network) to let
         // the fresh data win instead of the old fetch clobbering it.
+        //
+        // NOTE: post-mutation loadAll calls (the COMMON trigger for this race) were
+        // retired in Sprint 0 — loadAll now runs only on cold launch, pull-to-
+        // refresh, and the stale-foreground safety net. The guard is KEPT because
+        // those callers can still overlap an inbound Ably delta; removing it would
+        // reintroduce a "pull-to-refresh clobbers a concurrent live update" bug.
         if let cache = localCache, cache.cursor() != startCursor {
             rehydrateFromCache()
         }
@@ -660,8 +726,10 @@ class AppState {
     func updatePeople(_ newPeople: [Person]) {
         people = newPeople
         Task {
+            // Optimistic in-memory update above; the server publishes a "people"
+            // Ably change → delta-sync reconciles the cache. Post-save loadAll
+            // was redundant work.
             try? await api?.savePeople(newPeople)
-            await loadAll()
         }
     }
 
@@ -670,8 +738,9 @@ class AppState {
     func updateClients(_ newClients: [Client]) {
         clients = newClients
         Task {
+            // Optimistic above; server publishes a "clients" Ably change →
+            // delta-sync reconciles. Post-save loadAll was redundant.
             try? await api?.saveClients(newClients)
-            await loadAll()
         }
     }
 
@@ -864,14 +933,14 @@ class AppState {
 
     /// Edit an existing request's dates/type/note. Editing dates on an approved
     /// request re-opens it for approval; a type/note change syncs in place.
-    /// Reloads afterward since the schedule entry may have moved. Throws so the
-    /// sheet can surface the error.
+    /// Throws so the sheet can surface the error. The schedule side (person.timeOff)
+    /// is published by the server on "timeoff"/"people" channels → delta-sync
+    /// reconciles it; the request list is refreshed directly below.
     @discardableResult
     func editTimeOff(id: String, type: String, start: String, end: String, note: String) async throws -> TimeOffRequest {
         guard let api else { throw APIError.noOrgCode }
         let updated = try await api.editTimeOff(id: id, start: start, end: end, type: type, note: note)
         await refreshTimeOffRequests()
-        await loadAll()
         return updated
     }
 
@@ -885,7 +954,8 @@ class AppState {
         do {
             _ = try await api.decideTimeOff(id: id, action: action, reason: reason)
             await refreshTimeOffRequests()
-            await loadAll()
+            // Approve writes person.timeOff; the server publishes "people"/"timeoff"
+            // Ably changes → delta-sync reconciles the schedule. loadAll removed.
             return true
         } catch {
             // Keep local state in sync with the server (in case it partially
@@ -1015,7 +1085,8 @@ class AppState {
             saveStatus = .saved
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             if case .saved = saveStatus { saveStatus = .idle }
-            await loadAll()
+            // jobs already reflect the edit in memory; the server publishes a
+            // "tasks" Ably change → delta-sync reconciles the cache. loadAll removed.
         } catch {
             // Phase 6 optimistic rollback: revert the whole failed batch to the
             // last confirmed state so the edit visibly returns (not silently
@@ -1123,7 +1194,7 @@ class AppState {
         do {
             let clockIn = try await api.timeclockClockIn(personId: personId, pin: pin, jobRefs: jobRefs)
             activeClockIn = ActiveClockIn(clockIn: clockIn, jobRefs: jobRefs, events: [])
-            Task { await loadAll() }
+            // Server publishes the change → delta-sync reconciles. loadAll removed.
         } catch {
             clockError = error.localizedDescription
         }
@@ -1134,7 +1205,7 @@ class AppState {
         do {
             try await api.timeclockClockOut(personId: personId, pin: pin)
             clearClockSession()
-            Task { await loadAll() }
+            // Server publishes the change → delta-sync reconciles. loadAll removed.
         } catch {
             clockError = error.localizedDescription
         }
@@ -1145,7 +1216,7 @@ class AppState {
         let event = ClockEvent(type: action, ts: ISO8601DateFormatter().string(from: Date()))
         activeClockIn?.events.append(event)
         try? await api.timeclockEvent(action: action, personId: personId, pin: pin)
-        Task { await loadAll() }  // sync server state so currentPerson?.activeClockIn updates
+        // Server publishes the change → delta-sync reconciles. loadAll removed.
     }
 
     func timeclockFinishRequest(jobId: String, panelId: String, opId: String) async {
@@ -1257,8 +1328,10 @@ class AppState {
             // user tapping LOG TIME multiple times because the first tap
             // had no visible feedback: the first request succeeded, the
             // second got 409. The STARTING… indicator should make this
-            // rare, but we still treat it as success.
-            await loadAll()
+            // rare, but we still treat it as success. A 409 doesn't change
+            // server state (so no Ably event fires) — delta-sync to align to the
+            // existing shift rather than a heavy loadAll.
+            await deltaSyncNow()
         } catch APIError.httpError(401) {
             // Genuine failure → undo the optimistic clock so the card slides
             // back. Use the bare 401 message rather than the "Failed to start:"
@@ -1370,11 +1443,13 @@ class AppState {
         clockChangeAt = Date()
         do {
             try await api.payClockIn(personId: personId, pin: pin)
-            await loadAll()
+            // Optimistic flag already set; server publishes a "people" Ably change
+            // → delta-sync reconciles. Just persist the optimistic clock to cache.
             await persistClockChangeToCache()
         } catch APIError.httpError(409) {
-            // Already clocked in (possibly via kiosk) — align to server truth.
-            await loadAll()
+            // Already clocked in (possibly via kiosk). No state change on the
+            // server (no Ably event) → delta-sync to pull the existing shift.
+            await deltaSyncNow()
             await persistClockChangeToCache()
             reconcilePayClock(force: true)
         } catch APIError.httpError(401) {
@@ -1419,13 +1494,14 @@ class AppState {
         clockChangeAt = Date()
         do {
             try await api.payClockOut(personId: personId)
-            await loadAll()
+            // Optimistic clear already applied; server publishes a "people" Ably
+            // change → delta-sync reconciles. Persist the optimistic state to cache.
             await persistClockChangeToCache()
-            // The completed punch now exists — refresh the pay-hours history so
-            // the period total reflects it.
+            // The completed punch now exists — refresh the pay-hours history (not a
+            // delta-sync entity) so the period total reflects it.
             await refreshTimeclock(personId: personId)
         } catch APIError.httpError(409) {
-            await loadAll()
+            await deltaSyncNow()
             await persistClockChangeToCache()
             reconcilePayClock(force: true)
         } catch APIError.httpError(401) {
@@ -1487,9 +1563,9 @@ class AppState {
         do {
             if starting { try await api.payLunchStart(personId: personId) }
             else        { try await api.payLunchEnd(personId: personId) }
-            await loadAll()
+            // Optimistic event already appended; server publishes "people" → delta-sync.
         } catch APIError.httpError(409) {
-            await loadAll()                 // server already in the target state
+            await deltaSyncNow()            // server already in the target state
             reconcilePayClock(force: true)
         } catch {
             removeLastLocalClockEvent(personId: personId, type: evt.type)   // revert

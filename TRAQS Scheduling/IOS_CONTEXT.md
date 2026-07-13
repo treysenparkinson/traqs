@@ -7,6 +7,43 @@ Pick back up from **"Where I left off"** below.
 
 ---
 
+## ⏯️ Where I left off (2026-07-13, Sprint 0) — retire post-mutation loadAll
+
+Goal: kill the "dual refresh" (always-on 15s full-GET poll + post-mutation
+loadAll racing delta-sync). loadAll now runs ONLY for: cold launch,
+pull-to-refresh, and a stale-foreground safety net. Everything else trusts
+delta-sync (Ably + silent push + coalesced deltaSync on each write publish).
+
+Changes:
+- `SyncService.lastSuccessfulSyncAt` — set when a deltaSync fetch succeeds.
+- `AppState`: removed `startAutoRefresh`/`stopAutoRefresh`; added
+  `updateDegradedPoll()` (15s deltaSync poll that runs ONLY while Ably realtime
+  != connected AND foregrounded — never loadAll), `handleForeground()`
+  (immediate deltaSync + degraded-poll re-eval + stale >5min safety-net loadAll
+  armed only if Ably doesn't reconnect within ~4s), `handleBackground()`, and
+  `deltaSyncNow()` (public deltaSync+rehydrate for explicit view polls).
+  `setRealtimeStatus` now flips the poll on/off.
+- Removed post-mutation `loadAll` from updatePeople, updateClients, editTimeOff,
+  decideTimeOff, persistJobs, the 3 dead PIN-kiosk timeclock fns, and the
+  payClockIn/Out/LunchToggle SUCCESS paths. Converted the four 409-reconcile
+  branches (jobClockIn, payClockIn/Out, payLunchToggle) to `deltaSyncNow()`.
+- `AdminView` presence board: 5s loop now `deltaSyncNow()` not loadAll.
+- `TRAQS_SchedulingApp` scenePhase → `handleForeground`/`handleBackground`.
+- KEEP list (loadAll retained): configure cold-launch, ContentView/OrgCodeView
+  initial, TeamView/ClientsView/AdminView `.refreshable`, TimeClock/Home
+  `reload()` (pull-to-refresh + bundle the non-delta refreshTimeclock).
+
+DEVIATION from plan STEP 4: KEPT the loadAll cursor-race guard (AppState ~L585).
+Removing post-mutation loadAll removed the COMMON trigger, but pull-to-refresh /
+cold-launch / safety-net loadAll can still race an inbound Ably delta — deleting
+it would reintroduce a "pull clobbers a live update" bug. Comment updated.
+
+Builds clean (simulator). Committed locally, NOT pushed. **Device-test:**
+airplane-mode toggle (poll starts/stops w/ logs), 3-min reopen (delta-sync
+fresh), 10-min offline reopen (safety-net loadAll), pull-to-refresh still works.
+
+---
+
 ## ⏯️ Where I left off (2026-07-13, later) — messaging audit fixes
 
 Full line-by-line audit of the messaging subsystem (client + server). Fixes:
