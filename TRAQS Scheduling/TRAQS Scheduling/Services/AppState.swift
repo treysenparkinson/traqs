@@ -510,8 +510,8 @@ class AppState {
         if let r = try? await api.fetchClients(), !r.isEmpty || clients.isEmpty {
             withoutAnimation { clients = r }
         }
-        if let r = try? await api.fetchMessages(), !r.isEmpty || messages.isEmpty {
-            withoutAnimation { messages = r }
+        if let data = try? await api.fetchMessagesData() {
+            applyServerMessages(data)
         }
         if let r = try? await api.fetchGroups(), !r.isEmpty || groups.isEmpty {
             withoutAnimation { groups = r }
@@ -773,9 +773,25 @@ class AppState {
 
     func refreshMessages() async {
         guard let api else { return }
-        if let msgs = try? await api.fetchMessages() {
-            withoutAnimation { messages = msgs }
+        if let data = try? await api.fetchMessagesData() {
+            applyServerMessages(data)
         }
+    }
+
+    /// Apply the authoritative /messages GET (raw bytes) to BOTH the in-memory
+    /// list and the SwiftData cache. Writing the cache is the fix for messages
+    /// that never load: the GET carries the viewer's full history (incl. group/
+    /// job messages from before they joined), but that history was previously
+    /// held only in memory — the delta-only cache never had it, so the next
+    /// rehydrate-from-cache (a race in loadAll, or any later Ably "changed")
+    /// silently wiped it. Folding the GET into the cache keeps it complete, so
+    /// rehydrate stays correct. Empty-guarded so a transient empty GET (e.g. a
+    /// momentary auth blip resolving no viewer) can't blank a populated list.
+    private func applyServerMessages(_ data: Data) {
+        let r = (try? JSONDecoder().decode([Message].self, from: data)) ?? []
+        guard !r.isEmpty || messages.isEmpty else { return }
+        withoutAnimation { messages = r }
+        syncService?.mergeFullMessages(data)
     }
 
     // MARK: - Read receipts

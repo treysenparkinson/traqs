@@ -98,6 +98,57 @@ final class LocalCache {
         return writes
     }
 
+    // Reconcile the cache against an AUTHORITATIVE, COMPLETE list (a full GET,
+    // not a delta): upsert every incoming record AND evict any cached row the
+    // list no longer contains. Unlike applyBatch — which only mutates ids the
+    // delta names — this makes the cache exactly mirror `records`.
+    //
+    // Why it exists: the /messages GET returns the viewer's ENTIRE thread
+    // history (ACL-filtered but not time-filtered), while /sync deltas are
+    // time-filtered. History that predates the viewer's cursor (e.g. a group's
+    // messages from before they were added) reaches the app only via the GET and
+    // was never written here — so the next rehydrate-from-cache silently dropped
+    // it. Folding the GET through this keeps the cache the single COMPLETE source
+    // of truth, so rehydrate is always correct.
+    //
+    // The caller MUST guard against an empty list before calling (a transient
+    // empty GET must not wipe the cache) — mirroring the empty-guards elsewhere.
+    @discardableResult
+    func reconcile<T: SyncRecord>(_ type: T.Type, _ records: [Incoming]) -> Int {
+        guard let ctx, !records.isEmpty else { return 0 }
+        let existing = (try? ctx.fetch(FetchDescriptor<T>())) ?? []
+        var byId: [String: T] = [:]
+        for e in existing { byId[e.id] = e }
+        let incomingIds = Set(records.map { $0.id })
+        var changed = 0
+        for rec in records {
+            if let obj = byId[rec.id] {
+                // Same no-op skip as applyBatch: unchanged stamp (or, when both
+                // stamps are absent, unchanged canonical bytes) ⇒ don't rewrite.
+                let unchanged: Bool
+                if let inLM = rec.lastModifiedAt, let curLM = obj.lastModifiedAt { unchanged = (inLM == curLM) }
+                else if rec.lastModifiedAt == nil, obj.lastModifiedAt == nil { unchanged = (obj.payload == rec.payload) }
+                else { unchanged = false }
+                if unchanged { continue }
+                obj.lastModifiedAt = rec.lastModifiedAt
+                obj.deletedAt = nil
+                obj.payload = rec.payload
+                changed += 1
+            } else {
+                ctx.insert(T(id: rec.id, lastModifiedAt: rec.lastModifiedAt, deletedAt: nil, payload: rec.payload))
+                changed += 1
+            }
+        }
+        // Evict rows absent from the authoritative list (deleted or server-trimmed
+        // upstream — a plain delta would leave these lingering forever since a trim
+        // carries no tombstone).
+        for e in existing where !incomingIds.contains(e.id) {
+            ctx.delete(e); changed += 1
+        }
+        if changed > 0 { try? ctx.save() }
+        return changed
+    }
+
     // ── Cursor (Meta) ──
     func cursor() -> String? {
         guard let ctx else { return nil }

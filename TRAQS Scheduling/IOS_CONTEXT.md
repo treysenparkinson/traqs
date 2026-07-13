@@ -7,6 +7,35 @@ Pick back up from **"Where I left off"** below.
 
 ---
 
+## ⏯️ Where I left off (2026-07-13) — messaging reliability fix
+
+**Bug reported:** some chats / whole conversations don't load; two people can't
+see their chat with each other. **Root cause (client-side):** the `/messages`
+GET returns the viewer's FULL history (ACL-filtered, NOT time-filtered) but only
+ever wrote the in-memory `messages` array — it never touched the SwiftData
+cache. The cache is populated ONLY by `/sync` deltas, which ARE time-filtered
+(`changedSince`). So any history predating the device's sync cursor — most
+importantly a group/job thread's messages from **before the viewer was added** —
+lived only in memory. The next `rehydrateFromCache()` (a race in `loadAll`, or
+ANY later Ably "changed" event) overwrote `messages` from the delta-only cache
+and silently dropped that history. A full resync only runs when there's no
+cursor, so it never self-healed.
+
+**Fix (all client-side; server 2000-msg cap left as-is — not the cause):**
+- `APIService.fetchMessagesData()` — raw GET bytes.
+- `LocalCache.reconcile(_:_:)` — upserts present rows AND evicts absent ones so
+  the cache exactly mirrors an authoritative full list (empty-guarded).
+- `SyncService.mergeFullMessages(_:)` — canonical parse (same `.sortedKeys` as
+  deltas) → `reconcile`, so byte-compare no-op skipping still holds.
+- `AppState.applyServerMessages(_:)` — both `loadAll` and `refreshMessages` now
+  route the GET through this: assign in-memory AND fold into the cache. Cache is
+  now the single COMPLETE source of truth; rehydrate is always correct.
+- Reconcile fires on: Messages tab appear, thread open, pull-to-refresh,
+  app-foreground `loadAll`. Builds clean (simulator, 2026-07-13). **Not yet
+  device-tested** — verify a newly-added group member sees full history.
+
+---
+
 ## ⏯️ Where I left off (2026-06-16, evening)
 
 The **end-job panel photo** feature is **done, committed, builds clean, and now

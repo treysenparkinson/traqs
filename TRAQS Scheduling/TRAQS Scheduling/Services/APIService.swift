@@ -174,6 +174,16 @@ struct APIService {
         return try decoder.decode([Message].self, from: data)
     }
 
+    /// Raw JSON of the viewer's full (ACL-filtered, non-time-filtered) message
+    /// list. Callers reconcile this into the SwiftData cache so a subsequent
+    /// rehydrate can't drop history the delta stream never carried (e.g. group/
+    /// job messages posted before the viewer joined). Returns the same bytes as
+    /// `fetchMessages` decodes, so the cache stays byte-canonical with /sync.
+    func fetchMessagesData() async throws -> Data {
+        let req = try await request("messages")
+        return try await perform(req)
+    }
+
     func sendMessage(_ message: Message) async throws -> Message {
         let body = try JSONEncoder().encode(message)
         let req = try await request("messages", method: "POST", body: body)

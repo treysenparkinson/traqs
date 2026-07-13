@@ -89,6 +89,22 @@ final class SyncService {
         return w
     }
 
+    // Reconcile the viewer's FULL message list (raw /messages GET bytes) into the
+    // cache. Runs the same canonical parse as a delta (parseArray → .sortedKeys),
+    // then LocalCache.reconcile upserts present rows and evicts absent ones so the
+    // cache exactly mirrors the server's authoritative set. This is what lets a
+    // rehydrate surface history the time-filtered delta stream never carried
+    // (e.g. a group's messages from before the viewer joined). Empty input is a
+    // no-op — a transient empty GET must not wipe the cache. Returns true iff the
+    // cache actually changed, so the caller rehydrates only when needed.
+    @discardableResult
+    func mergeFullMessages(_ data: Data) -> Bool {
+        guard let raw = try? JSONSerialization.jsonObject(with: data) else { return false }
+        let incoming = parseArray(raw)
+        guard !incoming.isEmpty else { return false }
+        return cache.reconcile(SyncedMessage.self, incoming) > 0
+    }
+
     private func fetchDelta(since: String?) async throws -> [String: Any] {
         let data = try await api.fetchSyncData(since: since)
         return (try JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
