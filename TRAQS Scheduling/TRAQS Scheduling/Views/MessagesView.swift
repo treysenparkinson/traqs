@@ -136,10 +136,18 @@ struct MessagesView: View {
     }
 
     private func resolveTitle(key: String, myId: String?) -> String? {
-        guard key.hasPrefix("dm:") else { return nil }
-        let ids = String(key.dropFirst(3)).components(separatedBy: "_")
-        let otherId = ids.first(where: { $0 != myId }) ?? ids.first
-        return appState.people.first(where: { $0.id == otherId })?.name
+        if key.hasPrefix("dm:") {
+            let ids = String(key.dropFirst(3)).components(separatedBy: "_")
+            let otherId = ids.first(where: { $0 != myId }) ?? ids.first
+            return appState.people.first(where: { $0.id == otherId })?.name
+        }
+        // Group threads are keyed by id (web parity); resolve id OR name — legacy
+        // iOS threads were keyed by name — to the group's display name.
+        if key.hasPrefix("group:") {
+            let ref = String(key.dropFirst(6))
+            return appState.groups.first(where: { $0.id == ref || $0.name == ref })?.name
+        }
+        return nil
     }
 
     var body: some View {
@@ -272,13 +280,13 @@ struct MessagesView: View {
             }
             .sheet(isPresented: $showNewGroup) {
                 NewGroupSheet { name, memberIds in
-                    // Persist the group server-side so other devices see
-                    // it. Without this, "create group" only changed local
-                    // navigation state and the group never reached
-                    // groups.json — desktop and other iOS devices would
-                    // never see the new group.
-                    Task { await appState.createGroup(name: name, memberIds: memberIds) }
-                    navigationPath.append("group:\(name)")
+                    // Persist the group server-side so other devices see it, then
+                    // navigate to it by ID (matches the web app's group:<id> key —
+                    // keying by name diverged and split cross-platform group chats).
+                    Task {
+                        guard let g = await appState.createGroup(name: name, memberIds: memberIds) else { return }
+                        await MainActor.run { navigationPath.append("group:\(g.id)") }
+                    }
                 }
             }
             .sheet(isPresented: $showNewDM) {
@@ -300,8 +308,10 @@ struct MessagesView: View {
                         var members = recipientIds
                         if !members.contains(myId) { members.insert(myId, at: 0) }
                         let name = groupName ?? "Group"
-                        Task { await appState.createGroup(name: name, memberIds: members) }
-                        navigationPath.append("group:\(name)")
+                        Task {
+                            guard let g = await appState.createGroup(name: name, memberIds: members) else { return }
+                            await MainActor.run { navigationPath.append("group:\(g.id)") }
+                        }
                     }
                 }
             }
@@ -579,55 +589,6 @@ struct MessageThread: Identifiable {
     }
 }
 
-// MARK: - ThreadRow
-
-struct ThreadRow: View {
-    let thread: MessageThread
-
-    var threadIcon: String {
-        if thread.isDM { return "person.fill" }
-        if thread.key.hasPrefix("group:") { return "person.3.fill" }
-        return "tag"
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle()
-                    .fill(Color(hex: thread.lastMessage?.authorColor ?? T.accent).opacity(0.15))
-                    .frame(width: 40, height: 40)
-                Image(systemName: threadIcon)
-                    .foregroundColor(Color(hex: thread.lastMessage?.authorColor ?? T.accent))
-            }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(thread.displayTitle)
-                    .font(.subheadline.bold())
-                    .foregroundColor(Color(hex: T.text))
-                    .lineLimit(1)
-                if let last = thread.lastMessage {
-                    Text(last.text)
-                        .font(.caption)
-                        .foregroundColor(Color(hex: T.muted))
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-
-            if let last = thread.lastMessage {
-                Text(last.timestamp.shortTimestamp)
-                    .font(.caption2)
-                    .foregroundColor(Color(hex: T.muted))
-            }
-        }
-        .padding(12)
-        .background(Color(hex: T.card))
-        .cornerRadius(10)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
-    }
-}
-
 // MARK: - ThreadDetailView
 
 struct ThreadDetailView: View {
@@ -744,7 +705,10 @@ struct ThreadDetailView: View {
             let otherId = ids.first(where: { $0 != myId }) ?? ids.first
             return appState.people.first(where: { $0.id == otherId })?.name ?? "Direct Message"
         }
-        if threadKey.hasPrefix("group:") { return String(threadKey.dropFirst(6)) }
+        if threadKey.hasPrefix("group:") {
+            let ref = String(threadKey.dropFirst(6))
+            return appState.groups.first(where: { $0.id == ref || $0.name == ref })?.name ?? ref
+        }
         if threadKey.hasPrefix("job:")   { return "Job: \(threadKey.dropFirst(4))" }
         if threadKey.hasPrefix("panel:") { return "Panel: \(threadKey.dropFirst(6))" }
         if threadKey.hasPrefix("op:")    { return "Op: \(threadKey.dropFirst(3))" }
@@ -868,8 +832,7 @@ struct ThreadDetailView: View {
     /// Report the thread read up to its newest message so the sender sees
     /// "Read". Deduped on the newest timestamp so we don't POST every poll.
     private func markThreadReadNow() async {
-        let at = liveMessages.last?.timestamp
-            ?? ISO8601DateFormatter().string(from: Date())
+        let at = liveMessages.last?.timestamp ?? Date.nowISO()
         guard at != lastMarkedReadAt else { return }
         lastMarkedReadAt = at
         await appState.markThreadReadServer(threadKey, at: at)
@@ -887,8 +850,8 @@ struct ThreadDetailView: View {
             return ids.compactMap { id in appState.people.first(where: { $0.id == id }) }
         }
         if threadKey.hasPrefix("group:") {
-            let name = String(threadKey.dropFirst(6))
-            if let g = appState.groups.first(where: { $0.name == name }) {
+            let ref = String(threadKey.dropFirst(6))
+            if let g = appState.groups.first(where: { $0.id == ref || $0.name == ref }) {
                 return g.memberIds.compactMap { id in appState.people.first(where: { $0.id == id }) }
             }
         }
@@ -1156,7 +1119,9 @@ struct ThreadDetailView: View {
         if let pid = appState.currentPersonId, !pid.isEmpty, id == pid { return true }
         if let email = appState.currentPerson?.email, !email.isEmpty, id.lowercased() == email.lowercased() { return true }
         if let email = appState.matchEmail, !email.isEmpty, id.lowercased() == email.lowercased() { return true }
-        if let name = appState.currentPerson?.name, !name.isEmpty, msg.authorName == name { return true }
+        // NB: intentionally NO authorName == my name fallback — two people who
+        // share a name would have each other's bubbles mis-rendered as "mine".
+        // Identity is an id/email match only.
         return false
     }
 
@@ -1238,8 +1203,8 @@ struct ThreadDetailView: View {
             let members = Array(Set(threadParticipants.map { $0.id }).union(ids))
             let name = suggestedGroupName(memberIds: members)
             Task {
-                await appState.createGroup(name: name, memberIds: members)
-                await MainActor.run { onOpenThread("group:\(name)") }
+                guard let g = await appState.createGroup(name: name, memberIds: members) else { return }
+                await MainActor.run { onOpenThread("group:\(g.id)") }
             }
         }
     }
@@ -1455,7 +1420,7 @@ struct ThreadDetailView: View {
             authorColor: authorColor,
             participantIds: participantIds,
             attachments: attachments,
-            timestamp: ISO8601DateFormatter().string(from: Date())
+            timestamp: Date.nowISO()
         )
         newText = ""
         pickedImage = nil; pickedFile = nil; photoItem = nil
@@ -2720,19 +2685,6 @@ struct NewMessageSheet: View {
 // MARK: - Helpers
 
 extension String {
-    var shortTimestamp: String {
-        let f = ISO8601DateFormatter()
-        guard let date = f.date(from: self) else { return self }
-        let df = DateFormatter()
-        if Calendar.current.isDateInToday(date) {
-            df.dateFormat = "h:mm a"
-        } else {
-            df.dateStyle = .short
-            df.timeStyle = .short
-        }
-        return df.string(from: date)
-    }
-
     /// Compact stamp used on the tap-to-reveal message timestamp.
     /// Today → "2:34 PM" · Yesterday → "Yesterday" · earlier → "May 24"
     /// (or "May 24, 2025" if not in the current year). Different from

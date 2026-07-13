@@ -692,11 +692,11 @@ class AppState {
     }
 
     func markThreadRead(_ threadKey: String) {
-        threadReadAt[threadKey] = ISO8601DateFormatter().string(from: Date())
+        threadReadAt[threadKey] = Date.nowISO()
     }
 
     func markAllThreadsRead() {
-        let nowISO = ISO8601DateFormatter().string(from: Date())
+        let nowISO = Date.nowISO()
         // Compute unique threadKeys from current messages, then stamp each.
         var map = threadReadAt
         for k in Set(messages.map { $0.threadKey }) { map[k] = nowISO }
@@ -746,11 +746,6 @@ class AppState {
     }
 
     // MARK: - Messages
-
-    func sendMessage(_ message: Message) async {
-        messages.append(message)
-        try? await api?.sendMessage(message)
-    }
 
     // Returns the server-assigned message ID so callers can track ownership.
     func sendMessageThrowing(_ message: Message) async throws -> String {
@@ -915,23 +910,30 @@ class AppState {
     /// existed, the New Group sheet was decorative — it only changed
     /// local navigation state. Other devices (and the same device after
     /// a relaunch) never saw the group.
-    func createGroup(name: String, memberIds: [String]) async {
-        guard let api else { return }
+    /// Returns the created (or already-existing same-named) group so the caller
+    /// can navigate to `group:<id>`. Thread keys are keyed by group ID to match
+    /// the web app (`group:${group.id}`) — keying by name diverged from web, so a
+    /// group chat created on one platform never converged with the other.
+    @discardableResult
+    func createGroup(name: String, memberIds: [String]) async -> ChatGroup? {
+        guard let api else { return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty else { return nil }
+        // Reuse an existing same-named group instead of creating a duplicate —
+        // and hand its id back so navigation targets the real thread.
+        if let existing = groups.first(where: { $0.name == trimmed }) { return existing }
         let group = ChatGroup(id: UUID().uuidString, name: trimmed, memberIds: memberIds)
         // Optimistic local update so the inbox surfaces the new group
         // immediately. The server save runs in the background.
         var updated = groups
-        if !updated.contains(where: { $0.name == trimmed }) {
-            updated.append(group)
-            groups = updated
-        }
+        updated.append(group)
+        groups = updated
         do {
             try await api.saveGroups(updated)
         } catch {
             errorMessage = "Failed to create group: \(error.localizedDescription)"
         }
+        return group
     }
 
     /// Add people to an existing group and persist. Optimistic local update so

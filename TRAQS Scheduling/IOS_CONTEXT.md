@@ -7,6 +7,26 @@ Pick back up from **"Where I left off"** below.
 
 ---
 
+## ⏯️ Where I left off (2026-07-13, later) — messaging audit fixes
+
+Full line-by-line audit of the messaging subsystem (client + server). Fixes:
+- **Group threads now keyed by ID (web parity).** Web builds `group:<id>`; iOS
+  built `group:<name>` → same group got two threadKeys → cross-platform group
+  chats never converged. `createGroup` now returns the group so callers navigate
+  `group:<id>`; all group READ paths (resolveTitle, ThreadDetailView.displayTitle,
+  threadParticipants) resolve id OR name so legacy name-keyed threads still work.
+- **Fractional-second timestamps** on optimistic sends + read marks via new
+  `Date.nowISO()`/`Date.isoString()` (AppConfig.swift) — fixes out-of-order
+  optimistic bubbles and consolidates ~ a dozen ad-hoc ISO8601DateFormatter()s.
+- **Dropped isMyMessage name fallback** (same-name users mis-attributed).
+- **Dead code removed:** `ThreadRow`, `AppState.sendMessage(_:)` (fire-forget),
+  `String.shortTimestamp` (had the fractional-parse bug).
+- Deferred: a `ThreadKey` value type (cosmetic, high-churn) and unreadCount
+  counting own messages (minor). Builds clean (simulator). **Device-test group
+  chat convergence web↔iOS.**
+
+---
+
 ## ⏯️ Where I left off (2026-07-13) — messaging reliability fix
 
 **Bug reported:** some chats / whole conversations don't load; two people can't

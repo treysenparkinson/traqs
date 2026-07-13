@@ -17,6 +17,18 @@ extension Date {
         return isoPlain.date(from: string)
     }
 
+    /// Canonical ISO8601 string with fractional seconds — byte-compatible with
+    /// the server's `new Date().toISOString()`. Use this for every timestamp we
+    /// stamp locally (message sends, read cursors, read marks) so optimistic
+    /// values sort and parse identically to server values. A plain formatter
+    /// (no fractions) produces e.g. "…05Z", which STRING-sorts after the
+    /// server's "…05.123Z" and fails `fromFlexibleISO8601`'s fractional parse —
+    /// the source of out-of-order optimistic bubbles.
+    static func isoString(_ date: Date) -> String { isoFractional.string(from: date) }
+
+    /// Convenience for "now" as a canonical fractional ISO8601 string.
+    static func nowISO() -> String { isoFractional.string(from: Date()) }
+
     private static let isoFractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
