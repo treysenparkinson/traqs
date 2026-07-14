@@ -9,6 +9,14 @@ const LS_CODE = "tq_org_code";
 const LS_CONFIG = "tq_org_config";
 const LS_PEOPLE = "tq_team_people";
 
+// Org identity (code, config, roster) is stored in localStorage so it survives
+// an app relaunch. Capacitor's WKWebView wipes sessionStorage every time the app
+// is terminated, which is why returning users used to get bounced back to the
+// org-code screen on every launch. localStorage persists across launches, so the
+// code is entered once on first install and then remembered. (Per-session state
+// like the selected person / re-auth throttle stays in sessionStorage.)
+const persist = window.localStorage;
+
 // ─── Shared styles ────────────────────────────────────────────────────────────
 const PAGE = {
   minHeight: "100vh",
@@ -178,8 +186,8 @@ function OrgCodeStep({ onContinue, onCreateOrg, onForgot }) {
     setLoading(true); setError("");
     try {
       const config = await fetchOrgConfig(trimmed);
-      sessionStorage.setItem(LS_CODE, trimmed);
-      sessionStorage.setItem(LS_CONFIG, JSON.stringify(config));
+      persist.setItem(LS_CODE, trimmed);
+      persist.setItem(LS_CONFIG, JSON.stringify(config));
       onContinue(trimmed, config);
     } catch (err) {
       setError(err.message.includes("not found")
@@ -319,8 +327,8 @@ function CreateOrgStep({ onSuccess, onBack }) {
     try {
       await createOrg({ code, name, domain, adminEmail });
       const config = { name, domain, adminEmail, createdAt: new Date().toISOString() };
-      sessionStorage.setItem(LS_CODE, code);
-      sessionStorage.setItem(LS_CONFIG, JSON.stringify(config));
+      persist.setItem(LS_CODE, code);
+      persist.setItem(LS_CONFIG, JSON.stringify(config));
       onSuccess(code, config);
     } catch (err) {
       setError(err.message);
@@ -901,14 +909,14 @@ function AuthGate() {
 
   // "org" | "create-org" | "forgot-org" | "team" | "domain-error" | "not-in-team"
   const [step, setStep] = useState(() => {
-    return sessionStorage.getItem(LS_CODE) ? "team" : "org";
+    return persist.getItem(LS_CODE) ? "team" : "org";
   });
-  const [orgCode, setOrgCode] = useState(() => sessionStorage.getItem(LS_CODE) || "");
+  const [orgCode, setOrgCode] = useState(() => persist.getItem(LS_CODE) || "");
   const [orgConfig, setOrgConfig] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem(LS_CONFIG) || "null"); } catch { return null; }
+    try { return JSON.parse(persist.getItem(LS_CONFIG) || "null"); } catch { return null; }
   });
   const [teamPeople, setTeamPeople] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
+    try { return JSON.parse(persist.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
   });
   const [selectedPerson, setSelectedPerson] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem("tq_selected_person") || "null"); } catch { return null; }
@@ -916,17 +924,17 @@ function AuthGate() {
 
   // On mount: re-fetch config + people from S3 (keeps data fresh)
   useEffect(() => {
-    const savedCode = sessionStorage.getItem(LS_CODE);
+    const savedCode = persist.getItem(LS_CODE);
     if (savedCode) {
       fetchOrgConfig(savedCode)
         .then(async cfg => {
           setOrgConfig(cfg);
           setOrgCode(savedCode);
-          sessionStorage.setItem(LS_CONFIG, JSON.stringify(cfg));
+          persist.setItem(LS_CONFIG, JSON.stringify(cfg));
           try {
             const people = await fetchPeople(null, savedCode);
             setTeamPeople(people);
-            sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));
+            persist.setItem(LS_PEOPLE, JSON.stringify(people));
           } catch {
             // non-fatal: keep cached people
           }
@@ -937,9 +945,9 @@ function AuthGate() {
           // For transient errors (network, 500), keep the code so the user
           // isn't forced to re-enter it on every blip.
           if (e?.status === 404) {
-            sessionStorage.removeItem(LS_CODE);
-            sessionStorage.removeItem(LS_CONFIG);
-            sessionStorage.removeItem(LS_PEOPLE);
+            persist.removeItem(LS_CODE);
+            persist.removeItem(LS_CONFIG);
+            persist.removeItem(LS_PEOPLE);
             setOrgCode("");
             setOrgConfig(null);
           }
@@ -1005,7 +1013,7 @@ function AuthGate() {
   useEffect(() => {
     if (!isAuthenticated || !user || !orgConfig) return;
     const roster = teamPeople.length > 0 ? teamPeople : (() => {
-      try { return JSON.parse(sessionStorage.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
+      try { return JSON.parse(persist.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
     })();
     const inRoster = roster.some(p => p.email?.toLowerCase() === user.email?.toLowerCase());
     const rosterIsEmpty = roster.length === 0;
@@ -1024,7 +1032,7 @@ function AuthGate() {
     fetchPeople(null, code)
       .then(people => {
         setTeamPeople(people);
-        sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));
+        persist.setItem(LS_PEOPLE, JSON.stringify(people));
       })
       .catch(() => {});
     setStep("team");
@@ -1037,7 +1045,7 @@ function AuthGate() {
     return fetchPeople(null, orgCode)
       .then(people => {
         setTeamPeople(people);
-        sessionStorage.setItem(LS_PEOPLE, JSON.stringify(people));
+        persist.setItem(LS_PEOPLE, JSON.stringify(people));
       })
       .catch(() => {});
   }, [orgCode]);
@@ -1072,9 +1080,9 @@ function AuthGate() {
   }
 
   function handleSwitch() {
-    sessionStorage.removeItem(LS_CODE);
-    sessionStorage.removeItem(LS_CONFIG);
-    sessionStorage.removeItem(LS_PEOPLE);
+    persist.removeItem(LS_CODE);
+    persist.removeItem(LS_CONFIG);
+    persist.removeItem(LS_PEOPLE);
     sessionStorage.removeItem("tq_selected_person");
     setOrgCode("");
     setOrgConfig(null);
@@ -1087,9 +1095,9 @@ function AuthGate() {
   }
 
   function handleDomainLogout() {
-    sessionStorage.removeItem(LS_CODE);
-    sessionStorage.removeItem(LS_CONFIG);
-    sessionStorage.removeItem(LS_PEOPLE);
+    persist.removeItem(LS_CODE);
+    persist.removeItem(LS_CONFIG);
+    persist.removeItem(LS_PEOPLE);
     sessionStorage.removeItem("tq_selected_person");
     setOrgCode("");
     setOrgConfig(null);
