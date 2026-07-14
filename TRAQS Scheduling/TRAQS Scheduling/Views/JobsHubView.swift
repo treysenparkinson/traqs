@@ -15,6 +15,7 @@ struct JobsHubView: View {
     // Navigation + chrome state, lifted here so it survives a list↔gantt swap.
     @State private var path: [Job] = []
     @State private var showApprovals = false
+    @State private var showAvailability = false
     @State private var showSearch = false
     @State private var searchText = ""
     @FocusState private var searchFocused: Bool
@@ -54,6 +55,15 @@ struct JobsHubView: View {
                         // how many panels are awaiting a sign-off step.
                         if appState.canViewApprovalQueue {
                             approvalQueueButton
+                        }
+                        // Availability quick-check — admin only, at the far right,
+                        // set off from the other controls by a hairline divider.
+                        if appState.currentPerson?.isAdmin == true {
+                            Rectangle()
+                                .fill(Color(hex: T.muted).opacity(0.5))
+                                .frame(width: 1, height: 22)
+                                .padding(.horizontal, 2)
+                            AvailabilityCheckButton(isPresented: $showAvailability)
                         }
                     }
 
@@ -113,6 +123,9 @@ struct JobsHubView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .fullScreenCover(isPresented: $showApprovals) { ApprovalQueueView(isPresented: $showApprovals) }
+                // Availability quick-check sheet — presented from this stable
+                // container (not the opacity-animated FAB) so it reliably shows.
+                .sheet(isPresented: $showAvailability) { AvailabilityCheckSheet() }
             }
             .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
             .toolbar(.hidden, for: .navigationBar)

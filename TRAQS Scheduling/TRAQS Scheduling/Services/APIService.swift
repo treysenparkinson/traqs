@@ -97,6 +97,48 @@ struct APIService {
         return try decoder.decode([Job].self, from: data)
     }
 
+    // MARK: - AI (proxied to keep the Anthropic key server-side)
+
+    /// Calls the `ai-schedule` edge function and returns the concatenated text
+    /// response. The proxy streams Anthropic's SSE; we read it line-by-line and
+    /// accumulate `text_delta` chunks (tool-use blocks are ignored — this path is
+    /// text-only). Used for the availability quick-check's plain-English summary;
+    /// callers fall back to a templated sentence if this throws.
+    func aiScheduleText(system: String, userJSON: String, maxTokens: Int = 120) async throws -> String {
+        let payload: [String: Any] = [
+            "system": system,
+            "messages": [["role": "user", "content": [["type": "text", "text": userJSON]]]],
+            "max_tokens": maxTokens,
+        ]
+        let body = try JSONSerialization.data(withJSONObject: payload)
+        let req = try await request("ai-schedule", method: "POST", body: body)
+
+        let (bytes, response) = try await URLSession.shared.bytes(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+
+        var text = ""
+        // SSE frames are "event:"/"data:" lines separated by blank lines. We only
+        // need the data payloads; parse each as JSON and pull text deltas.
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data:") else { continue }
+            let json = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
+            guard !json.isEmpty,
+                  let data = json.data(using: .utf8),
+                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+            let type = obj["type"] as? String
+            if type == "content_block_delta",
+               let delta = obj["delta"] as? [String: Any],
+               delta["type"] as? String == "text_delta",
+               let chunk = delta["text"] as? String {
+                text += chunk
+            }
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Live sync (Phase 4)
 
     /// Delta-sync snapshot. `since` = the cursor from the last response; nil/empty

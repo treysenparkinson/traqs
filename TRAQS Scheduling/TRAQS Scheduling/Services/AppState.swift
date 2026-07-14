@@ -839,6 +839,18 @@ class AppState {
         }
     }
 
+    // MARK: - AI
+
+    /// One-line plain-English summary for the availability quick-check. Returns
+    /// nil if the AI proxy is unreachable/unconfigured so the caller can show its
+    /// templated fallback instead.
+    func availabilitySummary(system: String, userJSON: String) async -> String? {
+        guard let api else { return nil }
+        let text = try? await api.aiScheduleText(system: system, userJSON: userJSON, maxTokens: 120)
+        guard let text, !text.isEmpty else { return nil }
+        return text
+    }
+
     // MARK: - Messages
 
     // Returns the server-assigned message ID so callers can track ownership.
