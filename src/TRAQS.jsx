@@ -16467,6 +16467,38 @@ ${jobsCtx || "No jobs found."}`;
   // Merge a patch into the current section draft (function or object patch).
   const patchDraft = (patch) => setSettingsDraft(d => ({ ...(d || {}), ...(typeof patch === "function" ? patch(d || {}) : patch) }));
 
+  // Pull decrypted clock-in PINs into a freshly-loaded section draft so the eye
+  // toggle can actually reveal them. The ambient `people` state usually has PINs
+  // stripped — delta-sync (/sync) and the kiosk projection carry only `hasPin`,
+  // never the value — so the draft field is empty and the eye has nothing to show.
+  // The /people GET returns the decrypted PIN to admins, so re-fetch and merge it
+  // in. We update settingsPristineRef in lockstep so populating a PIN never marks
+  // the section dirty, and we bail if the user navigated away or edited meanwhile.
+  // Legacy one-way-hashed PINs decrypt to "" (unrevealable until re-entered) and
+  // are left as-is, so their field stays on the "•••• set" placeholder.
+  const hydrateSectionPins = () => {
+    const snapshot = settingsPristineRef.current;
+    fetchPeople(getToken, orgCode)
+      .then(fresh => {
+        const pinById = new Map((fresh || []).map(p => [p.id, p.pin]));
+        setSettingsDraft(prev => {
+          if (!prev || !prev.people) return prev;
+          if (JSON.stringify(prev) !== snapshot) return prev; // navigated away or edited — don't clobber
+          let changed = false;
+          const people = prev.people.map(p => {
+            const pin = pinById.get(p.id);
+            if (pin && pin !== (p.pin || "")) { changed = true; return { ...p, pin }; }
+            return p;
+          });
+          if (!changed) return prev;
+          const next = { ...prev, people };
+          settingsPristineRef.current = JSON.stringify(next); // keep baseline in lockstep so reveal ≠ dirty
+          return next;
+        });
+      })
+      .catch(e => console.warn("[settings] PIN hydrate failed:", e?.message || e));
+  };
+
   // Snapshot the slice a section edits into settingsDraft + a pristine JSON baseline.
   const loadSectionDraft = (section) => {
     let d = null;
@@ -16493,6 +16525,9 @@ ${jobsCtx || "No jobs found."}`;
     settingsPristineRef.current = d ? JSON.stringify(d) : null;
     setSignOffTemplateEditing(null);
     setOrgEditing(null); setOrgCodeError(""); setOrgNameError("");
+    // These sections show editable clock-in PINs; fetch the decrypted values so
+    // the eye toggle can reveal them (ambient `people` has PINs stripped).
+    if (section === "org-timeclock" || section === "org-permissions") hydrateSectionPins();
   };
 
   // Is the current section dirty vs its pristine baseline?
