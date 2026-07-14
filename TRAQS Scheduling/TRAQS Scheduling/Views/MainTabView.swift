@@ -13,7 +13,7 @@ enum TTab: Int, CaseIterable, Hashable {
         switch self {
         case .home:     return "Home"
         case .jobs:     return "Jobs"
-        case .hours:    return "Hours"
+        case .hours:    return "Time Clock"
         case .stats:    return "Stats"
         case .chat:     return "Messages"
         }
@@ -34,6 +34,7 @@ private let edgeGrabZone: CGFloat = 24      // px from the leading edge that ini
 
 struct MainTabView: View {
     @Environment(AppNav.self) private var appNav
+    @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
     @State private var dragOffset: CGFloat = 0          // additive offset during a live drag
     @State private var isDragging: Bool = false
@@ -106,7 +107,17 @@ struct MainTabView: View {
                      })
                 .offset(x: drawerX)
                 .zIndex(2)
+
+            // Global blocking-action loading overlay (clock in/out). Sits above
+            // everything, including the drawer, so no screen looks frozen while a
+            // request is in flight.
+            if let label = appState.clockActionLabel {
+                TRAQSLoadingOverlay(message: label)
+                    .transition(.opacity)
+                    .zIndex(10)
+            }
         }
+        .animation(.easeInOut(duration: 0.18), value: appState.clockActionLabel)
         // Modal sub-pages support a left-edge swipe to go back (dismiss), matching
         // the native back-swipe elsewhere.
         .sheet(isPresented: $showSettings) {

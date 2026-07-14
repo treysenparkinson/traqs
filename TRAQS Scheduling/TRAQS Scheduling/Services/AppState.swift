@@ -131,6 +131,7 @@ class AppState {
     var payClockInStart: Date?
     var payClockInSource: String?
     var isPayClocking = false          // in-flight guard for the CTA spinner
+    var clockActionLabel: String? = nil   // non-nil drives the full-screen TRAQS loading overlay ("Clocking In…"/"Clocking Out…")
 
     // MARK: - Auth / Org
     /// Persisted so a flaky people-fetch can't briefly blank out the
@@ -1407,6 +1408,35 @@ class AppState {
         clockChangeAt = Date()
     }
 
+    /// Optimistically set the PAY clock's canonical in-memory field on clock-in,
+    /// mirroring markPayClockedOutLocally. payClockIn only flipped the payClockIn*
+    /// flags; the Home shift card reads currentPerson.activeClockIn DIRECTLY
+    /// (myShiftStatus/liveShiftHours), so without this the card showed "offline"
+    /// for the first moments after a clock-in — until a background rehydrate
+    /// filled the field — which read as a frozen/glitchy screen. The server
+    /// reconciles the exact clockIn shortly after; this makes the flip instant
+    /// and consistent with the flags.
+    func markPayClockedInLocally(at start: Date) {
+        guard let personId = currentPersonId,
+              let idx = people.firstIndex(where: { $0.id == personId }) else { return }
+        var newPeople = people
+        newPeople[idx].activeClockIn = ActiveClockIn(
+            clockIn: ISO8601DateFormatter().string(from: start),
+            jobRefs: [], events: [], source: "ios-app")
+        people = newPeople
+        clockChangeAt = Date()
+    }
+
+    /// Restore the pay clock's in-memory field to a prior value — undoes the
+    /// optimistic clock-in mark when the server call fails.
+    private func restorePayClockField(_ prev: ActiveClockIn?) {
+        guard let personId = currentPersonId,
+              let idx = people.firstIndex(where: { $0.id == personId }) else { return }
+        var newPeople = people
+        newPeople[idx].activeClockIn = prev
+        people = newPeople
+    }
+
     func jobClockOut() async {
         guard let api, let personId = currentPersonId else { return }
 
@@ -1479,26 +1509,34 @@ class AppState {
         guard let api, let personId = currentPersonId, !isPayClocking else { return false }
         guard canClockInOut else { return false }   // worker permission gate
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
+        let prevClock = currentPerson?.activeClockIn
         isPayClocking = true
-        defer { isPayClocking = false }
-        // Optimistic — flip on the same frame.
+        clockActionLabel = "Clocking In…"
+        defer { isPayClocking = false; clockActionLabel = nil }
+        // Optimistic — flip the flags AND the canonical activeClockIn field on the
+        // same frame so every reader (TimeClockView's flag-based CTA and the Home
+        // card's field-based status/timer) shows clocked-in instantly instead of
+        // flickering "offline" for the duration of the request.
+        let now = Date()
         payClockInActive = true
-        payClockInStart = Date()
+        payClockInStart = now
         payClockInSource = "ios-app"
+        markPayClockedInLocally(at: now)
         clockChangeAt = Date()
         do {
             try await api.payClockIn(personId: personId, pin: pin)
-            // Optimistic flag already set; server publishes a "people" Ably change
-            // → delta-sync reconciles. Just persist the optimistic clock to cache.
+            // Optimistic state already set; server publishes a "people" Ably change
+            // → delta-sync reconciles the exact clockIn. Just persist to cache.
             await persistClockChangeToCache()
         } catch APIError.httpError(409) {
-            // Already clocked in (possibly via kiosk). No state change on the
-            // server (no Ably event) → delta-sync to pull the existing shift.
+            // Already clocked in (possibly via kiosk). Pull the real shift and
+            // align — the optimistic mark is replaced by the server's truth.
             await deltaSyncNow()
             await persistClockChangeToCache()
             reconcilePayClock(force: true)
         } catch APIError.httpError(401) {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            restorePayClockField(prevClock)
             clockChangeAt = Date()
             // When a PIN was supplied, a 401 means the PIN was wrong (not an auth
             // expiry) — surface that instead of the generic session message.
@@ -1508,11 +1546,13 @@ class AppState {
         } catch APIError.httpError(400) {
             // Server rejected the request — most likely "PIN required".
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            restorePayClockField(prevClock)
             clockChangeAt = Date()
             clockError = "PIN required."
             return false
         } catch {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            restorePayClockField(prevClock)
             clockChangeAt = Date()
             clockError = "Failed to clock in for pay: \(error.localizedDescription)"
             return false
@@ -1532,7 +1572,8 @@ class AppState {
         }
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         isPayClocking = true
-        defer { isPayClocking = false }
+        clockActionLabel = "Clocking Out…"
+        defer { isPayClocking = false; clockActionLabel = nil }
         payClockInActive = false
         payClockInStart = nil
         payClockInSource = nil

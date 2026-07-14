@@ -1,5 +1,35 @@
 import SwiftUI
 
+// MARK: - TRAQS Loading Overlay
+// Full-screen, TRAQS-styled blocking loading indicator. Shown during an async
+// action that would otherwise leave the screen looking frozen (clock in/out).
+// Driven by a non-nil message; the call site animates it in/out.
+struct TRAQSLoadingOverlay: View {
+    let message: String
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView()
+                    .controlSize(.large)
+                    .tint(Color(hex: T.sky))
+                Text(message)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.ink))
+            }
+            .padding(.vertical, 30)
+            .padding(.horizontal, 44)
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(hex: T.surface)))
+            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+            .shadow(color: .black.opacity(0.28), radius: 26, y: 12)
+        }
+        // Swallow taps so the underlying screen can't be poked mid-action.
+        .contentShape(Rectangle())
+        .onTapGesture { }
+    }
+}
+
 // MARK: - TRAQS Wordmark (image asset)
 // Uses the official brand wordmark PNG from Assets.xcassets. `size` is the
 // rendered HEIGHT in points; aspect ratio is preserved.

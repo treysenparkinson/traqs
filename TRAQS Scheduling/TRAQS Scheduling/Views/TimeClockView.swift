@@ -43,7 +43,7 @@ struct TimeClockView: View {
                   ScrollView {
                     VStack(spacing: 0) {
 
-                        PageTitle(title: "Hours", subtitle: periodLabel)
+                        PageTitle(title: "Time Clock", subtitle: periodLabel)
                             .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 10)
 
