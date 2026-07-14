@@ -107,6 +107,17 @@ export async function handler(event) {
         const { hasPin: _hp, ...pIn } = p;
         let np = (stored?.pin && !pIn.pin) ? { ...pIn, pin: stored.pin } : pIn;
         np = withBreakStart(np, stored);
+        // Clock state is SERVER-AUTHORITATIVE — only the timeclock functions
+        // (clockIn/clockOut/jobClockIn/jobClockOut/admin*) may set or clear it.
+        // A general people POST must never carry it back, or a client holding a
+        // stale roster (esp. iOS, whose sync lags across a WKWebView background/
+        // foreground cycle) would clobber a clock-out done elsewhere and resurrect
+        // a finished shift — corrupting payroll hours. Always keep whatever the
+        // server currently stores; ignore the incoming activeClockIn/activeJobClock.
+        // (Same class of bug the activeBreak handling above already guards against.)
+        if (stored) {
+          np = { ...np, activeClockIn: stored.activeClockIn ?? null, activeJobClock: stored.activeJobClock ?? null };
+        }
         // Store PINs reversibly encrypted. encryptPin is idempotent (leaves an
         // already-encrypted value as-is), so a newly-typed plaintext PIN gets
         // encrypted and any legacy plaintext PIN preserved above is upgraded in

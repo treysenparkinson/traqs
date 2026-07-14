@@ -1386,6 +1386,27 @@ class AppState {
         clockChangeAt = Date()
     }
 
+    /// Synchronous clear of the PAY clock's canonical in-memory field, mirroring
+    /// `markJobClockedOutLocally`. `payClockOut` clears only the observable
+    /// `payClockIn*` flags; but the Home screen's shift card reads
+    /// `currentPerson.activeClockIn` DIRECTLY (`myShiftStatus`/`liveShiftHours`),
+    /// as do `payOnLunch`, `isClockedInForPay`, and the admin presence board. The
+    /// success path used to refresh in-memory `people` via a post-mutation
+    /// `loadAll()` GET, but that was retired (cache-only `persistClockChangeToCache`
+    /// replaced it), so nothing cleared this field — leaving a finished shift
+    /// "stuck" clocked-in with a climbing timer until a pull-to-refresh/cold
+    /// launch. Clearing it here keeps every direct-field reader honest.
+    func markPayClockedOutLocally() {
+        guard let personId = currentPersonId else { return }
+        if let idx = people.firstIndex(where: { $0.id == personId }),
+           people[idx].activeClockIn != nil {
+            var newPeople = people
+            newPeople[idx].activeClockIn = nil
+            people = newPeople
+        }
+        clockChangeAt = Date()
+    }
+
     func jobClockOut() async {
         guard let api, let personId = currentPersonId else { return }
 
@@ -1518,6 +1539,11 @@ class AppState {
         clockChangeAt = Date()
         do {
             try await api.payClockOut(personId: personId)
+            // Clear the canonical in-memory activeClockIn too — not just the
+            // payClockIn* flags — so the Home screen's shift card (which reads
+            // currentPerson.activeClockIn directly) flips to clocked-out instead
+            // of sticking on a live shift. See markPayClockedOutLocally.
+            markPayClockedOutLocally()
             // Optimistic clear already applied; server publishes a "people" Ably
             // change → delta-sync reconciles. Persist the optimistic state to cache.
             await persistClockChangeToCache()
@@ -1525,8 +1551,10 @@ class AppState {
             // delta-sync entity) so the period total reflects it.
             await refreshTimeclock(personId: personId)
         } catch APIError.httpError(409) {
+            // Server says already clocked out — align local truth to it.
             await deltaSyncNow()
             await persistClockChangeToCache()
+            markPayClockedOutLocally()
             reconcilePayClock(force: true)
         } catch APIError.httpError(401) {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
