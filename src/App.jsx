@@ -467,6 +467,7 @@ const CLOCK_MODE_META = {
 
 function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdminLogin, onSwitch, onRefresh }) {
   const [clockMode, setClockMode] = useState(null); // null | "clockIn" | "clockOut" | "lunchStart" | "lunchEnd" | "breakStart" | "breakEnd"
+  const [view, setView] = useState("login"); // "login" (roster sign-in) | "clock" (clock in/out kiosk) — toggled bottom-right
   const [pinValue, setPinValue] = useState("");
   const [pinError, setPinError] = useState("");
   const [pinLoading, setPinLoading] = useState(false);
@@ -558,7 +559,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
     <>
       <div style={PAGE}>
         <div style={{ ...CARD, maxWidth: 520 }}>
-          <LogoHeader subtitle="Who are you?" />
+          <LogoHeader subtitle={view === "clock" ? "Clock In / Out" : "Who are you?"} />
           <div style={CARD_BODY}>
             <div style={{ textAlign: "center", marginBottom: 20 }}>
               <div style={{
@@ -571,7 +572,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               </div>
             </div>
 
-            {teamPeople.length === 0 ? (
+            {view === "login" && (teamPeople.length === 0 ? (
               <div style={{ textAlign: "center", padding: "24px 0" }}>
                 <div style={{ fontSize: 14, color: "#64748b", marginBottom: 16 }}>No team members yet.</div>
                 <BtnPrimary type="button" onClick={onAdminLogin}>Admin Login</BtnPrimary>
@@ -681,24 +682,32 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                   )}
                 </div>
               );
-            })()}
+            })())}
 
-            <div style={{ marginTop: 24, display: "flex", gap: 10 }}>
-              <button
-                type="button"
-                onClick={() => openClock("clockIn")}
-                style={{ flex: 1, padding: "12px 0", background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 10, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", boxShadow: "0 4px 16px rgba(16,185,129,0.3)", transition: "all 0.2s" }}
-                onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(16,185,129,0.45)"; }}
-                onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 4px 16px rgba(16,185,129,0.3)"; }}
-              >Clock In</button>
-              <button
-                type="button"
-                onClick={() => openClock("clockOut")}
-                style={{ flex: 1, padding: "12px 0", background: "#ffffff", border: "1.5px solid rgba(239,68,68,0.4)", borderRadius: 10, color: "#ef4444", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", transition: "all 0.2s" }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.8)"; e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)"; e.currentTarget.style.background = "#ffffff"; }}
-              >Clock Out</button>
-            </div>
+            {view === "clock" && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                <button
+                  type="button"
+                  onClick={() => openClock("clockIn")}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 0", width: "100%", background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 16, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(16,185,129,0.32)", transition: "all 0.2s" }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 30px rgba(16,185,129,0.45)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(16,185,129,0.32)"; }}
+                >
+                  <span style={{ fontSize: 26, fontWeight: 800, letterSpacing: "0.01em" }}>Clock In</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, opacity: 0.9 }}>Start your shift</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openClock("clockOut")}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 0", width: "100%", background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 16, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(239,68,68,0.32)", transition: "all 0.2s" }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 30px rgba(239,68,68,0.45)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(239,68,68,0.32)"; }}
+                >
+                  <span style={{ fontSize: 26, fontWeight: 800, letterSpacing: "0.01em" }}>Clock Out</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, opacity: 0.9 }}>End shift, lunch or break</span>
+                </button>
+              </div>
+            )}
 
             <div style={{ textAlign: "center", marginTop: 16 }}>
               <button style={LINK_BTN} onClick={onSwitch}>Switch organization</button>
@@ -706,6 +715,23 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
           </div>
           <div style={CARD_FOOTER}>Org code: {orgCode} · Secured by Auth0</div>
         </div>
+      </div>
+
+      {/* Lower-right toggle: switch between the roster sign-in and the clock-in/out kiosk */}
+      <div style={{ position: "fixed", right: 20, bottom: 20, zIndex: 50, display: "flex", gap: 4, padding: 4, background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 999, boxShadow: "0 8px 24px rgba(15,23,42,0.14)", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+        {[["login", "Log In"], ["clock", "Clock In"]].map(([key, label]) => {
+          const active = view === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setView(key)}
+              style={{ border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700, padding: "9px 18px", borderRadius: 999, color: active ? "#fff" : "#64748b", background: active ? "linear-gradient(135deg, #4169e1, #06b6d4)" : "transparent", boxShadow: active ? "0 4px 14px rgba(65,105,225,0.33)" : "none", transition: "all 0.18s" }}
+            >
+              {label}
+            </button>
+          );
+        })}
       </div>
 
       {clockMode && (() => {
