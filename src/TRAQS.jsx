@@ -7185,17 +7185,6 @@ ${jobsCtx || "No jobs found."}`;
                   </div>;
                 });
               })()}
-              {/* Overdue overrun — an unfinished job past its end date keeps visually
-                  extending to today (derived; stored dates unchanged). The hatched
-                  tail encroaches on whatever is scheduled after it. */}
-              {r.status !== "Finished" && r.end < TD && r.end >= gStart && TD >= gStart && (() => {
-                const startX = dToX(r.end) + cW - 6;
-                const endX = dToX(TD > gEnd ? gEnd : TD) + cW - 6;
-                const w = endX - startX;
-                if (w <= 2) return null;
-                const c = r.color || T.accent;
-                return <div title="Overdue — not yet completed" style={{ position: "absolute", top: 8, left: startX, width: w, height: rH - 16, borderRadius: T.radiusXs, background: `repeating-linear-gradient(45deg, ${c}26, ${c}26 6px, ${c}0d 6px, ${c}0d 12px)`, border: `1.5px dashed ${c}aa`, borderLeft: "none", pointerEvents: "none", zIndex: 3 }} />;
-              })()}
             </div>
           </div>; })}
           {/* SVG arrows */}
@@ -11114,17 +11103,6 @@ ${jobsCtx || "No jobs found."}`;
                   let _wRemainingBudget = Math.max(0, _wBudget - _wFirst);
                   // "NEW" badge — show on bars whose parent job was created within the last 24h.
                   const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
-                  // Overdue overrun (derived, no stored-date change): an unfinished bar
-                  // past its visual end keeps extending to today, visibly encroaching
-                  // on whatever is scheduled after it on this person's lane.
-                  const _overdueOverrun = (!isPto && bar.type !== "eng-chip" && bar.status !== "Finished" && _segsEnd < TD && TD >= tStart) ? (() => {
-                    const _rightPct = (diffD(tStart, _segsEnd) + 1) / nDays * 100;
-                    const _todayEnd = TD > tEnd ? tEnd : TD;
-                    const _wPct = ((diffD(tStart, _todayEnd) + 1) / nDays * 100) - _rightPct;
-                    if (_wPct <= 0.3) return null;
-                    const _oc = bar.color;
-                    return <div key={bar.id + "_overrun"} title="Overdue — not yet completed" style={{ position: "absolute", top: 4, left: _rightPct + "%", width: _wPct + "%", height: rH - 8, borderRadius: T.radiusXs, background: `repeating-linear-gradient(45deg, ${_oc}26, ${_oc}26 6px, ${_oc}0d 6px, ${_oc}0d 12px)`, border: `2px dashed ${_oc}aa`, borderLeft: "none", pointerEvents: "none", zIndex: 3 }} />;
-                  })() : null;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
@@ -11175,7 +11153,7 @@ ${jobsCtx || "No jobs found."}`;
                       })()}
                       {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
-                  }), _overdueOverrun];
+                  })];
                 })}
               </div>
             </div>;
