@@ -6007,6 +6007,48 @@ ${jobsCtx || "No jobs found."}`;
     setFinishDeclineState(prev => { const n = { ...prev }; delete n[requestId]; return n; });
   };
 
+  // Undo an approved completion — reopen the job so it returns to the schedule
+  // (the gantt hides only Finished items, so reopening re-adds it). Best-effort:
+  // finished items go back to "In Progress" since prior statuses aren't stored.
+  const adminUndoJobFinish = async (jobId, panelId, opId, requestId) => {
+    if (!isAdmin || !loggedInUser) return;
+    const job = tasks.find(t => t.id === jobId);
+    if (!job) return;
+    const jobLevel = !panelId && !opId;
+    const reopen = (item) => ({ ...item, status: item.status === "Finished" ? "In Progress" : item.status, subs: (item.subs || []).map(reopen) });
+    const pendReq = (reqs, item) => {
+      const reqs2 = (reqs || []).map(r => r.id !== requestId ? r : { id: r.id, by: r.by, byName: r.byName, at: r.at, status: "pending" });
+      const e = reqs2.find(r => r.id === requestId);
+      return { finishRequests: reqs2, finishRequest: e ? { requestId: e.id, by: e.by, byName: e.byName, at: e.at } : item.finishRequest };
+    };
+    let newTasks, label;
+    if (jobLevel) {
+      newTasks = tasks.map(t => t.id !== jobId ? t : { ...reopen(t), ...pendReq(t.finishRequests, t) });
+      label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
+    } else {
+      const panel = (job.subs || []).find(s => s.id === panelId);
+      if (!panel) return;
+      const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
+      if (!target) return;
+      const updateItem = (items, targetId) => items.map(item => {
+        if (item.id === targetId) return { ...item, status: item.status === "Finished" ? "In Progress" : item.status, ...pendReq(item.finishRequests, item) };
+        if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
+        return item;
+      });
+      newTasks = updateItem(tasks, opId || panelId);
+      label = opId ? `${panel.title} › ${target.title}` : target.title;
+    }
+    setTasks(newTasks);
+    saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    const grp = await ensureCompletionGroup();
+    postMessage({
+      threadKey: `group:${grp.id}`, scope: "group", jobId,
+      text: `Completion undone by ${loggedInUser.name} — "${label}" reopened and back on the schedule.`,
+      authorId: loggedInUser.id, authorName: loggedInUser.name,
+      authorColor: elColor(loggedInUser.color) || "#64748b", participantIds: grp.memberIds, attachments: [],
+    }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
+  };
+
   async function sendReminder(item, note) {
     if (!loggedInUser || reminderSending) return;
     setReminderSending(true);
@@ -7142,6 +7184,17 @@ ${jobsCtx || "No jobs found."}`;
                     <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{isFirst && hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{(isFirst || w > 80) ? label : ""}</span>
                   </div>;
                 });
+              })()}
+              {/* Overdue overrun — an unfinished job past its end date keeps visually
+                  extending to today (derived; stored dates unchanged). The hatched
+                  tail encroaches on whatever is scheduled after it. */}
+              {r.status !== "Finished" && r.end < TD && r.end >= gStart && TD >= gStart && (() => {
+                const startX = dToX(r.end) + cW - 6;
+                const endX = dToX(TD > gEnd ? gEnd : TD) + cW - 6;
+                const w = endX - startX;
+                if (w <= 2) return null;
+                const c = r.color || T.accent;
+                return <div title="Overdue — not yet completed" style={{ position: "absolute", top: 8, left: startX, width: w, height: rH - 16, borderRadius: T.radiusXs, background: `repeating-linear-gradient(45deg, ${c}26, ${c}26 6px, ${c}0d 6px, ${c}0d 12px)`, border: `1.5px dashed ${c}aa`, borderLeft: "none", pointerEvents: "none", zIndex: 3 }} />;
               })()}
             </div>
           </div>; })}
@@ -11061,6 +11114,17 @@ ${jobsCtx || "No jobs found."}`;
                   let _wRemainingBudget = Math.max(0, _wBudget - _wFirst);
                   // "NEW" badge — show on bars whose parent job was created within the last 24h.
                   const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
+                  // Overdue overrun (derived, no stored-date change): an unfinished bar
+                  // past its visual end keeps extending to today, visibly encroaching
+                  // on whatever is scheduled after it on this person's lane.
+                  const _overdueOverrun = (!isPto && bar.type !== "eng-chip" && bar.status !== "Finished" && _segsEnd < TD && TD >= tStart) ? (() => {
+                    const _rightPct = (diffD(tStart, _segsEnd) + 1) / nDays * 100;
+                    const _todayEnd = TD > tEnd ? tEnd : TD;
+                    const _wPct = ((diffD(tStart, _todayEnd) + 1) / nDays * 100) - _rightPct;
+                    if (_wPct <= 0.3) return null;
+                    const _oc = bar.color;
+                    return <div key={bar.id + "_overrun"} title="Overdue — not yet completed" style={{ position: "absolute", top: 4, left: _rightPct + "%", width: _wPct + "%", height: rH - 8, borderRadius: T.radiusXs, background: `repeating-linear-gradient(45deg, ${_oc}26, ${_oc}26 6px, ${_oc}0d 6px, ${_oc}0d 12px)`, border: `2px dashed ${_oc}aa`, borderLeft: "none", pointerEvents: "none", zIndex: 3 }} />;
+                  })() : null;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
@@ -11111,7 +11175,7 @@ ${jobsCtx || "No jobs found."}`;
                       })()}
                       {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
-                  })];
+                  }), _overdueOverrun];
                 })}
               </div>
             </div>;
@@ -14694,7 +14758,7 @@ ${jobsCtx || "No jobs found."}`;
                               <span style={{ flex: 1 }}>View Job Details</span>
                               <span style={{ display: "inline-block", transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}>▾</span>
                             </button>
-                            {isExpanded && <div style={{ marginBottom: 12, animation: "slideUp 0.15s ease-out" }}>
+                            <div style={{ display: "grid", gridTemplateRows: isExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.28s cubic-bezier(0.22,1,0.36,1)" }}><div style={{ overflow: "hidden", minHeight: 0 }}><div style={{ marginBottom: 12 }}>
                               {/* Key fields grid */}
                               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", marginBottom: 10, padding: "12px 14px", background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>
                                 {[
@@ -14730,7 +14794,7 @@ ${jobsCtx || "No jobs found."}`;
                                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Notes</div>
                                 <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{frJob.notes}</div>
                               </div>}
-                            </div>}
+                            </div></div></div>
                           </>}
                           {/* Resolution card — shown after decision */}
                           {(isApproved || isDeclined) && <div style={{ padding: "12px 14px", borderRadius: T.radiusXs, background: isApproved ? "#10b98110" : "#ef444410", border: `1px solid ${isApproved ? "#10b98130" : "#ef444430"}`, marginBottom: 4 }}>
@@ -14739,6 +14803,11 @@ ${jobsCtx || "No jobs found."}`;
                             </div>
                             {isDeclined && frReq.declineReason && <div style={{ fontSize: 12, color: T.textSec, marginTop: 4 }}>Reason: {frReq.declineReason}</div>}
                           </div>}
+                          {/* Undo — admin only, after approval: reopens the job so it returns to the schedule */}
+                          {isAdmin && isApproved && <button onClick={() => adminUndoJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginTop: 4 }}>
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.86"/></svg>
+                            Undo — reopen job
+                          </button>}
                           {/* Approve / Decline buttons — admin only, pending only */}
                           {isAdmin && isPending && (() => {
                             if (frDecState.showInput) {

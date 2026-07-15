@@ -2057,6 +2057,19 @@ struct CompletionRequestBubble: View {
                     .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
             }
 
+            // Undo an approval — reopen the job (in case it needs to come back).
+            if appState.isAdmin && status == "approved" {
+                Button { undo() } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.uturn.backward")
+                        Text("Undo — reopen job")
+                    }
+                    .font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.accent))
+                    .frame(maxWidth: .infinity).padding(.vertical, 11)
+                    .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.accent).opacity(0.5), lineWidth: 1))
+                }.buttonStyle(.plain).disabled(busy)
+            }
+
             if appState.isAdmin && pending {
                 HStack(spacing: 10) {
                     Button { decide(false) } label: {
@@ -2083,6 +2096,15 @@ struct CompletionRequestBubble: View {
         Task {
             if approve { await appState.approveJobCompletion(jobId: jobId, requestId: reqId) }
             else { await appState.denyJobCompletion(jobId: jobId, requestId: reqId) }
+            busy = false
+        }
+    }
+
+    private func undo() {
+        guard let jobId = message.jobId, let reqId = message.finishRequestId else { return }
+        busy = true
+        Task {
+            await appState.undoJobCompletion(jobId: jobId, requestId: reqId)
             busy = false
         }
     }

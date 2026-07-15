@@ -921,6 +921,39 @@ class AppState {
         await postCompletionResolution(jobId: jobId, job: job, approved: false)
     }
 
+    /// Admin undoes an approved completion → reopen the whole job (best-effort:
+    /// finished panels/ops go back to In Progress since prior statuses aren't
+    /// stored) and return the request to pending so it can be re-approved.
+    func undoJobCompletion(jobId: String, requestId: String) async {
+        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        var job = jobs[idx]
+        job.status = .inProgress
+        job.subs = job.subs.map { p in
+            var p = p
+            if p.status == .finished { p.status = .inProgress }
+            p.subs = p.subs.map { o in var o = o; if o.status == .finished { o.status = .inProgress }; return o }
+            return p
+        }
+        job.finishRequests = (job.finishRequests ?? []).map { e in
+            guard e.id == requestId else { return e }
+            var e = e; e.status = "pending"; e.resolvedBy = nil; e.resolvedByName = nil; e.resolvedAt = nil
+            return e
+        }
+        if let entry = job.finishRequests?.first(where: { $0.id == requestId }) {
+            job.finishRequest = FinishRequestStamp(requestId: entry.id, by: entry.by, byName: entry.byName, at: entry.at)
+        }
+        updateJob(job)
+        guard let grp = groups.first(where: { $0.name == "Completion Requests" }) else { return }
+        let jobNumTxt = job.jobNumber.map { " #\($0)" } ?? ""
+        let msg = Message(
+            id: UUID().uuidString, threadKey: "group:\(grp.id)", scope: "group",
+            jobId: jobId, panelId: nil, opId: nil,
+            text: "Completion undone by \(me.name) — \"\(job.title)\(jobNumTxt)\" reopened.",
+            authorId: me.id, authorName: me.name, authorColor: me.color,
+            participantIds: grp.memberIds, attachments: [], timestamp: Date.nowISO())
+        _ = try? await sendMessageThrowing(msg)
+    }
+
     private func postCompletionResolution(jobId: String, job: Job, approved: Bool) async {
         guard let me = currentPerson,
               let grp = groups.first(where: { $0.name == "Completion Requests" }) else { return }

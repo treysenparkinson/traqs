@@ -1060,7 +1060,7 @@ struct TaskCardV1: View {
                     Spacer(minLength: 6)
                     // 3-dot Liquid-Glass menu (replaces the old date + chevron).
                     Menu {
-                        Button { onOpen() } label: { Label("Information", systemImage: "info.circle") }
+                        Button { onOpen() } label: { Label("Job Details", systemImage: "info.circle") }
                         Divider()
                         Button { onRequestCompletion() } label: { Label("Request Completion", systemImage: "checkmark.seal") }
                     } label: {
