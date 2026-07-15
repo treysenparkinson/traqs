@@ -203,17 +203,63 @@ struct TasksView: View {
     /// there are other jobs, so a fully-personal view keeps its old look.
     @ViewBuilder
     private func rangeContent(_ range: Range<Date>, label: String) -> some View {
-        // Only the current user's own scheduled / assigned work — no ALL JOBS.
-        // (The "TUE · JUN 30 · N TASKS" summary line was removed; `label` is
-        // kept on the signature so the segment callers don't need changing.)
+        // Top: the user's own scheduled work (Today) + started work (In Progress).
+        // Bottom: every other non-finished job as a collapsible "All Jobs" card.
         let mine = tasks(in: range)
-        taskList(mine)
+        let others = allJobsList
+        return VStack(spacing: 16) {
+            taskList(mine)
+            if !others.isEmpty {
+                sectionHeader("All Jobs").padding(.horizontal, 16)
+                VStack(spacing: 12) {
+                    ForEach(others) { job in
+                        AllJobsCard(job: job, panels: panelsFor(job))
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    /// Every non-finished job the user is NOT assigned to (search-filtered),
+    /// shown in the "All Jobs" browse section regardless of date.
+    private var allJobsList: [Job] {
+        let q = searchText.lowercased()
+        return appState.jobs.filter { job in
+            if job.status == .finished { return false }
+            if isMineJob(job) { return false }
+            if !q.isEmpty {
+                let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
+                if !hay.contains(q) { return false }
+            }
+            return true
+        }
+        .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    /// A job's panels as TaskAssignments (not the current user's) for the
+    /// collapsible All Jobs card.
+    private func panelsFor(_ job: Job) -> [TaskAssignment] {
+        job.subs.map { TaskAssignment(job: job, panel: $0, op: nil, isMine: false) }
+    }
+
+    /// Header label for the top (scheduled-window) section.
+    private var windowLabel: String {
+        switch segment {
+        case .today: return "Today"
+        case .week:  return "This Week"
+        case .month: return "This Month"
+        case .year:  return "This Year"
+        }
     }
 
     @ViewBuilder
     private func taskList(_ tasks: [TaskAssignment]) -> some View {
         // The active task is pinned as the hero above the toggle, so drop it here.
         let rows = tasks.filter { $0.id != activeTaskId }
+        // Two groups: today's scheduled work up top, started (in-progress) work below.
+        let inProgress = rows.filter { $0.status == .inProgress }
+        let scheduled = rows.filter { $0.status != .inProgress }
         return Group {
             if rows.isEmpty {
                 VStack(spacing: 6) {
@@ -222,17 +268,31 @@ struct TasksView: View {
                 }
                 .padding(.horizontal, 16).padding(.top, 8)
             } else {
-                VStack(spacing: 12) {
-                    ForEach(rows) { task in
-                        NavigationLink(value: task.job) {
-                            TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
-                        }
-                        .buttonStyle(.plain)
+                VStack(spacing: 16) {
+                    if !scheduled.isEmpty {
+                        sectionHeader(windowLabel).padding(.horizontal, 16)
+                        cardStack(scheduled)
+                    }
+                    if !inProgress.isEmpty {
+                        sectionHeader("In Progress").padding(.horizontal, 16)
+                        cardStack(inProgress)
                     }
                 }
-                .padding(.horizontal, 16)
             }
         }
+    }
+
+    @ViewBuilder
+    private func cardStack(_ items: [TaskAssignment]) -> some View {
+        VStack(spacing: 12) {
+            ForEach(items) { task in
+                NavigationLink(value: task.job) {
+                    TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16)
     }
 
     /// Surfaces what the iOS app actually has in `appState.jobs` and how it's
@@ -334,11 +394,16 @@ struct TasksView: View {
         return s < range.upperBound && e >= range.lowerBound
     }
 
-    /// My assignments whose date range overlaps `range`, sorted by start.
+    /// My assignments to show, sorted by start. A task shows if it's scheduled
+    /// within `range` (e.g. today) — EXCEPT a started (in-progress) task stays on
+    /// screen until it's complete, regardless of its scheduled window, and a
+    /// finished task drops off.
     private func tasks(in range: Range<Date>) -> [TaskAssignment] {
-        myTasks.filter {
-            guard let s = $0.startDate, let e = $0.endDate else { return false }
-            return s < range.upperBound && e >= range.lowerBound
+        myTasks.filter { t in
+            if t.status == .finished { return false }            // complete → gone
+            if t.status == .inProgress { return true }           // started → stays until complete
+            guard let s = t.startDate, let e = t.endDate else { return false }
+            return s < range.upperBound && e >= range.lowerBound // otherwise: only within the window
         }
         .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
     }
