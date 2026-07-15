@@ -903,7 +903,7 @@ class AppState {
             return e
         }
         updateJob(job)
-        await postCompletionResolution(jobId: jobId, job: job, approved: true)
+        await notifyCompletionResolution(job: job, requestId: requestId, outcome: "approved")
     }
 
     /// Admin denies a completion request → job stays active/overdue.
@@ -918,7 +918,7 @@ class AppState {
             return e
         }
         updateJob(job)
-        await postCompletionResolution(jobId: jobId, job: job, approved: false)
+        await notifyCompletionResolution(job: job, requestId: requestId, outcome: "declined")
     }
 
     /// Admin undoes an approved completion → reopen the whole job (best-effort:
@@ -980,30 +980,26 @@ class AppState {
             }
         }
         updateJob(job)
-        guard let grp = groups.first(where: { $0.name == "Completion Requests" }) else { return }
-        let jobNumTxt = job.jobNumber.map { " #\($0)" } ?? ""
-        let msg = Message(
-            id: UUID().uuidString, threadKey: "group:\(grp.id)", scope: "group",
-            jobId: jobId, panelId: nil, opId: nil,
-            text: "Completion undone by \(me.name) — \"\(job.title)\(jobNumTxt)\" reopened.",
-            authorId: me.id, authorName: me.name, authorColor: me.color,
-            participantIds: grp.memberIds, attachments: [], timestamp: Date.nowISO())
-        _ = try? await sendMessageThrowing(msg)
+        await notifyCompletionResolution(job: job, requestId: requestId, outcome: "reopened")
     }
 
-    private func postCompletionResolution(jobId: String, job: Job, approved: Bool) async {
-        guard let me = currentPerson,
-              let grp = groups.first(where: { $0.name == "Completion Requests" }) else { return }
-        let jobNumTxt = job.jobNumber.map { " #\($0)" } ?? ""
-        let verb = approved ? "approved" : "declined"
-        let tail = approved ? " is now Finished." : "."
-        let msg = Message(
-            id: UUID().uuidString, threadKey: "group:\(grp.id)", scope: "group",
-            jobId: jobId, panelId: nil, opId: nil,
-            text: "Completion request \(verb) by \(me.name). \"\(job.title)\(jobNumTxt)\"\(tail)",
-            authorId: me.id, authorName: me.name, authorColor: me.color,
-            participantIds: grp.memberIds, attachments: [], timestamp: Date.nowISO())
-        _ = try? await sendMessageThrowing(msg)
+    /// Push (not a chat message) telling the requester their completion request was
+    /// resolved. outcome: "approved" | "declined" | "reopened".
+    private func notifyCompletionResolution(job: Job, requestId: String, outcome: String) async {
+        guard let api,
+              let entry = job.finishRequests?.first(where: { $0.id == requestId }) else { return }
+        let by = currentPerson?.name ?? "An admin"
+        try? await api.sendNotification(NotifyPayload(
+            type: "completion_resolved",
+            jobTitle: job.title,
+            jobNumber: job.jobNumber,
+            panelTitle: "",
+            stepLabel: outcome,
+            jobTeamIds: [],
+            newTeamIds: [entry.by],
+            clientName: nil,
+            approvedByName: by
+        ))
     }
 
     // MARK: - Messages

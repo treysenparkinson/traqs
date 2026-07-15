@@ -36,9 +36,7 @@ struct TasksView: View {
                 // hero; excluded from the lists below so it isn't shown twice.
                 if let activeTask {
                     NavigationLink(value: activeTask.job) {
-                        TaskCardV1(task: activeTask,
-                                   onOpen: { onOpenJob(activeTask.job) },
-                                   onRequestCompletion: { Task { await appState.requestJobCompletion(jobId: activeTask.job.id) } })
+                        TaskCardV1(task: activeTask, onOpen: { onOpenJob(activeTask.job) })
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
@@ -227,9 +225,7 @@ struct TasksView: View {
                 VStack(spacing: 12) {
                     ForEach(rows) { task in
                         NavigationLink(value: task.job) {
-                            TaskCardV1(task: task,
-                                       onOpen: { onOpenJob(task.job) },
-                                       onRequestCompletion: { Task { await appState.requestJobCompletion(jobId: task.job.id) } })
+                            TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
                         }
                         .buttonStyle(.plain)
                     }
@@ -903,8 +899,8 @@ struct TaskCardV1: View {
     /// Menu "Information" action — open the job's detail (default no-op for the
     /// dead AllJobsCard call site, which still wraps the card in a NavigationLink).
     var onOpen: () -> Void = {}
-    /// Menu "Request Completion" action.
-    var onRequestCompletion: () -> Void = {}
+    /// Request Completion send-feedback phase: 0 idle · 1 sending · 2 sent.
+    @State private var reqPhase = 0
     @State private var showLogConfirm = false
     @State private var showClockInRequired = false
     @State private var isStopping = false
@@ -1062,7 +1058,7 @@ struct TaskCardV1: View {
                     Menu {
                         Button { onOpen() } label: { Label("Job Details", systemImage: "info.circle") }
                         Divider()
-                        Button { onRequestCompletion() } label: { Label("Request Completion", systemImage: "checkmark.seal") }
+                        Button { requestCompletion() } label: { Label("Request Completion", systemImage: "checkmark.seal") }
                     } label: {
                         Image(systemName: "ellipsis")
                             .font(.system(size: 15, weight: .bold))
@@ -1175,6 +1171,38 @@ struct TaskCardV1: View {
             Text(appState.myActiveBreak != nil
                  ? "You'll go back to working on the job."
                  : "Your job timer keeps running while you're on break.")
+        }
+        // Request Completion send feedback — Sending… then an animated Sent ✓.
+        .overlay {
+            if reqPhase != 0 {
+                ZStack {
+                    RoundedRectangle(cornerRadius: T.cornerHero).fill(.ultraThinMaterial)
+                    VStack(spacing: 10) {
+                        if reqPhase == 1 {
+                            ProgressView().controlSize(.large)
+                            Text("Sending…").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.muted))
+                        } else {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 42, weight: .semibold))
+                                .foregroundStyle(Color(hex: "#10b981"))
+                                .transition(.scale.combined(with: .opacity))
+                            Text("Sent").font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink))
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+    }
+
+    private func requestCompletion() {
+        guard reqPhase == 0 else { return }
+        withAnimation(.easeOut(duration: 0.2)) { reqPhase = 1 }
+        Task {
+            await appState.requestJobCompletion(jobId: task.job.id)
+            await MainActor.run { withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { reqPhase = 2 } }
+            try? await Task.sleep(nanoseconds: 1_600_000_000)
+            await MainActor.run { withAnimation(.easeInOut(duration: 0.25)) { reqPhase = 0 } }
         }
     }
 

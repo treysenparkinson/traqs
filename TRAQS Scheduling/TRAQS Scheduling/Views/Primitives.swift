@@ -728,7 +728,7 @@ struct PageTitle: View {
 // The wireframe's Install / Repair / Inspect / Up-next / On-job / Break / Idle
 // pills. Bright non-brand color lives ONLY here.
 enum TagKind {
-    case indigo, amber, green, sky, magenta, neutral
+    case indigo, amber, green, sky, magenta, red, neutral
     var bg: Color {
         switch self {
         case .indigo:  return Color(hex: T.pillIndigoBg)
@@ -736,6 +736,7 @@ enum TagKind {
         case .green:   return Color(hex: T.pillGreenBg)
         case .sky:     return Color(hex: "#DCEAFD")
         case .magenta: return Color(hex: "#FBE0F2")
+        case .red:     return Color(hex: "#FDE2E2")
         case .neutral: return Color(hex: T.pillNeutralBg)
         }
     }
@@ -746,6 +747,7 @@ enum TagKind {
         case .green:   return Color(hex: T.pillGreenFg)
         case .sky:     return Color(hex: "#2F74E0")
         case .magenta: return Color(hex: "#C026A6")
+        case .red:     return Color(hex: "#DC2626")
         case .neutral: return Color(hex: T.pillNeutralFg)
         }
     }

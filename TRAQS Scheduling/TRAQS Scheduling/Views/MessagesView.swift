@@ -2022,7 +2022,7 @@ struct CompletionRequestBubble: View {
     private var statusPill: (label: String, kind: TagKind, dot: Bool) {
         switch status {
         case "approved": return ("Approved", .green, false)
-        case "declined": return ("Declined", .magenta, false)
+        case "declined": return ("Declined", .red, false)
         default:         return ("Pending", .amber, true)
         }
     }
@@ -2092,7 +2092,7 @@ struct CompletionRequestBubble: View {
 
     private func decide(_ approve: Bool) {
         guard let jobId = message.jobId, let reqId = message.finishRequestId else { return }
-        busy = true
+        busy = true   // disables buttons during the async; status then drives visibility
         Task {
             if approve { await appState.approveJobCompletion(jobId: jobId, requestId: reqId) }
             else { await appState.denyJobCompletion(jobId: jobId, requestId: reqId) }

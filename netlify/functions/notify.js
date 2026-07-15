@@ -58,6 +58,9 @@ export async function handler(event) {
   } else if (type === "finish_request") {
     // Admins only — they need to approve/decline
     targetIds = [...adminIds];
+  } else if (type === "completion_resolved") {
+    // Notify the requester (passed in newTeamIds) that their request was resolved.
+    targetIds = [...new Set((newTeamIds || []).map(id => String(id)))];
   } else {
     // step / ready — admins + full team
     targetIds = [...new Set([...adminIds, ...teamIds])];
@@ -88,6 +91,11 @@ export async function handler(event) {
   } else if (type === "finish_request") {
     heading = `🏁 Finish Request: ${jobLabel}`;
     content = `${requestedByName || "Someone"} has requested to mark "${jobTitle}" as finished. Tap to approve or decline.`;
+  } else if (type === "completion_resolved") {
+    const by = approvedByName || "An admin";
+    if (stepLabel === "approved") { heading = `✅ Completion Approved: ${jobLabel}`; content = `${by} approved completion of "${jobTitle}".`; }
+    else if (stepLabel === "declined") { heading = `❌ Completion Declined: ${jobLabel}`; content = `${by} declined completion of "${jobTitle}".`; }
+    else { heading = `🔄 Completion Reopened: ${jobLabel}`; content = `${by} reopened "${jobTitle}".`; }
   } else {
     return err(400, "Unknown notification type");
   }
