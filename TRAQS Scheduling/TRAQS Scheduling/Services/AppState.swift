@@ -942,17 +942,25 @@ class AppState {
         if let entry = job.finishRequests?.first(where: { $0.id == requestId }) {
             job.finishRequest = FinishRequestStamp(requestId: entry.id, by: entry.by, byName: entry.byName, at: entry.at)
         }
-        // If overdue, pull the whole job forward so it lands back on the current
-        // schedule (a reopened past-dated job would otherwise be culled behind the
-        // gantt's visible window).
+        // If the whole job is in the past (overdue), pull it forward so it lands
+        // back on the current schedule — a reopened past-dated job is otherwise
+        // culled behind the gantt's visible window. Detect overdue from ALL dates
+        // in the tree (job.end alone can be empty/stale) and shift by aligning the
+        // earliest date to the next work day from today.
         let cal = Calendar.current
         let todayStart = cal.startOfDay(for: Date())
-        if let endD = job.end.asDate, endD < todayStart, let startD = job.start.asDate {
+        var allDates: [Date] = []
+        for s in [job.start, job.end] { if let d = s.asDate { allDates.append(d) } }
+        for p in job.subs {
+            for s in [p.start, p.end] { if let d = s.asDate { allDates.append(d) } }
+            for o in p.subs { for s in [o.start, o.end] { if let d = s.asDate { allDates.append(d) } } }
+        }
+        if let maxEnd = allDates.max(), let minStart = allDates.min(), maxEnd < todayStart {
             func isWork(_ d: Date) -> Bool { orgSettings.workDays.contains(cal.component(.weekday, from: d) - 1) }
             var target = todayStart
             var g = 0
             while !isWork(target) && g < 14 { target = cal.date(byAdding: .day, value: 1, to: target) ?? target; g += 1 }
-            let delta = cal.dateComponents([.day], from: cal.startOfDay(for: startD), to: target).day ?? 0
+            let delta = cal.dateComponents([.day], from: minStart, to: target).day ?? 0
             if delta > 0 {
                 let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
                 func shift(_ s: String) -> String { guard let dt = s.asDate else { return s }; return f.string(from: cal.date(byAdding: .day, value: delta, to: dt) ?? dt) }

@@ -6031,11 +6031,16 @@ ${jobsCtx || "No jobs found."}`;
     let newTasks, label;
     if (jobLevel) {
       let reopened = { ...reopen(job), ...pendReq(job.finishRequests, job) };
-      // If the job is overdue (all work in the past), pull it forward so it lands
-      // back on the current schedule as active work to redo — otherwise a reopened
-      // past-dated job stays culled behind the schedule's visible window.
-      if (reopened.end && reopened.end < TD && reopened.start) {
-        const delta = diffD(reopened.start, sNextBD(TD));
+      // If the whole job is in the past (overdue), pull it forward so it lands back
+      // on the current schedule as active work to redo — otherwise a reopened
+      // past-dated job stays culled behind the schedule's visible window. Detect
+      // overdue from ALL dates in the tree (job.end can be stale/empty).
+      const collectDates = (item, acc) => { if (item.start) acc.push(item.start); if (item.end) acc.push(item.end); (item.subs || []).forEach(s => collectDates(s, acc)); return acc; };
+      const ds = collectDates(reopened, []);
+      const maxEnd = ds.length ? ds.reduce((m, x) => x > m ? x : m) : null;
+      const minStart = ds.length ? ds.reduce((m, x) => x < m ? x : m) : null;
+      if (maxEnd && maxEnd < TD && minStart) {
+        const delta = diffD(minStart, sNextBD(TD));
         if (delta > 0) reopened = shiftTree(reopened, delta);
       }
       newTasks = tasks.map(t => t.id !== jobId ? t : reopened);
