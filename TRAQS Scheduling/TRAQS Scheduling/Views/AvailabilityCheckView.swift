@@ -431,10 +431,15 @@ struct AvailabilityCheckSheet: View {
                                 Text(deptLabel)
                                     .font(TTypo.bodyBold(15))
                                     .lineLimit(1)
+                                    .truncationMode(.tail)
                                 Image(systemName: "chevron.up.chevron.down")
                                     .font(.system(size: 11, weight: .semibold))
                             }
                             .foregroundStyle(Color(hex: T.accent))
+                            // Fixed width so toggling a selection (which changes the
+                            // label text) doesn't resize the trigger and make the
+                            // popover re-anchor / jump.
+                            .frame(width: 150, alignment: .trailing)
                         }
                         .buttonStyle(.plain)
                         // A popover stays open across taps (unlike Menu), so you can
@@ -455,7 +460,8 @@ struct AvailabilityCheckSheet: View {
                                 }
                                 .padding(.vertical, 6)
                             }
-                            .frame(minWidth: 260, maxHeight: 360)
+                            .frame(width: 280)
+                            .frame(maxHeight: 360)
                             .presentationCompactAdaptation(.popover)
                         }
                     }
@@ -551,102 +557,93 @@ struct AvailabilityCheckSheet: View {
         }
     }
 
-    // ✗ It won't fit — red verdict + closest working dates.
+    // ✗ It won't fit — red verdict + closest working dates. Tapping a date
+    // REPLACES this whole section with the green "this date will work" confirmation.
     @ViewBuilder
     private func noFitView(_ r: AvailabilityResult) -> some View {
-        VStack(spacing: 14) {
-            VStack(spacing: 10) {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 54))
-                    .foregroundStyle(Color(hex: T.red))
-                Text("No — this won't fit")
-                    .font(TTypo.h3(20)).foregroundStyle(Color(hex: T.ink))
-                Text("This will not work by \(prettyDate(r.windowTo)), unfortunately.")
-                    .font(TTypo.sm(13)).multilineTextAlignment(.center)
-                    .foregroundStyle(Color(hex: T.muted))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(22)
-            .background(RoundedRectangle(cornerRadius: T.cornerLg).fill(Color(hex: T.red).opacity(0.08)))
-            .overlay(RoundedRectangle(cornerRadius: T.cornerLg).stroke(Color(hex: T.red).opacity(0.22), lineWidth: 1))
-
-            if let alt = selectedAlt {
-                selectedAltDetail(r, alt)
-            } else if !r.alternatives.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("CLOSEST DATES THAT COULD WORK — TAP ONE")
-                        .font(TTypo.xsBold(11)).tracking(0.6)
+        if let alt = selectedAlt {
+            chosenDateView(r, alt)
+        } else {
+            VStack(spacing: 14) {
+                VStack(spacing: 10) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 54))
+                        .foregroundStyle(Color(hex: T.red))
+                    Text("No — this won't fit")
+                        .font(TTypo.h3(20)).foregroundStyle(Color(hex: T.ink))
+                    Text("This will not work by \(prettyDate(r.windowTo)), unfortunately.")
+                        .font(TTypo.sm(13)).multilineTextAlignment(.center)
                         .foregroundStyle(Color(hex: T.muted))
-                    ForEach(r.alternatives) { alt in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { selectedAlt = alt }
-                        } label: {
-                            HStack(spacing: 11) {
-                                Image(systemName: "calendar")
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundStyle(Color(hex: T.accent))
-                                    .frame(width: 30, height: 30)
-                                    .background(Circle().fill(Color(hex: T.accent).opacity(0.12)))
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text("by \(prettyDate(alt.doneBy))")
-                                        .font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink))
-                                    Text(r.departments.isEmpty ? "Any department" : deptPhrase(r.departments))
-                                        .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(22)
+                .background(RoundedRectangle(cornerRadius: T.cornerLg).fill(Color(hex: T.red).opacity(0.08)))
+                .overlay(RoundedRectangle(cornerRadius: T.cornerLg).stroke(Color(hex: T.red).opacity(0.22), lineWidth: 1))
+
+                if !r.alternatives.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("CLOSEST DATES THAT COULD WORK — TAP ONE")
+                            .font(TTypo.xsBold(11)).tracking(0.6)
+                            .foregroundStyle(Color(hex: T.muted))
+                        ForEach(r.alternatives) { alt in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { selectedAlt = alt }
+                            } label: {
+                                HStack(spacing: 11) {
+                                    Image(systemName: "calendar")
+                                        .font(.system(size: 15, weight: .semibold))
+                                        .foregroundStyle(Color(hex: T.accent))
+                                        .frame(width: 30, height: 30)
+                                        .background(Circle().fill(Color(hex: T.accent).opacity(0.12)))
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text("by \(prettyDate(alt.doneBy))")
+                                            .font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink))
+                                        Text(r.departments.isEmpty ? "Any department" : deptPhrase(r.departments))
+                                            .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
+                                    }
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundStyle(Color(hex: T.muted))
                                 }
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundStyle(Color(hex: T.muted))
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
+                                .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
                             }
-                            .padding(12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-                            .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
         }
     }
 
-    // Detail for a tapped fallback option: its full working span + a summary.
+    // ✓ Final confirmation for a chosen alternative — replaces the red X section.
     @ViewBuilder
-    private func selectedAltDetail(_ r: AvailabilityResult, _ alt: AvailAlternative) -> some View {
+    private func chosenDateView(_ r: AvailabilityResult, _ alt: AvailAlternative) -> some View {
         let deptSuffix = r.departments.isEmpty ? "" : " in \(deptPhrase(r.departments))"
         let span = alt.start == alt.doneBy ? shortDay(alt.doneBy) : "\(shortDay(alt.start)) → \(shortDay(alt.doneBy))"
-        VStack(alignment: .leading, spacing: 12) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { selectedAlt = nil }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "chevron.left").font(.system(size: 12, weight: .bold))
-                    Text("Back to options").font(TTypo.smBold(13))
-                }
-                .foregroundStyle(Color(hex: T.accent))
+        VStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 56)).foregroundStyle(Color(hex: T.green))
+            Text("This date will work!")
+                .font(TTypo.h3(22)).foregroundStyle(Color(hex: T.ink))
+            VStack(spacing: 4) {
+                Text("Scheduled window:")
+                    .font(TTypo.smBold(13)).foregroundStyle(Color(hex: T.muted))
+                Text(span)
+                    .font(TTypo.h1(30)).foregroundStyle(Color(hex: T.green))
+                    .lineLimit(1).minimumScaleFactor(0.5)
             }
-            .buttonStyle(.plain)
-
-            VStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 44)).foregroundStyle(Color(hex: T.green))
-                Text("This option works").font(TTypo.h3(19)).foregroundStyle(Color(hex: T.ink))
-                VStack(spacing: 3) {
-                    Text("It can be worked in full:")
-                        .font(TTypo.smBold(13)).foregroundStyle(Color(hex: T.muted))
-                    Text(span)
-                        .font(TTypo.h1(28)).foregroundStyle(Color(hex: T.green))
-                        .lineLimit(1).minimumScaleFactor(0.5)
-                }
-                Text("\(hrs(r.hoursRequested))h · ≈ \(r.daysNeeded) working days\(deptSuffix) · done by \(prettyDate(alt.doneBy)).")
-                    .font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted))
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(20)
-            .background(RoundedRectangle(cornerRadius: T.cornerLg).fill(Color(hex: T.green).opacity(0.08)))
-            .overlay(RoundedRectangle(cornerRadius: T.cornerLg).stroke(Color(hex: T.green).opacity(0.22), lineWidth: 1))
+            Text("\(hrs(r.hoursRequested))h · ≈ \(r.daysNeeded) working days\(deptSuffix) · done by \(prettyDate(alt.doneBy)).")
+                .font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted))
+                .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .background(RoundedRectangle(cornerRadius: T.cornerLg).fill(Color(hex: T.green).opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: T.cornerLg).stroke(Color(hex: T.green).opacity(0.28), lineWidth: 1))
     }
 
     // AI one-liner (or template fallback) with a loading state.
