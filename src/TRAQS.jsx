@@ -6021,9 +6021,24 @@ ${jobsCtx || "No jobs found."}`;
       const e = reqs2.find(r => r.id === requestId);
       return { finishRequests: reqs2, finishRequest: e ? { requestId: e.id, by: e.by, byName: e.byName, at: e.at } : item.finishRequest };
     };
+    // Shift a whole job/panel/op tree forward by `delta` calendar days.
+    const shiftTree = (item, delta) => ({
+      ...item,
+      start: item.start ? addD(item.start, delta) : item.start,
+      end: item.end ? addD(item.end, delta) : item.end,
+      subs: (item.subs || []).map(s => shiftTree(s, delta)),
+    });
     let newTasks, label;
     if (jobLevel) {
-      newTasks = tasks.map(t => t.id !== jobId ? t : { ...reopen(t), ...pendReq(t.finishRequests, t) });
+      let reopened = { ...reopen(job), ...pendReq(job.finishRequests, job) };
+      // If the job is overdue (all work in the past), pull it forward so it lands
+      // back on the current schedule as active work to redo — otherwise a reopened
+      // past-dated job stays culled behind the schedule's visible window.
+      if (reopened.end && reopened.end < TD && reopened.start) {
+        const delta = diffD(reopened.start, sNextBD(TD));
+        if (delta > 0) reopened = shiftTree(reopened, delta);
+      }
+      newTasks = tasks.map(t => t.id !== jobId ? t : reopened);
       label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
     } else {
       const panel = (job.subs || []).find(s => s.id === panelId);

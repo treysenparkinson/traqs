@@ -942,6 +942,35 @@ class AppState {
         if let entry = job.finishRequests?.first(where: { $0.id == requestId }) {
             job.finishRequest = FinishRequestStamp(requestId: entry.id, by: entry.by, byName: entry.byName, at: entry.at)
         }
+        // If overdue, pull the whole job forward so it lands back on the current
+        // schedule (a reopened past-dated job would otherwise be culled behind the
+        // gantt's visible window).
+        let cal = Calendar.current
+        let todayStart = cal.startOfDay(for: Date())
+        if let endD = job.end.asDate, endD < todayStart, let startD = job.start.asDate {
+            func isWork(_ d: Date) -> Bool { orgSettings.workDays.contains(cal.component(.weekday, from: d) - 1) }
+            var target = todayStart
+            var g = 0
+            while !isWork(target) && g < 14 { target = cal.date(byAdding: .day, value: 1, to: target) ?? target; g += 1 }
+            let delta = cal.dateComponents([.day], from: cal.startOfDay(for: startD), to: target).day ?? 0
+            if delta > 0 {
+                let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
+                func shift(_ s: String) -> String { guard let dt = s.asDate else { return s }; return f.string(from: cal.date(byAdding: .day, value: delta, to: dt) ?? dt) }
+                job.start = shift(job.start); job.end = shift(job.end)
+                job.subs = job.subs.map { p in
+                    var p = p
+                    if !p.start.isEmpty { p.start = shift(p.start) }
+                    if !p.end.isEmpty { p.end = shift(p.end) }
+                    p.subs = p.subs.map { o in
+                        var o = o
+                        if !o.start.isEmpty { o.start = shift(o.start) }
+                        if !o.end.isEmpty { o.end = shift(o.end) }
+                        return o
+                    }
+                    return p
+                }
+            }
+        }
         updateJob(job)
         guard let grp = groups.first(where: { $0.name == "Completion Requests" }) else { return }
         let jobNumTxt = job.jobNumber.map { " #\($0)" } ?? ""
