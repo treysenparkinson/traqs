@@ -14,6 +14,9 @@ struct TasksView: View {
     /// Selected range. Owned by the Jobs hub (JobsHubView) so the calendar
     /// picker can live in the title row; passed in here.
     @Binding var segment: JobsSegment
+    /// Opens a job's detail — owned by JobsHubView (appends to its NavigationStack
+    /// path) so the card's 3-dot "Information" action can navigate.
+    var onOpenJob: (Job) -> Void = { _ in }
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
 
     enum JobsSegment: String, CaseIterable, Hashable { case today, week, month, year
@@ -33,7 +36,9 @@ struct TasksView: View {
                 // hero; excluded from the lists below so it isn't shown twice.
                 if let activeTask {
                     NavigationLink(value: activeTask.job) {
-                        TaskCardV1(task: activeTask)
+                        TaskCardV1(task: activeTask,
+                                   onOpen: { onOpenJob(activeTask.job) },
+                                   onRequestCompletion: { Task { await appState.requestJobCompletion(jobId: activeTask.job.id) } })
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal, 16)
@@ -222,7 +227,9 @@ struct TasksView: View {
                 VStack(spacing: 12) {
                     ForEach(rows) { task in
                         NavigationLink(value: task.job) {
-                            TaskCardV1(task: task)
+                            TaskCardV1(task: task,
+                                       onOpen: { onOpenJob(task.job) },
+                                       onRequestCompletion: { Task { await appState.requestJobCompletion(jobId: task.job.id) } })
                         }
                         .buttonStyle(.plain)
                     }
@@ -263,6 +270,9 @@ struct TasksView: View {
         guard let me = appState.currentPersonId else { return [] }
         var out: [TaskAssignment] = []
         for job in appState.jobs {
+            // Completed jobs drop off the list (approving a completion request
+            // marks the whole job Finished).
+            if job.status == .finished { continue }
             if !searchText.isEmpty {
                 let q = searchText.lowercased()
                 let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
@@ -343,6 +353,7 @@ struct TasksView: View {
     private func otherJobs(in range: Range<Date>) -> [Job] {
         let q = searchText.lowercased()
         return appState.jobs.filter { job in
+            if job.status == .finished { return false }
             if isMineJob(job) { return false }
             if !q.isEmpty {
                 let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
@@ -889,6 +900,11 @@ struct TaskAssignment: Identifiable {
 struct TaskCardV1: View {
     @Environment(AppState.self) private var appState
     let task: TaskAssignment
+    /// Menu "Information" action — open the job's detail (default no-op for the
+    /// dead AllJobsCard call site, which still wraps the card in a NavigationLink).
+    var onOpen: () -> Void = {}
+    /// Menu "Request Completion" action.
+    var onRequestCompletion: () -> Void = {}
     @State private var showLogConfirm = false
     @State private var showClockInRequired = false
     @State private var isStopping = false
@@ -1042,15 +1058,20 @@ struct TaskCardV1: View {
                         statusPill
                     }
                     Spacer(minLength: 6)
-                    if !dateRange.isEmpty {
-                        Text(dateRange)
-                            .font(TTypo.mono(11))
+                    // 3-dot Liquid-Glass menu (replaces the old date + chevron).
+                    Menu {
+                        Button { onOpen() } label: { Label("Information", systemImage: "info.circle") }
+                        Divider()
+                        Button { onRequestCompletion() } label: { Label("Request Completion", systemImage: "checkmark.seal") }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(Color(hex: T.muted))
-                            .tnum()
+                            .frame(width: 30, height: 30)
+                            .glassEffect(.regular.interactive(), in: Circle())
+                            .contentShape(Circle())
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Color(hex: T.muted).opacity(0.45))
+                    .buttonStyle(.plain)
                 }
 
                 // Headline: customer / job name (big, like the wireframe).

@@ -4530,7 +4530,9 @@ Extraction rules:
     if (fJobNum && !String(t.jobNumber || "").toLowerCase().includes(fJobNum.toLowerCase())) return false;
     if (taskSearchQ && !jobMatchesSearch(t, taskSearchQ)) return false;
     if (fTimePeriod.length < 3) {
-      const isFinished = t.status === "Finished" || (t.end && t.end < TD);
+      // Jobs never auto-finish: only an explicit Finished status counts as finished.
+      // A past-end unfinished job stays "current" (and shows as Overdue), never hidden.
+      const isFinished = t.status === "Finished";
       const isFuture = !isFinished && (t.start && t.start > TD);
       const isCurrent = !isFinished && !isFuture;
       if (isFinished && !fTimePeriod.includes('finished')) return false;
@@ -5826,6 +5828,30 @@ ${jobsCtx || "No jobs found."}`;
   }
 
   // ── Finish Approval Request — component-level so modal + messages can call them ──
+  // Find-or-create the shared "Completion Requests" group thread (all admins +
+  // the current user), so completion requests reliably reach every admin in one
+  // place. Returns the group (with up-to-date memberIds).
+  const ensureCompletionGroup = async () => {
+    const grpName = "Completion Requests";
+    const adminIds = people.filter(p => p.userRole === "admin").map(p => p.id);
+    const want = [...new Set([...adminIds, ...(loggedInUser ? [loggedInUser.id] : [])])];
+    const list = Array.isArray(groups) ? groups : [];
+    let grp = list.find(g => g.name === grpName);
+    if (!grp) {
+      grp = { id: uid(), name: grpName, memberIds: want, createdBy: loggedInUser?.id, createdAt: new Date().toISOString() };
+      const updated = [...list, grp];
+      try { await saveGroups(updated, getToken, orgCode); setGroups(updated); } catch (e) { console.warn("ensureCompletionGroup create failed", e); }
+    } else {
+      const missing = want.filter(id => !grp.memberIds.includes(id));
+      if (missing.length) {
+        grp = { ...grp, memberIds: [...grp.memberIds, ...missing] };
+        const updated = list.map(g => g.id === grp.id ? grp : g);
+        try { await saveGroups(updated, getToken, orgCode); setGroups(updated); } catch (e) { console.warn("ensureCompletionGroup update failed", e); }
+      }
+    }
+    return grp;
+  };
+
   const requestFinishApproval = async (itemId) => {
     // Recursive ancestry lookup — works at any depth (job → panel → sub-op)
     const findItemWithAncestors = (items, id, ancestors = []) => {
@@ -5877,52 +5903,63 @@ ${jobsCtx || "No jobs found."}`;
     const msgOpId    = opPanel ? foundItem.id : null;
 
     try {
+      const grp = await ensureCompletionGroup();
+      const jobNumTxt = parentJob.jobNumber ? `Job #${parentJob.jobNumber} — ` : "";
       const msg = await postMessage({
-        threadKey: `job:${parentJob.id}`, scope: "job", jobId: parentJob.id,
+        threadKey: `group:${grp.id}`, scope: "group", jobId: parentJob.id,
         panelId: msgPanelId, opId: msgOpId,
-        text: `Finish approval requested by ${loggedInUser.name} for operation "${contextLabel}"`,
+        text: `Completion requested by ${loggedInUser.name} for ${jobNumTxt}${contextLabel}`,
         type: "finish_request", finishRequestId: requestId,
         authorId: loggedInUser.id, authorName: loggedInUser.name,
         authorColor: elColor(loggedInUser.color) || "#64748b",
-        participantIds, attachments: [],
+        participantIds: grp.memberIds, attachments: [],
       }, getToken, orgCode);
       setMessages(prev => [...prev, msg]);
-    } catch(e) { console.warn("Failed to post finish request message:", e); }
+    } catch(e) { console.warn("Failed to post completion request message:", e); }
   };
 
   const adminApproveJobFinish = async (jobId, panelId, opId, requestId) => {
     if (!isAdmin || !loggedInUser) return;
     const job = tasks.find(t => t.id === jobId);
     if (!job) return;
-    const panel = (job.subs || []).find(s => s.id === panelId);
-    if (!panel) return;
-    const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
-    if (!target) return;
     const now = new Date().toISOString();
-    // Recursive update: mark finishRequests resolved and set status on the target item at any depth
-    const updateItem = (items, targetId) => items.map(item => {
-      if (item.id === targetId) return {
-        ...item, status: "Finished", finishRequest: undefined,
-        finishRequests: (item.finishRequests || []).map(r => r.id !== requestId ? r : {
-          ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
-        }),
-      };
-      if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
-      return item;
+    const jobLevel = !panelId && !opId;   // iOS / whole-job completion request
+    // Mark an item and ALL descendants Finished (used for whole-job completion).
+    const finishTree = (item) => ({ ...item, status: "Finished", subs: (item.subs || []).map(finishTree) });
+    const resolveReq = (reqs) => (reqs || []).map(r => r.id !== requestId ? r : {
+      ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
     });
-    const newTasks = updateItem(tasks, opId || panelId);
+    let label;
+    let newTasks;
+    if (jobLevel) {
+      // Finish the entire job: job + every panel + every op.
+      newTasks = tasks.map(t => t.id !== jobId ? t : {
+        ...finishTree(t), finishRequest: undefined, finishRequests: resolveReq(t.finishRequests),
+      });
+      label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
+    } else {
+      const panel = (job.subs || []).find(s => s.id === panelId);
+      if (!panel) return;
+      const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
+      if (!target) return;
+      const updateItem = (items, targetId) => items.map(item => {
+        if (item.id === targetId) return {
+          ...item, status: "Finished", finishRequest: undefined, finishRequests: resolveReq(item.finishRequests),
+        };
+        if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
+        return item;
+      });
+      newTasks = updateItem(tasks, opId || panelId);
+      label = opId ? `${panel.title} › ${target.title}` : target.title;
+    }
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const finReq = (target.finishRequests || []).find(r => r.id === requestId);
-    const requesterId = finReq?.by;
-    const notifyParticipants = people.filter(p => p.userRole === "admin" || (requesterId && p.id === requesterId));
-    const participantIds = [...new Set(notifyParticipants.map(p => p.id))];
-    const label = opId ? `${panel.title} › ${target.title}` : target.title;
+    const grp = await ensureCompletionGroup();
     postMessage({
-      threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-      text: `Finish request approved by ${loggedInUser.name}. "${label}" has been marked as Finished.`,
+      threadKey: `group:${grp.id}`, scope: "group", jobId,
+      text: `Completion request approved by ${loggedInUser.name}. "${label}" is now Finished.`,
       authorId: loggedInUser.id, authorName: loggedInUser.name,
-      authorColor: elColor(loggedInUser.color) || "#64748b", participantIds, attachments: [],
+      authorColor: elColor(loggedInUser.color) || "#64748b", participantIds: grp.memberIds, attachments: [],
     }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
   };
 
@@ -5930,35 +5967,42 @@ ${jobsCtx || "No jobs found."}`;
     if (!isAdmin || !loggedInUser) return;
     const job = tasks.find(t => t.id === jobId);
     if (!job) return;
-    const panel = (job.subs || []).find(s => s.id === panelId);
-    if (!panel) return;
-    const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
-    if (!target) return;
     const now = new Date().toISOString();
-    const updateItem = (items, targetId) => items.map(item => {
-      if (item.id === targetId) return {
-        ...item, finishRequest: undefined,
-        finishRequests: (item.finishRequests || []).map(r => r.id !== requestId ? r : {
-          ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
-          ...(reason ? { declineReason: reason } : {}),
-        }),
-      };
-      if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
-      return item;
+    const jobLevel = !panelId && !opId;
+    const declineReq = (reqs) => (reqs || []).map(r => r.id !== requestId ? r : {
+      ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+      ...(reason ? { declineReason: reason } : {}),
     });
-    const newTasks = updateItem(tasks, opId || panelId);
+    let label;
+    let newTasks;
+    if (jobLevel) {
+      newTasks = tasks.map(t => t.id !== jobId ? t : {
+        ...t, finishRequest: undefined, finishRequests: declineReq(t.finishRequests),
+      });
+      label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
+    } else {
+      const panel = (job.subs || []).find(s => s.id === panelId);
+      if (!panel) return;
+      const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
+      if (!target) return;
+      const updateItem = (items, targetId) => items.map(item => {
+        if (item.id === targetId) return {
+          ...item, finishRequest: undefined, finishRequests: declineReq(item.finishRequests),
+        };
+        if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
+        return item;
+      });
+      newTasks = updateItem(tasks, opId || panelId);
+      label = opId ? `${panel.title} › ${target.title}` : target.title;
+    }
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const finReq = (target.finishRequests || []).find(r => r.id === requestId);
-    const requesterId = finReq?.by;
-    const notifyParticipants = people.filter(p => p.userRole === "admin" || (requesterId && p.id === requesterId));
-    const participantIds = [...new Set(notifyParticipants.map(p => p.id))];
-    const label = opId ? `${panel.title} › ${target.title}` : target.title;
+    const grp = await ensureCompletionGroup();
     postMessage({
-      threadKey: `job:${jobId}`, scope: "job", jobId, panelId: null, opId: null,
-      text: `Finish request for "${label}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
+      threadKey: `group:${grp.id}`, scope: "group", jobId,
+      text: `Completion request for "${label}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
       authorId: loggedInUser.id, authorName: loggedInUser.name,
-      authorColor: elColor(loggedInUser.color) || "#64748b", participantIds, attachments: [],
+      authorColor: elColor(loggedInUser.color) || "#64748b", participantIds: grp.memberIds, attachments: [],
     }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
     setFinishDeclineState(prev => { const n = { ...prev }; delete n[requestId]; return n; });
   };
@@ -14604,7 +14648,7 @@ ${jobsCtx || "No jobs found."}`;
                     const frJob = tasks.find(t => t.id === m.jobId);
                     const frPanel = (frJob?.subs || []).find(s => s.id === m.panelId);
                     const frOp = m.opId ? (frPanel?.subs || []).find(s => s.id === m.opId) : null;
-                    const frTarget = frOp || frPanel; // sub-op if present, otherwise panel
+                    const frTarget = frOp || frPanel || frJob; // sub-op, else panel, else the whole job (iOS completion request)
                     const frReq = (frTarget?.finishRequests || []).find(r => r.id === m.finishRequestId);
                     const frClient = frJob?.clientId ? clients.find(c => c.id === frJob.clientId) : null;
                     const frPM = frJob?.projectManagerId ? people.find(p => p.id === frJob.projectManagerId) : null;
@@ -14620,7 +14664,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${T.border}`, background: T.card, display: "flex", alignItems: "flex-start", gap: 12 }}>
                           <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Finish Approval Request</div>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Completion Request</div>
                             <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Requested by <strong style={{ color: T.text }}>{frReq?.byName || m.authorName}</strong> · {ts}</div>
                           </div>
                           {isPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
@@ -14632,7 +14676,7 @@ ${jobsCtx || "No jobs found."}`;
                           {/* Prominent requester + item statement */}
                           <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 14, lineHeight: 1.4 }}>
                             <span style={{ color: T.accent }}>{frReq?.byName || m.authorName}</span>
-                            <span style={{ fontWeight: 400, color: T.textSec }}> has requested finish approval for </span>
+                            <span style={{ fontWeight: 400, color: T.textSec }}> has requested completion for </span>
                             <span style={{ color: T.text }}>{frTarget?.title || m.text}</span>
                           </div>
                           {/* Operation + job — always visible */}
@@ -19250,7 +19294,7 @@ ${jobsCtx || "No jobs found."}`;
             <line x1="4" y1="22" x2="4" y2="15"/>
           </svg>
         </div>
-        <div style={{ fontSize: 17, fontWeight: 700, color: T.text, textAlign: "center", marginBottom: 8 }}>Request Finish Approval</div>
+        <div style={{ fontSize: 17, fontWeight: 700, color: T.text, textAlign: "center", marginBottom: 8 }}>Request Completion</div>
         <div style={{ fontSize: 13, color: T.textSec, textAlign: "center", marginBottom: 24, lineHeight: 1.65 }}>
           A detailed notification will be sent to all admins for <strong style={{ color: T.text }}>{finishApproval.title}</strong>. They can approve or decline directly inside TRAQS.
         </div>
@@ -20632,8 +20676,8 @@ ${jobsCtx || "No jobs found."}`;
       {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Split Job */}
       {can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
-      {/* Request Finish Approval — lowest level bar with no children */}
-      {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Finish Approval" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
+      {/* Request Completion — lowest level bar with no children */}
+      {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Completion" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Delete */}
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => {

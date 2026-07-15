@@ -102,7 +102,7 @@ struct JobsHubView: View {
                         // leave the outgoing view stuck on rapid toggles; opacity
                         // is glitch-free and also preserves each view's scroll state.
                         ZStack {
-                            TasksView(searchText: searchText, segment: $jobsSegment)
+                            TasksView(searchText: searchText, segment: $jobsSegment, onOpenJob: { path.append($0) })
                                 .opacity(appNav.jobsMode == .list ? 1 : 0)
                                 .allowsHitTesting(appNav.jobsMode == .list)
                             GanttView()

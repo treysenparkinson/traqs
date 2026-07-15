@@ -851,6 +851,91 @@ class AppState {
         return text
     }
 
+    // MARK: - Completion requests
+
+    /// Worker/admin requests that a whole job be marked complete. Stamps the job
+    /// (so the request card shows Pending and can be resolved) and posts a
+    /// `finish_request` message into the shared "Completion Requests" admin group.
+    func requestJobCompletion(jobId: String) async {
+        guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
+        guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
+        await addGroupMembers(groupName: "Completion Requests", add: members)   // ensure new admins/requester are in
+        let group = groups.first(where: { $0.id == created.id }) ?? created
+
+        let reqId = UUID().uuidString
+        let now = Date.nowISO()
+        var job = jobs[idx]
+        job.finishRequest = FinishRequestStamp(requestId: reqId, by: me.id, byName: me.name, at: now)
+        var reqs = job.finishRequests ?? []
+        reqs.append(FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
+                                       status: "pending", resolvedBy: nil, resolvedByName: nil,
+                                       resolvedAt: nil, declineReason: nil))
+        job.finishRequests = reqs
+        updateJob(job)
+
+        let jobNumTxt = job.jobNumber.map { "Job #\($0) — " } ?? ""
+        let msg = Message(
+            id: UUID().uuidString, threadKey: "group:\(group.id)", scope: "group",
+            jobId: jobId, panelId: nil, opId: nil,
+            text: "Completion requested by \(me.name) for \(jobNumTxt)\(job.title)",
+            authorId: me.id, authorName: me.name, authorColor: me.color,
+            participantIds: group.memberIds, attachments: [], timestamp: Date.nowISO(),
+            type: "finish_request", finishRequestId: reqId)
+        _ = try? await sendMessageThrowing(msg)
+    }
+
+    /// Admin approves a completion request → finish the WHOLE job (job + panels + ops).
+    func approveJobCompletion(jobId: String, requestId: String) async {
+        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        let now = Date.nowISO()
+        var job = jobs[idx]
+        job.status = .finished
+        job.subs = job.subs.map { p in
+            var p = p; p.status = .finished
+            p.subs = p.subs.map { o in var o = o; o.status = .finished; return o }
+            return p
+        }
+        job.finishRequest = nil
+        job.finishRequests = (job.finishRequests ?? []).map { e in
+            guard e.id == requestId else { return e }
+            var e = e; e.status = "approved"; e.resolvedBy = me.id; e.resolvedByName = me.name; e.resolvedAt = now
+            return e
+        }
+        updateJob(job)
+        await postCompletionResolution(jobId: jobId, job: job, approved: true)
+    }
+
+    /// Admin denies a completion request → job stays active/overdue.
+    func denyJobCompletion(jobId: String, requestId: String) async {
+        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        let now = Date.nowISO()
+        var job = jobs[idx]
+        job.finishRequest = nil
+        job.finishRequests = (job.finishRequests ?? []).map { e in
+            guard e.id == requestId else { return e }
+            var e = e; e.status = "declined"; e.resolvedBy = me.id; e.resolvedByName = me.name; e.resolvedAt = now
+            return e
+        }
+        updateJob(job)
+        await postCompletionResolution(jobId: jobId, job: job, approved: false)
+    }
+
+    private func postCompletionResolution(jobId: String, job: Job, approved: Bool) async {
+        guard let me = currentPerson,
+              let grp = groups.first(where: { $0.name == "Completion Requests" }) else { return }
+        let jobNumTxt = job.jobNumber.map { " #\($0)" } ?? ""
+        let verb = approved ? "approved" : "declined"
+        let tail = approved ? " is now Finished." : "."
+        let msg = Message(
+            id: UUID().uuidString, threadKey: "group:\(grp.id)", scope: "group",
+            jobId: jobId, panelId: nil, opId: nil,
+            text: "Completion request \(verb) by \(me.name). \"\(job.title)\(jobNumTxt)\"\(tail)",
+            authorId: me.id, authorName: me.name, authorColor: me.color,
+            participantIds: grp.memberIds, attachments: [], timestamp: Date.nowISO())
+        _ = try? await sendMessageThrowing(msg)
+    }
+
     // MARK: - Messages
 
     // Returns the server-assigned message ID so callers can track ownership.

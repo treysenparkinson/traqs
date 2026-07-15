@@ -876,7 +876,10 @@ struct ThreadDetailView: View {
                         ForEach(messageSections) { section in
                             SectionTimeHeader(text: section.header)
                             ForEach(section.messages) { msg in
-                                if msg.type == "timeoff_request" {
+                                if msg.type == "finish_request" {
+                                    CompletionRequestBubble(message: msg)
+                                        .id(msg.id)
+                                } else if msg.type == "timeoff_request" {
                                     TimeOffRequestBubble(message: msg)
                                         .id(msg.id)
                                 } else {
@@ -1996,6 +1999,91 @@ struct TimeOffRequestBubble: View {
             busy = false
             denying = false
             reason = ""
+        }
+    }
+}
+
+// MARK: - Completion Request Bubble
+
+/// Renders a `finish_request` message as a card with Approve/Deny for admins.
+/// Approving marks the whole job Finished (see AppState.approveJobCompletion).
+struct CompletionRequestBubble: View {
+    @Environment(AppState.self) private var appState
+    let message: Message
+    @State private var busy = false
+
+    private var job: Job? { appState.jobs.first { $0.id == message.jobId } }
+    private var entry: FinishRequestEntry? {
+        guard let id = message.finishRequestId else { return nil }
+        return job?.finishRequests?.first { $0.id == id }
+    }
+    private var status: String { entry?.status ?? "pending" }
+    private var pending: Bool { status == "pending" }
+    private var statusPill: (label: String, kind: TagKind, dot: Bool) {
+        switch status {
+        case "approved": return ("Approved", .green, false)
+        case "declined": return ("Declined", .magenta, false)
+        default:         return ("Pending", .amber, true)
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 11) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.accent))
+                    .frame(width: 38, height: 38)
+                    .background(Circle().fill(Color(hex: T.accent).opacity(0.14)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Completion Request")
+                        .font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink))
+                    Text("from \(entry?.byName ?? message.authorName)")
+                        .font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted))
+                }
+                Spacer(minLength: 8)
+                TagPill(label: statusPill.label, kind: statusPill.kind, dot: statusPill.dot)
+            }
+
+            if let job {
+                Text("\(job.jobNumber.map { "Job #\($0) — " } ?? "")\(job.title)")
+                    .font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+            } else {
+                Text(message.text).font(TTypo.sm(13)).foregroundStyle(Color(hex: T.muted))
+            }
+
+            if status != "pending", let by = entry?.resolvedByName, !by.isEmpty {
+                Text("\(statusPill.label) by \(by)")
+                    .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
+            }
+
+            if appState.isAdmin && pending {
+                HStack(spacing: 10) {
+                    Button { decide(false) } label: {
+                        Text("Deny").font(TTypo.smBold(15)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                    }.buttonStyle(.plain).disabled(busy)
+                    Button { decide(true) } label: {
+                        Text("Approve").font(TTypo.smBold(15)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 12)
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
+                    }.buttonStyle(.plain).disabled(busy)
+                }
+            }
+        }
+        .padding(14)
+        .frostedCard(radius: T.cornerMd)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func decide(_ approve: Bool) {
+        guard let jobId = message.jobId, let reqId = message.finishRequestId else { return }
+        busy = true
+        Task {
+            if approve { await appState.approveJobCompletion(jobId: jobId, requestId: reqId) }
+            else { await appState.denyJobCompletion(jobId: jobId, requestId: reqId) }
+            busy = false
         }
     }
 }

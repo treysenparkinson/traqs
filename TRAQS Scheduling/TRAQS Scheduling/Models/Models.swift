@@ -201,6 +201,31 @@ struct Panel: Codable, Identifiable, Equatable {
     static func == (lhs: Panel, rhs: Panel) -> Bool { lhs.id == rhs.id }
 }
 
+// MARK: - Completion (finish) request
+
+/// The pending stamp written on a job when completion is requested (mirrors the
+/// web's `item.finishRequest`).
+struct FinishRequestStamp: Codable, Equatable {
+    var requestId: String
+    var by: String
+    var byName: String
+    var at: String
+}
+
+/// One entry in a job's `finishRequests` history (mirrors the web shape). Status:
+/// "pending" | "approved" | "declined".
+struct FinishRequestEntry: Codable, Equatable, Identifiable {
+    var id: String
+    var by: String
+    var byName: String
+    var at: String
+    var status: String
+    var resolvedBy: String?
+    var resolvedByName: String?
+    var resolvedAt: String?
+    var declineReason: String?
+}
+
 // MARK: - Job (Level 0)
 
 struct Job: Codable, Identifiable, Equatable, Hashable {
@@ -225,6 +250,8 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     var jobType: String?
     var loggedHours: Double?
     var projectManagerId: String?
+    var finishRequest: FinishRequestStamp?
+    var finishRequests: [FinishRequestEntry]?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -248,6 +275,8 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         jobType   = try? c.decodeIfPresent(String.self, forKey: .jobType)
         loggedHours = try? c.decodeIfPresent(Double.self, forKey: .loggedHours)
         projectManagerId = try? c.decodeFlexID(forKey: .projectManagerId)
+        finishRequest  = try? c.decodeIfPresent(FinishRequestStamp.self, forKey: .finishRequest)
+        finishRequests = try? c.decodeIfPresent([FinishRequestEntry].self, forKey: .finishRequests)
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
@@ -257,13 +286,15 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
          team: [String] = [], color: String = "#3d7fff", hpd: Double = 7.5,
          notes: String = "", clientId: String? = nil, deps: [String] = [],
          subs: [Panel] = [], moveLog: [MoveLogEntry]? = nil, jobType: String? = nil,
-         loggedHours: Double? = nil, projectManagerId: String? = nil) {
+         loggedHours: Double? = nil, projectManagerId: String? = nil,
+         finishRequest: FinishRequestStamp? = nil, finishRequests: [FinishRequestEntry]? = nil) {
         self.id = id; self.title = title; self.jobNumber = jobNumber; self.poNumber = poNumber
         self.start = start; self.end = end; self.dueDate = dueDate
         self.status = status; self.pri = pri; self.team = team; self.color = color
         self.hpd = hpd; self.notes = notes; self.clientId = clientId
         self.deps = deps; self.subs = subs; self.moveLog = moveLog; self.jobType = jobType
         self.loggedHours = loggedHours; self.projectManagerId = projectManagerId
+        self.finishRequest = finishRequest; self.finishRequests = finishRequests
     }
 
     static func == (lhs: Job, rhs: Job) -> Bool { lhs.id == rhs.id }
@@ -678,6 +709,7 @@ struct Message: Codable, Identifiable, Equatable {
     var toEnd: String?
     var toNote: String?
     var toPersonName: String?
+    var finishRequestId: String?   // completion-request messages (type == "finish_request")
 
     init(id: String, threadKey: String, scope: String,
          jobId: String?, panelId: String?, opId: String?,
@@ -685,7 +717,7 @@ struct Message: Codable, Identifiable, Equatable {
          participantIds: [String], attachments: [Attachment], timestamp: String,
          type: String? = nil, timeOffRequestId: String? = nil,
          toType: String? = nil, toStart: String? = nil, toEnd: String? = nil,
-         toNote: String? = nil, toPersonName: String? = nil) {
+         toNote: String? = nil, toPersonName: String? = nil, finishRequestId: String? = nil) {
         self.id = id; self.threadKey = threadKey; self.scope = scope
         self.jobId = jobId; self.panelId = panelId; self.opId = opId
         self.text = text; self.authorId = authorId; self.authorName = authorName
@@ -694,6 +726,7 @@ struct Message: Codable, Identifiable, Equatable {
         self.type = type; self.timeOffRequestId = timeOffRequestId
         self.toType = toType; self.toStart = toStart; self.toEnd = toEnd
         self.toNote = toNote; self.toPersonName = toPersonName
+        self.finishRequestId = finishRequestId
     }
 
     init(from decoder: Decoder) throws {
@@ -718,6 +751,7 @@ struct Message: Codable, Identifiable, Equatable {
         toEnd            = try? c.decodeIfPresent(String.self, forKey: .toEnd)
         toNote           = try? c.decodeIfPresent(String.self, forKey: .toNote)
         toPersonName     = try? c.decodeIfPresent(String.self, forKey: .toPersonName)
+        finishRequestId  = try? c.decodeIfPresent(String.self, forKey: .finishRequestId)
     }
 }
 
