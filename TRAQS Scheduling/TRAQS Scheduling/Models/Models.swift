@@ -533,7 +533,8 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var adminPerms: AdminPerms?
     var isEngineer: Bool?
     var isTeamLead: Bool?
-    var autoSchedule: Bool?   // false = excluded from AI scheduling
+    var autoSchedule: Bool?   // iOS toggle: false = excluded from AI scheduling
+    var noAutoSchedule: Bool? // desktop's canonical flag: true = excluded (inverse of autoSchedule)
     var teamNumber: Int?
     var timeOff: [TimeOffEntry]
     var pushToken: String?
@@ -557,6 +558,10 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var isAdmin: Bool { userRole == "admin" }
     /// Salaried employees don't punch a clock (Hours page + clock-in are hidden).
     var isSalary: Bool { (payType ?? "hourly").lowercased() == "salary" }
+    /// Eligible for auto-scheduling / availability checks. Honors BOTH conventions:
+    /// the desktop writes `noAutoSchedule` (true = excluded); the iOS toggle writes
+    /// `autoSchedule` (false = excluded). Excluded by EITHER → not schedulable.
+    var isAutoSchedulable: Bool { !(noAutoSchedule ?? false) && (autoSchedule ?? true) }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -578,6 +583,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         isEngineer    = try? c.decodeIfPresent(Bool.self, forKey: .isEngineer)
         isTeamLead    = try? c.decodeIfPresent(Bool.self, forKey: .isTeamLead)
         autoSchedule  = try? c.decodeIfPresent(Bool.self, forKey: .autoSchedule)
+        noAutoSchedule = try? c.decodeIfPresent(Bool.self, forKey: .noAutoSchedule)
         teamNumber    = try? c.decodeIfPresent(Int.self, forKey: .teamNumber)
         pushToken     = try? c.decodeIfPresent(String.self, forKey: .pushToken)
         activeClockIn = try? c.decodeIfPresent(ActiveClockIn.self, forKey: .activeClockIn)
@@ -595,7 +601,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     init(id: String, name: String, role: String, email: String, cap: Double,
          color: String, userRole: String, adminPerms: AdminPerms? = nil,
          isEngineer: Bool? = nil, isTeamLead: Bool? = nil,
-         autoSchedule: Bool? = nil, teamNumber: Int? = nil,
+         autoSchedule: Bool? = nil, noAutoSchedule: Bool? = nil, teamNumber: Int? = nil,
          timeOff: [TimeOffEntry] = [], pushToken: String? = nil,
          activeClockIn: ActiveClockIn? = nil,
          activeJobClock: ActiveJobClock? = nil,
@@ -607,6 +613,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
         self.isTeamLead = isTeamLead; self.autoSchedule = autoSchedule
+        self.noAutoSchedule = noAutoSchedule
         self.teamNumber = teamNumber; self.timeOff = timeOff; self.pushToken = pushToken
         self.activeClockIn = activeClockIn
         self.activeJobClock = activeJobClock
