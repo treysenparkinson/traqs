@@ -285,8 +285,6 @@ struct AvailabilityCheckSheet: View {
     @State private var hoursText = ""
     @State private var departments: Set<String> = []   // empty = any department
     @State private var deptPickerOpen = false
-    @State private var fromPickerOpen = false
-    @State private var toPickerOpen = false
     @State private var selectedAlt: AvailAlternative?   // a tapped fallback option
 
     @State private var result: AvailabilityResult?
@@ -302,41 +300,27 @@ struct AvailabilityCheckSheet: View {
         }
     }
 
-    // A date field that always shows the same long format ("July 18, 2026") and
-    // opens a graphical picker in a popover — avoids the compact picker rendering
-    // From and To in different formats.
+    // The native iOS date field (.compact) — a tappable date chip that opens
+    // Apple's own calendar overlay. iOS owns the presentation and sizing, so it
+    // always fits and matches the standard system picker.
     @ViewBuilder
-    private func dateRow(_ label: String, selection: Binding<Date>, minDate: Date?, isOpen: Binding<Bool>) -> some View {
+    private func dateRow(_ label: String, selection: Binding<Date>, minDate: Date?) -> some View {
         HStack {
             Text(label).font(TTypo.body(15)).foregroundStyle(Color(hex: T.ink))
             Spacer()
-            Button { isOpen.wrappedValue = true } label: {
-                Text(longDate(selection.wrappedValue))
-                    .font(TTypo.bodyBold(15)).foregroundStyle(Color(hex: T.accent))
-            }
-            .buttonStyle(.plain)
-            .popover(isPresented: isOpen) {
-                Group {
-                    if let minDate {
-                        DatePicker("", selection: selection, in: minDate..., displayedComponents: .date)
-                    } else {
-                        DatePicker("", selection: selection, displayedComponents: .date)
-                    }
+            Group {
+                if let minDate {
+                    DatePicker("", selection: selection, in: minDate..., displayedComponents: .date)
+                } else {
+                    DatePicker("", selection: selection, displayedComponents: .date)
                 }
-                .datePickerStyle(.graphical)
-                .labelsHidden()
-                .tint(Color(hex: T.accent))
-                .frame(minWidth: 320, maxHeight: 380)
-                .padding(12)
-                .presentationCompactAdaptation(.popover)
             }
+            .datePickerStyle(.compact)
+            .labelsHidden()
+            .tint(Color(hex: T.accent))
         }
     }
 
-    private func longDate(_ d: Date) -> String {
-        let f = DateFormatter(); f.dateFormat = "MMMM d, yyyy"
-        return f.string(from: d)
-    }
 
     @ViewBuilder
     private func deptRow(_ title: String, checked: Bool, action: @escaping () -> Void) -> some View {
@@ -400,9 +384,9 @@ struct AvailabilityCheckSheet: View {
     private var inputForm: some View {
         VStack(alignment: .leading, spacing: 16) {
             fieldCard {
-                dateRow("From", selection: $fromDate, minDate: nil, isOpen: $fromPickerOpen)
+                dateRow("From", selection: $fromDate, minDate: nil)
                 Divider()
-                dateRow("To", selection: $toDate, minDate: fromDate, isOpen: $toPickerOpen)
+                dateRow("To", selection: $toDate, minDate: fromDate)
             }
 
             fieldCard {

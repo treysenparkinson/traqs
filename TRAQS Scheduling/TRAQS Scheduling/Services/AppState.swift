@@ -885,6 +885,18 @@ class AppState {
     /// Worker/admin requests that a whole job be marked complete. Stamps the job
     /// (so the request card shows Pending and can be resolved) and posts a
     /// `finish_request` message into the shared "Completion Requests" admin group.
+    /// Write an optimistically-edited job straight to the SwiftData cache so a
+    /// rehydrate — which can fire within ~1-2s off unrelated "tasks" churn and
+    /// reads the cache — cannot revert the edit before the debounced save
+    /// round-trips. Without this, denying a completion request (which only flips
+    /// a nested finishRequests entry) silently reverted to "pending". A fresh
+    /// local timestamp marks the record changed; the server's own stamp
+    /// supersedes it on the next real delta.
+    private func cacheJobLocally(_ job: Job) {
+        guard let cache = localCache, let data = try? JSONEncoder().encode(job) else { return }
+        _ = cache.applyBatch(SyncedJob.self, [LocalCache.Incoming(id: job.id, lastModifiedAt: Date(), deletedAt: nil, payload: data)])
+    }
+
     func requestJobCompletion(jobId: String) async {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
@@ -902,6 +914,7 @@ class AppState {
                                        resolvedAt: nil, declineReason: nil))
         job.finishRequests = reqs
         updateJob(job)
+        cacheJobLocally(job)
 
         let jobNumTxt = job.jobNumber.map { "Job #\($0) — " } ?? ""
         let msg = Message(
@@ -932,6 +945,7 @@ class AppState {
             return e
         }
         updateJob(job)
+        cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "approved")
     }
 
@@ -947,6 +961,7 @@ class AppState {
             return e
         }
         updateJob(job)
+        cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "declined")
     }
 
@@ -1009,6 +1024,7 @@ class AppState {
             }
         }
         updateJob(job)
+        cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "reopened")
     }
 
