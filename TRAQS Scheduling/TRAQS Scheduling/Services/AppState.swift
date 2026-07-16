@@ -23,6 +23,14 @@ struct ThreadContext: Equatable {
     static func == (lhs: ThreadContext, rhs: ThreadContext) -> Bool { lhs.id == rhs.id }
 }
 
+extension Notification.Name {
+    /// Fired after AppState.rehydrateFromCache assigns fresh cache data into the
+    /// @Observable state (always on the main thread). On-screen views observe it
+    /// to force an immediate re-render, since @Observable auto-tracking did not
+    /// reliably re-run an idle on-screen body on the async rehydrate path.
+    static let traqsDataRehydrated = Notification.Name("traqsDataRehydrated")
+}
+
 @Observable
 class AppState {
     /// Non-nil while a message thread is open. The overlay header window observes
@@ -261,16 +269,39 @@ class AppState {
         // Message/ChatGroup/OrgSettings are Equatable, so `!=` is the guard. The
         // empty-guard (|| current.isEmpty) still blocks blanking populated state
         // with a momentarily-empty cache slice.
-        if j != jobs, !j.isEmpty || jobs.isEmpty { jobs = j }
-        if p != people, !p.isEmpty || people.isEmpty { people = p }
-        if c != clients, !c.isEmpty || clients.isEmpty { clients = c }
-        if m != messages, !m.isEmpty || messages.isEmpty { messages = m }
-        if g != groups, !g.isEmpty || groups.isEmpty { groups = g }
-        if let s, s != orgSettings { orgSettings = s }
-        autoMatchPerson()
+        // NOTE: Job/Person/Client use id-only Equatable, so `j != jobs` is TRUE only
+        // when the SET of ids changes — a field-only edit (dates/title/status, same id)
+        // read as "equal" and the assignment was skipped, so live edits never showed
+        // until a cold reopen. Assign whenever there's data (rehydrate is already
+        // gated on deltaSync having WRITTEN a real change). Messages/groups use
+        // synthesized full-equality, so their `!=` guard is correct and kept.
+        // Assign INSIDE a SwiftData/SwiftUI transaction (like loadAll does). A raw
+        // assignment from this bare DispatchQueue.main.async closure marks the view
+        // dirty but SwiftUI never commits the re-render for an IDLE on-screen view
+        // until the next lifecycle event (a tab switch) — so live edits landed in
+        // `jobs` but the Jobs list only refreshed after navigating away and back.
+        // withTransaction ties the mutation to SwiftUI's update cycle so the
+        // observing view re-runs its body immediately. (loadAll renders reliably
+        // precisely because it wraps every assignment in withoutAnimation.)
+        withoutAnimation {
+            if !j.isEmpty || jobs.isEmpty { jobs = j }
+            if !p.isEmpty || people.isEmpty { people = p }
+            if !c.isEmpty || clients.isEmpty { clients = c }
+            if m != messages, !m.isEmpty || messages.isEmpty { messages = m }
+            if g != groups, !g.isEmpty || groups.isEmpty { groups = g }
+            if let s, s != orgSettings { orgSettings = s }
+            autoMatchPerson()
+        }
         // Pick up a pay clock-in/out that landed via realtime (e.g. a kiosk
         // punch) — grace-guarded so a recent optimistic iOS tap isn't clobbered.
         reconcilePayClock()
+        // Belt-and-suspenders live refresh: @Observable auto-tracking was NOT
+        // re-running the on-screen Jobs list when `jobs` was reassigned from this
+        // async rehydrate path (it only re-rendered on view appear / tab switch).
+        // Posting here — always on the main thread (deferRehydrate hops to main) —
+        // lets on-screen views (.onReceive → bump a local @State) force an
+        // immediate body re-run that then reads the freshly-assigned data.
+        NotificationCenter.default.post(name: .traqsDataRehydrated, object: nil)
     }
 
     // Ably "changed" → pull the delta, then rehydrate. deltaSync coalesces bursts.
@@ -443,32 +474,30 @@ class AppState {
         }
     }
 
-    /// Degraded-mode fallback poll. When Ably realtime is CONNECTED, live
-    /// updates arrive via the "changed" channels + silent push, so no polling is
-    /// needed. This 15s poll runs ONLY while realtime is NOT connected
-    /// (disconnected / suspended / failed, the 503-degraded case, or the
-    /// not-yet-connected startup window) AND the app is foregrounded. It calls
-    /// deltaSync — NEVER loadAll (loadAll is reserved for cold launch,
-    /// pull-to-refresh, and the stale-foreground safety net). Idempotent: safe to
-    /// call on every realtime-status change; it starts or stops the timer to
-    /// match the current state.
+    /// Foreground live-sync poll + self-heal. Runs a cheap deltaSync on a short
+    /// cadence whenever the app is foregrounded — even when Ably says CONNECTED.
+    /// This mirrors the web app's periodic self-heal: if Ably is connected but
+    /// silently NOT delivering "changed" events (a runtime delivery gap), the old
+    /// "poll only when disconnected" logic left iOS stuck showing stale data until
+    /// the next cold reopen. Polling regardless of realtime status guarantees
+    /// near-live updates while open; when disconnected we poll faster. deltaSync
+    /// coalesces with any concurrent Ably-driven sync, so this is safe. It NEVER
+    /// loadAlls (that's for cold launch / pull-to-refresh).
     private func updateDegradedPoll() {
-        let shouldPoll = isForeground && api != nil && realtimeStatus != .connected
+        let shouldPoll = isForeground && api != nil
         if shouldPoll {
             guard degradedPollTask == nil else { return }   // already polling
-            print("[poll] realtime=\(realtimeStatus) — starting degraded 15s deltaSync poll")
             degradedPollTask = Task { [weak self] in
                 while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 15_000_000_000)
+                    // Faster when realtime is down; a self-heal backstop when it's "connected".
+                    let interval: UInt64 = (self?.realtimeStatus == .connected) ? 5_000_000_000 : 4_000_000_000
+                    try? await Task.sleep(nanoseconds: interval)
                     guard let self, !Task.isCancelled else { break }
                     guard !self.isLoading else { continue }
                     if await self.runDeltaSync() { self.deferRehydrate() }
                 }
             }
         } else {
-            if degradedPollTask != nil {
-                print("[poll] realtime connected/backgrounded — stopping degraded poll")
-            }
             degradedPollTask?.cancel()
             degradedPollTask = nil
         }

@@ -18,6 +18,11 @@ struct TasksView: View {
     /// path) so the card's 3-dot "Information" action can navigate.
     var onOpenJob: (Job) -> Void = { _ in }
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    /// Bumped on every data rehydrate (via .onReceive below). A @State change
+    /// unconditionally re-runs this view's body, which then reads the freshly
+    /// synced appState.jobs — the reliable live-refresh path when @Observable
+    /// auto-tracking doesn't re-render the idle on-screen list.
+    @State private var liveRefresh = 0
 
     enum JobsSegment: String, CaseIterable, Hashable { case today, week, month, year
         var label: String { rawValue.capitalized }
@@ -28,7 +33,14 @@ struct TasksView: View {
     // Body is just the scrollable content — the Jobs hub (JobsHubView) supplies
     // the surrounding NavigationStack, header, title + range picker, and sheets.
     var body: some View {
-        ScrollView {
+        // Read liveRefresh + appState.jobs DIRECTLY in body. This establishes the
+        // @Observable dependency at the body level (not only inside the myTasks
+        // computed property, whose reads SwiftUI wasn't tracking) so a live data
+        // sync re-runs the list. liveRefresh (bumped by .onReceive on rehydrate)
+        // is a belt-and-suspenders re-render trigger for the same reason.
+        let _ = liveRefresh
+        let _ = appState.jobs.count
+        return ScrollView {
             VStack(spacing: 0) {
                 // ("Jobs" title is rendered statically by JobsHubView above.)
 
@@ -73,6 +85,13 @@ struct TasksView: View {
         // Recenter the week/month/year picker to today when the range changes.
         .onChange(of: segment) { _, _ in
             selectedDate = Calendar.current.startOfDay(for: Date())
+        }
+        // Force a body re-run whenever live sync rehydrates data. A @State bump
+        // reliably re-renders the on-screen list even when @Observable tracking of
+        // appState.jobs doesn't fire for an idle view (the "only updates after a
+        // tab switch" bug).
+        .onReceive(NotificationCenter.default.publisher(for: .traqsDataRehydrated)) { _ in
+            liveRefresh &+= 1
         }
     }
 
@@ -203,12 +222,37 @@ struct TasksView: View {
     /// there are other jobs, so a fully-personal view keeps its old look.
     @ViewBuilder
     private func rangeContent(_ range: Range<Date>, label: String) -> some View {
-        // Top: the user's own scheduled work (Today) + started work (In Progress).
-        // Bottom: every other non-finished job as a collapsible "All Jobs" card.
-        let mine = tasks(in: range)
+        // Your assigned, non-finished work — grouped so nothing ever vanishes:
+        //   • Today: scheduled to overlap the window
+        //   • In Progress: started (any date, until complete)
+        //   • Upcoming: assigned but not in the window and not started
+        // Then every OTHER non-finished job as a collapsible "All Jobs" card.
+        let mine = myActiveTasks
+        let inProgress = mine.filter { $0.status == .inProgress }
+        let notStarted = mine.filter { $0.status != .inProgress }
+        let today = notStarted.filter { overlapsRange($0, range) }
+        let upcoming = notStarted.filter { !overlapsRange($0, range) }
         let others = allJobsList
         return VStack(spacing: 16) {
-            taskList(mine)
+            if mine.isEmpty && others.isEmpty {
+                VStack(spacing: 6) {
+                    NoJobsPlaceholder(text: "No jobs scheduled")
+                    diagnosticLine
+                }
+                .padding(.horizontal, 16).padding(.top, 8)
+            }
+            if !today.isEmpty {
+                sectionHeader(windowLabel).padding(.horizontal, 16)
+                cardStack(today)
+            }
+            if !inProgress.isEmpty {
+                sectionHeader("In Progress").padding(.horizontal, 16)
+                cardStack(inProgress)
+            }
+            if !upcoming.isEmpty {
+                sectionHeader("Upcoming").padding(.horizontal, 16)
+                cardStack(upcoming)
+            }
             if !others.isEmpty {
                 sectionHeader("All Jobs").padding(.horizontal, 16)
                 VStack(spacing: 12) {
@@ -250,35 +294,6 @@ struct TasksView: View {
         case .week:  return "This Week"
         case .month: return "This Month"
         case .year:  return "This Year"
-        }
-    }
-
-    @ViewBuilder
-    private func taskList(_ tasks: [TaskAssignment]) -> some View {
-        // The active task is pinned as the hero above the toggle, so drop it here.
-        let rows = tasks.filter { $0.id != activeTaskId }
-        // Two groups: today's scheduled work up top, started (in-progress) work below.
-        let inProgress = rows.filter { $0.status == .inProgress }
-        let scheduled = rows.filter { $0.status != .inProgress }
-        return Group {
-            if rows.isEmpty {
-                VStack(spacing: 6) {
-                    NoJobsPlaceholder(text: "No jobs scheduled")
-                    diagnosticLine
-                }
-                .padding(.horizontal, 16).padding(.top, 8)
-            } else {
-                VStack(spacing: 16) {
-                    if !scheduled.isEmpty {
-                        sectionHeader(windowLabel).padding(.horizontal, 16)
-                        cardStack(scheduled)
-                    }
-                    if !inProgress.isEmpty {
-                        sectionHeader("In Progress").padding(.horizontal, 16)
-                        cardStack(inProgress)
-                    }
-                }
-            }
         }
     }
 
@@ -394,18 +409,19 @@ struct TasksView: View {
         return s < range.upperBound && e >= range.lowerBound
     }
 
-    /// My assignments to show, sorted by start. A task shows if it's scheduled
-    /// within `range` (e.g. today) — EXCEPT a started (in-progress) task stays on
-    /// screen until it's complete, regardless of its scheduled window, and a
-    /// finished task drops off.
-    private func tasks(in range: Range<Date>) -> [TaskAssignment] {
-        myTasks.filter { t in
-            if t.status == .finished { return false }            // complete → gone
-            if t.status == .inProgress { return true }           // started → stays until complete
-            guard let s = t.startDate, let e = t.endDate else { return false }
-            return s < range.upperBound && e >= range.lowerBound // otherwise: only within the window
-        }
-        .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
+    /// All of the current user's assigned, non-finished work (the active clock
+    /// task is pinned as the hero, so it's dropped here). Nothing is hidden by
+    /// date — the date grouping happens in rangeContent so a rescheduled job
+    /// moves between sections instead of vanishing.
+    private var myActiveTasks: [TaskAssignment] {
+        myTasks
+            .filter { $0.status != .finished && $0.id != activeTaskId }
+            .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
+    }
+
+    private func overlapsRange(_ t: TaskAssignment, _ range: Range<Date>) -> Bool {
+        guard let s = t.startDate, let e = t.endDate else { return false }
+        return s < range.upperBound && e >= range.lowerBound
     }
 
     /// Parent jobs the user is NOT assigned to that have at least one panel
