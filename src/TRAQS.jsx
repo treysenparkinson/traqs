@@ -2591,6 +2591,8 @@ Extraction rules:
   const [finishApproval, setFinishApproval] = useState(null); // { id, pid, title }
   const [splitModal, setSplitModal] = useState(null); // { op, panel, parentJob }
   const [splitHour, setSplitHour] = useState(0);
+  const [workedHoursModal, setWorkedHoursModal] = useState(null); // { op, panel, parentJob } — manual worked-hours entry
+  const [workedHoursInput, setWorkedHoursInput] = useState(0);
   const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
@@ -4720,9 +4722,16 @@ Extraction rules:
   // Block moving / restructuring / deleting a job while a worker is actively clocked into it
   // (their job clock is running — desktop or iOS). Returns true (and shows the warning) when
   // blocked, so callers can `if (blockedByActiveClock(jobId)) return;`.
-  const blockedByActiveClock = (jobId) => {
+  //
+  // opId (optional): scope the block to a SINGLE operation. When given, only a clock on THAT
+  // exact op blocks — clocking into one task must NOT freeze the other independent tasks in the
+  // same job. Callers that move a single op pass its id; whole-job actions (delete/restructure)
+  // omit it to keep the job-wide guard.
+  const blockedByActiveClock = (jobId, opId = null) => {
     if (jobId == null) return false;
-    const person = people.find(p => p.activeJobClock && String(p.activeJobClock.jobId) === String(jobId));
+    const person = opId != null
+      ? people.find(p => p.activeJobClock && p.activeJobClock.clockIn && String(p.activeJobClock.opId) === String(opId))
+      : people.find(p => p.activeJobClock && String(p.activeJobClock.jobId) === String(jobId));
     if (!person) return false;
     setOverlapError({
       message: "Worker Clocked Into Job",
@@ -10548,8 +10557,10 @@ ${jobsCtx || "No jobs found."}`;
                       document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openDetail(bar.task); } return; }
-                      // Can't move a job while someone is actively clocked into it — they'd be stranded.
-                      if (!isPto && bar.task && blockedByActiveClock(jobIdOfNode(bar.task.id))) return;
+                      // Can't move the SPECIFIC op someone is actively clocked into — they'd be
+                      // stranded. Scoped to this op (bar.task.id): a clock on a sibling task in the
+                      // same job must not block moving this independent one.
+                      if (!isPto && bar.task && blockedByActiveClock(jobIdOfNode(bar.task.id), bar.task.id)) return;
                       const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
                       const finalDx = Math.floor((me.clientX - sx) / liveCW + _origColOffset);
                       const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(_dragBaseStart, finalDx));
@@ -19439,6 +19450,64 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>;
     })()}
+    {/* ── Set Worked Hours Modal (manual progress entry) ── */}
+    {workedHoursModal && (() => {
+      const { op, panel, parentJob } = workedHoursModal;
+      const totalHours = Math.max(0, op.hpd || productiveHoursPerDay);
+      const val = Math.max(0, Math.min(totalHours, workedHoursInput || 0));
+      const remaining = Math.round((totalHours - val) * 100) / 100;
+      const pct = totalHours > 0 ? Math.round((val / totalHours) * 100) : 0;
+      const workerNames = (op.team || []).map(id => { const p = people.find(x => x.id === id); return p ? p.name : null; }).filter(Boolean);
+      // Set loggedHours directly — it's what deriveWorkedState uses to grey out the
+      // worked portion. No date change, so the bar stays exactly where it is (no
+      // recalcBounds). This is a manual correction/override of recorded progress.
+      const applyWorked = () => {
+        setTasks(prev => {
+          const updated = prev.map(j => {
+            if (j.id !== parentJob.id) return j;
+            return { ...j, subs: (j.subs || []).map(pnl => {
+              if (pnl.id !== panel.id) return pnl;
+              return { ...pnl, subs: (pnl.subs || []).map(o => o.id === op.id ? { ...o, loggedHours: val } : o) };
+            })};
+          });
+          saveTasks(updated, getToken, orgCode).catch(console.warn);
+          return updated;
+        });
+        setWorkedHoursModal(null);
+      };
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setWorkedHoursModal(null)}>
+        <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(440px, calc(100vw - 32px))", padding: "28px 28px 24px", animation: "slideUp 0.22s ease-out" }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: T.text, marginBottom: 4 }}>Set Worked Hours</div>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 24 }}>{op.title} &nbsp;·&nbsp; <span style={{ color: T.textSec }}>{parentJob.title || parentJob.jobNumber || ""}</span></div>
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 13, color: T.textSec, marginBottom: 10, fontWeight: 500 }}>Hours worked of <strong style={{ color: T.text }}>{totalHours}h</strong></div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input type="number" min={0} max={totalHours} step={0.5} value={workedHoursInput} onChange={e => setWorkedHoursInput(e.target.value === "" ? 0 : parseFloat(e.target.value))} style={{ width: 110, padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, color: T.text, fontSize: 15, fontWeight: 700, fontFamily: T.font }} />
+              <span style={{ fontSize: 13, color: T.textSec }}>hours ({pct}% done)</span>
+            </div>
+            <input type="range" min={0} max={totalHours} step={0.5} value={val} onChange={e => setWorkedHoursInput(parseFloat(e.target.value))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer", marginTop: 14 }} />
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.textDim, marginTop: 4 }}>
+              <span>0h</span><span>{totalHours}h</span>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+            <div style={{ flex: 1, padding: "12px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
+              <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Worked</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{val}h</div>
+              {workerNames.length > 0 && <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{workerNames.join(", ")}</div>}
+            </div>
+            <div style={{ flex: 1, padding: "12px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
+              <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Remaining</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{remaining}h</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={() => setWorkedHoursModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={applyWorked} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Set</button>
+          </div>
+        </div>
+      </div>;
+    })()}
     {/* ── Scheduling / Org Settings Modal ── */}
     <FadeOnClose open={!!orgSettingsOpen} duration={220}>{orgSettingsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setOrgSettingsOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(460px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
@@ -20743,6 +20812,7 @@ ${jobsCtx || "No jobs found."}`;
       {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Split Job */}
       {can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
+      {can("editJobs") && isOp && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.min(freshOp.loggedHours || 0, freshOp.hpd || 0)); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Request Completion — lowest level bar with no children */}
       {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Completion" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Delete */}

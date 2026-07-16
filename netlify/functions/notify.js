@@ -43,27 +43,33 @@ export async function handler(event) {
   const adminIds = people.filter(p => p.userRole === "admin").map(p => String(p.id));
   const teamIds  = (jobTeamIds || []).map(id => String(id));
 
-  // Determine who to target based on notification type
+  // Determine who to target based on notification type.
+  //
+  // Admin notification policy: admins should ONLY be pinged for approval-queue
+  // items — engineering sign-off steps and completion/finish requests. Everything
+  // else (new-job heads-ups, assignment CCs, "ready to build") is silenced for
+  // admins so their notifications stay actionable. (The job's own team still gets
+  // their relevant pushes; only the org-wide admin CC is dropped.)
   let targetIds;
   if (type === "new_job") {
-    // Admins only — a "new job created" heads-up. The job's team members get a
-    // per-person "assigned" push fired SERVER-SIDE from tasks.js (team-added
-    // detection) instead, so targeting the team here too would double-notify
-    // anyone on the new job. (Phase 5 consolidation.)
-    targetIds = [...adminIds];
+    // Not an approval item → no admin heads-up. (Team members get their own
+    // per-person "assigned" push server-side from tasks.js.)
+    targetIds = [];
   } else if (type === "assigned") {
-    // Notify only the newly added team members (+ admins)
-    const newIds = (newTeamIds || []).map(id => String(id));
-    targetIds = [...new Set([...adminIds, ...newIds])];
+    // Only the newly added team members — admins are no longer CC'd here.
+    targetIds = [...new Set((newTeamIds || []).map(id => String(id)))];
   } else if (type === "finish_request") {
-    // Admins only — they need to approve/decline
+    // Approval-queue item — admins act on it.
     targetIds = [...adminIds];
   } else if (type === "completion_resolved") {
     // Notify the requester (passed in newTeamIds) that their request was resolved.
     targetIds = [...new Set((newTeamIds || []).map(id => String(id)))];
-  } else {
-    // step / ready — admins + full team
+  } else if (type === "step") {
+    // Engineering sign-off step — an approval item. Admins + the job's team.
     targetIds = [...new Set([...adminIds, ...teamIds])];
+  } else {
+    // ready — informational "ready to build". Team only; not an admin approval item.
+    targetIds = [...new Set(teamIds)];
   }
 
   // Build notification content

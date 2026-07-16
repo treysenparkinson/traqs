@@ -116,6 +116,10 @@ async function notifyTaskChanges({ orgCode, member, next, prev }) {
   let people = [];
   try { people = filterLive((await readJson(`orgs/${orgCode}/people.json`)) || []); } catch { people = []; }
   const allIds = people.map((p) => p && p.id).filter((v) => v != null).map(String);
+  // Admins only receive approval-queue notifications (finish/completion requests +
+  // eng steps, handled in notify.js). A job STATUS change is not an approval item,
+  // so admins are excluded from status pushes below even if they're on the team.
+  const adminIds = new Set(people.filter((p) => p && p.userRole === "admin").map((p) => String(p.id)));
 
   const { teamAdded, teamRemoved, finishResolved, statusChanges } = diffTaskEvents(next, prev);
   const serverTime = new Date().toISOString();
@@ -163,7 +167,7 @@ async function notifyTaskChanges({ orgCode, member, next, prev }) {
   }
 
   for (const s of statusChanges) {
-    const recips = s.teamIds.filter((id) => id && id !== writerId && !s.excludeIds.includes(id));
+    const recips = s.teamIds.filter((id) => id && id !== writerId && !s.excludeIds.includes(id) && !adminIds.has(String(id)));
     if (recips.length === 0) continue;
     await sendVisiblePush(orgCode, people, recips, {
       heading: "Status update",

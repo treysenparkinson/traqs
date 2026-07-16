@@ -16,10 +16,21 @@ struct TimeClockView: View {
     @Environment(AppNav.self) private var appNav
     @State private var now = Date()
     @State private var showPinPrompt = false
+    /// Bumped on every data rehydrate so this view re-renders when `people`
+    /// changes live (e.g. an admin flips this person's mobile clock-in
+    /// permission) — see .onReceive below.
+    @State private var liveRefresh = 0
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ZStack {
+        // Read the live-synced slices DIRECTLY in body so a permission/clock
+        // change re-renders immediately. SwiftUI doesn't reliably track
+        // @Observable reads that happen only inside computed properties
+        // (showPayClock reads appState.canClockInOut), so the pay-clock CTA
+        // wasn't appearing until an app reopen when the permission was enabled.
+        let _ = liveRefresh
+        let _ = appState.people.count
+        return ZStack {
             AmbientBackground()
 
             VStack(spacing: 0) {
@@ -111,6 +122,12 @@ struct TimeClockView: View {
                 }
             }
             .onReceive(ticker) { now = $0 }
+            // Force a re-render when live sync rehydrates data (e.g. an admin just
+            // enabled this person's mobile clock-in permission) so the pay-clock
+            // CTA appears without needing an app reopen.
+            .onReceive(NotificationCenter.default.publisher(for: .traqsDataRehydrated)) { _ in
+                liveRefresh &+= 1
+            }
             // On-demand datasets (heavy): the live person/jobs come from loadAll
             // elsewhere; here we only pull this person's clock + job-session logs.
             .task {
