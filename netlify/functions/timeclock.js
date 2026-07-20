@@ -205,7 +205,7 @@ export async function handler(event) {
     if (!action) return err(400, "Missing action");
 
     // ── Admin actions (Bearer token, no PIN) ──────────────────────────────
-    if (action === "adminClockOut" || action === "adminClockIn" || action === "adminEditEntry") {
+    if (action === "adminClockOut" || action === "adminClockIn" || action === "adminEditEntry" || action === "adminEditActiveClockIn") {
       let _m;
       try { _m = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
       if (!_m.isAdmin) return err(403, "Admin only");
@@ -317,6 +317,32 @@ export async function handler(event) {
 
         const updated = log.find(e => e.id === entryId);
         return json(200, { ok: true, entry: updated });
+      }
+
+      // ── Admin Edit Active (open) Clock-In ──────────────────────────────
+      // Fix the start time of a session while the worker is STILL clocked in
+      // (e.g. a forgotten / late clock-in). Only the open session's clockIn is
+      // editable here; on clock-out it becomes a normal entry, thereafter
+      // editable via adminEditEntry.
+      if (action === "adminEditActiveClockIn") {
+        const { personId, clockIn } = body;
+        if (!personId || !clockIn) return err(400, "Missing personId or clockIn");
+        if (!validTs(clockIn)) return err(400, "Invalid clockIn");
+        if (new Date(clockIn).getTime() > Date.now() + 60000) return err(400, "Clock-in cannot be in the future");
+
+        let people;
+        try { people = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+
+        const personIdx = people.findIndex(p => String(p.id) === String(personId));
+        if (personIdx === -1) return err(404, "Person not found");
+
+        const person = people[personIdx];
+        if (!person.activeClockIn) return err(409, "Not currently clocked in");
+
+        people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, clockIn } };
+        try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save people"); }
+
+        return json(200, { ok: true, activeClockIn: people[personIdx].activeClockIn });
       }
     }
 

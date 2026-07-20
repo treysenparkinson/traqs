@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -3528,6 +3528,9 @@ Extraction rules:
   const [tsConfirmSaving, setTsConfirmSaving] = useState(false);
   const [tsPersonEditModal, setTsPersonEditModal] = useState(null); // { person, draftEntries } | null
   const [tsExpandedPersons, setTsExpandedPersons] = useState({}); // { [personId]: bool }
+  const [sinceEdit, setSinceEdit] = useState(null); // { personId, value } — inline "Since" clock-in time editor (live board)
+  const [sinceSaving, setSinceSaving] = useState(false);
+  const sinceCancelRef = useRef(false); // set on Escape so the unmount-blur doesn't also commit
   const _pinKbRef = useRef(null); // holds { submitPin, closePin } — set each render inside renderTimeStamp
 
   // PIN keyboard handler — must live at component level (hooks rules)
@@ -7733,6 +7736,16 @@ ${jobsCtx || "No jobs found."}`;
     </div>;
   };
 
+  // Organization page — standalone page (currently blank; content TBD).
+  const renderOrganization = () => {
+    return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        <span style={{ lineHeight: 0, color: T.accent }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Organization</h2>
+      </div>
+    </div>;
+  };
+
   // Standalone Approval Queue page — list-view-style grid: jobs at level 0, drop down
   // (gridRowIn/gridRowOut animations) to panel-workflow rows where each approval step
   // renders inline. Reuses the existing expandedJobs/closingJobs + toggleJobExpand so the
@@ -11510,12 +11523,8 @@ ${jobsCtx || "No jobs found."}`;
     });
 
     // â”€â”€ Existing card data (kept) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const tot = tasks.length;
-    const bySt = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length }));
-    const byPr = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length }));
-    const cr = tot ? Math.round(tasks.filter(t => t.status === "Finished").length / tot * 100) : 0;
-    const tl = people.map(p => ({ n: p.name.split(" ")[0], h: bookedHrs(p.id, TD), cap: p.cap })).sort((a, b) => b.h - a.h).slice(0, 12);
-    const mx = Math.max(...tl.map(t => Math.max(t.h, t.cap)), 1);
+    // (By Status / By Priority / Completion / Team Workload now derived below in the
+    //  job-stat block and rendered as modern bar/donut charts — matches the iOS Stats page.)
 
     // Line chart geometry — generous left margin for y-labels, top padding so the peak point
     // doesn't kiss the chart edge. padL/padR tuned to let the polyline run nearly edge-to-edge
@@ -11535,6 +11544,148 @@ ${jobsCtx || "No jobs found."}`;
     // at component scope and launched from the Time Clock page's "Export Hours"
     // button (next to Confirm Time Sheet).
 
+    // ── iOS Stats parity: operation aggregates + reusable modern chart blocks ──
+    // Operations live two levels deep: job → panel (subs) → operation (subs).
+    const allOps = tasks.flatMap(j => (j.subs || [])).flatMap(p => (p.subs || []));
+
+    const cardH4 = { color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" };
+    const emptyMsg = (m) => <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>{m}</div>;
+
+    // Frosted KPI tile — uppercase label, big mono value, accent capsule (matches iOS AnalyticsStatTile).
+    const statTile = (label, value, accent) => (
+      <div key={label} className="tq-frost" style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", fontFamily: T.font, display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</div>
+        <div style={{ fontSize: 30, fontWeight: 800, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{value}</div>
+        <div style={{ width: 32, height: 4, borderRadius: 2, background: accent }} />
+      </div>
+    );
+
+    // Horizontal bar-by-category card (Jobs by Status / My Jobs by Status). data: [{ n, c }].
+    const hbarCard = (title, data, colorOf, emptyText = "No data yet.") => {
+      const max = Math.max(...data.map(d => d.c), 1);
+      return (
+        <Card style={{ animation: "none" }}>
+          <h4 style={cardH4}>{title}</h4>
+          {data.length === 0 ? emptyMsg(emptyText) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {data.map(d => (
+                <div key={d.n} style={{ display: "grid", gridTemplateColumns: "minmax(80px,120px) 1fr 34px", gap: 12, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: T.textSec, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.n}</span>
+                  <div style={{ height: 22, background: T.surface, borderRadius: 6, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${(d.c / max) * 100}%`, minWidth: d.c > 0 ? 6 : 0, background: colorOf(d.n), borderRadius: 6, transition: "width 0.3s" }} />
+                  </div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: T.mono, textAlign: "right" }}>{d.c}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      );
+    };
+
+    // Vertical bar chart card (Team Workload — Active Ops). data: [{ name, count }].
+    const vbarCard = (title, data, emptyText) => {
+      const max = Math.max(...data.map(d => d.count), 1);
+      return (
+        <Card style={{ animation: "none" }}>
+          <h4 style={cardH4}>{title}</h4>
+          {data.length === 0 ? emptyMsg(emptyText) : (
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 190, padding: "0 4px", overflowX: "auto" }}>
+              {data.map(d => (
+                <div key={d.name} style={{ flex: "1 0 44px", minWidth: 44, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6, height: "100%" }}>
+                  <span style={{ fontSize: 12, fontFamily: T.mono, color: T.textSec, fontWeight: 700 }}>{d.count}</span>
+                  <div style={{ width: "100%", maxWidth: 46, height: Math.max((d.count / max) * 130, 4), borderRadius: "6px 6px 0 0", background: `linear-gradient(to top, ${T.accent}, ${blendHex(T.accent, 0.32)})`, transition: "height 0.3s" }} />
+                  <span style={{ fontSize: 10, color: T.textDim, textAlign: "center", fontWeight: 500, width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      );
+    };
+
+    // Donut (SVG) — generic ring with center label + legend. entries: [{ label, value, color }].
+    const renderDonut = (entries, centerVal, centerSub, fmtVal = (v) => v) => {
+      const total = entries.reduce((s, e) => s + e.value, 0);
+      const cx = 90, cy = 90, rO = 80, rI = 50;
+      let acc = 0;
+      const slices = entries.map(e => {
+        let path;
+        if (entries.length === 1) {
+          // Single 100% slice — full annulus (even-odd fill carves the hole).
+          path = `M ${cx} ${cy - rO} A ${rO} ${rO} 0 1 1 ${cx - 0.01} ${cy - rO} Z M ${cx} ${cy - rI} A ${rI} ${rI} 0 1 1 ${cx - 0.01} ${cy - rI} Z`;
+        } else {
+          const a0 = (acc / Math.max(total, 1)) * Math.PI * 2 - Math.PI / 2;
+          acc += e.value;
+          const a1 = (acc / Math.max(total, 1)) * Math.PI * 2 - Math.PI / 2;
+          const large = (a1 - a0) > Math.PI ? 1 : 0;
+          const x1 = cx + rO * Math.cos(a0), y1 = cy + rO * Math.sin(a0);
+          const x2 = cx + rO * Math.cos(a1), y2 = cy + rO * Math.sin(a1);
+          const x3 = cx + rI * Math.cos(a1), y3 = cy + rI * Math.sin(a1);
+          const x4 = cx + rI * Math.cos(a0), y4 = cy + rI * Math.sin(a0);
+          path = `M ${x1} ${y1} A ${rO} ${rO} 0 ${large} 1 ${x2} ${y2} L ${x3} ${y3} A ${rI} ${rI} 0 ${large} 0 ${x4} ${y4} Z`;
+        }
+        return { ...e, path };
+      });
+      return (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+          <svg viewBox="0 0 180 180" style={{ width: 180, height: 180, display: "block" }}>
+            {slices.map(s => <path key={s.label} d={s.path} fill={s.color} fillRule="evenodd"><title>{s.label}: {fmtVal(s.value)}</title></path>)}
+            <text x="90" y="86" textAnchor="middle" fontSize="20" fontWeight="800" fill={T.text} fontFamily={T.mono}>{centerVal}</text>
+            <text x="90" y="102" textAnchor="middle" fontSize="9" fill={T.textDim} fontFamily={T.font} letterSpacing="0.08em">{centerSub}</text>
+          </svg>
+          <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 5 }}>
+            {slices.map(s => (
+              <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                <span style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
+                <span style={{ color: T.textDim, fontFamily: T.mono }}>{fmtVal(s.value)}</span>
+                <span style={{ color: T.textDim, fontFamily: T.mono, width: 40, textAlign: "right" }}>{Math.round((s.value / Math.max(total, 1)) * 100)}%</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    };
+
+    // ── Non-admin: personal stats only (matches iOS "Your stats") ──
+    if (!isAdmin) {
+      const myOps = allOps.filter(op => (op.team || []).includes(currentUser));
+      const myDone = myOps.filter(op => op.status === "Finished").length;
+      const myActive = myOps.filter(op => op.status === "In Progress").length;
+      const myTotal = myOps.length;
+      const myCompletion = myTotal ? Math.round(myDone / myTotal * 100) : 0;
+      const myStatusCounts = STATUSES.map(s => ({ n: s, c: myOps.filter(op => op.status === s).length })).filter(x => x.c > 0);
+      return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexShrink: 0 }}>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Analytics</h3>
+          <span style={{ fontSize: 12, color: T.textDim }}>Your stats</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
+          {statTile("My Jobs Done", myDone, "#10b981")}
+          {statTile("Completion", myCompletion + "%", T.accent)}
+          {statTile("In Progress", myActive, "#3b82f6")}
+          {statTile("Total Ops", myTotal, "#f59e0b")}
+        </div>
+        {hbarCard("My Jobs by Status", myStatusCounts, staColorOf, "No assigned operations yet.")}
+      </div>;
+    }
+
+    // ── Admin: job & operation aggregates (team overview) ──
+    const totalJobs = tasks.length;
+    const finishedJobs = tasks.filter(t => t.status === "Finished").length;
+    const completionPct = totalJobs ? Math.round(finishedJobs / totalJobs * 100) : 0;
+    const inProgressJobs = tasks.filter(t => t.status === "In Progress").length;
+    const jobStatusCounts = STATUSES.map(s => ({ n: s, c: tasks.filter(t => t.status === s).length })).filter(x => x.c > 0);
+    const jobPriorityCounts = PRIORITIES.map(p => ({ n: p, c: tasks.filter(t => t.pri === p).length })).filter(x => x.c > 0);
+    const teamWorkload = people
+      .map(p => ({ name: p.name.split(" ")[0], count: allOps.filter(op => (op.team || []).includes(p.id) && op.status !== "Finished").length }))
+      .filter(x => x.count > 0)
+      .sort((a, b) => b.count - a.count);
+    const avgOpsPerPerson = teamWorkload.length ? teamWorkload.reduce((s, t) => s + t.count, 0) / teamWorkload.length : 0;
+    const priDonut = jobPriorityCounts.map(x => ({ label: x.n, value: x.c, color: priColorOf(x.n) }));
+    const priTotal = jobPriorityCounts.reduce((s, x) => s + x.c, 0);
+
     return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Header — title (left) · period pill (center). Hours export moved to the Time Clock page. */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
@@ -11549,20 +11700,29 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
 
-      {/* KPI strip — 4 tiles */}
+      {/* KPI grid — job & operation aggregates + period hours */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-        {[
-          { label: "Hours logged", val: hoursLogged, suffix: "h", color: T.accent },
-          { label: "Active jobs", val: activeJobs.length, suffix: "", color: "#3b82f6" },
-          { label: "Avg completion", val: avgPct, suffix: "%", color: "#10b981" },
-          { label: "On-time", val: onTimePct, suffix: "%", color: onTimePct >= 80 ? "#10b981" : onTimePct >= 50 ? "#f59e0b" : T.danger },
-        ].map((k, i) => (
-          <div key={k.label} className="tq-frost" style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", fontFamily: T.font }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>{k.label}</div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: k.color, fontFamily: T.mono, lineHeight: 1.1 }}>{k.val}{k.suffix}</div>
-          </div>
-        ))}
+        {statTile("Total Jobs", totalJobs, T.accent)}
+        {statTile("Active Jobs", activeJobs.length, "#3b82f6")}
+        {statTile("Completion", completionPct + "%", "#10b981")}
+        {statTile("Avg Progress", avgPct + "%", "#8b5cf6")}
+        {statTile("In Progress", inProgressJobs, "#f59e0b")}
+        {statTile("Avg Ops / Person", avgOpsPerPerson.toFixed(1), "#ec4899")}
+        {statTile("Hours Logged", hoursLogged + "h", T.accent)}
+        {statTile("On-Time", onTimePct + "%", onTimePct >= 80 ? "#10b981" : onTimePct >= 50 ? "#f59e0b" : T.danger)}
       </div>
+
+      {/* Jobs by Status (bars) · Jobs by Priority (donut) */}
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 20 }}>
+        {hbarCard("Jobs by Status", jobStatusCounts, staColorOf, "No jobs yet.")}
+        <Card style={{ animation: "none" }}>
+          <h4 style={cardH4}>Jobs by Priority</h4>
+          {priDonut.length === 0 ? emptyMsg("No jobs yet.") : renderDonut(priDonut, priTotal, "JOBS")}
+        </Card>
+      </div>
+
+      {/* Team Workload — Active Ops (operations not yet finished, per person) */}
+      {vbarCard("Team Workload — Active Ops", teamWorkload, "No active operations assigned.")}
 
       {/* Hours over time — line chart */}
       <Card style={{ padding: 0, overflow: "hidden", animation: "none" }}>
@@ -11667,13 +11827,6 @@ ${jobsCtx || "No jobs found."}`;
         </Card>
       </div>
 
-      {/* Existing cards — kept below */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20 }}>
-        <Card style={{ animation: "none" }}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Completion Rate</h4><div style={{ fontSize: 52, fontWeight: 700, color: "#10b981", textAlign: "center", fontFamily: T.mono, lineHeight: 1.1 }}>{cr}%</div><div style={{ textAlign: "center", fontSize: 13, color: T.textSec, marginTop: 8 }}>{tasks.filter(t => t.status === "Finished").length} of {tot} jobs</div></Card>
-        <Card style={{ animation: "none" }}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Status</h4>{bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: staColorOf(s.n) }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{s.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{s.c}</span></div>)}</Card>
-        <Card style={{ animation: "none" }}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>By Priority</h4>{byPr.map(p => <div key={p.n} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}><div style={{ width: 10, height: 10, borderRadius: 5, background: priColorOf(p.n) }} /><span style={{ flex: 1, fontSize: 13, color: T.textSec }}>{p.n}</span><span style={{ fontSize: 16, color: T.text, fontWeight: 700, fontFamily: T.mono }}>{p.c}</span></div>)}</Card>
-      </div>
-      <Card style={{ animation: "none" }}><h4 style={{ color: T.textSec, margin: "0 0 16px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Team Workload Today</h4><div style={{ display: "flex", alignItems: "end", gap: 8, height: 160, padding: "0 8px" }}>{tl.map(t => <div key={t.n} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}><span style={{ fontSize: 11, fontFamily: T.mono, color: t.h > t.cap ? elColor(T.danger) : T.textSec, fontWeight: 600 }}>{t.h.toFixed(1)}</span><div style={{ width: "100%", background: T.bg, borderRadius: 4, position: "relative", height: Math.max((Math.max(t.h, t.cap) / mx) * 110, 6) }}><div style={{ position: "absolute", bottom: 0, width: "100%", borderRadius: 4, background: elColor(t.h > t.cap ? T.danger : t.h / t.cap > 0.7 ? "#f59e0b" : T.accent), height: Math.max((t.h / mx) * 110, 3) }} /></div><span style={{ fontSize: 10, color: T.textDim, textAlign: "center", fontWeight: 500 }}>{t.n}</span></div>)}</div></Card>
     </div>;
   };
 
@@ -12036,6 +12189,33 @@ ${jobsCtx || "No jobs found."}`;
       return isToday ? `Today · ${label}` : isYesterday ? `Yesterday · ${label}` : label;
     };
 
+    // ── Inline "Since" editor (live board) ────────────────────────────────────
+    // Click a clocked-in worker's clock-in time to fix it in place. Edits only the
+    // time-of-day (keeps the original date) and saves via the same open-session
+    // backend action used by the edit modal.
+    const beginSinceEdit = (p) => {
+      const iso = p.activeClockIn?.clockIn;
+      if (!iso) return;
+      const d = new Date(iso);
+      setSinceEdit({ personId: p.id, value: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` });
+    };
+    const commitSinceEdit = async (p, value) => {
+      if (sinceCancelRef.current) { sinceCancelRef.current = false; setSinceEdit(null); return; }
+      const iso = p.activeClockIn?.clockIn;
+      const [h, m] = (value || "").split(":").map(Number);
+      if (!iso || Number.isNaN(h) || Number.isNaN(m)) { setSinceEdit(null); return; }
+      const nd = new Date(iso); nd.setHours(h, m, 0, 0);
+      const newIso = nd.toISOString();
+      if (newIso === iso) { setSinceEdit(null); return; } // unchanged
+      setSinceSaving(true);
+      try {
+        const r = await adminEditActiveClockInAction({ personId: p.id, clockIn: newIso }, getToken, orgCode);
+        if (r.ok) setPeople(pp => pp.map(x => x.id === p.id ? { ...x, activeClockIn: r.activeClockIn } : x));
+        else alert(r.error || "Failed to update clock-in time");
+      } catch { alert("Network error"); }
+      finally { setSinceSaving(false); setSinceEdit(null); }
+    };
+
     // ── PIN modal helpers ─────────────────────────────────────────────────────
     // pinState: "closed" | "clockIn_pin" | "clockIn_jobs" | "clockOut_pin"
 
@@ -12377,7 +12557,12 @@ ${jobsCtx || "No jobs found."}`;
         .filter(e => e.personId === person.id && e.date >= thirtyAgo && !e.eventType)
         .sort((a, b) => b.clockIn.localeCompare(a.clockIn))
         .map(e => ({ ...e })); // shallow clone for draft
-      setTsPersonEditModal({ person, draftEntries: entries, saving: false });
+      // The currently-open session lives on person.activeClockIn (not yet in the
+      // timeclock log), so surface it as an editable row — this is what lets an
+      // admin fix a late/forgotten clock-in WHILE the worker is still clocked in.
+      const ac = person.activeClockIn?.clockIn;
+      const activeEntry = ac ? { id: "__active__", personId: person.id, date: ac.slice(0, 10), clockIn: ac, clockOut: null, _active: true } : null;
+      setTsPersonEditModal({ person, draftEntries: activeEntry ? [activeEntry, ...entries] : entries, saving: false });
     };
 
     const renderPersonEditModal = () => {
@@ -12395,6 +12580,21 @@ ${jobsCtx || "No jobs found."}`;
         if (!ci || !co) return 0;
         return Math.max(0, Math.round(((new Date(co) - new Date(ci)) / 3600000) * 100) / 100);
       };
+      // Net running time for the open session given a (possibly edited) clockIn —
+      // subtracts closed AND still-open lunch/break pauses, matching the backend's
+      // hoursElapsedMinusPauses used on clock-out.
+      const activeHours = (clockInIso) => clockState({ ...(person.activeClockIn || {}), clockIn: clockInIso }).runningMs / 3600000;
+      // Hours shown for a row. Completed entries store hours already NET of lunch,
+      // so use that while the row is untouched; once the admin edits the times we
+      // recompute live from the raw span (the backend restamps on save). The open
+      // session is always net-of-lunch via activeHours.
+      const rowHours = (e) => {
+        if (e._active) return activeHours(e.clockIn);
+        const orig = timeclock.find(o => o.id === e.id);
+        const unchanged = orig && orig.clockIn === e.clockIn && orig.clockOut === e.clockOut;
+        if (unchanged && typeof orig.hours === "number") return orig.hours;
+        return computeHours(e.clockIn, e.clockOut);
+      };
 
       // Group by date for display
       const byDate = [];
@@ -12408,9 +12608,13 @@ ${jobsCtx || "No jobs found."}`;
         setTsPersonEditModal(m => ({ ...m, saving: true }));
         const original = timeclock.filter(e => e.personId === person.id);
         const changed = draftEntries.filter(d => {
+          if (d._active) return false; // open session is saved separately (below)
           const orig = original.find(o => o.id === d.id);
           return orig && (orig.clockIn !== d.clockIn || orig.clockOut !== d.clockOut);
         });
+        // Open-session start-time edit — only if it actually changed.
+        const activeDraft = draftEntries.find(d => d._active);
+        const activeChanged = activeDraft && person.activeClockIn?.clockIn && activeDraft.clockIn && activeDraft.clockIn !== person.activeClockIn.clockIn;
         try {
           const results = await Promise.all(
             changed.map(d => adminEditEntryAction({ entryId: d.id, clockIn: d.clockIn, clockOut: d.clockOut || new Date().toISOString() }, getToken, orgCode))
@@ -12418,6 +12622,16 @@ ${jobsCtx || "No jobs found."}`;
           const updatedEntries = results.filter(r => r.ok).map(r => r.entry);
           if (updatedEntries.length > 0) {
             setTimeclock(tc => tc.map(e => { const u = updatedEntries.find(x => x.id === e.id); return u || e; }));
+          }
+          if (activeChanged) {
+            const r = await adminEditActiveClockInAction({ personId: person.id, clockIn: activeDraft.clockIn }, getToken, orgCode);
+            if (r.ok) {
+              setPeople(pp => pp.map(p => p.id === person.id ? { ...p, activeClockIn: r.activeClockIn } : p));
+            } else {
+              alert(r.error || "Failed to update clock-in time");
+              setTsPersonEditModal(m => ({ ...m, saving: false }));
+              return;
+            }
           }
           setTsPersonEditModal(null);
         } catch { alert("Network error"); setTsPersonEditModal(m => ({ ...m, saving: false })); }
@@ -12439,10 +12653,42 @@ ${jobsCtx || "No jobs found."}`;
               {draftEntries.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: 24 }}>No entries in the last 30 days.</div>}
               {byDate.map(({ date, entries }) => (
                 <div key={date}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>{fmtDayHeader(date)}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>{fmtDayHeader(date)}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: T.mono }} title="Day total — all sessions, net of lunch/breaks">
+                      {entries.reduce((s, en) => s + rowHours(en), 0).toFixed(2)}h{entries.some(en => en._active) ? " · running" : ""}
+                    </span>
+                  </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     {entries.map(e => {
-                      const hrs = computeHours(e.clockIn, e.clockOut);
+                      const hrs = rowHours(e);
+                      if (e._active) {
+                        // Open session — still clocked in. Only the start time is editable;
+                        // the "Out" side shows a live "On the clock" state instead of an input.
+                        return (
+                          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#10b98110", borderRadius: T.radiusSm, border: `1px solid #10b98155`, flexWrap: "wrap" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>In</span>
+                                <input
+                                  type="datetime-local"
+                                  value={toLocal(e.clockIn)}
+                                  onChange={ev => setDraft(e.id, "clockIn", fromLocal(ev.target.value))}
+                                  style={{ colorScheme: T.colorScheme, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
+                                />
+                              </div>
+                              <span style={{ color: T.textDim, fontSize: 13, marginTop: 14 }}>→</span>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>Out</span>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: T.radiusXs, background: "#10b98118", color: "#10b981", fontSize: 12, fontWeight: 600, marginTop: 1 }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: 3, background: "#10b981" }} />On the clock
+                                </span>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "#10b981", fontFamily: T.mono, minWidth: 48, textAlign: "right" }}>{hrs.toFixed(2)}h</div>
+                          </div>
+                        );
+                      }
                       if (e.confirmed) {
                         // Confirmed punches are locked — re-open the timesheet (Confirm Time Sheet) to edit.
                         return (
@@ -13601,7 +13847,27 @@ ${jobsCtx || "No jobs found."}`;
                                 </div>
                               </td>
                               <td style={{ padding: "10px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
-                                {clocked ? `${fmtTime(p.activeClockIn?.clockIn)} (${eh}h ${em}m)` : "—"}
+                                {!clocked ? "—" : (isAdmin && sinceEdit?.personId === p.id) ? (
+                                  <input
+                                    type="time"
+                                    autoFocus
+                                    disabled={sinceSaving}
+                                    value={sinceEdit.value}
+                                    onClick={ev => ev.stopPropagation()}
+                                    onChange={ev => setSinceEdit(s => ({ ...s, value: ev.target.value }))}
+                                    onBlur={ev => commitSinceEdit(p, ev.target.value)}
+                                    onKeyDown={ev => { if (ev.key === "Enter") { ev.preventDefault(); ev.currentTarget.blur(); } else if (ev.key === "Escape") { ev.preventDefault(); sinceCancelRef.current = true; setSinceEdit(null); } }}
+                                    style={{ colorScheme: T.colorScheme, padding: "3px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
+                                  />
+                                ) : (
+                                  <span
+                                    onClick={isAdmin ? (ev => { ev.stopPropagation(); beginSinceEdit(p); }) : undefined}
+                                    title={isAdmin ? "Click to edit clock-in time" : undefined}
+                                    style={{ cursor: isAdmin ? "pointer" : "default", borderBottom: isAdmin ? `1px dashed ${T.border}` : "none", paddingBottom: 1 }}
+                                  >
+                                    {fmtTime(p.activeClockIn?.clockIn)} ({eh}h {em}m)
+                                  </span>
+                                )}
                               </td>
                               <td style={{ padding: "10px 10px", maxWidth: 200 }}>
                                 {p.activeJobClock ? (
@@ -17847,8 +18113,24 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           );
         })}
-        {/* ─── Divider above the Approval Queue + Settings group ─── */}
+        {/* ─── Divider above the Organization + Approval Queue + Settings group ─── */}
         <div aria-hidden={!sidebarExpanded} style={{ height: 1, background: T.border + "55", margin: sidebarExpanded ? "12px 12px 8px" : "10px 12px", opacity: sidebarExpanded ? 1 : 0.5, transition: "margin 0.2s ease, opacity 0.2s ease" }} />
+        {/* Organization — standalone page (currently blank) */}
+        {(() => {
+          const active = view === "organization";
+          return (
+            <button ref={el => { navBtnRefs.current["organization"] = el; }} onClick={() => switchView("organization")}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Organization", e.clientX, e.clientY); }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+              onMouseDown={() => tipCtx.hide()}
+              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+              </span>
+              <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
+            </button>
+          );
+        })()}
         {/* Approval Queue — standalone page (admins or users with sign-off access) */}
         {canSeeApprovalQueue && (() => {
           const active = view === "approvals";
@@ -18011,7 +18293,7 @@ ${jobsCtx || "No jobs found."}`;
           return (
             <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <style>{`@keyframes tqCFIn{from{opacity:0}to{opacity:1}}@keyframes tqCFOut{from{opacity:1}to{opacity:0}}`}</style>
-              {showApp && <div style={layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}</AnimatedView></div>}
+              {showApp && <div style={layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "organization" && frostScroll(renderOrganization())}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}</AnimatedView></div>}
               {showSettings && <div style={layer(true)}>{renderSettingsPage()}</div>}
             </div>
           );

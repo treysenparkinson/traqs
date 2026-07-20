@@ -538,6 +538,18 @@ export const adminEditEntryAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+// Edit the start time of a worker's OPEN (still clocked-in) session. Updates
+// person.activeClockIn.clockIn — used to fix a late/forgotten clock-in without
+// having to clock them out first.
+export const adminEditActiveClockInAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminEditActiveClockIn", ...payload }),
+  }).then(r => r.json());
+};
+
 // Confirm / re-open a timesheet date range (admin only). Confirming locks every
 // completed punch in [start, end] (stamped confirmedAt/confirmedBy) so it can't
 // be edited and flows into the accountant's pay-period hours export. Re-opening
