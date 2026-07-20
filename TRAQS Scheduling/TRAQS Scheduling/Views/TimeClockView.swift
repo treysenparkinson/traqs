@@ -383,11 +383,11 @@ private struct PayClockControls: View {
             } else {
                 Button(action: onClockIn) {
                     HStack(spacing: 9) {
-                        if inFlight { ProgressView().tint(.white) }
+                        if inFlight { ProgressView().tint(T.onGradient) }
                         else { Image(systemName: "play.circle.fill").font(.system(size: 17, weight: .semibold)) }
                         Text("Clock In").font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(T.onGradient)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(Capsule().fill(T.brandGradient()))
@@ -411,7 +411,7 @@ private struct PayClockControls: View {
             Image(systemName: icon).font(.system(size: 16, weight: .semibold))
             Text(text).font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(fill.readableText)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
         .background(Capsule().fill(fill))
@@ -605,11 +605,11 @@ private struct ClockInPinOverlay: View {
         return Button(action: { tap(key) }) {
             Group {
                 if isSubmit && submitting {
-                    ProgressView().tint(.white)
+                    ProgressView().tint(T.onGradient)
                 } else {
                     Text(key)
                         .font(.custom(TFontName.bold.rawValue, size: 24))
-                        .foregroundStyle(isSubmit ? Color.white : Color(hex: T.ink))
+                        .foregroundStyle(isSubmit ? T.onGradient : Color(hex: T.ink))
                 }
             }
             .frame(maxWidth: .infinity)

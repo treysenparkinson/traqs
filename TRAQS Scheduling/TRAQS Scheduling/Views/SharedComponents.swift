@@ -59,6 +59,44 @@ struct TRAQSNavLogo: View {
     var body: some View { TRAQSWordmark(size: 44) }
 }
 
+// MARK: - TRAQS Bars Mark (native, theme-tracking)
+// The TRAQS "bars" lockup, drawn in SwiftUI instead of the fixed-color raster
+// (`Image("TRAQSIconBars")`) so it follows the system theme: the accent bar
+// tracks the user's chosen accent, and the three grey bars use the theme's
+// muted ink so they stay legible on light AND dark backgrounds. `size` is the
+// rendered HEIGHT in points; width is derived from the original 184×150 art.
+struct TRAQSBarsMark: View {
+    @Environment(ThemeSettings.self) private var themeSettings
+    var size: CGFloat = 22
+
+    // Bar widths as a fraction of the mark's full width, top → bottom, measured
+    // from the original artwork. The 3rd (full-width) bar is the accent bar.
+    private let widths: [CGFloat] = [0.554, 0.788, 1.0, 0.451]
+    private let accentIndex = 2
+
+    var body: some View {
+        // Read themeSettings.accent / .bgPresetId so the mark re-renders live
+        // when the customizer changes the accent or the light/dark background.
+        let accentColor = Color(hex: themeSettings.accent)
+        let _ = themeSettings.bgPresetId
+        let greyColor = Color(hex: T.muted)
+
+        let aspect: CGFloat = 184.0 / 150.0
+        let fullWidth = size * aspect
+        let barH = size * (27.0 / 150.0)
+        let gap  = size * (14.0 / 150.0)
+
+        VStack(alignment: .leading, spacing: gap) {
+            ForEach(widths.indices, id: \.self) { i in
+                RoundedRectangle(cornerRadius: barH * 0.32, style: .continuous)
+                    .fill(i == accentIndex ? accentColor : greyColor)
+                    .frame(width: fullWidth * widths[i], height: barH)
+            }
+        }
+        .frame(width: fullWidth, height: size, alignment: .leading)
+    }
+}
+
 // MARK: - Screen Header
 // Wordmark on the left, trailing icons + magenta profile avatar on the right.
 // No center title — the tab bar tells the user where they are.
@@ -136,7 +174,7 @@ struct TRAQSProfileButton: View {
                     Circle().fill(Color(hex: T.magenta))
                     Text(initial)
                         .font(.custom(TFontName.bold.rawValue, size: 12))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(T.onColor(T.magenta))
                 }
                 .frame(width: 32, height: 32)
 
@@ -152,7 +190,7 @@ struct TRAQSProfileButton: View {
                 } else if isSaved {
                     Image(systemName: "checkmark")
                         .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(T.onColor(T.green))
                         .frame(width: 12, height: 12)
                         .background(Circle().fill(Color(hex: T.green)))
                         .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 1.5))

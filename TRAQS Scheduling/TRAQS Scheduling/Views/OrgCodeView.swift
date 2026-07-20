@@ -86,12 +86,12 @@ struct OrgCodeView: View {
                         action: { Task { await submit() } }
                     ) {
                         if isChecking {
-                            ProgressView().tint(.white)
+                            ProgressView().tint(T.onGradient)
                         } else {
                             HStack(spacing: 8) {
                                 Text("Continue")
                                     .font(.custom(TFontName.bold.rawValue, size: 16))
-                                TIconView(icon: .chev, size: 15, color: .white, weight: .bold)
+                                TIconView(icon: .chev, size: 15, color: T.onGradient, weight: .bold)
                             }
                         }
                     }

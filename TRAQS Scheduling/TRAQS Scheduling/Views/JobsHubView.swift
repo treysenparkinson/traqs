@@ -151,7 +151,7 @@ struct JobsHubView: View {
                 Text("\(appState.pendingApprovalCount)")
                     .font(TTypo.xsBold(11))
                     .tnum()
-                    .foregroundStyle(.white)
+                    .foregroundStyle(T.onGradient)
                     .padding(.horizontal, 5)
                     .frame(minWidth: 18, minHeight: 18)
                     .background(Capsule().fill(T.brandGradient()))

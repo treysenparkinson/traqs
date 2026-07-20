@@ -132,7 +132,7 @@ private struct AccentSwatch: View {
                     isSelected
                         ? Image(systemName: "checkmark")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(Color(hex: hex).readableText)
                         : nil
                 )
                 .overlay(
@@ -178,7 +178,7 @@ private struct BgPresetRow: View {
                 Spacer()
 
                 if isSelected {
-                    TIconView(icon: .check, size: 13, color: .white)
+                    TIconView(icon: .check, size: 13, color: T.onGradient)
                         .padding(5)
                         .background(Circle().fill(T.brandGradient(start: .topLeading, end: .bottomTrailing)))
                         .shadow(color: Color(hex: T.ctaGlowColor).opacity(0.35), radius: 6, x: 0, y: 2)

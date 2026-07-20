@@ -3,6 +3,7 @@ import SwiftUI
 struct RootView: View {
     @Environment(AuthManager.self) private var auth
     @Environment(AppState.self) private var appState
+    @Environment(ThemeSettings.self) private var themeSettings
     @State private var showSplash = true
 
     // Email-based org auto-link state. We try once per login session.
@@ -58,6 +59,11 @@ struct RootView: View {
         // size, non-interactive; the window itself only appears while a thread is
         // open (driven by appState.activeMessageThread).
         .background(OverlayWindowInstaller(appState: appState))
+        // Pin the scene's windows to the theme's interface style so presented
+        // sheets/covers inherit it instead of following the device's Dark Mode
+        // (which made `.primary` text render white on our light sheet bg). Reads
+        // `isLightTheme` so it re-applies live when the theme changes.
+        .background(ThemeStyleSync(isLight: themeSettings.isLightTheme))
     }
 
     private func handleAuthState() {
@@ -211,16 +217,16 @@ private struct ErrorBanner: View {
             if let msg = currentError {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.red.readableText)
                     Text(msg)
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.red.readableText)
                         .multilineTextAlignment(.leading)
                     Spacer(minLength: 8)
                     Button(action: clearError) {
                         Image(systemName: "xmark")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color.red.readableText)
                             .padding(6)
                     }
                     .buttonStyle(.plain)

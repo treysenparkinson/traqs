@@ -288,7 +288,7 @@ private struct TimeOffApprovalCard: View {
                                 .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
                         }.buttonStyle(.plain).disabled(busy)
                         Button { decide("deny") } label: {
-                            Text(busy ? "Saving…" : "Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(.white)
+                            Text(busy ? "Saving…" : "Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(T.onColor("#ef4444"))
                                 .frame(maxWidth: .infinity).padding(.vertical, 11)
                                 .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
                         }.buttonStyle(.plain).disabled(busy)
@@ -297,12 +297,12 @@ private struct TimeOffApprovalCard: View {
             } else {
                 HStack(spacing: 10) {
                     Button { denying = true } label: {
-                        Text("Deny").font(TTypo.smBold(15)).foregroundStyle(.white)
+                        Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
                             .frame(maxWidth: .infinity).padding(.vertical, 12)
                             .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
                     }.buttonStyle(.plain).disabled(busy)
                     Button { decide("approve") } label: {
-                        Text(busy ? "Saving…" : "Approve").font(TTypo.smBold(15)).foregroundStyle(.white)
+                        Text(busy ? "Saving…" : "Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
                             .frame(maxWidth: .infinity).padding(.vertical, 12)
                             .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
                     }.buttonStyle(.plain).disabled(busy)
@@ -449,7 +449,7 @@ private struct RequestTimeOffSheet: View {
                             fullWidth: true, verticalPadding: 14, action: submit) {
                     HStack(spacing: 7) {
                         if submitting {
-                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
+                            ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.7)
                         }
                         Text(submitting ? (isEditing ? "SAVING…" : "SUBMITTING…")
                                         : (isEditing ? "SAVE CHANGES" : "SUBMIT REQUEST"))

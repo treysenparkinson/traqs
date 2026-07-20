@@ -117,6 +117,28 @@ enum T {
     static let ambientShadowY:       CGFloat = 12
 }
 
+// MARK: - Readable foreground tokens
+// The "dark bg → white text, light bg → black text" rule, resolved for the
+// two backgrounds that follow the user's accent. Use these anywhere text or an
+// icon sits ON the accent color or the brand gradient — never hardcode `.white`.
+extension T {
+    /// Legible text/icon color for content sitting on a solid `T.accent` fill.
+    static var onAccent: Color { Color(hex: accent).readableText }
+
+    /// Legible text/icon color for content sitting on the brand gradient.
+    /// Judged from the AVERAGE brightness of the two stops so the pick is
+    /// correct whether the content rides the light end or the dark end.
+    static var onGradient: Color {
+        let avg = (Color(hex: accentGradientStart).perceivedBrightness
+                 + Color(hex: accentGradientEnd).perceivedBrightness) / 2
+        return avg > 140 ? .black : .white
+    }
+
+    /// Legible text/icon color for content sitting on an arbitrary hex fill
+    /// (semantic pills, department colors, avatars, status chips).
+    static func onColor(_ hex: String) -> Color { Color(hex: hex).readableText }
+}
+
 // MARK: - Signature gradient
 // THE brand gradient. Reads the derived accent stops so the Customize accent
 // picker stays coherent (default accent → wireframe indigo→magenta).

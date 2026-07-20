@@ -191,13 +191,9 @@ struct TRAQSMenuButton: View {
                 appNav.isMenuOpen.toggle()
             }
         } label: {
-            // The traced icon bars (3 grey + brand-blue accent) as the button.
-            Image("TRAQSIconBars")
-                .resizable()
-                .interpolation(.high)
-                .antialiased(true)
-                .scaledToFit()
-                .frame(height: 22)
+            // The traced icon bars (3 grey + accent) as the button — drawn
+            // natively so the accent bar tracks the user's theme accent.
+            TRAQSBarsMark(size: 22)
             .frame(width: 32, height: 32)
             .contentShape(Rectangle())
             // Missed-notification indicator: a pulsing red dot on the corner.
@@ -296,17 +292,12 @@ private struct SideMenu: View {
                 // centered horizontally in the drawer.
                 HStack(spacing: 0) {
                     TRAQSWordmark(size: 64)
-                    // Alternate lockup: the actual traced bars from the app icon
-                    // (3 grey + the brand-blue accent) ride right after the
-                    // wordmark like a trailing "=" mark. Pulled left to clear the
-                    // wordmark PNG's built-in right padding, and nudged up to sit
-                    // level with the letters.
-                    Image("TRAQSIconBars")
-                        .resizable()
-                        .interpolation(.high)
-                        .antialiased(true)
-                        .scaledToFit()
-                        .frame(height: 21)   // = the lowercase "s" x-height at size 64
+                    // Alternate lockup: the traced bars (3 grey + accent) ride
+                    // right after the wordmark like a trailing "=" mark. Drawn
+                    // natively so the accent bar tracks the theme accent. Pulled
+                    // left to clear the wordmark PNG's built-in right padding,
+                    // and nudged up to sit level with the letters.
+                    TRAQSBarsMark(size: 21)   // = the lowercase "s" x-height at size 64
                         .offset(x: -13, y: -1)
                 }
                 .frame(maxWidth: .infinity)
@@ -452,17 +443,17 @@ private struct SideMenuRow: View {
         Button(action: action) {
             HStack(spacing: 14) {
                 TIconView(icon: icon, size: 19,
-                          color: isOn ? .white : Color(hex: T.muted),
+                          color: isOn ? T.onGradient : Color(hex: T.muted),
                           weight: isOn ? .semibold : .regular)
                     .frame(width: 22)
                 Text(label)
                     .font(.custom(isOn ? TFontName.bold.rawValue : TFontName.medium.rawValue, size: 16))
-                    .foregroundStyle(isOn ? .white : Color(hex: T.muted))
+                    .foregroundStyle(isOn ? T.onGradient : Color(hex: T.muted))
                 Spacer(minLength: 0)
                 if badge > 0 {
                     Text(badge > 99 ? "99+" : "\(badge)")
                         .font(.custom(TFontName.bold.rawValue, size: 12))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(T.onColor(T.red))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
                         .background(Capsule().fill(Color(hex: T.red)))

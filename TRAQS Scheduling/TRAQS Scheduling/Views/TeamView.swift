@@ -80,7 +80,7 @@ private struct TeamFilterChip: View {
         Button(action: action) {
             Text(label)
                 .font(TTypo.smBold(13))
-                .foregroundStyle(active ? .white : Color(hex: T.ink))
+                .foregroundStyle(active ? T.onGradient : Color(hex: T.ink))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
@@ -542,7 +542,7 @@ struct PersonEditView: View {
                         HStack {
                             ForEach(colorOptions, id: \.self) { c in
                                 Circle().fill(Color(hex: c)).frame(width: 32, height: 32)
-                                    .overlay(color == c ? Image(systemName: "checkmark").foregroundColor(.white).font(.caption.bold()) : nil)
+                                    .overlay(color == c ? Image(systemName: "checkmark").foregroundColor(Color(hex: c).readableText).font(.caption.bold()) : nil)
                                     .onTapGesture { color = c }
                             }
                         }.padding(.vertical, 4)

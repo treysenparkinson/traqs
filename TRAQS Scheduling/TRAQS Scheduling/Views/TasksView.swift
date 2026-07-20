@@ -1328,13 +1328,13 @@ struct TaskCardV1: View {
                 Button { showBreakConfirm = true } label: {
                     HStack(spacing: 6) {
                         if isBreakBusy {
-                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
+                            ProgressView().progressViewStyle(.circular).tint(T.onColor(T.amber)).scaleEffect(0.7)
                         } else {
                             Image(systemName: onBreak ? "play.fill" : "pause.fill")
                             Text(onBreak ? "END BREAK" : "BREAK").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
                         }
                     }
-                    .foregroundStyle(.white)
+                    .foregroundStyle(T.onColor(T.amber))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(Capsule().fill(Color(hex: T.amber)))
@@ -1359,7 +1359,7 @@ struct TaskCardV1: View {
                             }) {
                     HStack(spacing: 6) {
                         if isStopping {
-                            ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.7)
+                            ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.7)
                             Text("STOPPING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
                         } else {
                             Image(systemName: "stop.fill")
@@ -1433,7 +1433,7 @@ struct TaskCardV1: View {
                         if isStarting {
                             ProgressView()
                                 .progressViewStyle(.circular)
-                                .tint(.white)
+                                .tint(T.onGradient)
                                 .scaleEffect(0.7)
                             Text("Starting…").font(TTypo.smBold(14))
                         } else {

@@ -117,7 +117,7 @@ struct EndJobPhotoOverlay: View {
                         action: { endJob(withPhoto: true) }) {
                 HStack(spacing: 7) {
                     if isWorking {
-                        ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.8)
+                        ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.8)
                         Text("Ending…")
                     } else {
                         Image(systemName: "stop.fill")

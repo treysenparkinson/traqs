@@ -175,11 +175,11 @@ struct MessagesView: View {
                                 showDeleteConfirm = true
                             } label: {
                                 HStack(spacing: 6) {
-                                    TIconView(icon: .trash, size: 16, color: .white, weight: .bold)
+                                    TIconView(icon: .trash, size: 16, color: .red.readableText, weight: .bold)
                                     if !selectedKeys.isEmpty {
                                         Text("\(selectedKeys.count)")
                                             .font(TTypo.smBold(13))
-                                            .foregroundStyle(.white)
+                                            .foregroundStyle(.red.readableText)
                                             .tnum()
                                     }
                                 }
@@ -526,7 +526,7 @@ private struct ChannelRow: View {
                     if thread.unreadCount > 0 {
                         Text("\(thread.unreadCount)")
                             .font(TTypo.xsBold(11))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(T.onGradient)
                             .tnum()
                             .padding(.horizontal, 7)
                             .frame(minWidth: 20, minHeight: 20)
@@ -1020,9 +1020,9 @@ struct ThreadDetailView: View {
                             } label: {
                                 Group {
                                     if isSending {
-                                        ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.85)
+                                        ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.85)
                                     } else {
-                                        TIconView(icon: .send, size: 18, color: .white, weight: .bold)
+                                        TIconView(icon: .send, size: 18, color: T.onGradient, weight: .bold)
                                     }
                                 }
                                 .frame(width: 44, height: 44)
@@ -1535,11 +1535,11 @@ private struct AttachmentBubble: View {
     private var fileChip: some View {
         HStack(spacing: 8) {
             Image(systemName: "doc.fill")
-                .foregroundStyle(isMe ? .white : Color(hex: T.accent))
+                .foregroundStyle(isMe ? T.onGradient : Color(hex: T.accent))
             Text(attachment.filename)
                 .font(TTypo.sm(13))
                 .lineLimit(1)
-                .foregroundStyle(isMe ? .white : Color(hex: T.ink))
+                .foregroundStyle(isMe ? T.onGradient : Color(hex: T.ink))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -1766,7 +1766,7 @@ struct MessageBubble: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 10)
-                            .foregroundStyle(isMe ? .white : Color(hex: T.ink))
+                            .foregroundStyle(isMe ? T.onGradient : Color(hex: T.ink))
                             .background {
                                 let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
                                 if isMe {
@@ -1964,7 +1964,7 @@ struct TimeOffRequestBubble: View {
                                     .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
                             }.buttonStyle(.plain)
                             Button { decide("deny") } label: {
-                                Text("Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(.white)
+                                Text("Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(T.onColor("#ef4444"))
                                     .frame(maxWidth: .infinity).padding(.vertical, 11)
                                     .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
                             }.buttonStyle(.plain).disabled(busy)
@@ -1973,12 +1973,12 @@ struct TimeOffRequestBubble: View {
                 } else {
                     HStack(spacing: 10) {
                         Button { denying = true } label: {
-                            Text("Deny").font(TTypo.smBold(15)).foregroundStyle(.white)
+                            Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
                                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                                 .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
                         }.buttonStyle(.plain).disabled(busy)
                         Button { decide("approve") } label: {
-                            Text("Approve").font(TTypo.smBold(15)).foregroundStyle(.white)
+                            Text("Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
                                 .frame(maxWidth: .infinity).padding(.vertical, 12)
                                 .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
                         }.buttonStyle(.plain).disabled(busy)
@@ -2073,12 +2073,12 @@ struct CompletionRequestBubble: View {
             if appState.isAdmin && pending {
                 HStack(spacing: 10) {
                     Button { decide(false) } label: {
-                        Text("Deny").font(TTypo.smBold(15)).foregroundStyle(.white)
+                        Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
                             .frame(maxWidth: .infinity).padding(.vertical, 12)
                             .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
                     }.buttonStyle(.plain).disabled(busy)
                     Button { decide(true) } label: {
-                        Text("Approve").font(TTypo.smBold(15)).foregroundStyle(.white)
+                        Text("Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
                             .frame(maxWidth: .infinity).padding(.vertical, 12)
                             .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
                     }.buttonStyle(.plain).disabled(busy)
@@ -2254,7 +2254,7 @@ private struct AddPersonPill: View {
                 Image(systemName: "plus").font(.system(size: 14, weight: .bold))
                 Text("Add person").font(TTypo.smBold(14))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(T.onGradient)
             .padding(.horizontal, 18)
             .padding(.vertical, 11)
             .background(Capsule().fill(T.brandGradient()))
@@ -2356,7 +2356,7 @@ struct AddPeopleSheet: View {
                 .fill(Color(hex: p.color))
                 .frame(width: 40, height: 40)
                 .overlay(Text(String(p.name.prefix(1)).uppercased())
-                    .font(.subheadline.bold()).foregroundColor(.white))
+                    .font(.subheadline.bold()).foregroundColor(Color(hex: p.color).readableText))
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.name).font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink)).lineLimit(1)
                 if !p.role.isEmpty {
@@ -2450,7 +2450,7 @@ struct NewGroupSheet: View {
                                             .overlay(
                                                 Text(String(person.name.prefix(1)).uppercased())
                                                     .font(.subheadline.bold())
-                                                    .foregroundColor(.white)
+                                                    .foregroundColor(Color(hex: person.color).readableText)
                                             )
                                         VStack(alignment: .leading, spacing: 2) {
                                             Text(person.name)
@@ -2495,7 +2495,7 @@ struct NewGroupSheet: View {
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
                                 .background(groupName.trimmingCharacters(in: .whitespaces).isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
-                                .foregroundColor(.white)
+                                .foregroundColor(T.onAccent)
                                 .cornerRadius(12)
                         }
                         .buttonStyle(.plain)
@@ -2543,7 +2543,7 @@ struct NewDMSheet: View {
                                     .overlay(
                                         Text(String(person.name.prefix(1)).uppercased())
                                             .font(.subheadline.bold())
-                                            .foregroundColor(.white)
+                                            .foregroundColor(Color(hex: person.color).readableText)
                                     )
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(person.name)
@@ -2714,7 +2714,7 @@ struct NewMessageSheet: View {
                             Image(systemName: "plus").font(.system(size: 15, weight: .bold))
                             Text("Create").font(TTypo.smBold(15))
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(T.onGradient)
                         .padding(.horizontal, 24).padding(.vertical, 14)
                         .background(
                             RoundedRectangle(cornerRadius: 22, style: .continuous)
@@ -2773,7 +2773,7 @@ struct NewMessageSheet: View {
                 ZStack {
                     if selected {
                         Circle().fill(T.brandGradient())
-                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
+                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(T.onGradient)
                     } else {
                         Circle().strokeBorder(Color(hex: T.hair), lineWidth: 1.5)
                     }

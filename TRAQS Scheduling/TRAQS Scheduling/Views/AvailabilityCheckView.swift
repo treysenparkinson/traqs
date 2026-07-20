@@ -457,7 +457,7 @@ struct AvailabilityCheckSheet: View {
             } label: {
                 Text("Find soonest")
                     .font(TTypo.bodyBold(16))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(T.onGradient)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)
                     .background(Capsule().fill(hours > 0 ? AnyShapeStyle(T.brandGradient()) : AnyShapeStyle(Color(hex: T.muted).opacity(0.4))))
@@ -707,7 +707,7 @@ private struct FlowChips: View {
                 HStack(spacing: 7) {
                     Text(initials(p.name))
                         .font(TTypo.xsBold(10))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(T.onColor(p.color))
                         .frame(width: 24, height: 24)
                         .background(Circle().fill(Color(hex: p.color)))
                     Text(p.name).font(TTypo.smBold(13)).foregroundStyle(Color(hex: T.ink))

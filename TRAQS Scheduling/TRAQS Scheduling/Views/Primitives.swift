@@ -198,7 +198,10 @@ struct Avatar: View {
                 }
                 Text(initials)
                     .font(.custom(TFontName.bold.rawValue, size: size * 0.4))
-                    .foregroundStyle(textColor ?? (isColored ? .white : Color(hex: T.ink)))
+                    // Legible on whatever the circle is filled with: readable
+                    // black/white for the gradient or a colored fill, ink on the
+                    // neutral surface circle.
+                    .foregroundStyle(textColor ?? (gradient ? T.onGradient : (fill?.readableText ?? Color(hex: T.ink))))
             }
         }
         .frame(width: size, height: size)
@@ -286,7 +289,7 @@ struct PillBtn<Leading: View, Trailing: View>: View {
             }
             .padding(.horizontal, compact ? 10 : 14)
             .padding(.vertical, compact ? 6 : 8)
-            .foregroundStyle(textColor ?? ((sky || gradient) ? .white : Color(hex: T.ink)))
+            .foregroundStyle(textColor ?? (gradient ? T.onGradient : (sky ? T.onAccent : (fill?.readableText ?? Color(hex: T.ink)))))
             .background(
                 Capsule().fill(
                     gradient ? AnyShapeStyle(T.brandGradient())
@@ -449,7 +452,7 @@ struct Segmented<Value: Hashable>: View {
                 ForEach(options, id: \.self) { o in
                     Text(labels[o] ?? "")
                         .font(.custom(TFontName.bold.rawValue, size: 13))
-                        .foregroundStyle(o == selection ? .white : Color(hex: T.ink))
+                        .foregroundStyle(o == selection ? (gradient ? T.onGradient : T.onAccent) : Color(hex: T.ink))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         .contentShape(Rectangle())
@@ -620,7 +623,7 @@ struct GradientCTA<Label: View>: View {
     var body: some View {
         Button(action: action) {
             label()
-                .foregroundStyle(.white)
+                .foregroundStyle(T.onGradient)
                 .frame(maxWidth: fullWidth ? .infinity : nil)
                 .padding(.vertical, verticalPadding)
                 .padding(.horizontal, fullWidth ? 0 : 20)

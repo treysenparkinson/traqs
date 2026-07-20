@@ -202,7 +202,7 @@ struct ApprovalQueueView: View {
                     Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
                     Text("Approve \(item.pendingStep.label)").font(TTypo.smBold(14))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(T.onGradient)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
                 .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(T.brandGradient()))

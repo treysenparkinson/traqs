@@ -309,7 +309,7 @@ struct ClientEditView: View {
                                     .fill(Color(hex: c))
                                     .frame(width: 32, height: 32)
                                     .overlay(
-                                        color == c ? Image(systemName: "checkmark").foregroundColor(.white).font(.caption.bold()) : nil
+                                        color == c ? Image(systemName: "checkmark").foregroundColor(Color(hex: c).readableText).font(.caption.bold()) : nil
                                     )
                                     .onTapGesture { color = c }
                             }

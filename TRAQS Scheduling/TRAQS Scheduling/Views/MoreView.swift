@@ -937,7 +937,7 @@ private struct RunningEntryCard: View {
                         verticalPadding: 8, action: onStop) {
                 HStack(spacing: 5) {
                     if isStopping {
-                        ProgressView().progressViewStyle(.circular).tint(.white).scaleEffect(0.6)
+                        ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.6)
                         Text("STOPPING…").font(TTypo.xsBold(11)).tLabel(tracking: 0.8)
                     } else {
                         Image(systemName: "stop.fill")

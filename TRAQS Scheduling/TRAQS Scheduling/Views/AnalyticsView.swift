@@ -169,7 +169,7 @@ struct AnalyticsView: View {
                     )
                     .foregroundStyle(item.priority.color)
                     .annotation(position: .overlay) {
-                        Text("\(item.count)").font(.caption.bold()).foregroundColor(.white)
+                        Text("\(item.count)").font(.caption.bold()).foregroundColor(item.priority.color.readableText)
                     }
                 }
                 .frame(height: 200)

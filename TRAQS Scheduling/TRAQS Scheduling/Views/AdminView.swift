@@ -143,7 +143,7 @@ struct AdminView: View {
                     } label: {
                         Text(f.label)
                             .font(TTypo.smBold(13))
-                            .foregroundStyle(on ? .white : Color(hex: T.ink))
+                            .foregroundStyle(on ? T.onGradient : Color(hex: T.ink))
                             .padding(.horizontal, 14)
                             .padding(.vertical, 7)
                             .background(

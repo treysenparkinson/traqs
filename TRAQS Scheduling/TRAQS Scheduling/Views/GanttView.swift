@@ -533,7 +533,7 @@ private struct DayTimeline: View {
                             Text("NOW")
                                 .font(.custom(TFontName.bold.rawValue, size: 9))
                                 .kerning(0.6)
-                                .foregroundStyle(.white)
+                                .foregroundStyle(T.onAccent)
                                 .padding(.horizontal, 6).padding(.vertical, 2)
                                 .background(Capsule().fill(Color(hex: T.sky)))
                                 .offset(y: -1)
@@ -880,10 +880,10 @@ private struct DayHeaderCell: View {
         VStack(spacing: 2) {
             Text(dow)
                 .font(TTypo.xsBold(11))
-                .foregroundStyle(isToday ? .white : Color(hex: T.ink))
+                .foregroundStyle(isToday ? T.onAccent : Color(hex: T.ink))
             Text("\(cal.component(.day, from: day))")
                 .font(TTypo.xs(11))
-                .foregroundStyle(isToday ? Color.white.opacity(0.85) : Color(hex: T.muted))
+                .foregroundStyle(isToday ? T.onAccent.opacity(0.85) : Color(hex: T.muted))
                 .tnum()
         }
         .padding(.vertical, 4)
@@ -987,7 +987,7 @@ private struct WeekBlockTile: View {
     /// lavender swatch we fall back to ink so it's not washed out.
     private var textColor: Color {
         // Heuristic: yellow is the lone "light" swatch — flip to ink there.
-        block.color == Color(hex: T.yellow) ? Color(hex: T.ink) : .white
+        block.color.readableText
     }
 
     var body: some View {
