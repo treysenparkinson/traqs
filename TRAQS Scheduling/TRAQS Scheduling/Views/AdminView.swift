@@ -181,8 +181,10 @@ struct AdminView: View {
     private var liveSections: some View {
         if !onJob.isEmpty {
             SectionHeader(title: "On a job", count: onJob.count)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
-                ForEach(onJob) { OnJobCard(person: $0, job: jobFor($0)) }
+            VStack(spacing: 10) {
+                ForEach(onJob) { p in
+                    OnJobCard(person: p, job: jobFor(p))
+                }
             }
         }
         if !onBreak.isEmpty {
@@ -200,13 +202,13 @@ struct AdminView: View {
         if !idle.isEmpty {
             SectionHeader(title: "Idle", count: idle.count)
             VStack(spacing: 10) {
-                ForEach(idle) { IdleOrOfflineCard(person: $0, label: "Logged in, no active job") }
+                ForEach(idle) { IdleOrOfflineCard(person: $0, label: "Logged in, no active job", status: .idle) }
             }
         }
         if !offline.isEmpty {
             SectionHeader(title: "Offline", count: offline.count)
             VStack(spacing: 10) {
-                ForEach(offline) { IdleOrOfflineCard(person: $0, label: "Not clocked in") }
+                ForEach(offline) { IdleOrOfflineCard(person: $0, label: "Not clocked in", status: .offline) }
             }
         }
     }
@@ -309,6 +311,82 @@ private struct SectionHeader: View {
 
 // MARK: - Cards
 
+// Small "IN"/"OUT" clock badge for the top-right of a presence card. IN is
+// green (clocked in for the shift); OUT is grey (not clocked in).
+// A single IN/OUT pill with the live "clocked-in today" time baked in. Green
+// "IN · 6h 12m" while working (pay-clock time since clock-in, minus lunch). On
+// lunch it turns grey "OUT" but keeps the frozen worked time (lunch = clocked
+// out, still on shift). Fully clocked out / offline → just "OUT", no time.
+private struct ClockInStatus: View {
+    let person: Person
+    var body: some View {
+        if person.activeClockIn != nil {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                pill(isIn: isClockedInNow(person),
+                     time: hmLabel(clockedInSeconds(person, now: ctx.date) ?? 0))
+            }
+        } else {
+            pill(isIn: false, time: nil)
+        }
+    }
+
+    @ViewBuilder
+    private func pill(isIn: Bool, time: String?) -> some View {
+        let kind: TagKind = isIn ? .green : .neutral
+        HStack(spacing: 5) {
+            Circle().fill(kind.fg).frame(width: 6, height: 6)
+            Text(isIn ? "IN" : "OUT")
+                .font(TTypo.xsBold(11))
+                .tLabel(tracking: 0.4)
+                .foregroundStyle(kind.fg)
+            if let time {
+                Text(time)
+                    .font(TTypo.xsBold(11))
+                    .foregroundStyle(kind.fg)
+                    .tnum()
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(kind.bg))
+    }
+}
+
+// The production-status pill with its live elapsed time baked in, mirroring
+// ClockInStatus. Sits directly under the clock-in pill. "On job · 2h 30m"
+// (indigo), "Break · 12m" / "Lunch · 25m" (amber). Idle has no timer, so it's
+// just "Idle".
+private struct ProductionPill: View {
+    let label: String
+    let kind: TagKind
+    var sinceISO: String? = nil
+
+    var body: some View {
+        if let sinceISO {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                pill("\(label) · \(shortElapsed(sinceISO, now: ctx.date))")
+            }
+        } else {
+            pill(label)
+        }
+    }
+
+    @ViewBuilder
+    private func pill(_ text: String) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(kind.fg).frame(width: 6, height: 6)
+            Text(text)
+                .font(TTypo.xsBold(11))
+                .tLabel(tracking: 0.4)
+                .foregroundStyle(kind.fg)
+                .tnum()
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(kind.bg))
+    }
+}
+
 private struct PersonAvatar: View {
     let person: Person
     var statusColor: Color = .clear
@@ -333,62 +411,51 @@ private struct OnJobCard: View {
     let person: Person
     let job: Job?
 
-    private var role: String { person.role.isEmpty ? "" : person.role }
     private var sinceLabel: String { timeLabel(person.activeJobClock?.clockIn) }
-
-    /// `#412 · M. Lopez · INSTALL` style summary — falls back gracefully
-    /// when any of the three pieces are missing.
-    private var jobLine: String {
+    private var jobNumber: String? {
+        guard let n = job?.jobNumber, !n.isEmpty else { return nil }
+        return n
+    }
+    /// Department = the operation the worker is clocked into (e.g. LAYOUT).
+    private var dept: String? {
+        guard let op = person.activeJobClock?.opTitle, !op.isEmpty else { return nil }
+        return op
+    }
+    /// Job details on one line: #number · client · dept · since.
+    private var detailLine: String {
         var parts: [String] = []
-        if let n = job?.jobNumber, !n.isEmpty { parts.append("#\(n)") }
-        if let title = job?.title ?? person.activeJobClock?.jobTitle, !title.isEmpty { parts.append(title) }
-        if let op = person.activeJobClock?.opTitle, !op.isEmpty { parts.append(op.uppercased()) }
+        if let jobNumber { parts.append("#\(jobNumber)") }
+        if let dept { parts.append(dept.uppercased()) }
+        parts.append("since \(sinceLabel)")
         return parts.joined(separator: " · ")
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
+        HStack(alignment: .center, spacing: 12) {
+            // Worker — avatar + name (centered to each other) on the left edge.
+            VStack(spacing: 6) {
                 PersonAvatar(person: person, statusColor: Color(hex: T.presenceWork))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(person.name)
-                        .font(TTypo.smBold(14))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .lineLimit(1)
-                    if !role.isEmpty {
-                        Text(role)
-                            .font(TTypo.xs(11))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 0)
-                TagPill(label: "On job", kind: .indigo)
+                Text(person.name)
+                    .font(TTypo.smBold(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
             }
 
-            HStack(spacing: 6) {
-                Circle().fill(Color(hex: T.green)).frame(width: 6, height: 6)
-                // Per-second tick so "2h 14m" visibly rolls forward
-                // without waiting on the next people.json refresh.
-                TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                    Text(elapsedSince(person.activeJobClock?.clockIn, now: ctx.date))
-                        .font(TTypo.smBold(13))
-                        .foregroundStyle(Color(hex: T.green))
-                        .tnum()
-                }
-                Spacer(minLength: 4)
-                Text("since \(sinceLabel)")
+            Spacer(minLength: 0)
+
+            // Clock-in + On-job pills, with the job details on one line beneath.
+            VStack(alignment: .trailing, spacing: 6) {
+                ClockInStatus(person: person)
+                ProductionPill(label: "On job", kind: .indigo,
+                               sinceISO: person.activeJobClock?.clockIn)
+                Text(detailLine)
                     .font(TTypo.xs(11))
                     .foregroundStyle(Color(hex: T.muted))
-                    .tnum()
-            }
-
-            if !jobLine.isEmpty {
-                Text(jobLine)
-                    .font(TTypo.smBold(12))
-                    .foregroundStyle(Color(hex: T.ink))
+                    .multilineTextAlignment(.trailing)
                     .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                    .tnum()
+                    .padding(.top, 2)
             }
         }
         .padding(12)
@@ -415,34 +482,16 @@ private struct OnBreakCard: View {
                             .foregroundStyle(Color(hex: T.muted))
                     }
                 }
-                HStack(spacing: 5) {
-                    Image(systemName: "cup.and.saucer.fill")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color(hex: T.orange))
-                    // "Xm on break" with a "· Nm over" tail once past the
-                    // configured duration, so dispatchers can spot overruns.
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        Text(breakLabel(at: ctx.date))
-                            .font(TTypo.smBold(13))
-                            .foregroundStyle(Color(hex: T.orange))
-                            .tnum()
-                    }
-                }
             }
             Spacer(minLength: 0)
-            TagPill(label: "Break", kind: .amber)
+            VStack(alignment: .trailing, spacing: 6) {
+                ClockInStatus(person: person)
+                ProductionPill(label: "Break", kind: .amber,
+                               sinceISO: person.activeBreak?.startedAt)
+            }
         }
         .padding(12)
         .frostedCard(radius: T.cornerMd)
-    }
-
-    private func breakLabel(at now: Date) -> String {
-        let elapsed = elapsedSince(person.activeBreak?.startedAt, now: now)
-        guard let left = person.activeBreak?.secondsLeft(at: now) else { return "\(elapsed) on break" }
-        if left < 0 {
-            return "\(elapsed) on break · \(-left / 60)m over"
-        }
-        return "\(elapsed) on break"
     }
 }
 
@@ -464,20 +513,12 @@ private struct OnLunchCard: View {
                             .foregroundStyle(Color(hex: T.muted))
                     }
                 }
-                HStack(spacing: 5) {
-                    Image(systemName: "fork.knife")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(Color(hex: T.yellow))
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                        Text("\(elapsedSince(sinceISO, now: ctx.date)) on lunch")
-                            .font(TTypo.smBold(13))
-                            .foregroundStyle(Color(hex: T.yellow))
-                            .tnum()
-                    }
-                }
             }
             Spacer(minLength: 0)
-            TagPill(label: "Lunch", kind: .amber)
+            VStack(alignment: .trailing, spacing: 6) {
+                ClockInStatus(person: person)
+                ProductionPill(label: "Lunch", kind: .amber, sinceISO: sinceISO)
+            }
         }
         .padding(12)
         .frostedCard(radius: T.cornerMd)
@@ -487,6 +528,9 @@ private struct OnLunchCard: View {
 private struct IdleOrOfflineCard: View {
     let person: Person
     let label: String
+    /// When set, shows the top clock-status bar (Live board). Left nil by the
+    /// By-dept / Today pivots, which reuse this row without a bar.
+    var status: WorkerStatus? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -502,10 +546,20 @@ private struct IdleOrOfflineCard: View {
                 }
             }
             Spacer(minLength: 0)
-            Text(label)
-                .font(TTypo.xs(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .lineLimit(1)
+            VStack(alignment: .trailing, spacing: 6) {
+                ClockInStatus(person: person)
+                // Live board: an "Idle" production pill (offline shows none —
+                // the OUT clock pill says it). By-dept / Today (status nil):
+                // keep the descriptive label they pass in.
+                if status == .idle {
+                    ProductionPill(label: "Idle", kind: .neutral)
+                } else if status == nil {
+                    Text(label)
+                        .font(TTypo.xs(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                }
+            }
         }
         .padding(12)
         .frostedCard(radius: T.cornerMd)
@@ -576,22 +630,62 @@ private struct TodaySection: View {
 
 // MARK: - Time helpers
 
+/// True while the person has an open lunchStart (on lunch = clocked out).
+private func isOnLunch(_ person: Person) -> Bool {
+    guard let events = person.activeClockIn?.events else { return false }
+    var open = false
+    for e in events {
+        if e.type == "lunchStart" { open = true }
+        else if e.type == "lunchEnd" { open = false }
+    }
+    return open
+}
+
+/// Clocked in for the day and not currently on lunch → the IN badge shows.
+private func isClockedInNow(_ person: Person) -> Bool {
+    person.activeClockIn != nil && !isOnLunch(person)
+}
+
+/// Live seconds on the pay clock today, excluding lunch. An open (in-progress)
+/// lunch makes the running total and the lunch subtraction grow together, so
+/// the value freezes for the duration of lunch. Nil when not clocked in.
+private func clockedInSeconds(_ person: Person, now: Date) -> Int? {
+    guard let c = person.activeClockIn, let start = Date.fromFlexibleISO8601(c.clockIn) else { return nil }
+    let lunch = lunchPausedSeconds(c.events, now: now)
+    return max(0, Int(now.timeIntervalSince(start) - lunch))
+}
+
+/// Total lunch seconds across the shift, counting an unmatched lunchStart as
+/// running up to `now`.
+private func lunchPausedSeconds(_ events: [ClockEvent], now: Date) -> TimeInterval {
+    var paused: TimeInterval = 0
+    var open: Date?
+    for e in events {
+        guard let t = Date.fromFlexibleISO8601(e.ts) else { continue }
+        if e.type == "lunchStart" { open = t }
+        else if e.type == "lunchEnd", let l = open { paused += max(0, t.timeIntervalSince(l)); open = nil }
+    }
+    if let l = open { paused += max(0, now.timeIntervalSince(l)) }
+    return paused
+}
+
+/// "Xh Ym" from a second count.
+private func hmLabel(_ seconds: Int) -> String {
+    "\(seconds / 3600)h \((seconds % 3600) / 60)m"
+}
+
+/// "2h 30m" since an ISO timestamp, collapsing to "12m" under an hour.
+private func shortElapsed(_ iso: String?, now: Date) -> String {
+    guard let iso, let d = Date.fromFlexibleISO8601(iso) else { return "—" }
+    let secs = max(0, Int(now.timeIntervalSince(d)))
+    let h = secs / 3600, m = (secs % 3600) / 60
+    return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+}
+
 /// Formats an HH:MMa label from an ISO8601 timestamp string.
 private func timeLabel(_ iso: String?) -> String {
     guard let iso, let d = Date.fromFlexibleISO8601(iso) else { return "—" }
     let f = DateFormatter()
     f.dateFormat = "HH:mm"
     return f.string(from: d)
-}
-
-/// Renders the duration since `iso` as "Xh Ym". `now` defaults to the
-/// current wall clock; callers wrapped in a TimelineView pass the
-/// scheduler's tick date so the label updates every second without
-/// touching the rest of the view.
-private func elapsedSince(_ iso: String?, now: Date = Date()) -> String {
-    guard let iso, let d = Date.fromFlexibleISO8601(iso) else { return "—" }
-    let secs = max(0, Int(now.timeIntervalSince(d)))
-    let h = secs / 3600
-    let m = (secs % 3600) / 60
-    return "\(h)h \(m)m"
 }
