@@ -3856,8 +3856,15 @@ Extraction rules:
     // Read receipts load only once you're in Messages — kept OFF the cold-start
     // request burst so they don't add to Auth0 /userinfo rate-limit pressure.
     fetchReads(getToken, orgCode).then(setReadReceipts).catch(() => {});
+    // NOTE: no fetchMessages poll here. Messages reconcile through the
+    // realtime deltaSync/readSlice path (instant Ably "changed" + the 30s
+    // deltaSync poll), which upserts by id and only removes tombstoned
+    // records — so it never drops a live message. A second full-replace
+    // fetchMessages() poll used to run here and would clobber a
+    // just-arrived message whenever its response was momentarily staler
+    // than the realtime cache, making incoming (e.g. iOS→desktop) messages
+    // flicker in and out. Only read receipts poll on their own cadence.
     const id = setInterval(() => {
-      fetchMessages(getToken, orgCode).then(setMessages).catch(() => {});
       fetchReads(getToken, orgCode).then(setReadReceipts).catch(() => {});
     }, 15000);
     return () => clearInterval(id);
