@@ -123,7 +123,9 @@ const DEFAULT_PRIORITIES = ["Low","Medium","High"];
 const DEFAULT_STATUSES = ["Not Started","Pending","In Progress","On Hold","Finished"];
 const DEFAULT_PRI_C = { Low: "#10b981", Medium: "#f59e0b", High: "#f43f5e" };
 const DEFAULT_STA_C = { "Not Started": "#94a3b8", Pending: "#a78bfa", "In Progress": "#3b82f6", "On Hold": "#f59e0b", Finished: "#10b981", Paused: "#f59e0b" };
-const DEFAULT_STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "On Hold": "⏸", Finished: "●", Paused: "⏸" };
+// All emblems drawn from the same geometric-circle family (U+25CB–U+25D5) so
+// they render at a uniform size; a fill progression reads as increasing status.
+const DEFAULT_STA_ICON = { "Not Started": "○", Pending: "◔", "In Progress": "◑", "On Hold": "◕", Finished: "●", Paused: "◕" };
 const OPT_PALETTE = ["#3b82f6","#10b981","#f59e0b","#f43f5e","#a78bfa","#06b6d4","#ec4899","#84cc16","#f97316","#14b8a6"];
 // Custom list-column options may be legacy strings or {name,color,icon} objects — normalize on read.
 const optName = o => (o && typeof o === "object") ? (o.name ?? "") : (o ?? "");
@@ -2600,7 +2602,7 @@ Extraction rules:
       const n = new Set(prev); n.add(id); return n;
     });
   }, []);
-  const [colWidths, setColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 70, 130, 140, 36]);
+  const [colWidths, setColWidths] = useState([26, 200, 80, 120, 132, 80, 100, 100, 100, 70, 130, 140, 36]);
   const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
   const [toolbarExpanded, setToolbarExpanded] = useState(false);
   const [cellAlign, setCellAlign] = useState("left");
@@ -7686,46 +7688,73 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     );
 
-    const cardBase = { display: "flex", flexDirection: "column", gap: 10, background: T.card, border: `1.25px solid ${T.border}`, borderRadius: T.radius, padding: "12px 14px" };
+    const cardBase = { display: "flex", flexDirection: "column", gap: 8, background: T.card, border: `1.25px solid ${T.border}`, borderRadius: T.radius, padding: "12px 14px" };
 
-    // One unified card per person. status drives color + label + which extra info shows.
-    const STATUS_LABELS = { job: "On a job", break: "On break", lunch: "On lunch", idle: "Idle", offline: "Offline" };
+    // iOS-style pills: soft tinted capsule + colored dot + label (mirrors the
+    // native TagKind used on the app's Live-status cards).
+    const PILL = {
+      green:   { fg: "#22c55e", bg: "#22c55e22" },
+      neutral: { fg: T.textDim, bg: T.textDim + "22" },
+      indigo:  { fg: "#818cf8", bg: "#818cf822" },
+      amber:   { fg: "#f59e0b", bg: "#f59e0b22" },
+    };
+    const Pill = ({ kind, children }) => {
+      const k = PILL[kind] || PILL.neutral;
+      return (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 999, background: k.bg, color: k.fg, fontSize: 11, fontWeight: 700, letterSpacing: "0.02em", whiteSpace: "nowrap", fontFamily: T.font }}>
+          <span style={{ width: 6, height: 6, borderRadius: 3, background: k.fg, flexShrink: 0 }} />
+          {children}
+        </span>
+      );
+    };
+    // "Xh Ym" from a millisecond count (matches iOS hmLabel).
+    const hm = (ms) => { const s = Math.max(0, Math.floor((ms || 0) / 1000)); return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`; };
+    // "2h 30m" / "12m" since an ISO timestamp (matches iOS shortElapsed).
+    const shortEl = (iso) => { if (!iso) return "—"; const t = new Date(iso).getTime(); if (isNaN(t)) return "—"; const s = Math.max(0, Math.floor((now - t) / 1000)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; };
+
+    // One unified card per person, mirroring the iOS Live-status cards: avatar +
+    // name/dept on the left, a stacked clock-in (IN/OUT + pay time) and status
+    // (On job/Break/Lunch/Idle + elapsed) pill pair on the right. On-job cards add
+    // the "#num · DEPT · since HH:MM" detail line and (admin) an End job button.
     const StatusCard = (p, status) => {
-      const color = status === "job" ? C.job : status === "break" ? C.brk : status === "lunch" ? C.lunch : status === "idle" ? C.idle : C.offline;
-      const startedTs = startTsFor(p, status);
-      const label = STATUS_LABELS[status];
-      const jobName = status === "job" && p.activeJobClock?.jobId ? jobTitleById(p.activeJobClock.jobId) : "";
-      const opName  = status === "job" ? (p.activeJobClock?.opTitle || "") : "";
-      const jobLine = [jobName, opName].filter(Boolean).join(" · ");
-      const subLine = status === "job"     ? jobLine
-                   : status === "idle"    ? "Logged in, no active job"
-                   : status === "offline" ? "Not clocked in"
-                   : label;
+      const color = C[status === "job" ? "job" : status === "break" ? "brk" : status === "lunch" ? "lunch" : status === "idle" ? "idle" : "offline"];
       const offline = status === "offline";
+      const cs = effectiveClockState(p, now);
+      const hasClock = !!p.activeClockIn;
+      // IN while clocked in and not on lunch (lunch = clocked out, worked time frozen).
+      const isIn = hasClock && status !== "lunch";
+      const payTime = hasClock ? hm(cs.runningMs) : null;
+      // Production/status pill: kind + label + optional live elapsed timer.
+      const prod = status === "job"   ? { kind: "indigo",  label: "ON JOB", ts: startTsFor(p, "job") }
+                 : status === "break" ? { kind: "amber",   label: "BREAK",  ts: startTsFor(p, "break") }
+                 : status === "lunch" ? { kind: "amber",   label: "LUNCH",  ts: startTsFor(p, "lunch") }
+                 : status === "idle"  ? { kind: "neutral", label: "IDLE",   ts: null }
+                 : null;
+      // On-job detail line: "#number · DEPT · since HH:MM".
+      const job = status === "job" ? tasks.find(t => t.id === p.activeJobClock?.jobId) : null;
+      const detailParts = [];
+      if (status === "job") {
+        if (job?.jobNumber) detailParts.push(`#${job.jobNumber}`);
+        if (p.activeJobClock?.opTitle) detailParts.push(String(p.activeJobClock.opTitle).toUpperCase());
+        if (p.activeJobClock?.clockIn) detailParts.push(`since ${timeLabel(p.activeJobClock.clockIn)}`);
+      }
+      const detail = detailParts.join(" · ");
       return (
         <div key={p.id} className="tq-frost" style={cardBase}>
-          {/* Top row: avatar + name + status pill */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <Avatar p={p} dotColor={offline ? null : color} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
               {p.department && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department}</div>}
             </div>
-            <span style={{ fontSize: 10, fontWeight: 800, color, background: offline ? "transparent" : color + "22", border: offline ? `1px solid ${T.border}` : "none", borderRadius: 10, padding: "2px 8px", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap", flexShrink: 0 }}>
-              {label}
-            </span>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
+              <Pill kind={isIn ? "green" : "neutral"}>{isIn ? "IN" : "OUT"}{payTime ? ` ${payTime}` : ""}</Pill>
+              {prod && <Pill kind={prod.kind}>{prod.ts ? `${prod.label} · ${shortEl(prod.ts)}` : prod.label}</Pill>}
+              {detail && <div style={{ fontSize: 11, color: T.textDim, textAlign: "right", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detail}</div>}
+            </div>
           </div>
-          {/* Middle row: status dot + elapsed timer + "since HH:MM" */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", background: color, boxShadow: offline ? "none" : `0 0 6px ${color}` }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color, fontFamily: T.mono }}>{startedTs ? elapsed(startedTs) : "—"}</span>
-            <span style={{ flex: 1 }} />
-            {startedTs && <span style={{ fontSize: 11, color: T.textDim }}>since {timeLabel(startedTs)}</span>}
-          </div>
-          {/* Bottom: job/op line (for "On a job"), otherwise sublabel */}
-          {subLine && <div style={{ fontSize: 12, fontWeight: status === "job" ? 700 : 500, color: status === "job" ? T.text : T.textSec, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{subLine}</div>}
           {/* Admin: force a worker off their active job — frees anyone stuck on a job that changed. */}
-          {status === "job" && isAdmin && <button onClick={() => adminEndJobClock(p.id, p.name)} title="Force this worker off their active job (use if they're stuck after the job was moved/changed)" style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>End job</button>}
+          {status === "job" && isAdmin && <button onClick={() => adminEndJobClock(p.id, p.name)} title="Force this worker off their active job (use if they're stuck after the job was moved/changed)" style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>End job</button>}
         </div>
       );
     };
@@ -8567,8 +8596,9 @@ ${jobsCtx || "No jobs found."}`;
             case "status": return (
               <div style={{ ...cellBase, cursor: "pointer" }}
                 onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const p = placePopover(r, STATUSES.length); setStatusPopover({ id: item.id, pid: pid || null, current: item.status || "Not Started", x: p.x, y: p.y, maxHeight: p.maxHeight, up: p.up }); }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 11, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none" }}>
-                  {STA_ICON[dispStatus] || "○"} {dispStatus}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 10, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 10, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none", textTransform: "uppercase", letterSpacing: "0.02em", maxWidth: "100%", minWidth: 0 }}>
+                  <span style={{ display: "inline-block", width: 12, textAlign: "center", flexShrink: 0, fontSize: 11, textTransform: "none" }}>{STA_ICON[dispStatus] || "○"}</span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{dispStatus}</span>
                 </span>
               </div>
             );
@@ -9194,7 +9224,7 @@ ${jobsCtx || "No jobs found."}`;
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => { setSelClient(null); openDetail(t); }}>{t.title}</span>
                     {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
                   </div>
-                  <Badge t={t.status} c={staColorOf(t.status)} />
+                  <Badge t={(t.status || "").toUpperCase()} c={staColorOf(t.status)} />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: T.textSec, marginBottom: 8 }}>
                   <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
@@ -14268,7 +14298,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
               {hasSubs && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}
               <span style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{t.title}</span>
-              <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 5, background: (staColorOf(t.status) || T.accent) + "22", color: staColorOf(t.status) || T.accent, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap" }}>{t.status}</span>
+              <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 5, background: (staColorOf(t.status) || T.accent) + "22", color: staColorOf(t.status) || T.accent, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: "0.03em" }}>{t.status}</span>
             </div>
             <div style={{ fontSize: 12, color: T.textDim, marginTop: 3, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               {owner && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><div style={{ width: 6, height: 6, borderRadius: 3, background: owner.color, flexShrink: 0 }} />{owner.name}</span>}
