@@ -833,6 +833,10 @@ function blendHex(hex, f) {
   const t=f>0?255:0, a=Math.abs(f), c=v=>Math.min(255,Math.max(0,Math.round(v+(t-v)*a))).toString(16).padStart(2,"0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
+// THE brand gradient — a light→dark ramp of the accent, mirroring the iOS
+// TRAQSTheme.brandGradient (default accent → the #4FACFE→#1E40AF blue colorway).
+// Derived from the accent so it follows any theme; used on primary CTAs.
+function brandGrad(a, deg = 135) { const c = a || "#3b82f6"; return `linear-gradient(${deg}deg, ${blendHex(c, 0.14)}, ${blendHex(c, -0.22)})`; }
 // hex (#rrggbb) → rgba() string with the given 0..1 alpha. Used for translucent cards/overlays.
 function hexA(hex, a) {
   try { const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${Math.max(0,Math.min(1,a))})`; }
@@ -909,7 +913,7 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
     hover: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.20 : 0.15),
     hoverStrong: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.34 : 0.26),
     font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'DM Sans',sans-serif",
-    radius:16, radiusSm:12, radiusXs:8, glass:surf, glassBorder:bord,
+    radius:16, radiusSm:10, radiusXs:7, radiusLg:20, radiusHero:30, radiusPill:9999, glass:surf, glassBorder:bord,
     blur:"none", glow:"none", colorScheme:dk?"dark":"light",
     // Outer-chrome (header + sidebar) palette — see sysBg above. The chrome reads these via Tc.
     systemBg: sysBg, systemText: sysTxt, systemBorder: sysBord,
@@ -929,9 +933,9 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
 }
 
 const THEMES = {
-  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", bgText: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex("#3d7fff", 0.45), 0.2), hoverStrong: hexA(blendHex("#3d7fff", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
-  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
-  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", bgText: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", hover: hexA(blendHex("#0ea5e9", -0.35), 0.14), hoverStrong: hexA(blendHex("#0ea5e9", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 12, radiusXs: 8, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
+  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", bgText: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex("#3d7fff", 0.45), 0.2), hoverStrong: hexA(blendHex("#3d7fff", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 10, radiusXs: 7, radiusLg: 20, radiusHero: 30, radiusPill: 9999, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
+  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 10, radiusXs: 7, radiusLg: 20, radiusHero: 30, radiusPill: 9999, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
+  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", bgText: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", hover: hexA(blendHex("#0ea5e9", -0.35), 0.14), hoverStrong: hexA(blendHex("#0ea5e9", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 10, radiusXs: 7, radiusLg: 20, radiusHero: 30, radiusPill: 9999, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
 };
 // Legacy aliases so any existing code referencing "dark"/"light" still resolves
 THEMES.dark  = THEMES.midnight;
@@ -944,15 +948,15 @@ let T = THEMES.light;
 // system → the element's own color; adaptive → theme accent; custom → the chosen color.
 function elColorT(c) { return T.jobBarMode === "adaptive" ? T.accent : T.jobBarMode === "custom" ? (T.jobBarColor || T.accent) : c; }
 
-const Badge = ({ t, c, lg }) => <span style={{ display: "inline-flex", alignItems: "center", padding: lg ? "5px 14px" : "4px 12px", borderRadius: 20, fontSize: lg ? 13 : 12, fontWeight: 600, fontFamily: T.font, background: c + "18", color: c, border: `1px solid ${c}22`, whiteSpace: "nowrap" }}>{t}</span>;
+const Badge = ({ t, c, lg }) => <span style={{ display: "inline-flex", alignItems: "center", padding: lg ? "5px 14px" : "4px 12px", borderRadius: T.radiusPill, fontSize: lg ? 13 : 12, fontWeight: 700, fontFamily: T.font, background: c + "18", color: c, border: `1px solid ${c}22`, whiteSpace: "nowrap" }}>{t}</span>;
 const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = false, style: sx = {} }) => {
-  const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: T.font, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", borderRadius: T.radiusSm, border: "none", whiteSpace: "nowrap", flexShrink: 0 };
-  const sizes = { sm: { padding: "7px 16px", fontSize: 13 }, md: { padding: "10px 20px", fontSize: 14 } };
-  // Every variant renders as the same solid primary (flat accent fill). Semantic
-  // variant names (ghost/danger/teal/warn) are kept as accepted props so existing
-  // call sites don't break, but they all resolve to the one primary look for a
-  // fully consistent button treatment across the app.
-  const fill = { background: T.accent, color: T.accentText, boxShadow: 'none', border: `1px solid transparent` };
+  const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: T.font, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", borderRadius: T.radiusPill, border: "none", whiteSpace: "nowrap", flexShrink: 0 };
+  const sizes = { sm: { height: 34, padding: "0 18px", fontSize: 13 }, md: { height: 40, padding: "0 22px", fontSize: 14 } };
+  // Every variant renders as the same primary CTA — the iOS brand-gradient pill
+  // with a soft accent glow. Semantic variant names (ghost/danger/teal/warn) are
+  // kept as accepted props so existing call sites don't break, but they all
+  // resolve to the one gradient look for a fully consistent treatment.
+  const fill = { background: brandGrad(T.accent), color: T.accentText, boxShadow: `0 5px 16px -5px ${hexA(T.accent, 0.55)}`, border: "none" };
   const vars = { primary: fill, ghost: fill, danger: fill, teal: fill, warn: fill };
   return <button className="anim-btn" onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
 };
@@ -1071,7 +1075,7 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
 const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div className="anim-card anim-card-wrap" onClick={onClick}
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
   onMouseLeave={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.glassBorder}`; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = "none"; } : undefined}
-  style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.glassBorder}`, padding: 24, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
+  style={{ background: T.card, borderRadius: T.radiusHero, border: `1px solid ${T.glassBorder}`, padding: 28, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
 // Real frosted glass (same idea as the Customize mockup): a translucent surface tint with a
 // live backdrop-filter blur, so the compositor blurs whatever is painted behind the card in
 // place — zero drift, perfectly aligned by construction. Works because the jobs scroller holds
@@ -1079,14 +1083,14 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
 // blur actually has the image to sample. Falls back to a plain solid card when no bg image set.
 const FrostCard = ({ children, onClick, border, style: sx = {} }) => (
   <div style={{
-    position: "relative", overflow: "hidden", borderRadius: T.radius,
+    position: "relative", overflow: "hidden", borderRadius: T.radiusLg,
     border: border || `1px solid ${T.border}`, minWidth: 0,
     background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.card,
     backdropFilter: T.adaptive ? "blur(28px) saturate(1.4)" : undefined,
     WebkitBackdropFilter: T.adaptive ? "blur(28px) saturate(1.4)" : undefined,
     ...sx,
   }}>
-    <div style={{ position: "relative", overflow: "auto", borderRadius: T.radius }} onClick={onClick}>{children}</div>
+    <div style={{ position: "relative", overflow: "auto", borderRadius: T.radiusLg }} onClick={onClick}>{children}</div>
   </div>
 );
 const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input id={id} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;// ── Tooltip system ──────────────────────────────────────────────────────────
@@ -1355,7 +1359,7 @@ function AnalyticsPersonPicker({ options, value, onChange }) {
     </div>
   </div></FadeOnClose>;
   return <div style={{ position: "relative" }}>
-    <div ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s", minWidth: 150 }}>
+    <div ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s", minWidth: 150 }}>
       {selected ? <div style={{ width: 9, height: 9, borderRadius: 5, background: selected.color || T.accent, flexShrink: 0 }} /> : peopleIcon(T.textSec)}
       <span style={{ flex: 1, fontSize: 13, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : "Everyone"}</span>
       <span style={{ fontSize: 9, color: T.textDim }}>{open ? "▲" : "▼"}</span>
@@ -1489,7 +1493,7 @@ function ApprovalTypeDrop({ templateId, templates, onPick, onCreate }) {
             </div>
           : <div style={{ display: "flex", gap: 6, padding: "8px 12px" }} onClick={e => e.stopPropagation()}>
               <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setAdding(false); setName(""); } }} placeholder="Type name" style={{ flex: 1, minWidth: 0, padding: "6px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none" }} />
-              <button onClick={commit} style={{ padding: "0 12px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Add</button>
+              <button onClick={commit} style={{ padding: "0 12px", borderRadius: T.radiusXs, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Add</button>
             </div>}
       </div>
     </div>}
@@ -1641,7 +1645,7 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
     {asIconButton
       ? <button ref={triggerRef} className="icon-btn-glow" onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }} title="Grouping" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
+          {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
         </button>
       : <div ref={triggerRef} onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
           {value.length > 0
@@ -7095,7 +7099,7 @@ ${jobsCtx || "No jobs found."}`;
             <Tip label="Filters">
             <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-              {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
+              {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
             </button>
             </Tip>
             <FadeOnClose open={filterOpen}><div className="anim-ctx" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "14px 14px 10px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
@@ -7754,7 +7758,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
           {/* Admin: force a worker off their active job — frees anyone stuck on a job that changed. */}
-          {status === "job" && isAdmin && <button onClick={() => adminEndJobClock(p.id, p.name)} title="Force this worker off their active job (use if they're stuck after the job was moved/changed)" style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>End job</button>}
+          {status === "job" && isAdmin && <button onClick={() => adminEndJobClock(p.id, p.name)} title="Force this worker off their active job (use if they're stuck after the job was moved/changed)" style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>End job</button>}
         </div>
       );
     };
@@ -7943,7 +7947,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ position: "relative" }}>
-            <button onClick={ev => { ev.stopPropagation(); setApprovalGroupOpen(o => !o); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+            <button onClick={ev => { ev.stopPropagation(); setApprovalGroupOpen(o => !o); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
               Group: {(groupOpts.find(g => g[0] === approvalGroupBy) || groupOpts[0])[1]}
             </button>
@@ -7951,7 +7955,7 @@ ${jobsCtx || "No jobs found."}`;
               {groupOpts.map(([k, lbl]) => <button key={k} onClick={() => { setApprovalGroupBy(k); setApprovalGroupOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: approvalGroupBy === k ? T.accent + "12" : "transparent", border: "none", color: approvalGroupBy === k ? T.accent : T.text, fontSize: 13, fontWeight: approvalGroupBy === k ? 700 : 500, cursor: "pointer", fontFamily: T.font }} onMouseEnter={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = "transparent"; }}>{lbl}</button>)}
             </div></>}
           </div>
-          <button onClick={() => openApprovalModal(null)} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44` }}>+ New Approval</button>
+          <button onClick={() => openApprovalModal(null)} style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44` }}>+ New Approval</button>
         </div>
       </div>
       {/* Time-off requests are delivered via chat (Messages) with in-bubble
@@ -8025,7 +8029,7 @@ ${jobsCtx || "No jobs found."}`;
                             // Who may complete this step: if it has an assignee, only that person (admins may override);
                             // if unassigned, anyone with approval ability. Otherwise the step is shown locked/greyed.
                             const canDoThis = s.assigneeId ? (String(loggedInUser?.id) === String(s.assigneeId) || isAdmin) : canApprove;
-                            if (isActive && canDoThis) return <button key={sIdx} onClick={() => signStep(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>→ {s.label}{tag}</button>;
+                            if (isActive && canDoThis) return <button key={sIdx} onClick={() => signStep(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: 12, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>→ {s.label}{tag}</button>;
                             if (isActive) return <Tip key={sIdx} label={s.assigneeId ? `Assigned to ${assignee?.name || "someone else"} — only they can complete this step` : "You don't have approval access for this step"}><span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 11px", borderRadius: 12, background: T.surface, border: `1px solid ${T.border}`, fontSize: 11, fontWeight: 700, color: T.textDim, opacity: 0.85, cursor: "not-allowed" }}><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>{s.label}{tag}</span></Tip>;
                             return <span key={sIdx} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>○ {s.label}{tag}</span>;
                           })}
@@ -8137,7 +8141,7 @@ ${jobsCtx || "No jobs found."}`;
               <option value="date">Date</option>
               <option value="select">Dropdown (List)</option>
             </select>
-            <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
+            <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
           </div>
         </div>
         </div>
@@ -8161,7 +8165,7 @@ ${jobsCtx || "No jobs found."}`;
             <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
               <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
+                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: 8, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}</div></div>
@@ -8210,13 +8214,13 @@ ${jobsCtx || "No jobs found."}`;
           {taskSubView === "list" && <>
             {/* Export button */}
             <Tip label="Export">
-            <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} style={{ height: 29, width: 29, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
+            <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} style={{ height: 34, width: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
             </Tip>
           </>}
           <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
-          <Btn size="sm" onClick={() => setBcModalState("open")} style={{ padding: "7px 10px" }}>
+          <Btn size="sm" onClick={() => setBcModalState("open")} style={{ width: 34, height: 34, padding: 0 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
           </Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
@@ -8232,9 +8236,9 @@ ${jobsCtx || "No jobs found."}`;
               <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
               {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
               <Tip label="Filter">
-              <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: 30, height: 30, borderRadius: T.radiusXs, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
+              <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: 34, height: 34, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
+                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               </Tip>
               <FadeOnClose open={taskFilterOpen}>{taskFilterOpen && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
@@ -8409,7 +8413,7 @@ ${jobsCtx || "No jobs found."}`;
                         const done = !!pEng[step.key];
                         const isActive = step.key === pActiveStep;
                         if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                        if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                        if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
                         if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                         return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
                       })}
@@ -8555,7 +8559,7 @@ ${jobsCtx || "No jobs found."}`;
           const nameIsExpanded = alwaysExpand ? !groupCollapsed.has(groupExpKey) : expandedJobs.has(item.id);
           switch (colId) {
             case "name": return (
-              <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: (level === 0 ? 14 : 12) + indent, position: "relative" }}
+              <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: (level === 0 ? 22 : 20) + indent, position: "relative" }}
                 onDoubleClick={e => { if (!jobSelectMode) startEdit(e, item.id, "title"); }}>
                 {level === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: jobColor || item.color }} />}
                 <svg width="10" height="10" viewBox="0 0 10 10" onClick={e => { if (!nameHasSubs) return; e.stopPropagation(); if (alwaysExpand) toggleGroupCollapse(groupExpKey); else toggleJobExpand(item.id); }} style={{ transform: nameIsExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: T.textDim, flexShrink: 0, visibility: nameHasSubs ? "visible" : "hidden", cursor: nameHasSubs ? "pointer" : "default" }}><polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -8596,7 +8600,7 @@ ${jobsCtx || "No jobs found."}`;
             case "status": return (
               <div style={{ ...cellBase, cursor: "pointer" }}
                 onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const p = placePopover(r, STATUSES.length); setStatusPopover({ id: item.id, pid: pid || null, current: item.status || "Not Started", x: p.x, y: p.y, maxHeight: p.maxHeight, up: p.up }); }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 10, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 10, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none", textTransform: "uppercase", letterSpacing: "0.02em", maxWidth: "100%", minWidth: 0 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: T.radiusPill, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 10, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none", textTransform: "uppercase", letterSpacing: "0.05em", maxWidth: "100%", minWidth: 0 }}>
                   <span style={{ display: "inline-block", width: 12, textAlign: "center", flexShrink: 0, fontSize: 11, textTransform: "none" }}>{STA_ICON[dispStatus] || "○"}</span>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{dispStatus}</span>
                 </span>
@@ -8605,7 +8609,7 @@ ${jobsCtx || "No jobs found."}`;
             case "pri": return (
               <div style={{ ...cellBase, cursor: "pointer", justifyContent: "center" }}
                 onClick={e => { e.stopPropagation(); if (level === 0) cyclePri(item); }}>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 7px", borderRadius: 8, background: priColor + "1a", border: `1px solid ${priColor}44`, fontSize: 11, fontWeight: 700, color: priColor, userSelect: "none" }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: T.radiusPill, background: priColor + "1a", border: `1px solid ${priColor}44`, fontSize: 11, fontWeight: 700, color: priColor, userSelect: "none", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                   {item.pri || "Med"}
                 </span>
               </div>
@@ -8815,7 +8819,7 @@ ${jobsCtx || "No jobs found."}`;
                       onContextMenu={e => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: col.id, isCustom: false, hdrLeft: r.left, hdrTop: r.top }); }}
                       onClick={e => { e.stopPropagation(); if (colDragMovedRef.current) { colDragMovedRef.current = false; return; } }}
                       onDoubleClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setRenameCol({ colId: col.id, isCustom: false, value: stdColLabel(col), x: r.left, y: Math.max(8, r.top - 50) }); }}
-                      style={{ ...hdrCell, justifyContent: col.align === "right" ? "flex-end" : col.align === "center" ? "center" : "flex-start", position: "relative", userSelect: "none", cursor: colDragging ? "grabbing" : "pointer", borderLeft: isDragOver ? `2px solid ${T.accent}` : undefined, gap: 4, background: colSort.id === col.id ? T.accent + "12" : undefined }}>
+                      style={{ ...hdrCell, justifyContent: col.align === "right" ? "flex-end" : col.align === "center" ? "center" : "flex-start", position: "relative", userSelect: "none", cursor: colDragging ? "grabbing" : "pointer", borderLeft: isDragOver ? `2px solid ${T.accent}` : undefined, gap: 4, background: colSort.id === col.id ? T.accent + "12" : undefined, ...(col.id === "name" ? { paddingLeft: 22 } : {}) }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, color: colSort.id === col.id ? T.accent : undefined }}>{stdColLabel(col)}</span>
                       <span style={{ fontSize: 9, flexShrink: 0, color: colSort.id === col.id ? T.accent : T.textDim, opacity: colSort.id === col.id ? 1 : 0.35, transition: "opacity 0.15s" }}>{colSort.id === col.id ? (colSort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>
                       <div onMouseDown={e => { e.stopPropagation(); startColResize(e, widthIdx); }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
@@ -9023,15 +9027,6 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ minWidth: minW }}>
                           {ColHeaders("pm:" + (pm?.id ?? pmLabel))}
                           {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
-                          {can("editJobs") && <div style={{ display: "grid", gridTemplateColumns: COL, borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={e => { e.stopPropagation(); openNew(); }}
-                            onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                            <div />
-                            <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, color: T.textDim, fontSize: 12 }}>
-                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                              Add new job…
-                            </div>
-                            {[...Array(11)].map((_, i) => <div key={i} style={{ borderRight: `1px solid ${T.border}` }} />)}
-                          </div>}
                         </div>
                       </FrostCard>
                     </div>
@@ -9659,7 +9654,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
           <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setScheduleFilterOpen(p => !p); }} title="Filter" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusXs, border: `1px solid ${scheduleFilterCount > 0 ? T.accent + "88" : T.border}`, background: scheduleFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            {scheduleFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: T.accent, color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{scheduleFilterCount}</span>}
+            {scheduleFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{scheduleFilterCount}</span>}
           </button>
           <FadeOnClose open={scheduleFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}>
@@ -12253,8 +12248,8 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Actions */}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 4 }}>
-              <button onClick={closeSettings} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>
+              <button onClick={closeSettings} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>
                 {tsSettingsSaving ? "Saving…" : "Save Changes"}
               </button>
             </div>
@@ -12624,7 +12619,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button
                   onClick={() => doClockIn(pinPerson?._pin, pinSelectedOps)}
                   disabled={pinLoading || pinSelectedOps.length === 0}
-                  style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: pinSelectedOps.length === 0 ? T.border : pinModalColor, color: pinSelectedOps.length === 0 ? T.textDim : pinModalTextColor, fontSize: 15, fontWeight: 700, cursor: pinSelectedOps.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1 }}
+                  style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusPill, border: "none", background: pinSelectedOps.length === 0 ? T.border : pinModalColor, color: pinSelectedOps.length === 0 ? T.textDim : pinModalTextColor, fontSize: 15, fontWeight: 700, cursor: pinSelectedOps.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1 }}
                 >
                   {pinLoading ? "Processing…" : "Confirm Clock In"}
                 </button>
@@ -12661,7 +12656,7 @@ ${jobsCtx || "No jobs found."}`;
                 <button
                   onClick={submitPin}
                   disabled={pinLoading || !pinInput}
-                  style={{ width: "100%", maxWidth: 248, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: pinInput ? pinModalColor : T.border, color: pinInput ? "#fff" : T.textDim, fontSize: 15, fontWeight: 700, cursor: pinInput ? "pointer" : "default", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1, transition: "background 0.15s" }}
+                  style={{ width: "100%", maxWidth: 248, padding: "13px 0", borderRadius: T.radiusPill, border: "none", background: pinInput ? pinModalColor : T.border, color: pinInput ? "#fff" : T.textDim, fontSize: 15, fontWeight: 700, cursor: pinInput ? "pointer" : "default", fontFamily: T.font, marginBottom: 8, opacity: pinLoading ? 0.7 : 1, transition: "background 0.15s" }}
                 >
                   {pinLoading ? "Confirming…" : "Submit"}
                 </button>
@@ -12856,8 +12851,8 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Footer */}
             <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={saveAll} disabled={saving} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: saving ? 0.7 : 1 }}>
+              <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={saveAll} disabled={saving} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: saving ? 0.7 : 1 }}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>
             </div>
@@ -13192,7 +13187,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, background: T.surface, flexShrink: 0 }}>
               <button onClick={closeSettings} style={{ background: "none", border: "none", color: T.text, fontSize: 24, cursor: "pointer", lineHeight: 1, padding: 0 }}>←</button>
               <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Clock Settings</span>
-              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>{tsSettingsSaving ? "Saving…" : "Save"}</button>
+              <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>{tsSettingsSaving ? "Saving…" : "Save"}</button>
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "20px 16px" }}>
               {isAdmin && <div style={{ marginBottom: 24 }}>
@@ -13366,10 +13361,10 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
                         {onBreak
-                          ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
-                          : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b60", background: "#f59e0b12", color: "#f59e0b", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
+                          ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusPill, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
+                          : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusPill, border: "1.5px solid #f59e0b60", background: "#f59e0b12", color: "#f59e0b", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
                         }
-                        <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
+                        <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusPill, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
                       </div>
                     </div>
                   );
@@ -13387,7 +13382,7 @@ ${jobsCtx || "No jobs found."}`;
                   <button
                     onClick={openStartJobPicker}
                     disabled={jobClockLoading}
-                    style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
+                    style={{ width: "100%", padding: "15px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}
                   >Start Job</button>
                 )}
 
@@ -13409,10 +13404,10 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ fontSize: 48, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, letterSpacing: "-0.02em", lineHeight: 1, marginBottom: 16, textAlign: "center" }}>{tsJobElapsed || "0h 0m"}</div>
                       <div style={{ display: "flex", gap: 10 }}>
                         {onBreak
-                          ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: "#f59e0b", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
-                          : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b60", background: "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
+                          ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: "none", background: "#f59e0b", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
+                          : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: "1.5px solid #f59e0b60", background: "#f59e0b12", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
                         }
-                        <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
+                        <button onClick={handleEndJob} disabled={jobClockLoading} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: "1.5px solid #ef444460", background: "#ef444412", color: "#ef4444", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
                       </div>
                     </div>
                   );
@@ -13487,7 +13482,7 @@ ${jobsCtx || "No jobs found."}`;
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: 8, padding: "0 14px 12px" }} onClick={e => e.stopPropagation()}>
-                              <button onClick={() => openPersonEditModal(p)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusXs, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Entries</button>
+                              <button onClick={() => openPersonEditModal(p)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusXs, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Entries</button>
                             </div>
                             {isExp && recentEntries.length > 0 && (
                               <div style={{ padding: "8px 14px 14px", borderTop: `1px solid ${T.border}20` }}>
@@ -13736,11 +13731,11 @@ ${jobsCtx || "No jobs found."}`;
                     {allConfirmed ? "✓ This range is confirmed and included in the hours export." : entries.length > 0 ? `${confirmedCount} of ${entries.length} punches confirmed.` : ""}
                   </span>
                   {allConfirmed ? (
-                    <button onClick={() => doReopen(range)} disabled={tsConfirmSaving} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 700, cursor: tsConfirmSaving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: tsConfirmSaving ? 0.6 : 1 }}>{tsConfirmSaving ? "Re-opening…" : "Re-open to edit"}</button>
+                    <button onClick={() => doReopen(range)} disabled={tsConfirmSaving} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 700, cursor: tsConfirmSaving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: tsConfirmSaving ? 0.6 : 1 }}>{tsConfirmSaving ? "Re-opening…" : "Re-open to edit"}</button>
                   ) : (
                     <>
-                      <button onClick={closeConfirm} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                      <button onClick={() => doConfirm(range)} disabled={tsConfirmSaving || entries.length === 0} style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (tsConfirmSaving || entries.length === 0) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (tsConfirmSaving || entries.length === 0) ? 0.6 : 1 }}>{tsConfirmSaving ? "Confirming…" : "Confirm Time Sheet"}</button>
+                      <button onClick={closeConfirm} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                      <button onClick={() => doConfirm(range)} disabled={tsConfirmSaving || entries.length === 0} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (tsConfirmSaving || entries.length === 0) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (tsConfirmSaving || entries.length === 0) ? 0.6 : 1 }}>{tsConfirmSaving ? "Confirming…" : "Confirm Time Sheet"}</button>
                     </>
                   )}
                 </div>
@@ -13761,11 +13756,11 @@ ${jobsCtx || "No jobs found."}`;
         {/* Export Hours + Confirm Time Sheet — admin only, top-right of the page */}
         {isAdmin && (
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button onClick={openHoursExport} title="Export pay-period hours for payroll" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            <button onClick={openHoursExport} title="Export pay-period hours for payroll" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
               Export Hours
             </button>
-            <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
+            <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               Confirm Time Sheet
             </button>
@@ -13837,11 +13832,11 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
                     {onBreak
-                      ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
-                      : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #f59e0b", background: "none", color: "#f59e0b", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
+                      ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusPill, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
+                      : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusPill, border: "1.5px solid #f59e0b", background: "none", color: "#f59e0b", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
                     }
-                    <button onClick={openStartJobPicker} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Switch</button>
-                    <button onClick={handleEndJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusSm, border: "1.5px solid #ef4444", background: "none", color: "#ef4444", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
+                    <button onClick={openStartJobPicker} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Switch</button>
+                    <button onClick={handleEndJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusPill, border: "1.5px solid #ef4444", background: "none", color: "#ef4444", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
                   </div>
                 </div>
               );
@@ -13858,16 +13853,16 @@ ${jobsCtx || "No jobs found."}`;
             {/* Action buttons — one horizontal row when clocked in: Clock Out, Lunch, Start Job */}
             {isClockedIn ? (
               <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={openClockOut} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
+                <button onClick={openClockOut} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
                 {orgSettings.trackLunch && (
-                  <button onClick={openLunch} disabled={isOnBreak} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: isOnLunch ? "#f59e0b18" : "none", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1 }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
+                  <button onClick={openLunch} disabled={isOnBreak} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: isOnLunch ? "#f59e0b18" : "none", color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1 }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
                 )}
                 {!loggedInUser.activeJobClock && (
-                  <button onClick={openStartJobPicker} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusSm, border: "1.5px solid #22c55e60", background: "none", color: "#22c55e", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Start Job</button>
+                  <button onClick={openStartJobPicker} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: "1.5px solid #22c55e60", background: "none", color: "#22c55e", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Start Job</button>
                 )}
               </div>
             ) : (
-              <button onClick={openClockIn} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
+              <button onClick={openClockIn} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
             )}
 
 
@@ -14133,7 +14128,7 @@ ${jobsCtx || "No jobs found."}`;
                                       <span style={{ color: T.textDim, fontSize: 11 }}>→</span>
                                       <input type="datetime-local" value={toLocal(tsEditEntry.clockOut)} onChange={ev => setTsEditEntry(x => ({ ...x, clockOut: fromLocal(ev.target.value) }))} style={{ colorScheme: T.colorScheme, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }} />
                                       <span style={{ flex: 1 }} />
-                                      <button onClick={saveEditEntry} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save</button>
+                                      <button onClick={saveEditEntry} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save</button>
                                       <button onClick={() => setTsEditEntry(null)} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                                     </div>
                                   );
@@ -14298,7 +14293,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
               {hasSubs && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}
               <span style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>{t.title}</span>
-              <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 5, background: (staColorOf(t.status) || T.accent) + "22", color: staColorOf(t.status) || T.accent, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: "0.03em" }}>{t.status}</span>
+              <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: T.radiusPill, background: (staColorOf(t.status) || T.accent) + "22", color: staColorOf(t.status) || T.accent, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: "0.03em" }}>{t.status}</span>
             </div>
             <div style={{ fontSize: 12, color: T.textDim, marginTop: 3, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
               {owner && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><div style={{ width: 6, height: 6, borderRadius: 3, background: owner.color, flexShrink: 0 }} />{owner.name}</span>}
@@ -14359,7 +14354,7 @@ ${jobsCtx || "No jobs found."}`;
                       const isDone = !!so[String(i)];
                       const isActive = i === activeIdx;
                       if (isDone) return <span key={i} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {stepLabel}{canApprove && <Tip label="Revert"><button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
-                      if (isActive && canApprove) return <button key={i} onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "5px 13px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {stepLabel}</button>;
+                      if (isActive && canApprove) return <button key={i} onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "5px 13px", borderRadius: 14, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {stepLabel}</button>;
                       if (isActive) return <span key={i} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {stepLabel}</span>;
                       return <span key={i} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {stepLabel}</span>;
                     })}
@@ -14389,7 +14384,7 @@ ${jobsCtx || "No jobs found."}`;
                     const done = !!e[step.key];
                     const isActive = step.key === activeStep;
                     if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canApprove && <Tip label="Revert"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
-                    if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: 14, background: T.accent, color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                    if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: 14, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
                     if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                     return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {step.label}</span>;
                   })}
@@ -14583,7 +14578,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ width: 8, height: 8, borderRadius: 4, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
           );
         })()}
-        <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? T.accent + "15" : T.bg, border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
+        <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? T.accent + "15" : T.bg, border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusPill, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           {hasNotifs && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
         </button>
@@ -14789,7 +14784,7 @@ ${jobsCtx || "No jobs found."}`;
                   setOrgCodeSaving(false);
                 }
               }}
-              style={{ width: "100%", padding: "14px 0", borderRadius: T.radiusSm, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : T.accentText, fontSize: 15, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}
+              style={{ width: "100%", padding: "14px 0", borderRadius: T.radiusPill, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : T.accentText, fontSize: 15, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}
             >{orgCodeSaving ? "Validating…" : "Switch Organization"}</button>
           </div>
         </div>
@@ -14797,7 +14792,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Mobile Notifications Dropdown */}
       {notifOpen && <>
         <div onClick={() => setNotifOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
-        <div onClick={e => e.stopPropagation()} style={{ position: "fixed", top: 56, right: 12, width: "min(300px, calc(100vw - 24px))", maxHeight: "60vh", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: T.font }}>
+        <div onClick={e => e.stopPropagation()} style={{ position: "fixed", top: 56, right: 12, width: "min(300px, calc(100vw - 24px))", maxHeight: "60vh", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: T.font }}>
           <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Notifications</div>
             {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font, fontWeight: 600 }}>Mark all read</button>}
@@ -15223,14 +15218,14 @@ ${jobsCtx || "No jobs found."}`;
                                   <button
                                     disabled={!hasReason}
                                     onClick={() => adminDeclineJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId, frDecState.reason || "")}
-                                    style={{ flex: 1, padding: "12px", borderRadius: T.radiusSm, border: "none", background: hasReason ? "#ef4444" : T.border, color: hasReason ? "#fff" : T.textDim, fontSize: 14, fontWeight: 700, cursor: hasReason ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}
+                                    style={{ flex: 1, padding: "12px", borderRadius: T.radiusPill, border: "none", background: hasReason ? "#ef4444" : T.border, color: hasReason ? "#fff" : T.textDim, fontSize: 14, fontWeight: 700, cursor: hasReason ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}
                                   >Confirm Decline</button>
                                 </div>
                               </div>;
                             }
                             return <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-                              <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: true, reason: "" } }))} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✕ Decline</button>
-                              <button onClick={() => adminApproveJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✓ Approve</button>
+                              <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: true, reason: "" } }))} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✕ Decline</button>
+                              <button onClick={() => adminApproveJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusPill, border: "none", background: "#10b981", color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.01em" }}>✓ Approve</button>
                             </div>;
                           })()}
                         </div>
@@ -15277,12 +15272,12 @@ ${jobsCtx || "No jobs found."}`;
                                 <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(m.timeOffRequestId, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ padding: "9px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
                                 <div style={{ display: "flex", gap: 8 }}>
                                   <button onClick={() => { setToDeny(null); setToDenyReason(""); }} style={{ flex: 1, padding: "11px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                                  <button disabled={toBusy === m.timeOffRequestId} onClick={() => decideTimeOff(m.timeOffRequestId, "deny", toDenyReason)} style={{ flex: 1, padding: "11px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Confirm Deny</button>
+                                  <button disabled={toBusy === m.timeOffRequestId} onClick={() => decideTimeOff(m.timeOffRequestId, "deny", toDenyReason)} style={{ flex: 1, padding: "11px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Confirm Deny</button>
                                 </div>
                               </div>
                             : <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
-                                <button disabled={toBusy === m.timeOffRequestId} onClick={() => { setToDeny(m.timeOffRequestId); setToDenyReason(""); }} style={{ flex: 1, padding: "13px", borderRadius: T.radiusSm, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Deny</button>
-                                <button disabled={toBusy === m.timeOffRequestId} onClick={() => decideTimeOff(m.timeOffRequestId, "approve")} style={{ flex: 1, padding: "13px", borderRadius: T.radiusSm, border: "none", background: "#10b981", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Approve</button>
+                                <button disabled={toBusy === m.timeOffRequestId} onClick={() => { setToDeny(m.timeOffRequestId); setToDenyReason(""); }} style={{ flex: 1, padding: "13px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Deny</button>
+                                <button disabled={toBusy === m.timeOffRequestId} onClick={() => decideTimeOff(m.timeOffRequestId, "approve")} style={{ flex: 1, padding: "13px", borderRadius: T.radiusPill, border: "none", background: "#10b981", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Approve</button>
                               </div>)}
                         </div>
                       </div>
@@ -15300,7 +15295,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ width: 32, height: 32, borderRadius: 16, background: T.systemBg || T.surfaceSolid || T.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{m.authorName[0]}</div>
                     <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 3 }}>
                       {showName && <span style={{ fontSize: 12, fontWeight: 600, color: T.text, marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>{m.authorName}</span>}
-                      {m.text && <div className={m._pending ? "msg-sending" : undefined} style={{ background: isMe ? T.accent : T.surface, color: isMe ? T.accentText : T.text, padding: "10px 15px", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
+                      {m.text && <div className={m._pending ? "msg-sending" : undefined} style={{ background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "10px 15px", borderRadius: isMe ? "16px 16px 4px 16px" : "16px 16px 16px 4px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
                         {m.text}
                       </div>}
                       {(m.attachments || []).map((att, ai) => (
@@ -15308,7 +15303,7 @@ ${jobsCtx || "No jobs found."}`;
                           ? <div key={ai} onClick={() => setLightboxAtt(att)} className={m._pending ? "msg-sending" : undefined} style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 240, cursor: "zoom-in" }}>
                               <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} onLoad={() => { const el = chatScrollRef.current; if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 240) el.scrollTop = el.scrollHeight; }} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "cover" }} loading="lazy" />
                             </div>
-                          : <div key={ai} onClick={() => setLightboxAtt(att)} className={m._pending ? "msg-sending" : undefined} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? T.accent : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 10, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
+                          : <div key={ai} onClick={() => setLightboxAtt(att)} className={m._pending ? "msg-sending" : undefined} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 10, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
                               <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                             </div>
@@ -16783,7 +16778,7 @@ ${jobsCtx || "No jobs found."}`;
                       const done = !!pEng[step.key];
                       const isActive = step.key === pActiveStep;
                       if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                      if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: T.accent, color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                      if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: 12, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
                       if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                       return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
                     })}
@@ -16932,7 +16927,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ textAlign: "center", maxWidth: 480, padding: "0 20px" }}>
           <div style={{ fontSize: 18, color: T.text, fontWeight: 600, marginBottom: 12 }}>Couldn't load your data</div>
           <div style={{ fontSize: 14, color: T.textDim, marginBottom: 24 }}>{loadError}</div>
-          <button onClick={() => window.location.reload()} style={{ padding: "10px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontWeight: 600, cursor: "pointer", fontFamily: T.font, fontSize: 14 }}>Reload</button>
+          <button onClick={() => window.location.reload()} style={{ padding: "10px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontWeight: 600, cursor: "pointer", fontFamily: T.font, fontSize: 14 }}>Reload</button>
         </div>
       </div>
     );
@@ -17149,7 +17144,7 @@ ${jobsCtx || "No jobs found."}`;
       if (g.kind === "exit") doExitSettings();
       else if (g.kind === "section") { setSettingsSection(g.target); loadSectionDraft(g.target); }
     };
-    const ghost = { padding: "9px 18px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
+    const ghost = { padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
     return (
       <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10050, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}>
         <div className="anim-modal-box" style={{ width: "min(420px, 92vw)", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radius, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", padding: "24px" }}>
@@ -17831,7 +17826,7 @@ ${jobsCtx || "No jobs found."}`;
                       const isCur = img === dc.bgImage;
                       return <button key={i} title={isCur ? "Current background" : "Use this background"} onClick={() => setDc(p => ({ ...p, bgImage: img, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity }))}
                         style={{ position: "relative", width: 58, height: 40, borderRadius: T.radiusXs, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
-                        {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: T.accent, color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                        {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: brandGrad(T.accent), color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                         <span onClick={e => { e.stopPropagation(); setBgImageHistory(prev => prev.filter(x => x !== img)); if (isCur) setDc({ bgImage: null }); }} title="Remove from history" style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: T.surfaceSolid || T.surface, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</span>
                       </button>;
                     })}
@@ -17866,7 +17861,7 @@ ${jobsCtx || "No jobs found."}`;
                   onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); } }}
                   style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
                 <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); }}
-                  style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
+                  style={{ padding: "8px 16px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
               </div>
             </div>
             {renderSettingsActions()}
@@ -18153,12 +18148,12 @@ ${jobsCtx || "No jobs found."}`;
         )}
         {/* Notification Bell */}
         <div ref={notifRef} style={{ position: "relative" }}>
-          <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : Tc.border}`, borderRadius: T.radiusSm, padding: "7px 12px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
+          <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : Tc.border}`, borderRadius: T.radiusPill, padding: "7px 14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <span style={{ fontSize: 12, fontWeight: 600, color: notifOpen ? T.accent : Tc.textSec, letterSpacing: "0.01em" }}>Notifications</span>
             {hasNotifs && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
           </button>
-          <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
+          <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
             <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.05em", textTransform: "uppercase" }}>Notifications</div>
               {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
@@ -18206,10 +18201,37 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Left sidebar — chevron + vertical nav + profile ── */}
     {/* Shadow T with the chrome theme so the whole sidebar follows the System Color (bg + contrast
         text/borders/hover). Nothing inside the sidebar sits on a card, so this is a clean swap. */}
-    {!isMobile && (() => { const T = Tc; return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+    {!isMobile && (() => { const T = Tc;
+      // Shared nav-button style — matches iOS: active = brand-gradient fill; pill
+      // when expanded, circle when collapsed; no separate sliding indicator.
+      const navBtn = (active, o = {}) => ({
+        position: "relative",
+        // Icon stays put across states: fixed left padding + left-aligned always,
+        // so nothing jumps. Collapsed = a 40px circle centered by a FIXED margin
+        // (never `auto` — auto re-centers as the sidebar animates → slide/glitch).
+        // Width & border-radius SNAP (px↔% / 50%↔px can't interpolate); the
+        // sidebar's own width transition supplies the smooth motion.
+        width: sidebarExpanded ? "100%" : 40,
+        height: o.h || 40,
+        padding: "0 12px",
+        borderRadius: sidebarExpanded ? T.radiusPill : "50%",
+        border: o.border || "none",
+        background: active ? T.hoverStrong : (o.bg || "transparent"),
+        color: o.color || T.text,
+        boxShadow: "none",
+        cursor: "pointer", fontFamily: T.font, fontSize: o.fs || 13,
+        fontWeight: active ? 700 : (o.fw || 500),
+        display: "flex", alignItems: "center",
+        justifyContent: "flex-start",
+        gap: 12,
+        transition: "background 0.18s ease, color 0.18s ease",
+        overflow: "hidden", whiteSpace: "nowrap",
+        ...o.extra,
+      });
+      return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
-        <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={{ width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
+        <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={navBtn(false, { color: T.textSec })} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
           <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </span>
@@ -18217,8 +18239,6 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       {/* Nav buttons */}
       <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
-        {/* Shared active-indicator bar — slides between nav buttons (positioned in placeNavPill) */}
-        <span ref={navPillRef} aria-hidden="true" style={{ position: "absolute", top: 0, width: 3, height: 28, borderRadius: 2, background: T.accent, pointerEvents: "none", willChange: "transform, height, opacity" }} />
         {/* ─── App navigation (swaps out instantly when entering settings) ─── */}
         {!settingsMode && <div style={settingsNavLayer(false)}>
         {views.map(v => {
@@ -18227,12 +18247,12 @@ ${jobsCtx || "No jobs found."}`;
           // child moved into the full-page Settings (Organization › Time Clock).
           return (
             <button key={v.id} ref={el => { navBtnRefs.current[v.id] = el; }} onClick={() => switchView(v.id)}
-              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}
+              style={navBtn(active)}
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
-              <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
+              <span style={{ opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
             </button>
           );
         })}
@@ -18246,11 +18266,11 @@ ${jobsCtx || "No jobs found."}`;
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Approval Queue", e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
-              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              style={navBtn(active)}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </span>
-              <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
+              <span style={{ opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
             </button>
           );
         })()}
@@ -18262,11 +18282,11 @@ ${jobsCtx || "No jobs found."}`;
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Admin", e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
-              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              style={navBtn(active)}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </span>
-              <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Admin</span>
+              <span style={{ opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Admin</span>
             </button>
           );
         })()}
@@ -18275,11 +18295,11 @@ ${jobsCtx || "No jobs found."}`;
           onMouseEnter={e => { if (!sidebarExpanded) tipCtx.show("Settings", e.clientX, e.clientY); e.currentTarget.style.background = T.hover; }}
           onMouseLeave={e => { tipCtx.hide(); e.currentTarget.style.background = "transparent"; }}
           onMouseDown={() => tipCtx.hide()}
-          style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+          style={navBtn(false)}>
           <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </span>
-          <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
+          <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
         </button>
         {/* (Old sidebar Settings dropdown removed — replaced by the full-page Settings view above.) */}
         </div>}
@@ -18290,9 +18310,9 @@ ${jobsCtx || "No jobs found."}`;
               onMouseEnter={e => { if (!activeS) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(label, e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!activeS) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
-              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: activeS ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: activeS ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+              style={navBtn(activeS)}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{icon}</span>
-              <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+              <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
             </button>
           ); };
           const orgActive = SETTINGS_ORG_CHILDREN.some(c => c.key === settingsSection);
@@ -18303,9 +18323,9 @@ ${jobsCtx || "No jobs found."}`;
                 onMouseEnter={e => { e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Back", e.clientX, e.clientY); }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
                 onMouseDown={() => tipCtx.hide()}
-                style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap", marginBottom: 6 }}>
+                style={navBtn(false, { color: T.textSec, fw: 600, extra: { marginBottom: 6 } })}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></span>
-                <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
+                <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
               </button>
               {/* Divider — separates Back from the settings sections */}
               <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 8px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
@@ -18315,9 +18335,9 @@ ${jobsCtx || "No jobs found."}`;
                   onMouseEnter={e => { if (!orgActive) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Organization", e.clientX, e.clientY); }}
                   onMouseLeave={e => { if (!orgActive) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
                   onMouseDown={() => tipCtx.hide()}
-                  style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: orgActive ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: orgActive ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
+                  style={navBtn(orgActive)}>
                   <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
-                  <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
+                  <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: settingsOrgExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </button>
                 <div style={{ display: "grid", gridTemplateRows: settingsOrgExpanded && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: settingsOrgExpanded && sidebarExpanded ? 1 : 0, pointerEvents: settingsOrgExpanded && sidebarExpanded ? "auto" : "none" }}>
@@ -18327,7 +18347,7 @@ ${jobsCtx || "No jobs found."}`;
                         <button key={c.key} ref={el => { navBtnRefs.current["settings:" + c.key] = el; }} onClick={() => navigateSection(c.key)}
                           onMouseEnter={e => { if (!a) e.currentTarget.style.background = T.hover; }}
                           onMouseLeave={e => { if (!a) e.currentTarget.style.background = "transparent"; }}
-                          style={{ width: "100%", height: 34, padding: "0 14px", borderRadius: T.radiusXs, border: "none", background: a ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: a ? 700 : 500, display: "flex", alignItems: "center", gap: 10, transition: "background 0.15s", textAlign: "left" }}>
+                          style={navBtn(a, { h: 34, fs: 12 })}>
                           <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
                         </button>
                       ); })}
@@ -18342,9 +18362,9 @@ ${jobsCtx || "No jobs found."}`;
                 onMouseEnter={e => { e.currentTarget.style.background = T.accent + "22"; if (!sidebarExpanded) tipCtx.show("FAST TRAQS", e.clientX, e.clientY); }}
                 onMouseLeave={e => { e.currentTarget.style.background = T.accent + "12"; tipCtx.hide(); }}
                 onMouseDown={() => tipCtx.hide()}
-                style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}44`, background: T.accent + "12", color: T.accent, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s", overflow: "hidden", whiteSpace: "nowrap", marginTop: 6 }}>
+                style={navBtn(false, { color: T.accent, bg: T.accent + "12", border: `1px solid ${T.accent}44`, fw: 700, extra: { marginTop: 6 } })}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
-                <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.03em" }}>FAST TRAQS</span>
+                <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.03em" }}>FAST TRAQS</span>
               </button>}
             </div>
           );
@@ -18362,11 +18382,11 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ position: "absolute", inset: 0 }} />
           </Tip>}
         </div>
-        <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2, opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", whiteSpace: "nowrap", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
+        <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2, opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", whiteSpace: "nowrap", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis" }}>{loggedInUser.name}</div>
           <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
         </div>
-        <div style={{ flexShrink: 0, opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
+        <div style={{ flexShrink: 0, opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
           <Tip label="Log out">
             <button onClick={() => setConfirmLogout(true)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s, border-color 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.background = "#ef444411"; e.currentTarget.style.borderColor = "#ef444455"; }}
@@ -18752,7 +18772,7 @@ ${jobsCtx || "No jobs found."}`;
                         const isCur = img === dc.bgImage;
                         return <button key={i} title={isCur ? "Current background" : "Use this background"} onClick={() => setDc(p => ({ ...p, bgImage: img, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity }))}
                           style={{ position: "relative", width: 58, height: 40, borderRadius: T.radiusXs, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
-                          {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: T.accent, color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                          {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: brandGrad(T.accent), color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                           <span onClick={e => { e.stopPropagation(); setBgImageHistory(prev => prev.filter(x => x !== img)); if (isCur) setDc({ bgImage: null }); }} title="Remove from history" style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: T.surfaceSolid || T.surface, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</span>
                         </button>;
                       })}
@@ -18788,7 +18808,7 @@ ${jobsCtx || "No jobs found."}`;
                     onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); } }}
                     style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
                   <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); }}
-                    style={{ padding: "8px 16px", background: T.accent, color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
+                    style={{ padding: "8px 16px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
                 </div>
               </div>
             </div>
@@ -19078,7 +19098,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Export buttons */}
               <div style={{ display: "flex", gap: 6 }}>
                 {[["PDF", doPDF], ["CSV", doCSV], ["Word", doWord]].map(([lbl, fn]) => (
-                  <button key={lbl} onClick={fn} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: exportData.length > 0 ? 1 : 0.4 }}>{lbl} {exportSelRows.size > 0 ? `(${exportSelRows.size})` : `(${visibleJobs.length})`}</button>
+                  <button key={lbl} onClick={fn} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: exportData.length > 0 ? 1 : 0.4 }}>{lbl} {exportSelRows.size > 0 ? `(${exportSelRows.size})` : `(${visibleJobs.length})`}</button>
                 ))}
               </div>
             </div>
@@ -19128,7 +19148,7 @@ ${jobsCtx || "No jobs found."}`;
               {exportSelRows.size > 0 ? <><strong style={{ color: T.accent }}>{exportSelRows.size}</strong> job{exportSelRows.size !== 1 ? "s" : ""} selected for export</> : <><strong style={{ color: T.text }}>{visibleJobs.length}</strong> job{visibleJobs.length !== 1 ? "s" : ""} — click rows to select a subset</>}
             </span>
             <div style={{ flex: 1 }} />
-            <button onClick={() => setExportSelOpen(false)} style={{ padding: "7px 18px", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => setExportSelOpen(false)} style={{ padding: "7px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           </div>
         </div>
       </div>;
@@ -19158,7 +19178,7 @@ ${jobsCtx || "No jobs found."}`;
       const CANVAS_W = 760;
       const scale = dims ? Math.min(1, CANVAS_W / dims.w) : 1;
       const ELBL = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 7 };
-      const EBTN = { padding: "0 12px", height: 30, borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
+      const EBTN = { padding: "0 12px", height: 30, borderRadius: T.radiusXs, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
       const palette = [
         { type: "title", label: "Title", w: 420, h: 40, group: "Elements" },
         { type: "subtitle", label: "Subtitle", w: 420, h: 28, group: "Elements" },
@@ -19211,7 +19231,7 @@ ${jobsCtx || "No jobs found."}`;
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textSec, cursor: "pointer" }}><input type="checkbox" checked={layout.snap !== false} onChange={e => { pushExportHistory(); setExportLayout(L => ({ ...L, snap: e.target.checked })); }} />Snap</label>
             </>}
             <div style={{ flex: 1 }} />
-            <button onClick={() => setExportPreview(null)} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back</button>
+            <button onClick={() => setExportPreview(null)} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back</button>
             {isPdf && <button onClick={printIt} style={{ ...EBTN, height: 32, padding: "0 16px", display: "flex", alignItems: "center", gap: 6 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print / Save as PDF</button>}
             {!isPdf && <button onClick={downloadIt} style={{ ...EBTN, height: 32, padding: "0 16px" }}>Download .{ep.kind === "csv" ? "csv" : "doc"}</button>}
           </div>
@@ -19384,8 +19404,8 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>Give this export layout a name so you can reuse it later.</div>
           <input autoFocus value={exportTplName} onChange={e => setExportTplName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") setExportTplNameOpen(false); }} placeholder="Template name" style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 14, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
-            <button onClick={() => setExportTplNameOpen(false)} style={{ padding: "8px 16px", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={commit} disabled={!exportTplName.trim()} style={{ padding: "8px 16px", borderRadius: T.radiusSm, border: "none", background: exportTplName.trim() ? T.accent : T.border, color: exportTplName.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: exportTplName.trim() ? "pointer" : "default", fontFamily: T.font }}>Save</button>
+            <button onClick={() => setExportTplNameOpen(false)} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={commit} disabled={!exportTplName.trim()} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: "none", background: exportTplName.trim() ? T.accent : T.border, color: exportTplName.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: exportTplName.trim() ? "pointer" : "default", fontFamily: T.font }}>Save</button>
           </div>
         </div>
       </div>;
@@ -19724,7 +19744,7 @@ ${jobsCtx || "No jobs found."}`;
           style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", marginBottom: 18 }}
         />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={() => setClockTimeModal(null)} style={{ padding: "9px 18px", borderRadius: T.radiusXs, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setClockTimeModal(null)} style={{ padding: "9px 18px", borderRadius: T.radiusXs, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={async () => {
             const { personId, action, ts } = clockTimeModal;
             if (!ts) return;
@@ -19767,7 +19787,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={() => setFinishApproval(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-          <button onClick={() => { requestFinishApproval(finishApproval.id); setFinishApproval(null); }} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Send Request</button>
+          <button onClick={() => { requestFinishApproval(finishApproval.id); setFinishApproval(null); }} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Send Request</button>
         </div>
       </div>
     </div>}</FadeOnClose>
@@ -19834,7 +19854,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={() => setSplitModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={doSplit} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Split</button>
+            <button onClick={doSplit} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Split</button>
           </div>
         </div>
       </div>;
@@ -19892,7 +19912,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ display: "flex", gap: 10 }}>
             <button onClick={() => setWorkedHoursModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={applyWorked} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: T.accent, color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Set</button>
+            <button onClick={applyWorked} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusSm, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Set</button>
           </div>
         </div>
       </div>;
@@ -20005,7 +20025,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Holidays</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
               <TraqsDatePicker compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
-              <button onClick={() => { if (!holidayInput || orgSettings.holidays.includes(holidayInput)) return; setOrgSettings(s => ({ ...s, holidays: [...s.holidays, holidayInput].sort() })); setHolidayInput(""); }} style={{ padding: "7px 14px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Add</button>
+              <button onClick={() => { if (!holidayInput || orgSettings.holidays.includes(holidayInput)) return; setOrgSettings(s => ({ ...s, holidays: [...s.holidays, holidayInput].sort() })); setHolidayInput(""); }} style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Add</button>
             </div>
             {orgSettings.holidays.length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No holidays added</div>}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -20021,7 +20041,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
         <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, background: T.card, display: "flex", justifyContent: "flex-end", flexShrink: 0, borderBottomLeftRadius: T.radiusSm, borderBottomRightRadius: T.radiusSm }}>
-          <button onClick={() => setOrgSettingsOpen(false)} style={{ padding: "7px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save &amp; Close</button>
+          <button onClick={() => setOrgSettingsOpen(false)} style={{ padding: "7px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save &amp; Close</button>
         </div>
       </div>
     </div>}</FadeOnClose>
@@ -20104,7 +20124,7 @@ ${jobsCtx || "No jobs found."}`;
                 const v = roleInput.trim();
                 if (v && !orgSettings.roles.includes(v)) { setOrgSettings(s => ({ ...s, roles: [...s.roles, v] })); setRoleInput(""); }
               }}
-              style={{ padding: "9px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}
+              style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}
             >Add</button>
           </div>
         </div>
@@ -20272,7 +20292,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-              <button onClick={() => setSignOffTemplateEditing(null)} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={() => setSignOffTemplateEditing(null)} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={() => {
                 const name = (signOffTemplateEditing.name || "").trim();
                 const steps = (signOffTemplateEditing.steps || []).map(s => s.trim()).filter(Boolean);
@@ -20283,7 +20303,7 @@ ${jobsCtx || "No jobs found."}`;
                   setOrgSettings(s => ({ ...s, signOffTemplates: [...(s.signOffTemplates || []), { id: uid(), name, steps }] }));
                 }
                 setSignOffTemplateEditing(null);
-              }} style={{ flex: 2, padding: "9px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+              }} style={{ flex: 2, padding: "9px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
                 {signOffTemplateEditing.id ? "Save Changes" : "Create Template"}
               </button>
             </div>
@@ -20373,7 +20393,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <div style={{ padding: "8px 14px 14px", display: "flex", gap: 8 }}>
               <button onClick={() => setPendingActions(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={executeConfirmedActions} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Confirm & Apply</button>
+              <button onClick={executeConfirmedActions} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Confirm & Apply</button>
             </div>
           </div>
         )}
@@ -20418,7 +20438,7 @@ ${jobsCtx || "No jobs found."}`;
                 persistTemplates([...templates, { id: uid(), name, ops }]);
                 setSaveTemplateModal(false);
               }}
-              style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusSm, border: "none",
+              style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusPill, border: "none",
                 background: templateNameInput.trim() ? T.accent : T.border, color: T.accentText,
                 fontSize: 13, fontWeight: 700,
                 cursor: templateNameInput.trim() ? "pointer" : "not-allowed", fontFamily: T.font }}>
@@ -20610,7 +20630,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* BEGIN button */}
           <button
             onClick={() => { setFastTraqsExiting(true); setTimeout(() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); }, 420); }}
-            style={{ width: "100%", padding: isMobile ? "14px 0" : "17px 0", borderRadius: 16, border: "none", background: T.accent, color: T.accentText, fontSize: isMobile ? 16 : 18, fontWeight: 900, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.06em", animation: "glow-pulse 2.4s ease-in-out infinite", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, transition: "transform 0.15s ease" }}
+            style={{ width: "100%", padding: isMobile ? "14px 0" : "17px 0", borderRadius: 16, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: isMobile ? 16 : 18, fontWeight: 900, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.06em", animation: "glow-pulse 2.4s ease-in-out infinite", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, transition: "transform 0.15s ease" }}
             onMouseEnter={e => e.currentTarget.style.transform = "scale(1.02)"}
             onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
             onMouseDown={e => e.currentTarget.style.transform = "scale(0.97)"}
@@ -20901,7 +20921,7 @@ ${jobsCtx || "No jobs found."}`;
         : <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, padding: "32px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16, maxWidth: 340 }}>
             <span style={{ lineHeight: 0, color: T.textDim }}><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.text, textAlign: "center", wordBreak: "break-all" }}>{lightboxAtt.filename}</div>
-            <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: T.accent, color: T.accentText, borderRadius: 9, padding: "10px 24px", textDecoration: "none", fontSize: 14, fontWeight: 600, fontFamily: T.font }}>Download</a>
+            <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: brandGrad(T.accent), color: T.accentText, borderRadius: 9, padding: "10px 24px", textDecoration: "none", fontSize: 14, fontWeight: 600, fontFamily: T.font }}>Download</a>
           </div>
       }
     </div>}</FadeOnClose>
@@ -20922,7 +20942,7 @@ ${jobsCtx || "No jobs found."}`;
               <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>)}
           </div>}
-          <button onClick={() => document.getElementById("panel-photo-input").click()} disabled={panelPhotoUploading} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 15, fontWeight: 700, cursor: panelPhotoUploading ? "default" : "pointer", fontFamily: T.font, opacity: panelPhotoUploading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+          <button onClick={() => document.getElementById("panel-photo-input").click()} disabled={panelPhotoUploading} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 15, fontWeight: 700, cursor: panelPhotoUploading ? "default" : "pointer", fontFamily: T.font, opacity: panelPhotoUploading ? 0.7 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             {panelPhotoUploading ? "Uploading…" : (atts.length > 0 ? "Take Another Photo" : "Take Photo")}
           </button>
@@ -21015,13 +21035,13 @@ ${jobsCtx || "No jobs found."}`;
                 {!isMe && <div style={{ width: 26, height: 26, borderRadius: 13, background: showName ? (T.systemBg || T.surfaceSolid || T.surface) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{showName ? m.authorName[0] : ""}</div>}
                 <div style={{ maxWidth: "75%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 2 }}>
                   {showName && <span style={{ fontSize: 10, color: T.textDim }}>{m.authorName}</span>}
-                  {m.text && <div style={{ background: isMe ? T.accent : T.surface, color: isMe ? T.accentText : T.text, padding: "8px 12px", borderRadius: isMe ? "13px 13px 4px 13px" : "13px 13px 13px 4px", fontSize: 13, lineHeight: 1.45, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>{m.text}</div>}
+                  {m.text && <div style={{ background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "8px 12px", borderRadius: isMe ? "13px 13px 4px 13px" : "13px 13px 13px 4px", fontSize: 13, lineHeight: 1.45, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>{m.text}</div>}
                   {(m.attachments || []).map((att, ai) => (
                     att.mimeType?.startsWith("image/")
                       ? <div key={ai} onClick={() => setLightboxAtt(att)} style={{ borderRadius: 9, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 200, cursor: "zoom-in" }}>
                           <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} style={{ display: "block", maxWidth: "100%", maxHeight: 160, objectFit: "cover" }} loading="lazy" />
                         </div>
-                      : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: isMe ? T.accent : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 9, fontSize: 12, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 190 }}>
+                      : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 9, fontSize: 12, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 190 }}>
                           <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                         </div>
@@ -21267,7 +21287,7 @@ ${jobsCtx || "No jobs found."}`;
             })}
             {shopCrew.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "20px 0" }}>No team members available</div>}
           </div>
-          <button onClick={() => setReassignModal(null)} style={{ width: "100%", marginTop: 16, padding: "9px", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
+          <button onClick={() => setReassignModal(null)} style={{ width: "100%", marginTop: 16, padding: "9px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
         </div>
       </div>;
     })()}
@@ -21401,7 +21421,7 @@ ${jobsCtx || "No jobs found."}`;
               )})));
             }
             setQuickAddSub(null);
-          }} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusXs, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+          }} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusXs, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
             {quickAddSub.type === "panel" ? "Add Panel" : "Add Operation"}
           </button>
         </div>
@@ -21595,7 +21615,7 @@ ${jobsCtx || "No jobs found."}`;
               : `You are signed in as ${loggedInUser?.name || ""}. Are you sure you want to log out?`}
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button onClick={() => setConfirmLogout(false)} style={{ padding: "9px 20px", borderRadius: T.radiusXs, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => setConfirmLogout(false)} style={{ padding: "9px 20px", borderRadius: T.radiusXs, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={() => { setConfirmLogout(false); handleLogout(); }} style={{ padding: "9px 20px", borderRadius: T.radiusXs, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Log Out</button>
           </div>
         </div>
@@ -22203,7 +22223,7 @@ ${jobsCtx || "No jobs found."}`;
       return (
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "stretch", justifyContent: "center", padding: 24 }} onClick={() => setEditJobModal(null)}>
           <div className="anim-modal-box" style={{ position: "relative", background: T.card, borderRadius: T.radius, width: "100%", maxWidth: 1400, maxHeight: "calc(100vh - 48px)", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
-            {editToast && <div key={editToast.key} style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 18px 10px 12px", borderRadius: 999, background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "0.02em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 50, animation: "toastInOut 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) both", pointerEvents: "none" }}>
+            {editToast && <div key={editToast.key} style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 18px 10px 12px", borderRadius: 999, background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "0.02em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 50, animation: "toastInOut 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) both", pointerEvents: "none" }}>
               <div style={{ width: 22, height: 22, borderRadius: "50%", background: T.accentText, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, animation: "checkPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="5 12.5 10 17.5 19 7.5" style={{ strokeDasharray: 30, animation: "checkDraw 0.55s 0.2s cubic-bezier(0.65, 0, 0.35, 1) both" }} />
@@ -22315,7 +22335,7 @@ ${jobsCtx || "No jobs found."}`;
                       onDrop={e => { e.preventDefault(); if (editDrag && (editDrag.kind === "panel" || editDrag.kind === "panel-over")) { const srcIdx = editDrag.srcIdx ?? editDrag.panelIdx; if (srcIdx !== pi) setEj(p => { const subs = [...p.subs]; const [moved] = subs.splice(srcIdx, 1); subs.splice(pi, 0, moved); return { ...p, subs }; }); setEditDrag(null); } }}
                       onDragLeave={() => { if (isPanelDragOver) setEditDrag(d => d && d.kind === "panel-over" ? { kind: "panel", panelIdx: d.srcIdx } : d); }}
                       style={{ position: "relative", background: T.surface, border: `1px solid ${isPanelDragOver ? T.accent : T.border}`, borderRadius: T.radiusSm, padding: 12, fontFamily: T.font, opacity: isPanelBeingDragged ? 0.5 : 1, transition: "border-color 0.15s, opacity 0.15s" }}>
-                      {editAddedIds.has(panel.id) && <div style={{ position: "absolute", top: -7, right: -7, padding: "2px 7px", borderRadius: 10, background: T.accent, color: T.accentText, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: T.font, animation: "newBadgePulse 1.6s ease-out infinite", zIndex: 2 }}>New</div>}
+                      {editAddedIds.has(panel.id) && <div style={{ position: "absolute", top: -7, right: -7, padding: "2px 7px", borderRadius: 10, background: brandGrad(T.accent), color: T.accentText, fontSize: 9, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", fontFamily: T.font, animation: "newBadgePulse 1.6s ease-out infinite", zIndex: 2 }}>New</div>}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                         {(() => { const pColor = panel.color || ej.color; return (
                         <div style={{ position: "relative", flexShrink: 0 }}>
@@ -22385,8 +22405,8 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {/* Footer — Reschedule button removed; Save now opens the floating tray when new ops exist */}
             <div style={{ padding: "18px 32px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
-              <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "1px solid transparent", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
+              <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
             </div>
           </div>
         </div>
@@ -22429,7 +22449,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ padding: "0 24px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button onClick={() => { setReminderModal(null); setReminderNote(""); }} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={() => sendReminder(reminderModal.item, reminderNote)} disabled={reminderSending || recipients.length === 0} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: reminderSending || recipients.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, opacity: reminderSending || recipients.length === 0 ? 0.6 : 1 }}>{reminderSending ? "Sending…" : "Send Reminder"}</button>
+            <button onClick={() => sendReminder(reminderModal.item, reminderNote)} disabled={reminderSending || recipients.length === 0} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: reminderSending || recipients.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, opacity: reminderSending || recipients.length === 0 ? 0.6 : 1 }}>{reminderSending ? "Sending…" : "Send Reminder"}</button>
           </div>
         </div>
       </div>;
@@ -22621,8 +22641,8 @@ ${jobsCtx || "No jobs found."}`;
         {/* Footer */}
         <div style={{ padding: "12px 24px 20px", display: "flex", gap: 8, justifyContent: "flex-end", borderTop: `1px solid ${T.border}` }}>
           <button onClick={() => setConditionsOpen(true)} style={{ padding: "8px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-          {condWizard.step > 1 && <button onClick={() => setCondWizard(w => ({ ...w, step: w.step - 1 }))} style={{ padding: "8px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back</button>}
-          {condWizard.step < 3 && <button onClick={() => setCondWizard(w => ({ ...w, step: w.step + 1 }))} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Next →</button>}
+          {condWizard.step > 1 && <button onClick={() => setCondWizard(w => ({ ...w, step: w.step - 1 }))} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back</button>}
+          {condWizard.step < 3 && <button onClick={() => setCondWizard(w => ({ ...w, step: w.step + 1 }))} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Next →</button>}
           {condWizard.step === 3 && <button onClick={() => {
             const { step: _s, ...condData } = condWizard;
             const newCond = { ...condData, id: condData.id || uid(), name: condData.name || "Untitled Condition", enabled: true };
@@ -22632,7 +22652,7 @@ ${jobsCtx || "No jobs found."}`;
               return { ...s, conditions: idx >= 0 ? existing.map((c, i) => i === idx ? newCond : c) : [...existing, newCond] };
             });
             setCondWizard(null);
-          }} style={{ padding: "8px 18px", borderRadius: T.radiusSm, border: "none", background: T.accent, color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save Condition</button>}
+          }} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save Condition</button>}
         </div>
       </div>
     </div>}
