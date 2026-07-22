@@ -1514,7 +1514,7 @@ function ApprovalCommentInput({ onAdd }) {
 }
 // Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
 // `value` is an array of { type, id } tokens; clicking a row toggles it and keeps the popup open.
-function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false }) {
+function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false, onOpen }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [coords, setCoords] = useState(null);
@@ -1625,7 +1625,7 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
   </div></FadeOnClose>;
   return <div style={{ position: "relative", ...(asIconButton ? { flexShrink: 0 } : {}) }}>
     {asIconButton
-      ? <button ref={triggerRef} className="icon-btn-glow" onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }} title="Grouping" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
+      ? <button ref={triggerRef} className="icon-btn-glow" onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
           {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
         </button>
@@ -1660,7 +1660,7 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
   const showSearch = opts.length > 5;
   const fs = compact ? 11 : 12;
   return <div ref={ref} style={{ position: "relative", ...(extraStyle || {}) }}>
-    <div onClick={() => setOpen(o => !o)}
+    <div onClick={() => { if (!open) onOpen?.(); setOpen(o => !o); }}
       style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "5px 7px", borderRadius: T.radiusXs, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", userSelect: "none", fontFamily: T.font, boxSizing: "border-box", transition: "border-color 0.15s" }}>
       <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: value ? T.bgText : hexA(T.bgText, 0.55), fontSize: fs }}>
         {value || "(unassigned)"}
@@ -8145,7 +8145,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
             {/* Filter */}
             <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
-              <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
+              <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                 {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
@@ -8158,13 +8158,13 @@ ${jobsCtx || "No jobs found."}`;
               </div></FadeOnClose>
             </div>
             {/* Grouping — its own independent button, next to Filter */}
-            <GroupingSelect asIconButton value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
+            <GroupingSelect asIconButton onOpen={() => setTaskFilterOpen(false)} value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
               workers={people.map(p => ({ id: String(p.id), label: p.name, color: elColor(p.color || T.accent) }))}
               clientOpts={clients.map(c => ({ id: c.id, label: c.name, color: elColor(c.color) }))}
               columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]} />
             {/* Search jobs — kept expanded on the Jobs page */}
-            <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ order: 1, display: "flex", alignItems: "center", height: 28, width: taskSearchOpen || taskSearchQ ? 200 : 28, borderRadius: T.radiusPill, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: taskSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
-              <button onClick={() => document.getElementById("taskSearchInput")?.focus()} title="Search jobs" style={{ width: 28, height: 28, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
+            <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ order: 1, display: "flex", alignItems: "center", height: 34, width: taskSearchOpen || taskSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: taskSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
+              <button onClick={() => document.getElementById("taskSearchInput")?.focus()} title="Search jobs" style={{ width: 34, height: 34, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </button>
               {(taskSearchOpen || taskSearchQ) && <>
@@ -8182,7 +8182,7 @@ ${jobsCtx || "No jobs found."}`;
               const cur = alignOpts.find(o => o.val === cellAlign) || alignOpts[0];
               const next = alignOpts[(alignOpts.findIndex(o => o.val === cellAlign) + 1) % alignOpts.length];
               return <button className="icon-btn-glow" onClick={() => setCellAlign(next.val)} title={`Align: ${cellAlign} (click to cycle)`}
-                style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, outline: "none" }}
+                style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, flexShrink: 0, outline: "none" }}
                 onMouseEnter={e => { e.currentTarget.style.color = T.accent; }}
                 onMouseLeave={e => { e.currentTarget.style.color = T.textDim; }}>
                 {cur.svg}
@@ -9634,7 +9634,7 @@ ${jobsCtx || "No jobs found."}`;
             <Btn size="sm" onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn>
           </div>); })()}
         <div style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
-          <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setScheduleFilterOpen(p => !p); }} title="Filter" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${scheduleFilterCount > 0 ? T.accent + "88" : T.border}`, background: scheduleFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
+          <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setScheduleFilterOpen(p => !p); }} title="Filter" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${scheduleFilterCount > 0 ? T.accent + "88" : T.border}`, background: scheduleFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
             {scheduleFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{scheduleFilterCount}</span>}
           </button>
@@ -9677,8 +9677,8 @@ ${jobsCtx || "No jobs found."}`;
             </div></FadeOnClose>
           </div>
           {/* Inline expanding search — sits right of the Schedule filter button */}
-          <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", height: 28, width: scheduleSearchOpen || scheduleSearchQ ? 200 : 28, borderRadius: T.radiusPill, border: `1px solid ${scheduleSearchQ ? T.accent+"88" : T.border}`, background: scheduleSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
-            <button onClick={() => { const next = !scheduleSearchOpen; setScheduleSearchOpen(next); if (next) setTimeout(() => document.getElementById("scheduleSearchInput")?.focus(), 50); }} title="Search jobs" style={{ width: 28, height: 28, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
+          <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", height: 34, width: scheduleSearchOpen || scheduleSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${scheduleSearchQ ? T.accent+"88" : T.border}`, background: scheduleSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
+            <button onClick={() => { const next = !scheduleSearchOpen; setScheduleSearchOpen(next); if (next) setTimeout(() => document.getElementById("scheduleSearchInput")?.focus(), 50); }} title="Search jobs" style={{ width: 34, height: 34, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             </button>
             {(scheduleSearchOpen || scheduleSearchQ) && <>
@@ -18075,7 +18075,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
       <button onClick={() => doSaveRef.current()} style={{ padding: "6px 14px", borderRadius: T.radiusPill, border: "1px solid #fff", background: "transparent", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Retry</button>
-      <button onClick={() => setSaveError(null)} style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
+      <button onClick={() => setSaveError(null)} style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
     </div>}
     {/* ── Brand strip — logo + undo/redo + search/ask + save/bell/settings ── */}
     {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: Tc.surfaceSolid, position: "relative", zIndex: 101 }}>
@@ -22355,7 +22355,7 @@ ${jobsCtx || "No jobs found."}`;
                           </div>}
                         </div>); })()}
                         <input value={panel.title} onChange={e => updPanel(pi, { title: e.target.value })} placeholder="Panel name" style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontWeight: 700, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
-                        <button onClick={() => removePanel(pi)} title="Delete panel" style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}>
+                        <button onClick={() => removePanel(pi)} title="Delete panel" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                         </button>
                       </div>
