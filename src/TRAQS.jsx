@@ -11786,9 +11786,17 @@ ${jobsCtx || "No jobs found."}`;
     if (analyticsPerson) {
       const per = people.find(p => String(p.id) === String(analyticsPerson));
       return personalStats(analyticsPerson,
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, minHeight: 34 }}>
           {employeePicker}
           <span style={{ fontSize: 12, color: T.textDim }}>{per ? `${per.name.split(" ")[0]}’s stats` : "Employee stats"}</span>
+          <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
+            <SlidingPill
+              size="sm"
+              options={[{ value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
+              value={analyticsPeriod}
+              onChange={setAnalyticsPeriod}
+            />
+          </div>
         </div>, false);
     }
 
