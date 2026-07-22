@@ -1295,6 +1295,72 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
     {portal ? createPortal(popup, document.body) : popup}
   </div>;
 }
+// Analytics employee picker (admin only). "Everyone" is pinned at the top (the
+// team-overview default), then a divider, then every employee — searchable, each
+// with their color dot. Portal-positioned in the standard TRAQS dropdown style.
+// options: [{ value, label, color }]; value null = Everyone.
+function AnalyticsPersonPicker({ options, value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [coords, setCoords] = useState(null);
+  const triggerRef = useRef(null);
+  const popupRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const hm = e => {
+      const tr = triggerRef.current, po = popupRef.current;
+      if ((tr && tr.contains(e.target)) || (po && po.contains(e.target))) return;
+      setOpen(false); setQ("");
+    };
+    const hk = e => { if (e.key === "Escape") { setOpen(false); setQ(""); } };
+    document.addEventListener("mousedown", hm);
+    document.addEventListener("keydown", hk);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
+  }, [open]);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (r) setCoords({ left: r.left, top: r.bottom + 4, width: Math.max(r.width, 220) });
+    };
+    update();
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => { window.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
+  }, [open]);
+  const peopleIcon = (stroke) => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
+  const selected = options.find(o => String(o.value) === String(value));
+  const filtered = options.filter(o => o.label.toLowerCase().includes(q.toLowerCase()));
+  const row = (active, dot, label, onClick, idx) => (
+    <div key={label + idx} onClick={onClick}
+      style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: active ? (dot || T.accent) : T.text, fontWeight: active ? 600 : 400, background: active ? (dot || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${idx * 38}ms both ease-out` }}
+      onMouseEnter={e => e.currentTarget.style.background = (dot || T.accent) + "18"}
+      onMouseLeave={e => e.currentTarget.style.background = active ? (dot || T.accent) + "12" : "transparent"}>
+      {dot ? <div style={{ width: 10, height: 10, borderRadius: 5, background: dot, flexShrink: 0 }} /> : peopleIcon(active ? T.accent : T.textDim)}
+      <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+    </div>
+  );
+  const popup = <FadeOnClose open={open}><div ref={popupRef} className="anim-drop" style={{ position: "fixed", left: coords?.left ?? -9999, top: coords?.top ?? -9999, width: coords?.width, zIndex: 100000, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out", fontFamily: T.font, color: T.text }}>
+    {row(!value, null, "Everyone", () => { onChange(null); setOpen(false); setQ(""); }, 0)}
+    <div style={{ height: 1, background: T.border }} />
+    <div style={{ padding: "8px 10px 0" }}>
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search employees…" autoFocus style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+    </div>
+    <div style={{ maxHeight: 240, overflow: "auto", padding: "6px 0" }}>
+      {filtered.length === 0
+        ? <div style={{ padding: "16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No employees match "{q}"</div>
+        : filtered.map((o, i) => row(String(o.value) === String(value), o.color || T.accent, o.label, () => { onChange(o.value); setOpen(false); setQ(""); }, i + 1))}
+    </div>
+  </div></FadeOnClose>;
+  return <div style={{ position: "relative" }}>
+    <div ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s", minWidth: 150 }}>
+      {selected ? <div style={{ width: 9, height: 9, borderRadius: 5, background: selected.color || T.accent, flexShrink: 0 }} /> : peopleIcon(T.textSec)}
+      <span style={{ flex: 1, fontSize: 13, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : "Everyone"}</span>
+      <span style={{ fontSize: 9, color: T.textDim }}>{open ? "▲" : "▼"}</span>
+    </div>
+    {createPortal(popup, document.body)}
+  </div>;
+}
 function AnimatedView({ viewKey, children, style }) {
   // No page transition for now — render the active view directly. The cross-fade is being
   // rebuilt from scratch; keying by viewKey gives each page a clean fresh mount on switch.
@@ -3486,6 +3552,7 @@ Extraction rules:
   const [linkingFrom, setLinkingFrom] = useState(null);
   const [clients, setClients] = useState([]);
   const [timeclock, setTimeclock] = useState([]);
+  const [productionHours, setProductionHours] = useState([]); // job-clock sessions (js_ rows) — powers the Analytics efficiency graph
   const [dataLoading, setDataLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   // Gates the autosave: doSave refuses to fire until the initial S3 load
@@ -3675,8 +3742,8 @@ Extraction rules:
     (async () => {
       try {
         if (!(await hasCachedData())) return;
-        const [cT, cP, cC, cTC] = await Promise.all([
-          readSlice("tasks"), readSlice("people"), readSlice("clients"), readSlice("payhours"),
+        const [cT, cP, cC, cTC, cPH] = await Promise.all([
+          readSlice("tasks"), readSlice("people"), readSlice("clients"), readSlice("payhours"), readSlice("productionhours"),
         ]);
         if (cancelled || dataLoadedRef.current) return;
         _setTasks(normalizeTasks(cT || []));
@@ -3684,6 +3751,7 @@ Extraction rules:
         setPeople(np);
         setClients(cC || []);
         if (Array.isArray(cTC)) setTimeclock(cTC);
+        if (Array.isArray(cPH)) setProductionHours(cPH);
         const match = auth0User?.email
           ? np.find(p => p.email && p.email.toLowerCase() === auth0User.email.toLowerCase())
           : null;
@@ -3727,7 +3795,10 @@ Extraction rules:
 
     // Seed/refresh the IndexedDB cache + sync cursor in the background so the
     // NEXT cold-open is instant and Ably deltas have a cursor to work from.
-    deltaSync().catch(e => console.warn("[deltaSync] initial seed failed:", e?.message || e));
+    deltaSync()
+      .then(() => readSlice("productionhours"))
+      .then(ph => { if (Array.isArray(ph) && ph.length) setProductionHours(ph); })
+      .catch(e => console.warn("[deltaSync] initial seed failed:", e?.message || e));
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4244,6 +4315,8 @@ Extraction rules:
           setGroups((await readSlice("groups")) || []);
         } else if (entity === "payhours") {
           setTimeclock((await readSlice("payhours")) || []);
+        } else if (entity === "productionhours") {
+          setProductionHours((await readSlice("productionhours")) || []);
         } else if (entity === "settings") {
           const s = await readSlice("settings");
           if (s && typeof s === "object") { skipNextOrgSave.current = true; setOrgSettings(prev => ({ ...prev, ...s })); }
@@ -4251,7 +4324,7 @@ Extraction rules:
         // orgConfig is a prop owned by App.jsx — can't be updated from here (see report).
       } catch (e) { console.warn(`[rehydrate ${entity}] failed:`, e?.message || e); }
     };
-    const names = ["tasks", "people", "clients", "messages", "groups", "payhours", "settings"];
+    const names = ["tasks", "people", "clients", "messages", "groups", "payhours", "productionhours", "settings"];
     const handlers = names.map(entity => { const h = () => applySlice(entity); syncBus.addEventListener(`${entity}-changed`, h); return [entity, h]; });
     return () => { handlers.forEach(([entity, h]) => syncBus.removeEventListener(`${entity}-changed`, h)); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4372,6 +4445,7 @@ Extraction rules:
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
   const [analyticsPeriod, setAnalyticsPeriod] = useState("month"); // "week" | "month" | "year"
+  const [analyticsPerson, setAnalyticsPerson] = useState(null); // admin-only: null = Everyone (team overview); else a personId → that person's personal stats
   const [clientCompletedExpanded, setClientCompletedExpanded] = useState(false);
   const [jobSearch, setJobSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -7740,16 +7814,6 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div>
         <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: T.text }}>No team members yet</h3>
       </div>}
-    </div>;
-  };
-
-  // Organization page — standalone page (currently blank; content TBD).
-  const renderOrganization = () => {
-    return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-        <span style={{ lineHeight: 0, color: T.accent }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Organization</h2>
-      </div>
     </div>;
   };
 
@@ -11443,35 +11507,6 @@ ${jobsCtx || "No jobs found."}`;
     const onTimeCount = activeJobs.filter(j => getHealth(j) === "ontime").length;
     const onTimePct = activeJobs.length ? Math.round((onTimeCount / activeJobs.length) * 100) : 0;
 
-    // â”€â”€ Hours over time (line chart) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // week â†’ 7 daily buckets; month â†’ weekly buckets; year â†’ 12 monthly buckets
-    const buckets = [];
-    if (analyticsPeriod === "week") {
-      daysInPeriod.forEach(d => {
-        const h = timeclock.filter(e => e.date === d && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
-        const label = new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" });
-        buckets.push({ label, h });
-      });
-    } else if (analyticsPeriod === "month") {
-      // 5 buckets (~weekly)
-      const chunk = Math.ceil(daysInPeriod.length / 5);
-      for (let i = 0; i < daysInPeriod.length; i += chunk) {
-        const slice = daysInPeriod.slice(i, i + chunk);
-        const h = timeclock.filter(e => slice.includes(e.date) && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
-        const label = new Date(slice[0] + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-        buckets.push({ label, h });
-      }
-    } else {
-      for (let m = 0; m < 12; m++) {
-        const monthStart = toDS(new Date(today.getFullYear(), m, 1));
-        const monthEnd = toDS(new Date(today.getFullYear(), m + 1, 0));
-        const h = timeclock.filter(e => e.date >= monthStart && e.date <= monthEnd && !e.eventType).reduce((s, e) => s + (e.hours || 0), 0);
-        const label = new Date(today.getFullYear(), m, 1).toLocaleDateString("en-US", { month: "short" });
-        buckets.push({ label, h });
-      }
-    }
-    const maxBucket = Math.max(...buckets.map(b => b.h), 1);
-
     // â”€â”€ Per-person pay-period hours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     // Hours logged in the CURRENT pay period (semi-monthly, e.g. the 5th & 20th
     // â†’ 5thâ€“19th then 20thâ€“4th), shown as progress toward the per-period hour
@@ -11533,20 +11568,6 @@ ${jobsCtx || "No jobs found."}`;
     // (By Status / By Priority / Completion / Team Workload now derived below in the
     //  job-stat block and rendered as modern bar/donut charts — matches the iOS Stats page.)
 
-    // Line chart geometry — generous left margin for y-labels, top padding so the peak point
-    // doesn't kiss the chart edge. padL/padR tuned to let the polyline run nearly edge-to-edge
-    // inside its card (card has padding:0 so the SVG fills full width).
-    const lineW = 1200, lineH = 240;
-    const padL = 42, padR = 14, padT = 28, padB = 32;
-    const innerW = lineW - padL - padR;
-    const innerH = lineH - padT - padB;
-    const xStep = buckets.length > 1 ? innerW / (buckets.length - 1) : 0;
-    const yScale = (h) => padT + innerH - (h / maxBucket) * innerH;
-    const linePts = buckets.map((b, i) => ({ x: padL + i * xStep, y: yScale(b.h) }));
-    const linePoly = linePts.map(p => `${p.x},${p.y}`).join(" ");
-    const areaPoly = linePts.length ? `${padL},${padT + innerH} ${linePoly} ${padL + (buckets.length - 1) * xStep},${padT + innerH}` : "";
-    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(f => ({ frac: f, val: f * maxBucket }));
-
     // Pay-period hours export (buildHoursReport / openHoursExport) is now defined
     // at component scope and launched from the Time Clock page's "Export Hours"
     // button (next to Confirm Time Sheet).
@@ -11582,27 +11603,6 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ height: "100%", width: `${(d.c / max) * 100}%`, minWidth: d.c > 0 ? 6 : 0, background: colorOf(d.n), borderRadius: 6, transition: "width 0.3s" }} />
                   </div>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: T.mono, textAlign: "right" }}>{d.c}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      );
-    };
-
-    // Vertical bar chart card (Team Workload — Active Ops). data: [{ name, count }].
-    const vbarCard = (title, data, emptyText) => {
-      const max = Math.max(...data.map(d => d.count), 1);
-      return (
-        <Card style={{ animation: "none" }}>
-          <h4 style={cardH4}>{title}</h4>
-          {data.length === 0 ? emptyMsg(emptyText) : (
-            <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 190, padding: "0 4px", overflowX: "auto" }}>
-              {data.map(d => (
-                <div key={d.name} style={{ flex: "1 0 44px", minWidth: 44, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 6, height: "100%" }}>
-                  <span style={{ fontSize: 12, fontFamily: T.mono, color: T.textSec, fontWeight: 700 }}>{d.count}</span>
-                  <div style={{ width: "100%", maxWidth: 46, height: Math.max((d.count / max) * 130, 4), borderRadius: "6px 6px 0 0", background: `linear-gradient(to top, ${T.accent}, ${blendHex(T.accent, 0.32)})`, transition: "height 0.3s" }} />
-                  <span style={{ fontSize: 10, color: T.textDim, textAlign: "center", fontWeight: 500, width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
                 </div>
               ))}
             </div>
@@ -11655,27 +11655,134 @@ ${jobsCtx || "No jobs found."}`;
       );
     };
 
-    // ── Non-admin: personal stats only (matches iOS "Your stats") ──
-    if (!isAdmin) {
-      const myOps = allOps.filter(op => (op.team || []).includes(currentUser));
+    // ── Efficiency card (ported from iOS) — pay hours vs. production hours ──
+    // Efficiency = production hours ÷ pay hours over the selected period (e.g. 30h
+    // logged of 40h paid = 75%). Bars are bucketed to match the period pill: week
+    // → daily, month → ~weekly, year → monthly. `personId` null = whole team.
+    // Pay hours: completed timeclock punches (clockIn+clockOut, non-event). Production
+    // hours: job-clock sessions (productionHours). Both keyed to a record's calendar day.
+    const efficiencyBuckets = () => {
+      if (analyticsPeriod === "week") {
+        return daysInPeriod.map(d => ({ label: new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" }), days: [d] }));
+      } else if (analyticsPeriod === "month") {
+        const chunk = Math.ceil(daysInPeriod.length / 5), out = [];
+        for (let i = 0; i < daysInPeriod.length; i += chunk) {
+          const slice = daysInPeriod.slice(i, i + chunk);
+          out.push({ label: new Date(slice[0] + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }), days: slice });
+        }
+        return out;
+      }
+      const out = [];
+      for (let m = 0; m < 12; m++) {
+        const ms = toDS(new Date(today.getFullYear(), m, 1)), me = toDS(new Date(today.getFullYear(), m + 1, 0));
+        const days = []; { let d = ms; while (d <= me) { days.push(d); d = addD(d, 1); } }
+        out.push({ label: new Date(today.getFullYear(), m, 1).toLocaleDateString("en-US", { month: "short" }), days });
+      }
+      return out;
+    };
+    const renderEfficiency = (personId) => {
+      const dayOf = e => e.date || (e.clockIn ? String(e.clockIn).slice(0, 10) : null);
+      const payOk = e => !e.eventType && e.clockIn && e.clockOut && (personId == null || String(e.personId) === String(personId));
+      const prodOk = s => (personId == null || String(s.personId) === String(personId));
+      const rows = efficiencyBuckets().map(b => {
+        const set = new Set(b.days);
+        const pay = timeclock.filter(e => payOk(e) && set.has(dayOf(e))).reduce((a, e) => a + (e.hours || 0), 0);
+        const prod = productionHours.filter(s => prodOk(s) && set.has(dayOf(s))).reduce((a, s) => a + (s.hours || 0), 0);
+        return { label: b.label, pay, prod };
+      });
+      const totalPay = rows.reduce((a, r) => a + r.pay, 0);
+      const totalProd = rows.reduce((a, r) => a + r.prod, 0);
+      const pct = totalPay > 0 ? Math.round(totalProd / totalPay * 100) : 0;
+      const maxV = Math.max(...rows.flatMap(r => [r.pay, r.prod]), 1);
+      const payColor = blendHex(T.accent, 0.4), prodColor = blendHex(T.accent, -0.22); // same accent hue, light vs. dark shade
+      const legend = (color, text) => (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ width: 12, height: 12, borderRadius: 3, background: color }} />
+          <span style={{ fontSize: 11, color: T.textDim }}>{text}</span>
+        </div>
+      );
+      const bar = (v, color) => (
+        <div style={{ flex: 1, minWidth: 0, margin: "0 2px", height: `${Math.max(v > 0 ? 4 : 3, (v / maxV) * 100)}%`, background: v > 0 ? `linear-gradient(to top, ${color}, ${blendHex(color, 0.35)})` : T.surface, borderRadius: "5px 5px 0 0", transition: "height 0.3s" }} title={`${v.toFixed(2)}h`} />
+      );
+      const empty = totalPay === 0 && totalProd === 0;
+      return (
+        <Card style={{ animation: "none" }}>
+          <h4 style={cardH4}>Efficiency</h4>
+          {empty ? emptyMsg("No pay or production hours in this period.") : (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
+                <span style={{ fontSize: 40, fontWeight: 800, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{pct}%</span>
+                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{Math.round(totalProd * 10) / 10}h logged / {Math.round(totalPay * 10) / 10}h paid</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 22, height: 150, padding: "18px 4px 0" }}>
+                {rows.map((r, i) => {
+                  const diff = r.prod - r.pay;
+                  return (
+                    <div key={i} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: "100%" }}>
+                      <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: diff < 0 ? T.danger : "#10b981" }}>{diff >= 0 ? "+" : ""}{diff.toFixed(1)}</span>
+                      <div style={{ flex: 1, width: "100%", display: "flex", alignItems: "flex-end", justifyContent: "center", gap: 5 }}>
+                        {bar(r.pay, payColor)}
+                        {bar(r.prod, prodColor)}
+                      </div>
+                      <span style={{ fontSize: 10, color: T.textDim, textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: "flex", gap: 16, marginTop: 14 }}>
+                {legend(payColor, "Pay hours")}
+                {legend(prodColor, "Production hours")}
+              </div>
+            </>
+          )}
+        </Card>
+      );
+    };
+
+    // ── Personal stat set for a single person (matches iOS "Your stats") ──
+    // Shared by the non-admin self view and the admin employee-picker selection.
+    // `mine` toggles the "My …" labels for the self view vs. neutral labels when
+    // an admin is looking at someone else.
+    const personalStats = (personId, header, mine) => {
+      const myOps = allOps.filter(op => (op.team || []).includes(personId));
       const myDone = myOps.filter(op => op.status === "Finished").length;
       const myActive = myOps.filter(op => op.status === "In Progress").length;
       const myTotal = myOps.length;
       const myCompletion = myTotal ? Math.round(myDone / myTotal * 100) : 0;
       const myStatusCounts = STATUSES.map(s => ({ n: s, c: myOps.filter(op => op.status === s).length })).filter(x => x.c > 0);
       return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexShrink: 0 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Analytics</h3>
-          <span style={{ fontSize: 12, color: T.textDim }}>Your stats</span>
-        </div>
+        {header}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12 }}>
-          {statTile("My Jobs Done", myDone, "#10b981")}
+          {statTile(mine ? "My Jobs Done" : "Jobs Done", myDone, "#10b981")}
           {statTile("Completion", myCompletion + "%", T.accent)}
           {statTile("In Progress", myActive, "#3b82f6")}
           {statTile("Total Ops", myTotal, "#f59e0b")}
         </div>
-        {hbarCard("My Jobs by Status", myStatusCounts, staColorOf, "No assigned operations yet.")}
+        {hbarCard(mine ? "My Jobs by Status" : "Jobs by Status", myStatusCounts, staColorOf, "No assigned operations yet.")}
+        {renderEfficiency(personId)}
       </div>;
+    };
+
+    // ── Non-admin: personal stats only, no picker (matches iOS "Your stats") ──
+    if (!isAdmin) {
+      return personalStats(currentUser,
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexShrink: 0 }}>
+          <span style={{ fontSize: 12, color: T.textDim }}>Your stats</span>
+        </div>, true);
+    }
+
+    // ── Employee picker (admin only): Everyone (team overview) or one person ──
+    const personOptions = people.map(p => ({ value: p.id, label: p.name, color: elColor(p.color || T.accent) }));
+    const employeePicker = <AnalyticsPersonPicker options={personOptions} value={analyticsPerson} onChange={setAnalyticsPerson} />;
+
+    // ── Admin viewing a specific employee → that person's personal stats ──
+    if (analyticsPerson) {
+      const per = people.find(p => String(p.id) === String(analyticsPerson));
+      return personalStats(analyticsPerson,
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          {employeePicker}
+          <span style={{ fontSize: 12, color: T.textDim }}>{per ? `${per.name.split(" ")[0]}’s stats` : "Employee stats"}</span>
+        </div>, false);
     }
 
     // ── Admin: job & operation aggregates (team overview) ──
@@ -11694,10 +11801,10 @@ ${jobsCtx || "No jobs found."}`;
     const priTotal = jobPriorityCounts.reduce((s, x) => s + x.c, 0);
 
     return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      {/* Header — title (left) · period pill (center). Hours export moved to the Time Clock page. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-        <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Analytics</h3>
-        <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+      {/* Header — employee picker (left) · period pill (centered across the page). Hours export moved to the Time Clock page. */}
+      <div style={{ position: "relative", display: "flex", alignItems: "center", minHeight: 34, flexShrink: 0 }}>
+        {employeePicker}
+        <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
           <SlidingPill
             size="sm"
             options={[{ value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
@@ -11728,44 +11835,8 @@ ${jobsCtx || "No jobs found."}`;
         </Card>
       </div>
 
-      {/* Team Workload — Active Ops (operations not yet finished, per person) */}
-      {vbarCard("Team Workload — Active Ops", teamWorkload, "No active operations assigned.")}
-
-      {/* Hours over time — line chart */}
-      <Card style={{ padding: 0, overflow: "hidden", animation: "none" }}>
-        <h4 style={{ color: T.textSec, margin: 0, padding: "20px 24px 10px", fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours Logged Over Time</h4>
-        {buckets.every(b => b.h === 0) ? (
-          <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 13 }}>No hours logged in this period.</div>
-        ) : (
-          <svg viewBox={`0 0 ${lineW} ${lineH}`} style={{ width: "100%", height: "auto", maxHeight: 280, display: "block" }}>
-            {/* horizontal gridlines + y-axis labels on the left */}
-            {yTicks.map((t, i) => {
-              const y = padT + innerH - t.frac * innerH;
-              return (
-                <g key={i}>
-                  <line x1={padL} y1={y} x2={padL + innerW} y2={y} stroke={T.border} strokeWidth="1" strokeDasharray="3,3" opacity={t.frac === 0 ? 0.7 : 0.45} />
-                  <text x={padL - 8} y={y + 3} textAnchor="end" fontSize="10" fill={T.textDim} fontFamily={T.font}>{Math.round(t.val)}h</text>
-                </g>
-              );
-            })}
-            {/* area fill */}
-            <polygon points={areaPoly} fill={T.accent} fillOpacity="0.18" />
-            {/* line */}
-            <polyline points={linePoly} fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
-            {/* dots */}
-            {linePts.map((p, i) => (
-              <g key={i}>
-                <circle cx={p.x} cy={p.y} r="4" fill={T.card} stroke={T.accent} strokeWidth="2" />
-                <title>{buckets[i].label}: {buckets[i].h.toFixed(1)}h</title>
-              </g>
-            ))}
-            {/* x-axis labels */}
-            {buckets.map((b, i) => (
-              <text key={i} x={padL + i * xStep} y={lineH - 10} textAnchor="middle" fontSize="10" fill={T.textDim} fontFamily={T.font}>{b.label}</text>
-            ))}
-          </svg>
-        )}
-      </Card>
+      {/* Efficiency — team pay hours vs. production hours (ported from iOS) */}
+      {renderEfficiency(null)}
 
       {/* Row: Per-person pay-period hours (2/3) + Department donut (1/3) */}
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: 20 }}>
@@ -11833,6 +11904,21 @@ ${jobsCtx || "No jobs found."}`;
           )}
         </Card>
       </div>
+
+      {/* Team Workload — Active Ops (operations not yet finished, per person) — list view */}
+      <Card style={{ animation: "none" }}>
+        <h4 style={cardH4}>Team Workload — Active Ops</h4>
+        {teamWorkload.length === 0 ? emptyMsg("No active operations assigned.") : (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {teamWorkload.map((d, i) => (
+              <div key={d.name + i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: i < teamWorkload.length - 1 ? `1px solid ${T.border}` : "none" }}>
+                <span style={{ fontSize: 13, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</span>
+                <span style={{ fontSize: 13, color: T.text, fontFamily: T.mono, fontWeight: 700, flexShrink: 0 }}>{d.count} <span style={{ color: T.textDim, fontWeight: 500 }}>active</span></span>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
 
     </div>;
   };
@@ -18120,24 +18206,8 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           );
         })}
-        {/* ─── Divider above the Organization + Approval Queue + Settings group ─── */}
+        {/* ─── Divider above the Approval Queue + Settings group ─── */}
         <div aria-hidden={!sidebarExpanded} style={{ height: 1, background: T.border + "55", margin: sidebarExpanded ? "12px 12px 8px" : "10px 12px", opacity: sidebarExpanded ? 1 : 0.5, transition: "margin 0.2s ease, opacity 0.2s ease" }} />
-        {/* Organization — standalone page (currently blank) */}
-        {(() => {
-          const active = view === "organization";
-          return (
-            <button ref={el => { navBtnRefs.current["organization"] = el; }} onClick={() => switchView("organization")}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Organization", e.clientX, e.clientY); }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-              onMouseDown={() => tipCtx.hide()}
-              style={{ position: "relative", width: "100%", height: 40, padding: "0 16px", borderRadius: T.radiusXs, border: "none", background: active ? T.hoverStrong : "transparent", color: T.text, cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: active ? 700 : 500, display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 12, transition: "background 0.15s, color 0.15s", overflow: "hidden", whiteSpace: "nowrap" }}>
-              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
-              </span>
-              <span style={{ opacity: sidebarExpanded ? 1 : 0, transition: "opacity 0.18s 0.06s", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
-            </button>
-          );
-        })()}
         {/* Approval Queue — standalone page (admins or users with sign-off access) */}
         {canSeeApprovalQueue && (() => {
           const active = view === "approvals";
@@ -18300,7 +18370,7 @@ ${jobsCtx || "No jobs found."}`;
           return (
             <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <style>{`@keyframes tqCFIn{from{opacity:0}to{opacity:1}}@keyframes tqCFOut{from{opacity:1}to{opacity:0}}`}</style>
-              {showApp && <div style={layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "organization" && frostScroll(renderOrganization())}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}</AnimatedView></div>}
+              {showApp && <div style={layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}</AnimatedView></div>}
               {showSettings && <div style={layer(true)}>{renderSettingsPage()}</div>}
             </div>
           );

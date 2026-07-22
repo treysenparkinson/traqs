@@ -9,6 +9,15 @@ struct AnalyticsView: View {
     private var isAdmin: Bool { appState.isAdmin }
     private var myId: String? { appState.currentPersonId }
 
+    // Admin-only employee filter. nil = "Everyone" (team overview); otherwise a
+    // person id whose personal stats are shown (same rule as the web app).
+    @State private var selectedPersonId: String? = nil
+    /// Whose personal stats to compute: an admin's picked employee, else self.
+    private var activePersonId: String? { selectedPersonId ?? myId }
+    /// True for the self view (non-admin, or an admin who hasn't picked anyone) —
+    /// drives the "My …" vs. neutral card labels.
+    private var isViewingSelf: Bool { selectedPersonId == nil }
+
     // MARK: - Org-wide (admin) computed
 
     var statusCounts: [(status: JobStatus, count: Int)] {
@@ -50,11 +59,11 @@ struct AnalyticsView: View {
 
     // MARK: - Personal (non-admin) computed
 
-    /// All operations this person is on the team for.
+    /// All operations the active person (self or picked employee) is on the team for.
     private var myOps: [Operation] {
-        guard let myId else { return [] }
+        guard let pid = activePersonId else { return [] }
         return appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }
-            .filter { $0.team.contains(myId) }
+            .filter { $0.team.contains(pid) }
     }
     private var myDone: Int { myOps.filter { $0.status == .finished }.count }
     private var myActive: Int { myOps.filter { $0.status == .inProgress }.count }
@@ -63,6 +72,51 @@ struct AnalyticsView: View {
     private var myStatusCounts: [(status: JobStatus, count: Int)] {
         JobStatus.allCases.map { s in (s, myOps.filter { $0.status == s }.count) }
             .filter { $0.count > 0 }
+    }
+
+    // MARK: - Header helpers
+
+    /// Page subtitle: self, team overview, or the picked employee's first name.
+    private var subtitleText: String {
+        if !isAdmin { return "Your stats" }
+        if let pid = selectedPersonId,
+           let p = appState.people.first(where: { $0.id == pid }) {
+            let first = p.name.split(separator: " ").first.map(String.init) ?? p.name
+            return "\(first)’s stats"
+        }
+        return "Team overview"
+    }
+
+    /// Admin-only employee menu. "Everyone" pinned on top (team overview), a
+    /// divider, then every person — styled as a TRAQS frosted pill.
+    @ViewBuilder
+    private var employeePicker: some View {
+        let selected = selectedPersonId.flatMap { pid in appState.people.first(where: { $0.id == pid }) }
+        Menu {
+            Button { selectedPersonId = nil } label: {
+                if selectedPersonId == nil { Label("Everyone", systemImage: "checkmark") } else { Text("Everyone") }
+            }
+            Divider()
+            ForEach(appState.people.sorted { $0.name < $1.name }) { p in
+                Button { selectedPersonId = p.id } label: {
+                    if selectedPersonId == p.id { Label(p.name, systemImage: "checkmark") } else { Text(p.name) }
+                }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if let selected {
+                    Circle().fill(Color(hex: selected.color)).frame(width: 9, height: 9)
+                    Text(selected.name).font(TTypo.smBold(13)).foregroundStyle(Color(hex: T.ink)).lineLimit(1)
+                } else {
+                    Image(systemName: "person.2.fill").font(.system(size: 12)).foregroundStyle(Color(hex: T.muted))
+                    Text("Everyone").font(TTypo.smBold(13)).foregroundStyle(Color(hex: T.ink))
+                }
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color(hex: T.muted))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frostedCard(radius: T.cornerMd)
+        }
     }
 
     var body: some View {
@@ -74,10 +128,18 @@ struct AnalyticsView: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        PageTitle(title: "Stats", subtitle: isAdmin ? "Team overview" : "Your stats")
+                        // Employee picker (admin only) — top-left, above the title.
+                        if isAdmin {
+                            employeePicker
+                                .padding(.horizontal, 16)
+                        }
+
+                        PageTitle(title: "Stats", subtitle: subtitleText)
                             .padding(.bottom, 4)
 
-                        if isAdmin { adminContent } else { personalContent }
+                        // Non-admin → own stats. Admin → team overview, unless an
+                        // employee is picked, then that person's personal stats.
+                        if isAdmin && selectedPersonId == nil { adminContent } else { personalContent }
                     }
                     .padding(.top, 4)
                     .padding(.bottom, 24)
@@ -98,7 +160,7 @@ struct AnalyticsView: View {
     @ViewBuilder
     private var personalContent: some View {
         LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-            AnalyticsStatTile(label: "My Jobs Done",
+            AnalyticsStatTile(label: isViewingSelf ? "My Jobs Done" : "Jobs Done",
                               value: "\(myDone)",
                               accent: Color(hex: T.statusFinished))
             AnalyticsStatTile(label: "Completion",
@@ -114,13 +176,13 @@ struct AnalyticsView: View {
         .padding(.horizontal, 16)
 
         if !myStatusCounts.isEmpty {
-            statusChartCard(title: "My Jobs by Status", data: myStatusCounts)
+            statusChartCard(title: isViewingSelf ? "My Jobs by Status" : "Jobs by Status", data: myStatusCounts)
         } else {
             VStack(spacing: 6) {
                 Text("No assigned operations yet")
                     .font(TTypo.h3(16))
                     .foregroundStyle(Color(hex: T.ink))
-                Text("Your stats appear here once you're on a job.")
+                Text(isViewingSelf ? "Your stats appear here once you're on a job." : "Stats appear here once they're on a job.")
                     .font(TTypo.xs(12))
                     .foregroundStyle(Color(hex: T.muted))
             }
