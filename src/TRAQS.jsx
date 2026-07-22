@@ -1038,7 +1038,7 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
   return <div style={{ marginBottom: label ? 16 : 0, ...(extraStyle || {}) }}>
     {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 4 }}>*</span>}</label>}
     <div ref={ref} style={{ position: "relative" }}>
-      <button id={id} onClick={() => setOpen(o => !o)} style={{ width: "100%", padding: compact ? "7px 10px" : "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${open ? T.accent : value ? T.accent + "55" : T.glassBorder}`, background: T.glass, color: value ? T.text : T.textDim, fontSize: compact ? 13 : 14, fontFamily: T.font, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", outline: "none", transition: "border-color 0.15s" }}>
+      <button id={id} onClick={() => setOpen(o => !o)} style={{ width: "100%", padding: compact ? "7px 10px" : "12px 16px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : value ? T.accent + "55" : T.glassBorder}`, background: T.glass, color: value ? T.text : T.textDim, fontSize: compact ? 13 : 14, fontFamily: T.font, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", outline: "none", transition: "border-color 0.15s" }}>
         <span>{value ? formatDate(value) : placeholder}</span>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={open || value ? T.accent : T.textDim} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "stroke 0.15s" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       </button>
@@ -1061,12 +1061,12 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
             const isToday = c.iso === todayIso;
             const tooEarly = !!(c.iso && min && c.iso < min);
             const usable = c.inMonth && !tooEarly;
-            return <button key={i} disabled={!usable} onClick={() => { if (c.iso && usable) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusXs, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? T.accent : "transparent", color: !c.inMonth || tooEarly ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: usable ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (usable && !isSel) e.currentTarget.style.background = T.hoverStrong; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>{c.day}</button>;
+            return <button key={i} disabled={!usable} onClick={() => { if (c.iso && usable) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusPill, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? T.accent : "transparent", color: !c.inMonth || tooEarly ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: usable ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (usable && !isSel) e.currentTarget.style.background = T.hoverStrong; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>{c.day}</button>;
           })}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-          <button onClick={() => { onChange(todayIso); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Today</button>
-          {value && <button onClick={() => { onChange(""); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusXs, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Clear</button>}
+          <button onClick={() => { onChange(todayIso); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Today</button>
+          {value && <button onClick={() => { onChange(""); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Clear</button>}
         </div>
       </div>}</FadeOnClose>
     </div>
@@ -1162,7 +1162,7 @@ function ColorSlidingPill({ options, value, onChange, style: sx = {} }) {
         const isActive = value === opt.value;
         return (
           <button key={opt.value} className="tq-noanim" ref={el => { btnRefs.current[opt.value] = el; }} onClick={() => onChange(opt.value)}
-            style={{ position: "relative", zIndex: 1, padding: "5px 11px", borderRadius: T.radiusXs, border: "none", fontSize: 12, fontWeight: isActive ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: isActive ? "#fff" : T.textSec, whiteSpace: "nowrap", transition: "color 0.15s" }}>
+            style={{ position: "relative", zIndex: 1, padding: "5px 11px", borderRadius: T.radiusPill, border: "none", fontSize: 12, fontWeight: isActive ? 700 : 400, cursor: "pointer", fontFamily: T.font, background: "transparent", color: isActive ? "#fff" : T.textSec, whiteSpace: "nowrap", transition: "color 0.15s" }}>
             {opt.label}
           </button>
         );
@@ -1712,7 +1712,7 @@ function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
   }, [open]);
   if (!templates.length) return null;
   return <div ref={ref} style={{ position: "relative" }}>
-    <button onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusXs, border: `1px solid ${open ? T.accent + "66" : T.border}`, background: open ? T.accent + "12" : "transparent", color: open ? T.accent : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>
+    <button onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent + "66" : T.border}`, background: open ? T.accent + "12" : "transparent", color: open ? T.accent : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>
       Load Template
       <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </button>
@@ -7079,7 +7079,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div ref={filterRef} style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
             <Tip label="Filters">
-            <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusSm, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
+            <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : "transparent", color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
               {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
             </button>
@@ -7097,13 +7097,13 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ marginBottom: 14 }}><SearchSelect multi compact portal values={fClient} onChangeMulti={setFClient} options={clients.map(c => ({ value: c.id, label: c.name, color: elColor(c.color) }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
-                {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
+                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Task #</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
                 <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusSm, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
+                {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Role / Area</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
@@ -7112,13 +7112,13 @@ ${jobsCtx || "No jobs found."}`;
               {renderCustomColFilters()}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Overloaded Only</span>
-                <button className="tq-noanim" onClick={() => setFOverloaded(p => !p)} style={{ width: 36, height: 20, borderRadius: 10, background: fOverloaded ? T.accent : T.border, border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s", flexShrink: 0 }}>
+                <button className="tq-noanim" onClick={() => setFOverloaded(p => !p)} style={{ width: 36, height: 20, borderRadius: T.radiusPill, background: fOverloaded ? T.accent : T.border, border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s", flexShrink: 0 }}>
                   <div style={{ position: "absolute", top: 2, left: fOverloaded ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                 </button>
               </div>
               <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
-                <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
+                <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
+                <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
               </div>
               {activeFilterCount > 0 && <button onClick={() => { setFRole([]); setFHpd("All"); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFStat([]); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "8px 0", borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div></FadeOnClose>
@@ -7390,7 +7390,7 @@ ${jobsCtx || "No jobs found."}`;
       }
     });
 
-    const btnBase = { padding: "3px 9px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" };
+    const btnBase = { padding: "3px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 500, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" };
 
     const toggleRow = (id) => setSplitGanttExpanded(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
@@ -7763,7 +7763,7 @@ ${jobsCtx || "No jobs found."}`;
       const on = adminFilter === id;
       return (
         <button onClick={() => setAdminFilter(id)}
-          style={{ padding: "7px 16px", borderRadius: 20, border: `1.25px solid ${on ? "transparent" : T.border}`, background: on ? T.accent : T.surface, color: on ? T.accentText : T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>
+          style={{ padding: "7px 16px", borderRadius: T.radiusPill, border: `1.25px solid ${on ? "transparent" : T.border}`, background: on ? T.accent : T.surface, color: on ? T.accentText : T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>
           {label}
         </button>
       );
@@ -8006,7 +8006,7 @@ ${jobsCtx || "No jobs found."}`;
                           {e.steps.map((s, sIdx) => {
                             const assignee = s.assigneeId ? people.find(p => p.id === s.assigneeId) : null;
                             const tag = assignee ? ` · ${assignee.name.split(" ")[0]}` : "";
-                            if (s.rec) return <Tip key={sIdx} label={`${s.rec.byName || ""}${s.rec.at ? " · " + new Date(s.rec.at).toLocaleDateString() : ""} — click to undo`}><button onClick={() => revertStepFor(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, background: "#10b98112", border: "1px solid #10b98140", fontSize: 11, fontWeight: 700, color: "#10b981", cursor: "pointer", fontFamily: T.font }}>✓ {s.label}</button></Tip>;
+                            if (s.rec) return <Tip key={sIdx} label={`${s.rec.byName || ""}${s.rec.at ? " · " + new Date(s.rec.at).toLocaleDateString() : ""} — click to undo`}><button onClick={() => revertStepFor(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: T.radiusPill, background: "#10b98112", border: "1px solid #10b98140", fontSize: 11, fontWeight: 700, color: "#10b981", cursor: "pointer", fontFamily: T.font }}>✓ {s.label}</button></Tip>;
                             const isActive = !e.isDone && sIdx === e.activeStepIdx;
                             // Who may complete this step: if it has an assignee, only that person (admins may override);
                             // if unassigned, anyone with approval ability. Otherwise the step is shown locked/greyed.
@@ -8026,7 +8026,7 @@ ${jobsCtx || "No jobs found."}`;
                       {comments.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 70, overflowY: "auto" }}>
                         {comments.map((c, ci) => { const mine = c.by && loggedInUser && c.by === loggedInUser.id; const canDel = mine || isAdmin; return <div key={ci} style={{ display: "flex", alignItems: "flex-start", gap: 4, fontSize: 11, lineHeight: 1.35 }}>
                           <span style={{ flex: 1, minWidth: 0 }}><span style={{ fontWeight: 700, color: T.accent }}>{c.byName}:</span> <span style={{ color: T.textSec }}>{c.text}</span></span>
-                          {canDel && <button onClick={() => delComment(ci)} title="Delete comment" style={{ flexShrink: 0, width: 14, height: 14, borderRadius: 4, border: "none", background: "transparent", color: T.textDim, fontSize: 12, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>}
+                          {canDel && <button onClick={() => delComment(ci)} title="Delete comment" style={{ flexShrink: 0, width: 14, height: 14, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 12, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>}
                         </div>; })}
                       </div>}
                       <ApprovalCommentInput onAdd={addComment} />
@@ -8100,7 +8100,7 @@ ${jobsCtx || "No jobs found."}`;
                 setColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setEngColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setColPickerOpen(false);
-              }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusXs, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
+              }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusPill, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
                 onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hoverStrong; }}
                 onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hover; }}>
                 <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 6 }}>
@@ -8123,7 +8123,7 @@ ${jobsCtx || "No jobs found."}`;
               <option value="date">Date</option>
               <option value="select">Dropdown (List)</option>
             </select>
-            <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusXs, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
+            <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
           </div>
         </div>
         </div>
@@ -8152,7 +8152,7 @@ ${jobsCtx || "No jobs found."}`;
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : "transparent", color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
-                <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
+                <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 {renderCustomColFilters()}
                 {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "6px 12px", borderRadius: T.radiusPill, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
@@ -8169,7 +8169,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>
               {(taskSearchOpen || taskSearchQ) && <>
                 <input id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
-                {taskSearchQ && <button onClick={() => { setTaskSearchQ(""); document.getElementById("taskSearchInput")?.focus(); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
+                {taskSearchQ && <button onClick={() => { setTaskSearchQ(""); document.getElementById("taskSearchInput")?.focus(); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
               </>}
             </div>
             {/* Alignment — single cycling toggle */}
@@ -8196,7 +8196,7 @@ ${jobsCtx || "No jobs found."}`;
           {taskSubView === "list" && <>
             {/* Export button */}
             <Tip label="Export">
-            <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} style={{ height: 34, width: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.accent}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
+            <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} style={{ height: 34, width: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.accent}`, background: T.card, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </button>
             </Tip>
@@ -8243,19 +8243,19 @@ ${jobsCtx || "No jobs found."}`;
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                    {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
-                    {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
+                    {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                    {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "3px 7px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
                   </div>
                 </div>
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>Job #</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                    {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
+                    {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
                   </div>
                 </div>
                 {renderCustomColFilters()}
-                {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+                {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "5px 8px", borderRadius: T.radiusPill, background: T.danger + "10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
               </div>}</FadeOnClose>
             </div>
           </div>
@@ -8744,7 +8744,7 @@ ${jobsCtx || "No jobs found."}`;
                   const checked = val === "true" || val === true;
                   return (
                     <div key={col.id} style={{ ...cellBase, justifyContent: "center", ...ccCond }}>
-                      <button onClick={e => { e.stopPropagation(); commitEdit(item.id, key, String(!checked), pid); }} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${checked ? T.accent : T.border}`, background: checked ? T.accent : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", padding: 0 }}>
+                      <button onClick={e => { e.stopPropagation(); commitEdit(item.id, key, String(!checked), pid); }} style={{ width: 18, height: 18, borderRadius: T.radiusPill, border: `2px solid ${checked ? T.accent : T.border}`, background: checked ? T.accent : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", padding: 0 }}>
                         {checked && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                       </button>
                     </div>
@@ -9663,8 +9663,8 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ animation: `toolDrop 0.14s 114ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 5 }}>People {sFPers.length > 0 && <span style={{ color: T.accent }}>({sFPers.length})</span>}</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                  {people.map(p => { const active = sFPers.includes(String(p.id)); return <button key={p.id} onClick={() => setSFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 20, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
-                  {sFPers.length > 0 && <button onClick={() => setSFPers([])} style={{ padding: "3px 7px", borderRadius: 20, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
+                  {people.map(p => { const active = sFPers.includes(String(p.id)); return <button key={p.id} onClick={() => setSFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"28" : "transparent", color: active ? T.accent : T.textSec, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: T.accent, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
+                  {sFPers.length > 0 && <button onClick={() => setSFPers([])} style={{ padding: "3px 7px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 9, cursor: "pointer", fontFamily: T.font }}>✕</button>}
                 </div>
               </div>
               <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}>
@@ -9673,7 +9673,7 @@ ${jobsCtx || "No jobs found."}`;
                   {["All", ...uniqueRoles].map(r => { const active = r === "All" ? sFRole.length === 0 : sFRole.includes(r); return <button key={r} onClick={() => r === "All" ? setSFRole([]) : setSFRole(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent : "transparent", color: active ? T.accentText : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{r}</button>; })}
                 </div>
               </div>
-              {scheduleFilterCount > 0 && <button onClick={() => { setSFRole([]); setSFClient([]); setSFPers([]); setSFJobNum(""); setSFStat([]); }} style={{ padding: "5px 8px", borderRadius: T.radiusXs, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
+              {scheduleFilterCount > 0 && <button onClick={() => { setSFRole([]); setSFClient([]); setSFPers([]); setSFJobNum(""); setSFStat([]); }} style={{ padding: "5px 8px", borderRadius: T.radiusPill, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
             </div></FadeOnClose>
           </div>
           {/* Inline expanding search — sits right of the Schedule filter button */}
@@ -9683,7 +9683,7 @@ ${jobsCtx || "No jobs found."}`;
             </button>
             {(scheduleSearchOpen || scheduleSearchQ) && <>
               <input id="scheduleSearchInput" value={scheduleSearchQ} onChange={e => setScheduleSearchQ(e.target.value)} onBlur={() => { if (!scheduleSearchQ) setScheduleSearchOpen(false); }} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
-              {scheduleSearchQ && <button onClick={() => { setScheduleSearchQ(""); setScheduleSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
+              {scheduleSearchQ && <button onClick={() => { setScheduleSearchQ(""); setScheduleSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
             </>}
           </div>
           {/* Separator + Today */}
@@ -9898,7 +9898,7 @@ ${jobsCtx || "No jobs found."}`;
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>{row.role}</span>
                   <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono }}>{row.util}%</span>
-                  {isAdmin && <button onClick={e => { e.stopPropagation(); setPersonModal({ id: null, name: "", role: row.role, email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" }); }} title={`Add member to ${row.role}`} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4, color: T.textDim, fontSize: 14, lineHeight: 1, padding: "1px 6px", cursor: "pointer", flexShrink: 0 }}>+</button>}
+                  {isAdmin && <button onClick={e => { e.stopPropagation(); setPersonModal({ id: null, name: "", role: row.role, email: "", cap: 8, color: COLORS[Math.floor(Math.random() * COLORS.length)], teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" }); }} title={`Add member to ${row.role}`} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.textDim, fontSize: 14, lineHeight: 1, padding: "1px 6px", cursor: "pointer", flexShrink: 0 }}>+</button>}
                 </div>
                 {/* Department/title row — no day grid, just a clean band */}
                 <div style={{ flex: 1 }} />
@@ -12160,7 +12160,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span title={"Pay Hours: time on the clock earning wages, regardless of job attribution.\nProduction Hours: time attributed to a specific job for progress tracking."} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 14, height: 14, borderRadius: "50%", border: `1px solid ${T.border}`, color: T.textDim, fontSize: 9, fontWeight: 700, cursor: "help", lineHeight: 1 }}>i</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <button type="button" className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, iosPayClockEnabled: !s.iosPayClockEnabled }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: "none", background: orgSettings.iosPayClockEnabled ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                <button type="button" className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, iosPayClockEnabled: !s.iosPayClockEnabled }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: orgSettings.iosPayClockEnabled ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
                   <span style={{ position: "absolute", top: 3, left: orgSettings.iosPayClockEnabled ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
                 </button>
                 <div>
@@ -12176,7 +12176,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
                   <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <button type="button" className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                    <button type="button" className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
                       <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
                     </button>
                     <div>
@@ -12553,7 +12553,7 @@ ${jobsCtx || "No jobs found."}`;
     const NumKey = ({ d }) => (
       <button
         onClick={() => appendPin(String(d))}
-        style={{ width: 76, height: 76, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 26, fontWeight: 500, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" }}
+        style={{ width: 76, height: 76, borderRadius: T.radiusPill, border: `1.5px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 26, fontWeight: 500, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.1s" }}
         onMouseDown={e => e.currentTarget.style.background = T.hoverStrong}
         onMouseUp={e => e.currentTarget.style.background = T.surface}
         onMouseLeave={e => e.currentTarget.style.background = T.surface}
@@ -12605,7 +12605,7 @@ ${jobsCtx || "No jobs found."}`;
                 >
                   {pinLoading ? "Processing…" : "Confirm Clock In"}
                 </button>
-                <button onClick={() => doClockIn(pinPerson?._pin, [])} disabled={pinLoading} style={{ width: "100%", padding: "10px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>
+                <button onClick={() => doClockIn(pinPerson?._pin, [])} disabled={pinLoading} style={{ width: "100%", padding: "10px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>
                   Skip — Clock in without selecting
                 </button>
               </div>
@@ -12626,7 +12626,7 @@ ${jobsCtx || "No jobs found."}`;
                   {[1,2,3,4,5,6,7,8,9].map(d => <NumKey key={d} d={d} />)}
                   <div />
                   <NumKey d={0} />
-                  <button onClick={() => setPinInput(p => p.slice(0, -1))} style={{ width: 76, height: 76, borderRadius: T.radiusSm, border: `1.5px solid ${T.border}`, background: T.surface, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <button onClick={() => setPinInput(p => p.slice(0, -1))} style={{ width: 76, height: 76, borderRadius: T.radiusPill, border: `1.5px solid ${T.border}`, background: T.surface, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     {/* Custom backspace — smaller X inset from the arrow tip so the two glyphs don't crowd */}
                     <svg width="26" height="22" viewBox="0 0 26 22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M22.5 2H9.2 a2 2 0 0 0 -1.5 0.7 L2 11 l5.7 8.3 a2 2 0 0 0 1.5 0.7 H22.5 a2 2 0 0 0 2 -2 V4 a2 2 0 0 0 -2 -2 z"/>
@@ -13204,7 +13204,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span title={"Pay Hours: time on the clock earning wages, regardless of job attribution.\nProduction Hours: time attributed to a specific job for progress tracking."} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 15, height: 15, borderRadius: "50%", border: `1px solid ${T.border}`, color: T.textDim, fontSize: 10, fontWeight: 700, cursor: "help", lineHeight: 1 }}>i</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                  <button type="button" onClick={() => setOrgSettings(s => ({ ...s, iosPayClockEnabled: !s.iosPayClockEnabled }))} style={{ flexShrink: 0, width: 46, height: 26, borderRadius: 13, border: "none", background: orgSettings.iosPayClockEnabled ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                  <button type="button" onClick={() => setOrgSettings(s => ({ ...s, iosPayClockEnabled: !s.iosPayClockEnabled }))} style={{ flexShrink: 0, width: 46, height: 26, borderRadius: T.radiusPill, border: "none", background: orgSettings.iosPayClockEnabled ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
                     <span style={{ position: "absolute", top: 3, left: orgSettings.iosPayClockEnabled ? 23 : 3, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.2s" }} />
                   </button>
                   <div>
@@ -13218,7 +13218,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
                     <div key={key} style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                      <button type="button" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 46, height: 26, borderRadius: 13, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                      <button type="button" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 46, height: 26, borderRadius: T.radiusPill, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
                         <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 23 : 3, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.2s" }} />
                       </button>
                       <div>
@@ -13464,7 +13464,7 @@ ${jobsCtx || "No jobs found."}`;
                               </div>
                             </div>
                             <div style={{ display: "flex", gap: 8, padding: "0 14px 12px" }} onClick={e => e.stopPropagation()}>
-                              <button onClick={() => openPersonEditModal(p)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusXs, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Entries</button>
+                              <button onClick={() => openPersonEditModal(p)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Entries</button>
                             </div>
                             {isExp && recentEntries.length > 0 && (
                               <div style={{ padding: "8px 14px 14px", borderTop: `1px solid ${T.border}20` }}>
@@ -13492,10 +13492,10 @@ ${jobsCtx || "No jobs found."}`;
                   {tsAdminTab === "timesheets" && (
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-                        <button onClick={() => setTsPeriodDays(d => d - 1)} style={{ width: 40, height: 40, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 20, cursor: "pointer", fontFamily: T.font }}>‹</button>
+                        <button onClick={() => setTsPeriodDays(d => d - 1)} style={{ width: 40, height: 40, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 20, cursor: "pointer", fontFamily: T.font }}>‹</button>
                         <span style={{ flex: 1, textAlign: "center", fontSize: 13, fontWeight: 600, color: T.text }}>{fmtDate(viewPeriod.start)} – {fmtDate(viewPeriod.end)}</span>
-                        <button onClick={() => setTsPeriodDays(d => d + 1)} disabled={tsPeriodDays >= 0} style={{ width: 40, height: 40, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: tsPeriodDays >= 0 ? T.textDim : T.text, fontSize: 20, cursor: tsPeriodDays >= 0 ? "default" : "pointer", opacity: tsPeriodDays >= 0 ? 0.4 : 1, fontFamily: T.font }}>›</button>
-                        <button onClick={() => setTsPeriodDays(0)} style={{ padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Now</button>
+                        <button onClick={() => setTsPeriodDays(d => d + 1)} disabled={tsPeriodDays >= 0} style={{ width: 40, height: 40, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: tsPeriodDays >= 0 ? T.textDim : T.text, fontSize: 20, cursor: tsPeriodDays >= 0 ? "default" : "pointer", opacity: tsPeriodDays >= 0 ? 0.4 : 1, fontFamily: T.font }}>›</button>
+                        <button onClick={() => setTsPeriodDays(0)} style={{ padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Now</button>
                       </div>
                       {people.filter(p => p.payType !== "salary").map(person => {
                         const pEntries = periodEntries.filter(e => e.personId === person.id && !e.eventType).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
@@ -13667,7 +13667,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 13, color: T.textDim }}>to</span>
                   <TraqsDatePicker compact value={range.end} min={range.start} onChange={setEnd} style={{ width: 170 }} />
                   <div style={{ flex: 1 }} />
-                  <button onClick={() => setTsConfirmRange({ start: ppNow.start, end: ppNow.end })} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>This period</button>
+                  <button onClick={() => setTsConfirmRange({ start: ppNow.start, end: ppNow.end })} style={{ padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>This period</button>
                 </div>
 
                 {/* Per-person hours */}
@@ -13976,7 +13976,7 @@ ${jobsCtx || "No jobs found."}`;
                                       {p.activeJobClock.opTitle || p.activeJobClock.jobTitle}
                                       {p.activeJobClock.opTitle && p.activeJobClock.jobTitle && <span style={{ fontWeight: 400, color: T.textDim }}> · {p.activeJobClock.jobTitle}</span>}
                                     </div>
-                                    {isAdmin && <button onClick={e => { e.stopPropagation(); adminEndJobClock(p.id, p.name); }} title="Force this worker off their active job (e.g. stuck after the job was moved)" style={{ flexShrink: 0, padding: "3px 8px", borderRadius: 8, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>End job</button>}
+                                    {isAdmin && <button onClick={e => { e.stopPropagation(); adminEndJobClock(p.id, p.name); }} title="Force this worker off their active job (e.g. stuck after the job was moved)" style={{ flexShrink: 0, padding: "3px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>End job</button>}
                                   </div>
                                 ) : clocked && (p.activeClockIn?.jobRefs || []).length > 0 ? (
                                   <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
@@ -14003,7 +14003,7 @@ ${jobsCtx || "No jobs found."}`;
                                 {periodH > 0 ? periodH.toFixed(1) + "h" : "—"}
                               </td>
                               <td style={{ padding: "10px 10px" }} onClick={e => e.stopPropagation()}>
-                                <button onClick={() => openPersonEditModal(p)} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                                <button onClick={() => openPersonEditModal(p)} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
                                   Edit
                                 </button>
                               </td>
@@ -14031,7 +14031,7 @@ ${jobsCtx || "No jobs found."}`;
                                                     {tl.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
                                                   </div>
                                                   <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours || 0).toFixed(2) + "h" : "—"}</span>
-                                                  <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
+                                                  <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
                                                 </div>
                                               );
                                             })}
@@ -14055,9 +14055,9 @@ ${jobsCtx || "No jobs found."}`;
               {tsAdminTab === "timesheets" && (
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-                    <button onClick={() => setTsPeriodDays(d => d - 1)} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer", fontSize: 13 }}>←</button>
+                    <button onClick={() => setTsPeriodDays(d => d - 1)} style={{ padding: "5px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, cursor: "pointer", fontSize: 13 }}>←</button>
                     <span style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{fmtDate(viewPeriod.start)} – {fmtDate(viewPeriod.end)}</span>
-                    <button onClick={() => setTsPeriodDays(d => d + 1)} disabled={tsPeriodDays >= 0} style={{ padding: "5px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: tsPeriodDays >= 0 ? T.textDim : T.text, cursor: tsPeriodDays >= 0 ? "not-allowed" : "pointer", fontSize: 13 }}>→</button>
+                    <button onClick={() => setTsPeriodDays(d => d + 1)} disabled={tsPeriodDays >= 0} style={{ padding: "5px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: tsPeriodDays >= 0 ? T.textDim : T.text, cursor: tsPeriodDays >= 0 ? "not-allowed" : "pointer", fontSize: 13 }}>→</button>
                     <div style={{ flex: 1 }} />
                     <button onClick={exportCSV} style={{ padding: "6px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}55`, background: T.accent + "15", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Export CSV</button>
                   </div>
@@ -14111,7 +14111,7 @@ ${jobsCtx || "No jobs found."}`;
                                       <input type="datetime-local" value={toLocal(tsEditEntry.clockOut)} onChange={ev => setTsEditEntry(x => ({ ...x, clockOut: fromLocal(ev.target.value) }))} style={{ colorScheme: T.colorScheme, padding: "4px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }} />
                                       <span style={{ flex: 1 }} />
                                       <button onClick={saveEditEntry} style={{ padding: "4px 12px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save</button>
-                                      <button onClick={() => setTsEditEntry(null)} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                                      <button onClick={() => setTsEditEntry(null)} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                                     </div>
                                   );
                                 }
@@ -14124,7 +14124,7 @@ ${jobsCtx || "No jobs found."}`;
                                     <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{(e.hours||0).toFixed(2)}h</span>
                                     {e.confirmed
                                       ? <span title="Confirmed timesheet — re-open it to edit" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: T.radiusXs, background: "#10b98115", color: "#10b981", fontSize: 11, fontWeight: 600, marginLeft: 4, whiteSpace: "nowrap" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Confirmed</span>
-                                      : <button onClick={() => setTsEditEntry({ id: e.id, clockIn: e.clockIn, clockOut: e.clockOut, personId: e.personId })} style={{ padding: "2px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font, marginLeft: 4 }}>Edit</button>}
+                                      : <button onClick={() => setTsEditEntry({ id: e.id, clockIn: e.clockIn, clockOut: e.clockOut, personId: e.personId })} style={{ padding: "2px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font, marginLeft: 4 }}>Edit</button>}
                                   </div>
                                 );
                               })}
@@ -14285,8 +14285,8 @@ ${jobsCtx || "No jobs found."}`;
             {hasSubs && <div style={{ fontSize: 11, color: T.accent, marginTop: 2 }}>{t.subs.length} subtask{t.subs.length > 1 ? "s" : ""}</div>}
           </div>
           {can("editJobs") && <div style={{ display: "flex", gap: 5, flexShrink: 0, alignItems: "center", paddingTop: 2 }} onClick={e => e.stopPropagation()}>
-            <button onClick={() => openEdit(t)} style={{ background: T.accent + "18", border: "none", borderRadius: 6, padding: "5px 9px", fontSize: 11, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit</button>
-            <button onClick={() => setConfirmDelete({ title: t.title, id: t.id, pid: null })} style={{ background: T.danger + "18", border: "none", borderRadius: 6, padding: "5px 7px", fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>✕</button>
+            <button onClick={() => openEdit(t)} style={{ background: T.accent + "18", border: "none", borderRadius: T.radiusPill, padding: "5px 9px", fontSize: 11, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit</button>
+            <button onClick={() => setConfirmDelete({ title: t.title, id: t.id, pid: null })} style={{ background: T.danger + "18", border: "none", borderRadius: T.radiusPill, padding: "5px 7px", fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>✕</button>
           </div>}
         </div>
         {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
@@ -14335,7 +14335,7 @@ ${jobsCtx || "No jobs found."}`;
                     {tmpl.steps.map((stepLabel, i) => {
                       const isDone = !!so[String(i)];
                       const isActive = i === activeIdx;
-                      if (isDone) return <span key={i} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {stepLabel}{canApprove && <Tip label="Revert"><button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
+                      if (isDone) return <span key={i} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {stepLabel}{canApprove && <Tip label="Revert"><button onClick={() => revertStep(job.id, panel.id, tmpl.id, i)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: T.radiusPill, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
                       if (isActive && canApprove) return <button key={i} onClick={() => signOffStep(job.id, panel.id, tmpl.id, i)} style={{ padding: "5px 13px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {stepLabel}</button>;
                       if (isActive) return <span key={i} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {stepLabel}</span>;
                       return <span key={i} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {stepLabel}</span>;
@@ -14365,7 +14365,7 @@ ${jobsCtx || "No jobs found."}`;
                   {approvalSteps.map(step => {
                     const done = !!e[step.key];
                     const isActive = step.key === activeStep;
-                    if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canApprove && <Tip label="Revert"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: 6, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
+                    if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canApprove && <Tip label="Revert"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: T.radiusPill, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
                     if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
                     if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                     return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {step.label}</span>;
@@ -14389,7 +14389,7 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ flex: 1, fontSize: 14, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
               <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(t.end)}</span>
             </div>
-            {can("editJobs") && <button onClick={() => setConfirmDelete({ title: t.title, id: t.id, pid: null })} style={{ background: T.danger + "18", border: "none", borderRadius: 6, padding: "5px 7px", fontSize: 11, color: T.danger, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>✕</button>}
+            {can("editJobs") && <button onClick={() => setConfirmDelete({ title: t.title, id: t.id, pid: null })} style={{ background: T.danger + "18", border: "none", borderRadius: T.radiusPill, padding: "5px 7px", fontSize: 11, color: T.danger, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>✕</button>}
           </div>)}
         </>}
       </div>;
@@ -14397,7 +14397,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderMobileClients = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
       {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-        <button onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", notes: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Client</button>
+        <button onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", notes: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Client</button>
       </div>}
       {clients.map(c => {
         const cTasks = tasks.filter(t => t.clientId === c.id);
@@ -14420,7 +14420,7 @@ ${jobsCtx || "No jobs found."}`;
             {c.contact && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>👤 {c.contact}</div>}
             {c.email && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>✉ {c.email}</div>}
             {c.phone && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 8 }}>📞 {c.phone}</div>}
-            {can("editJobs") && <button onClick={() => setClientModal({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 8, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
+            {can("editJobs") && <button onClick={() => setClientModal({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
             {cTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", marginBottom: 6 }}>Jobs · {cTasks.length}</div>
               {cTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "8px 10px", marginBottom: 4, background: T.bg, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.bgText, display: "flex", alignItems: "center", gap: 8 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.bg}>
@@ -14436,7 +14436,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderMobileTeam = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
       {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-        <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: 8, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
+        <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })} style={{ background: T.accent, border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
       </div>}
       {people.map(p => {
         const isExp = mobileExp["p_" + p.id];
@@ -14495,7 +14495,7 @@ ${jobsCtx || "No jobs found."}`;
             </>}
             {currentTasks.length === 0 && upcoming.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "8px 0" }}>No active assignments</div>}
             {can("editJobs") && <div style={{ marginTop: 10 }}>
-              <button onClick={() => setPersonModal({ ...p })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 8, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Person</button>
+              <button onClick={() => setPersonModal({ ...p })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Person</button>
             </div>}
           </div>}
         </div>;
@@ -14564,7 +14564,7 @@ ${jobsCtx || "No jobs found."}`;
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           {hasNotifs && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
         </button>
-        <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: settingsOpen ? T.accent + "15" : T.bg, border: `1px solid ${settingsOpen ? T.accent + "44" : T.border}`, borderRadius: 10, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
+        <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: settingsOpen ? T.accent + "15" : T.bg, border: `1px solid ${settingsOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusPill, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={settingsOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.3s", transform: settingsOpen ? "rotate(90deg)" : "none" }}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         </button>
       </div>
@@ -14658,25 +14658,25 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ flex: 1, overflow: "auto", padding: "20px 16px" }}>
           {prefOpen ? <>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10, paddingLeft: 4 }}>Preferences</div>
-            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setCustomizationOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.accent }}>
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>
               </span>
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Customization</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Theme, colors &amp; presets</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>
-            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Scheduling</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Hours/day, weekends &amp; holidays</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>
-            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Sign Off Preferences</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>
           </> : <>
-          <button onClick={() => setPrefOpen(true)} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          <button onClick={() => setPrefOpen(true)} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Preferences</div>
@@ -14684,7 +14684,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
-          <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Departments</div>
@@ -14692,7 +14692,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
-          {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Permissions</div>
@@ -14700,7 +14700,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>}
-          <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          <button onClick={() => { setSettingsOpen(false); setClientsSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Clients</div>
@@ -14708,7 +14708,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
-          {isAdmin && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgCodePanelOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          {isAdmin && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgCodePanelOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Organization</div>
@@ -14716,7 +14716,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>}
-          <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.danger}22`, borderRadius: T.radiusSm, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left" }}>
+          <button onClick={() => { setSettingsOpen(false); setConfirmLogout(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.danger}22`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left" }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></span>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.danger }}>Log Out</div>
           </button>
@@ -14818,7 +14818,7 @@ ${jobsCtx || "No jobs found."}`;
       </>}
       {/* Ask TRAQS FAB — always visible on mobile */}
       {!askOpen && <Tip label="Ask TRAQS"><button onClick={() => setAskOpen(true)}
-        style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom, 0px))", right: 20, zIndex: 1500, width: 56, height: 56, borderRadius: 28, background: T.accent, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${T.accent}55, 0 2px 8px rgba(0,0,0,0.3)`, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
+        style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom, 0px))", right: 20, zIndex: 1500, width: 56, height: 56, borderRadius: T.radiusPill, background: T.accent, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${T.accent}55, 0 2px 8px rgba(0,0,0,0.3)`, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill={T.accentText}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
       </button></Tip>}
     </div>;
@@ -15128,7 +15128,7 @@ ${jobsCtx || "No jobs found."}`;
                           {frJob && <>
                             <button
                               onClick={() => setFrDetailsExpanded(prev => ({ ...prev, [m.finishRequestId]: !prev[m.finishRequestId] }))}
-                              style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: "none", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "8px 12px", cursor: "pointer", color: T.textSec, fontSize: 13, fontFamily: T.font, marginBottom: 10, textAlign: "left" }}
+                              style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", background: "none", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "8px 12px", cursor: "pointer", color: T.textSec, fontSize: 13, fontFamily: T.font, marginBottom: 10, textAlign: "left" }}
                             >
                               <span style={{ flex: 1 }}>View Job Details</span>
                               <span style={{ display: "inline-block", transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s ease" }}>▾</span>
@@ -16655,7 +16655,7 @@ ${jobsCtx || "No jobs found."}`;
                         return { ...op, start: entry.fromStart, end: entry.fromEnd, moveLog: [...newLog, revertEntry] };
                       }) })) })));
                       closeModal();
-                    }} style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: T.bgText, flexShrink: 0, transition: "all 0.15s" }}
+                    }} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: T.bgText, flexShrink: 0, transition: "all 0.15s" }}
                       onMouseEnter={e => { e.currentTarget.style.borderColor = "#f59e0b"; e.currentTarget.style.color = "#f59e0b"; }}
                       onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}
                     >↩</button></Tip>}
@@ -16853,8 +16853,8 @@ ${jobsCtx || "No jobs found."}`;
               })}
             </div>
           </>, <div style={{ display: "flex", gap: 2, background: T.bg, borderRadius: 7, padding: 2, border: `1px solid ${T.border}`, flexShrink: 0 }}>
-            <button onClick={() => setAttView("large")} title="Large view" style={{ width: 26, height: 24, borderRadius: 5, border: "none", background: attView === "large" ? T.accent : "transparent", color: attView === "large" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
-            <button onClick={() => setAttView("list")} title="List view" style={{ width: 26, height: 24, borderRadius: 5, border: "none", background: attView === "list" ? T.accent : "transparent", color: attView === "list" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
+            <button onClick={() => setAttView("large")} title="Large view" style={{ width: 26, height: 24, borderRadius: T.radiusPill, border: "none", background: attView === "large" ? T.accent : "transparent", color: attView === "large" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></button>
+            <button onClick={() => setAttView("list")} title="List view" style={{ width: 26, height: 24, borderRadius: T.radiusPill, border: "none", background: attView === "list" ? T.accent : "transparent", color: attView === "list" ? T.accentText : T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></button>
           </div>)}
           {/* Analytics */}
           {sec("analytics", "Analytics", <>
@@ -17147,10 +17147,10 @@ ${jobsCtx || "No jobs found."}`;
   const stCard = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 22, padding: "22px 24px" };
   const stLabel = { fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 12 };
   const stFieldLabel = { fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, fontFamily: T.font };
-  const stInput = { width: "100%", padding: "11px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.2s, box-shadow 0.2s" };
+  const stInput = { width: "100%", padding: "11px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.2s, box-shadow 0.2s" };
   const stInputFocus = e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; };
   const stInputBlur = e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; };
-  const stGhostBtn = { padding: "8px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
+  const stGhostBtn = { padding: "8px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
   const PROFILE_COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#ef4444", "#f59e0b", "#10b981", "#14b8a6", "#6366f1", "#64748b", "#0ea5e9"];
 
   const renderSettingsGeneral = () => {
@@ -17178,7 +17178,7 @@ ${jobsCtx || "No jobs found."}`;
               {!d.image && <>
                 <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Or choose an avatar color</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                  {PROFILE_COLORS.map(c => <button key={c} onClick={() => patchDraft({ color: c })} title={c} style={{ width: 28, height: 28, borderRadius: 14, background: c, border: (d.color || "").toLowerCase() === c ? `2px solid ${T.text}` : "2px solid transparent", boxShadow: (d.color || "").toLowerCase() === c ? `0 0 0 2px ${T.card}` : "none", cursor: "pointer", padding: 0 }} />)}
+                  {PROFILE_COLORS.map(c => <button key={c} onClick={() => patchDraft({ color: c })} title={c} style={{ width: 28, height: 28, borderRadius: T.radiusPill, background: c, border: (d.color || "").toLowerCase() === c ? `2px solid ${T.text}` : "2px solid transparent", boxShadow: (d.color || "").toLowerCase() === c ? `0 0 0 2px ${T.card}` : "none", cursor: "pointer", padding: 0 }} />)}
                 </div>
                 <HexColorPicker color={avatarColor} onChange={c => patchDraft({ color: c })} style={{ width: 190, height: 120 }} />
               </>}
@@ -17267,7 +17267,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
             {roles.length === 0 && <div style={{ fontSize: 13, color: T.textDim, padding: "12px 0", textAlign: "center" }}>No departments yet — add one below</div>}
             {roles.map((r, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: T.surface, border: `1px solid ${roleEditId === idx ? T.accent + "66" : T.border}`, borderRadius: T.radiusSm, transition: "border-color 0.15s" }}>
+              <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: T.surface, border: `1px solid ${roleEditId === idx ? T.accent + "66" : T.border}`, borderRadius: T.radius, transition: "border-color 0.15s" }}>
                 {roleEditId === idx
                   ? <input autoFocus value={roleEditVal} onChange={e => setRoleEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commitEdit(); else if (e.key === "Escape") setRoleEditId(null); }} onBlur={commitEdit} style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 14, color: T.text, fontFamily: T.font }} />
                   : <span style={{ flex: 1, fontSize: 14, color: T.text }}>{r}</span>}
@@ -17303,65 +17303,65 @@ ${jobsCtx || "No jobs found."}`;
               const showPin = showPinIds.has(person.id);
               const pc = elColor(person.color || "#555");
               return <div key={person.id}>
-                <div onClick={() => setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 10, background: person.image ? T.surface : pc, backgroundImage: person.image ? `url(${person.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: accentText(pc), flexShrink: 0 }}>{person.image ? "" : person.name[0]}</div>
+                <div onClick={() => setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radius, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
+                  <div style={{ width: 34, height: 34, borderRadius: 14, background: person.image ? T.surface : pc, backgroundImage: person.image ? `url(${person.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: accentText(pc), flexShrink: 0 }}>{person.image ? "" : person.name[0]}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
                     <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
                   </div>
                   <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                    {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
-                    {person.canSignOff && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Approver</span>}
-                    {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
+                    {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 14, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
+                    {person.canSignOff && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 14, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Approver</span>}
+                    {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 14, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
                   </div>
                   <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateRows: isSelected ? "1fr" : "0fr", transition: "grid-template-rows 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, margin 0.28s cubic-bezier(0.22,1,0.36,1)", opacity: isSelected ? 1 : 0, margin: isSelected ? "2px 0 4px" : "0", pointerEvents: isSelected ? "auto" : "none" }}>
                   <div style={{ overflow: "hidden", minHeight: 0 }}>
-                    <div style={{ padding: "14px 16px", background: T.bg, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
-                      <div onClick={() => updDraftPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
+                    <div style={{ padding: "16px 18px", background: T.bg, borderRadius: T.radius, border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div onClick={() => updDraftPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
                         <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
                           <div style={{ fontSize: 11, color: T.textDim }}>Full control over jobs and team</div>
                         </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 10, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        <div style={{ width: 36, height: 20, borderRadius: 14, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 14, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
                       {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                         {ADMIN_PERMS.map(({ key, icon, label }) => {
                           const on = permsEnabled(key);
-                          return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                          return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radius, cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                             <span style={{ fontSize: 13, width: 18, textAlign: "center", flexShrink: 0 }}>{icon}</span>
                             <span style={{ flex: 1, fontSize: 12, color: on ? T.text : T.textDim, fontWeight: on ? 500 : 400 }}>{label}</span>
-                            <div style={{ width: 28, height: 16, borderRadius: 8, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                              <div style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: 6, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }} />
+                            <div style={{ width: 28, height: 16, borderRadius: 14, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                              <div style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: 14, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }} />
                             </div>
                           </div>;
                         })}
                       </div>}
-                      <div onClick={() => updDraftPerson(person.id, { canSignOff: !person.canSignOff })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.canSignOff ? T.accent + "44" : T.border}`, background: person.canSignOff ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
+                      <div onClick={() => updDraftPerson(person.id, { canSignOff: !person.canSignOff })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${person.canSignOff ? T.accent + "44" : T.border}`, background: person.canSignOff ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
                         <span style={{ lineHeight: 0, color: person.canSignOff ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Approval Queue Access</div>
                           <div style={{ fontSize: 11, color: T.textDim }}>Can view the Approval Queue and sign off assigned steps</div>
                         </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        <div style={{ width: 36, height: 20, borderRadius: 14, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 14, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
-                      <div onClick={() => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
+                      <div onClick={() => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
                         <span style={{ lineHeight: 0, color: person.noAutoSchedule ? "#f59e0b" : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg></span>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Exclude from Auto-Scheduling</div>
                           <div style={{ fontSize: 11, color: T.textDim }}>Never auto-assigned by the scheduler</div>
                         </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 10, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        <div style={{ width: 36, height: 20, borderRadius: 14, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 14, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
-                      <div style={{ padding: "10px 10px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface }}>
+                      <div style={{ padding: "10px 10px 12px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.surface }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                           <span style={{ lineHeight: 0, color: T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
                           <div style={{ flex: 1 }}>
@@ -17370,7 +17370,7 @@ ${jobsCtx || "No jobs found."}`;
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.bg, overflow: "hidden" }}>
+                          <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.bg, overflow: "hidden" }}>
                             <input type={showPin ? "text" : "password"} value={person.pin || ""} onChange={e => updDraftPerson(person.id, { pin: e.target.value })} placeholder="PIN" style={{ width: 110, padding: "6px 10px", border: "none", background: "transparent", color: T.bgText, fontSize: 16, fontFamily: T.mono, letterSpacing: showPin ? "0.15em" : "0.3em", outline: "none", textAlign: "center" }} />
                             <button onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(person.id) ? n.delete(person.id) : n.add(person.id); return n; })} style={{ flexShrink: 0, padding: "0 8px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: 30 }}>
                               {showPin
@@ -17393,7 +17393,7 @@ ${jobsCtx || "No jobs found."}`;
   const renderSettingsSchedule = () => {
     const d = settingsDraft || {};
     const parseH = t => { const [h, m] = (t || "00:00").split(":").map(Number); return h + m / 60; };
-    const timeInput = { padding: "7px 9px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, colorScheme: T.colorScheme };
+    const timeInput = { padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, colorScheme: T.colorScheme };
     const xBtn = { background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" };
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -17423,7 +17423,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             ))}
           </div>
-          <button onClick={() => patchDraft(dd => ({ breaks: [...(dd.breaks || []), { time: "10:00", durationMinutes: 15 }] }))} style={{ marginTop: 10, padding: "5px 12px", borderRadius: 6, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Add Break</button>
+          <button onClick={() => patchDraft(dd => ({ breaks: [...(dd.breaks || []), { time: "10:00", durationMinutes: 15 }] }))} style={{ marginTop: 10, padding: "5px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Add Break</button>
         </div>
         <div className="tq-frost" style={stCard}>
           <div style={stLabel}>Lunch</div>
@@ -17439,7 +17439,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", gap: 6 }}>
             {[{ idx: 0, label: "Sun" }, { idx: 1, label: "Mon" }, { idx: 2, label: "Tue" }, { idx: 3, label: "Wed" }, { idx: 4, label: "Thu" }, { idx: 5, label: "Fri" }, { idx: 6, label: "Sat" }].map(({ idx, label }) => {
               const on = (d.workDays || []).includes(idx); const isLast = on && (d.workDays || []).length === 1;
-              return <button key={idx} onClick={() => patchDraft(dd => { const has = (dd.workDays || []).includes(idx); if (has && (dd.workDays || []).length === 1) return {}; const next = has ? (dd.workDays || []).filter(x => x !== idx) : [...(dd.workDays || []), idx].sort((a, b) => a - b); return { workDays: next }; })} title={isLast ? "At least one working day is required" : (on ? "Click to disable" : "Click to enable")} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusSm, border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, color: on ? "#fff" : T.textDim, fontSize: 12, fontWeight: 600, cursor: isLast ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.15s", letterSpacing: "0.04em" }}>{label}</button>;
+              return <button key={idx} onClick={() => patchDraft(dd => { const has = (dd.workDays || []).includes(idx); if (has && (dd.workDays || []).length === 1) return {}; const next = has ? (dd.workDays || []).filter(x => x !== idx) : [...(dd.workDays || []), idx].sort((a, b) => a - b); return { workDays: next }; })} title={isLast ? "At least one working day is required" : (on ? "Click to disable" : "Click to enable")} style={{ flex: 1, padding: "10px 0", borderRadius: T.radius, border: `1px solid ${on ? T.accent : T.border}`, background: on ? T.accent : T.surface, color: on ? "#fff" : T.textDim, fontSize: 12, fontWeight: 600, cursor: isLast ? "not-allowed" : "pointer", fontFamily: T.font, transition: "all 0.15s", letterSpacing: "0.04em" }}>{label}</button>;
             })}
           </div>
         </div>
@@ -17452,7 +17452,7 @@ ${jobsCtx || "No jobs found."}`;
           {(d.holidays || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No holidays added</div>}
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {(d.holidays || []).map(h => { const dt = new Date(h + "T12:00:00"); const label = dt.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" }); return (
-              <div key={h} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
+              <div key={h} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius }}>
                 <span style={{ fontSize: 13, color: T.text, flex: 1 }}>{label}</span>
                 <button onClick={() => patchDraft(dd => ({ holidays: (dd.holidays || []).filter(x => x !== h) }))} style={xBtn}>✕</button>
               </div>
@@ -17488,7 +17488,7 @@ ${jobsCtx || "No jobs found."}`;
                     {(ed.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>✕</button>}
                   </div>
                 ))}
-                <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))} style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 10px", borderRadius: 6, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Step</button>
+                <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))} style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Step</button>
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
@@ -17507,17 +17507,17 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
             {templates.length === 0 && <div style={{ fontSize: 13, color: T.textDim, padding: "16px 0", textAlign: "center" }}>No templates yet — add one below</div>}
             {templates.map(tmpl => (
-              <div key={tmpl.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm }}>
+              <div key={tmpl.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{(tmpl.steps || []).map((s, i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>{i + 1}. {s}</span>)}</div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{(tmpl.steps || []).map((s, i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 14, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>{i + 1}. {s}</span>)}</div>
                 </div>
                 <Tip label="Edit"><button onClick={() => setSignOffTemplateEditing({ ...tmpl, steps: [...(tmpl.steps || [])] })} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 13, padding: "2px 6px", lineHeight: 1 }}>✎</button></Tip>
                 <Tip label="Delete"><button onClick={() => patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).filter(t => t.id !== tmpl.id) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, padding: "2px 6px", lineHeight: 1 }}>✕</button></Tip>
               </div>
             ))}
           </div>
-          <button onClick={() => setSignOffTemplateEditing({ name: "", steps: [""] })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "10px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}44`, background: T.accent + "06", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ New Template</button>
+          <button onClick={() => setSignOffTemplateEditing({ name: "", steps: [""] })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "10px 0", borderRadius: T.radius, border: `2px dashed ${T.accent}44`, background: T.accent + "06", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ New Template</button>
         </div>
       </div>
     );
@@ -17527,10 +17527,10 @@ ${jobsCtx || "No jobs found."}`;
     const payDates = d.payDates || [5, 20];
     const dp = d.people || [];
     const updDraftPerson = (id, upd) => patchDraft(dd => ({ people: (dd.people || []).map(p => p.id === id ? { ...p, ...upd } : p) }));
-    const numInput = { width: 56, padding: "6px 8px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" };
+    const numInput = { width: 60, padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" };
     const Toggle = ({ on, onClick }) => (
-      <button type="button" onClick={onClick} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: 11, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
+      <button type="button" onClick={onClick} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 14, background: "#fff", transition: "left 0.2s" }} />
       </button>
     );
     return (
@@ -17598,7 +17598,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "grid", gridTemplateRows: clockAccessOpen ? "1fr" : "0fr", opacity: clockAccessOpen ? 1 : 0, transition: "grid-template-rows 0.3s ease, opacity 0.24s ease" }}>
                   <div style={{ overflow: "hidden", minHeight: 0 }}>
                     <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, ...rowAnim(0) }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.surface, ...rowAnim(0) }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>All Workers</div>
                           <div style={{ fontSize: 11, color: T.textDim }}>{enabled} of {workers.length} enabled</div>
@@ -17606,7 +17606,7 @@ ${jobsCtx || "No jobs found."}`;
                         <Toggle on={enabled > 0} onClick={() => setAll(enabled > 0 ? false : true)} />
                       </div>
                       {workers.map((p, i) => (
-                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: T.radiusXs, ...rowAnim(i + 1) }}>
+                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: T.radius, ...rowAnim(i + 1) }}>
                           <div style={{ flex: 1, fontSize: 13, color: T.text }}>{p.name || "—"}</div>
                           <Toggle on={p.canClockInOut !== false} onClick={() => setOne(p.id)} />
                         </div>
@@ -17646,12 +17646,12 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim, flexShrink: 0 }} />
                   <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                 </div>
-                <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                <div style={{ display: "flex", borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                   {["hourly", "salary"].map(pt => (
                     <button key={pt} type="button" onClick={() => updDraftPerson(p.id, { payType: pt })} style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? elColor("#6366f1") : T.accent) : T.surface, color: payType === pt ? (pt === "salary" ? "#fff" : T.accentText) : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}>{pt}</button>
                   ))}
                 </div>
-                <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
+                <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, overflow: "hidden" }}>
                   <input type={showPin ? "text" : "password"} value={p.pin || ""} onChange={e => updDraftPerson(p.id, { pin: e.target.value })} placeholder={p.hasPin ? "•••• set" : "Set PIN"} style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPin ? "normal" : "0.15em", outline: "none", minWidth: 0 }} />
                   <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
                     {showPin
@@ -17698,7 +17698,7 @@ ${jobsCtx || "No jobs found."}`;
     const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
     const swatch = (key, label, sub) => (
       <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
+        <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radius, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
           <div style={{ width: "100%", height: "100%", background: dc[key] }} />
           <input type="color" value={dc[key] || "#000000"} onChange={e => setDc({ [key]: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
         </label>
@@ -17724,7 +17724,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", gap: 8 }}>
                 {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
                   const active = draftMode === th.id;
-                  return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
+                  return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radius, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
                 })}
               </div>
             </div>
@@ -17756,7 +17756,7 @@ ${jobsCtx || "No jobs found."}`;
                     })}
                   </div>
                   {(dc.jobBarMode || "system") === "custom" && <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
-                    <label style={{ position: "relative", width: 36, height: 36, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
+                    <label style={{ position: "relative", width: 36, height: 36, borderRadius: T.radius, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
                       <div style={{ width: "100%", height: "100%", background: dc.jobBarColor || dc.accent }} />
                       <input type="color" value={dc.jobBarColor || dc.accent || "#000000"} onChange={e => setDc({ jobBarColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
                     </label>
@@ -17792,11 +17792,11 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 {dc.bgImage
                   ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                      <div style={{ width: 64, height: 42, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
+                      <div style={{ width: 64, height: 42, borderRadius: T.radius, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
                       <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>Image set · cards frost over it</div>
-                      <button onClick={() => setDc({ bgImage: null })} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
+                      <button onClick={() => setDc({ bgImage: null })} style={{ padding: "6px 12px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
                     </div>
-                  : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                  : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: T.radius, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
                       Upload background image
                       <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); pushBgImage(data); setDc(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
@@ -17807,7 +17807,7 @@ ${jobsCtx || "No jobs found."}`;
                     {recentImgs.map((img, i) => {
                       const isCur = img === dc.bgImage;
                       return <button key={i} title={isCur ? "Current background" : "Use this background"} onClick={() => setDc(p => ({ ...p, bgImage: img, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity }))}
-                        style={{ position: "relative", width: 58, height: 40, borderRadius: T.radiusXs, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
+                        style={{ position: "relative", width: 58, height: 40, borderRadius: T.radius, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
                         {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: brandGrad(T.accent), color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                         <span onClick={e => { e.stopPropagation(); setBgImageHistory(prev => prev.filter(x => x !== img)); if (isCur) setDc({ bgImage: null }); }} title="Remove from history" style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: T.surfaceSolid || T.surface, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</span>
                       </button>;
@@ -17841,9 +17841,9 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)} placeholder="Preset name…"
                   onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); } }}
-                  style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
+                  style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, padding: "8px 16px", fontFamily: T.font, outline: "none" }} />
                 <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); }}
-                  style={{ padding: "8px 16px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
+                  style={{ padding: "8px 18px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radiusPill, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
               </div>
             </div>
             {renderSettingsActions()}
@@ -17862,8 +17862,8 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
                 <span style={{ fontSize: 30, fontWeight: 800, color: pSysText, letterSpacing: "-0.03em", marginLeft: 46 }}>traqs</span>
                 <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                  <span style={{ width: 16, height: 16, borderRadius: 8, background: pSysBorder }} />
-                  <span style={{ width: 16, height: 16, borderRadius: 8, background: pSysBorder }} />
+                  <span style={{ width: 16, height: 16, borderRadius: 14, background: pSysBorder }} />
+                  <span style={{ width: 16, height: 16, borderRadius: 14, background: pSysBorder }} />
                 </span>
               </div>
               <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
@@ -17874,7 +17874,7 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                    {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 6, background: i === 0 ? pT.accent : pSysBorder }} />)}
+                    {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 14, background: i === 0 ? pT.accent : pSysBorder }} />)}
                   </div>
                 </div>
                 <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
@@ -17884,14 +17884,14 @@ ${jobsCtx || "No jobs found."}`;
                   </>}
                   {(() => { const renderMock = (which) => which === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
                     <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-                      <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "7px 14px" }}>+ New Job</span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 14, padding: "7px 14px" }}>+ New Job</span>
                     </div>
                     {[[70, 56, 82], [62, 78, 48, 66], [74, 50, 60]].map((rowWidths, sec) => {
                       const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
                       return <div key={sec}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
                           <div style={{ height: 9, width: 88, borderRadius: 4, background: pT.text, opacity: 0.55 }} />
-                          <div style={{ height: 15, width: 24, borderRadius: 8, background: pT.accent + "2e" }} />
+                          <div style={{ height: 15, width: 24, borderRadius: 14, background: pT.accent + "2e" }} />
                         </div>
                         <div style={{ background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden" }}>
                           <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "8px 14px", borderBottom: `1.5px solid ${pT.border}` }}>
@@ -17909,7 +17909,7 @@ ${jobsCtx || "No jobs found."}`;
                               <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
                               <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
                               <div style={{ height: 6, borderRadius: 3, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 3 }} /></div>
-                              <div style={{ width: 16, height: 16, borderRadius: 8, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
+                              <div style={{ width: 16, height: 16, borderRadius: 14, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
                             </div>
                           ))}
                         </div>
@@ -17917,11 +17917,11 @@ ${jobsCtx || "No jobs found."}`;
                     })}
                   </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "6px 14px" }}>Select</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 8, padding: "6px 12px", opacity: 0.75 }}>Today</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 14, padding: "6px 14px" }}>Select</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 14, padding: "6px 12px", opacity: 0.75 }}>Today</span>
                       <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                        <span style={{ width: 22, height: 22, borderRadius: 6, background: pT.border }} />
-                        <span style={{ width: 22, height: 22, borderRadius: 6, background: pT.border }} />
+                        <span style={{ width: 22, height: 22, borderRadius: 14, background: pT.border }} />
+                        <span style={{ width: 22, height: 22, borderRadius: 14, background: pT.border }} />
                       </span>
                     </div>
                     <div style={{ flex: 1, minHeight: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column" }}>
@@ -17935,7 +17935,7 @@ ${jobsCtx || "No jobs found."}`;
                         {SCHED_GROUPS.map((rows, gi) => <div key={gi}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", background: hexA(pT.text, 0.05) }}>
                             <div style={{ height: 7, width: 54, borderRadius: 3, background: pT.text, opacity: 0.5 }} />
-                            <div style={{ height: 12, width: 20, borderRadius: 6, background: pT.accent + "2e" }} />
+                            <div style={{ height: 12, width: 20, borderRadius: 14, background: pT.accent + "2e" }} />
                           </div>
                           {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                             <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
@@ -17965,7 +17965,7 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ height: 1, background: pT.border }} />
                             <div style={{ height: 6, width: "86%", borderRadius: 3, background: pT.textDim, opacity: 0.3 }} />
                             <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 3, background: ac, opacity: 0.5 }} /></div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 6, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 3, background: pT.textDim, opacity: 0.25 }} /></div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 14, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 3, background: pT.textDim, opacity: 0.25 }} /></div>
                           </div>;
                         })}
                       </div>
@@ -18066,8 +18066,8 @@ ${jobsCtx || "No jobs found."}`;
           {saveError.endpoint} returned {saveError.status || "?"}: {saveError.message}
         </div>
       </div>
-      <button onClick={() => doSaveRef.current()} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #fff", background: "transparent", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Retry</button>
-      <button onClick={() => setSaveError(null)} style={{ width: 28, height: 28, padding: 0, borderRadius: 6, border: "none", background: "transparent", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
+      <button onClick={() => doSaveRef.current()} style={{ padding: "6px 14px", borderRadius: T.radiusPill, border: "1px solid #fff", background: "transparent", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Retry</button>
+      <button onClick={() => setSaveError(null)} style={{ width: 28, height: 28, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: "#fff", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>✕</button>
     </div>}
     {/* ── Brand strip — logo + undo/redo + search/ask + save/bell/settings ── */}
     {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: Tc.surfaceSolid, position: "relative", zIndex: 101 }}>
@@ -18081,7 +18081,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       {/* LEFT: Undo / Redo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-        <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 2, flexShrink: 0, marginTop: 8 }}>
           <Tip label="Undo (Ctrl+Z)"><button onClick={undo} disabled={!canUndo} style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `1px solid ${canUndo ? Tc.border : "transparent"}`, background: canUndo ? Tc.hover : "transparent", cursor: canUndo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canUndo ? 1 : 0.3, transition: "all 0.15s", color: Tc.textSec }}>↩</button></Tip>
           <Tip label="Redo (Ctrl+Shift+Z)"><button onClick={redo} disabled={!canRedo} style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `1px solid ${canRedo ? Tc.border : "transparent"}`, background: canRedo ? Tc.hover : "transparent", cursor: canRedo ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, opacity: canRedo ? 1 : 0.3, transition: "all 0.15s", color: Tc.textSec }}>↪</button></Tip>
         </div>
@@ -18095,7 +18095,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center", pointerEvents: "auto" }}>
             <div ref={askBarRef} style={{ position: "relative", flexShrink: 0, width: askExpanded ? 240 : 110, transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
               {!askExpanded
-                ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "4px 14px", borderRadius: 22, border: `1px solid ${T.accent}44`, background: `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.02em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}10)`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
+                ? <button onClick={() => { setAskExpanded(true); setTimeout(() => askBarInputRef.current?.focus(), 50); }} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "4px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}44`, background: `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`, color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.02em", whiteSpace: "nowrap", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}22, ${T.accent}10)`; e.currentTarget.style.borderColor = T.accent + "88"; }} onMouseLeave={e => { e.currentTarget.style.background = `linear-gradient(135deg, ${T.accent}12, ${T.accent}06)`; e.currentTarget.style.borderColor = T.accent + "44"; }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
                     Ask TRAQS
                   </button>
@@ -18377,7 +18377,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ flexShrink: 0, opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
           <Tip label="Log out">
-            <button onClick={() => setConfirmLogout(true)} style={{ width: 30, height: 30, borderRadius: 8, border: `1px solid ${T.border}`, background: "transparent", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s, border-color 0.15s" }}
+            <button onClick={() => setConfirmLogout(true)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s, border-color 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.background = "#ef444411"; e.currentTarget.style.borderColor = "#ef444455"; }}
               onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
@@ -18509,10 +18509,10 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", gap: 6 }}>
                 {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
                   const active = themeMode === th.id;
-                  return <button key={th.id} onClick={() => setThemeMode(th.id)} style={{ flex: 1, padding: "8px 8px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
+                  return <button key={th.id} onClick={() => setThemeMode(th.id)} style={{ flex: 1, padding: "8px 8px", borderRadius: T.radiusPill, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
                 })}
               </div>
-              {themeMode === "custom" && <button onClick={() => setCustomizationOpen(true)} style={{ width: "100%", marginTop: 10, padding: "8px 10px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Customize colors…</button>}
+              {themeMode === "custom" && <button onClick={() => setCustomizationOpen(true)} style={{ width: "100%", marginTop: 10, padding: "8px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Customize colors…</button>}
             </div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>Sidebar</div>
@@ -18545,14 +18545,14 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>Company Name</div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{orgName || "—"}</div>
                 </div>
-                {orgEditing !== "name" && <button onClick={() => { setOrgNameInput(orgName || ""); setOrgNameError(""); setOrgEditing("name"); }} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
+                {orgEditing !== "name" && <button onClick={() => { setOrgNameInput(orgName || ""); setOrgNameError(""); setOrgEditing("name"); }} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
               </div>
               {orgEditing === "name" && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
                 <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: T.bg, color: T.bgText, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 6, fontFamily: T.font }} />
                 {orgNameError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgNameError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                  <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {}; sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
+                  <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                  <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {}; sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
                 </div>
               </div>}
             </div>
@@ -18563,21 +18563,21 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>Org Code</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "0.06em" }}>{orgCode || "—"}</div>
                 </div>
-                {orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
+                {orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
               </div>
               {orgEditing === "code" && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
                 <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Changing this reloads the app. Everyone signs in with the new code.</div>
                 <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusXs, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.mono, fontWeight: 700, letterSpacing: "0.1em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
                 {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgCodeError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                  <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusXs, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : T.accentText, fontSize: 11, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
+                  <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                  <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : T.accentText, fontSize: 11, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
                 </div>
               </div>}
             </div>
             {/* Launchers for legacy preferences screens */}
-            <button onClick={() => { setOrgSettingsModalOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Scheduling preferences</button>
-            <button onClick={() => { setOrgSettingsModalOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Sign-Off templates</button>
+            <button onClick={() => { setOrgSettingsModalOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Scheduling preferences</button>
+            <button onClick={() => { setOrgSettingsModalOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>Sign-Off templates</button>
           </div>
         </div>
       </div>
@@ -18600,7 +18600,7 @@ ${jobsCtx || "No jobs found."}`;
       // Each control group sits in its own card so the panel reads as distinct, tidy sections.
       // Backed by a subtle tint OF THE SURFACE (not T.bg) so the surface-contrasting text
       // (T.text / T.textDim) stays readable regardless of how light/dark the chosen bg is.
-      const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "16px 18px", marginBottom: 16 };
+      const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", marginBottom: 16 };
       // Current image first, then the last-5 history — deduped — so the user can switch back.
       const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
       // Blank Schedule-page mockup data. ROSTER = left roster width; BARC = bar palette
@@ -18630,7 +18630,7 @@ ${jobsCtx || "No jobs found."}`;
       const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
       const swatch = (key, label, sub) => (
         <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
+          <label style={{ position: "relative", width: 40, height: 40, borderRadius: T.radius, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
             <div style={{ width: "100%", height: "100%", background: dc[key] }} />
             <input type="color" value={dc[key] || "#000000"} onChange={e => setDc({ [key]: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
           </label>
@@ -18669,7 +18669,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 8 }}>
                   {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
                     const active = draftMode === th.id;
-                    return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radiusXs, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
+                    return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "9px 6px", borderRadius: T.radius, border: `1px solid ${active ? T.accent + "66" : T.border}`, background: active ? T.hoverStrong : "transparent", color: active ? T.accent : T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>{th.label}</button>;
                   })}
                 </div>
               </div>
@@ -18704,7 +18704,7 @@ ${jobsCtx || "No jobs found."}`;
                       })}
                     </div>
                     {(dc.jobBarMode || "system") === "custom" && <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
-                      <label style={{ position: "relative", width: 36, height: 36, borderRadius: T.radiusXs, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
+                      <label style={{ position: "relative", width: 36, height: 36, borderRadius: T.radius, border: `2px solid ${T.borderLight}`, overflow: "hidden", cursor: "pointer", flexShrink: 0, display: "block" }}>
                         <div style={{ width: "100%", height: "100%", background: dc.jobBarColor || dc.accent }} />
                         <input type="color" value={dc.jobBarColor || dc.accent || "#000000"} onChange={e => setDc({ jobBarColor: e.target.value })} style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", width: "100%", height: "100%" }} />
                       </label>
@@ -18744,11 +18744,11 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   {dc.bgImage
                     ? <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <div style={{ width: 64, height: 42, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
+                        <div style={{ width: 64, height: 42, borderRadius: T.radius, border: `1px solid ${T.border}`, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", flexShrink: 0 }} />
                         <div style={{ flex: 1, fontSize: 12, color: T.textDim }}>Image set · cards frost over it</div>
-                        <button onClick={() => setDc({ bgImage: null })} style={{ padding: "6px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
+                        <button onClick={() => setDc({ bgImage: null })} style={{ padding: "6px 12px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Remove</button>
                       </div>
-                    : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                    : <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px", borderRadius: T.radius, border: `1px dashed ${T.accent}66`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
                         Upload background image
                         <input type="file" accept="image/*" style={{ display: "none" }} onChange={async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 1920, 0.82, "image/jpeg"); pushBgImage(data); setDc(p => ({ ...p, bgImage: data, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity })); } catch { alert("Could not load that image."); } }} />
@@ -18760,7 +18760,7 @@ ${jobsCtx || "No jobs found."}`;
                       {recentImgs.map((img, i) => {
                         const isCur = img === dc.bgImage;
                         return <button key={i} title={isCur ? "Current background" : "Use this background"} onClick={() => setDc(p => ({ ...p, bgImage: img, cardOpacity: (p.cardOpacity ?? 100) >= 100 ? 80 : p.cardOpacity }))}
-                          style={{ position: "relative", width: 58, height: 40, borderRadius: T.radiusXs, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
+                          style={{ position: "relative", width: 58, height: 40, borderRadius: T.radius, border: isCur ? `2px solid ${T.accent}` : `1px solid ${T.border}`, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center", cursor: "pointer", padding: 0, flexShrink: 0, boxShadow: isCur ? `0 0 0 2px ${T.accent}40` : "none" }}>
                           {isCur && <span style={{ position: "absolute", bottom: 2, right: 2, width: 13, height: 13, borderRadius: "50%", background: brandGrad(T.accent), color: T.accentText, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                           <span onClick={e => { e.stopPropagation(); setBgImageHistory(prev => prev.filter(x => x !== img)); if (isCur) setDc({ bgImage: null }); }} title="Remove from history" style={{ position: "absolute", top: -6, right: -6, width: 16, height: 16, borderRadius: "50%", background: T.surfaceSolid || T.surface, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 11, lineHeight: "14px", textAlign: "center", cursor: "pointer" }}>×</span>
                         </button>;
@@ -18795,9 +18795,9 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 8 }}>
                   <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)} placeholder="Preset name…"
                     onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); } }}
-                    style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
+                    style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
                   <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface }]); setPresetNameInput(""); }}
-                    style={{ padding: "8px 16px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
+                    style={{ padding: "8px 16px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radius, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
                 </div>
               </div>
             </div>
@@ -18816,8 +18816,8 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
                   <span style={{ fontSize: 30, fontWeight: 800, color: pSysText, letterSpacing: "-0.03em", marginLeft: 46 }}>traqs</span>
                   <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                    <span style={{ width: 16, height: 16, borderRadius: 8, background: pSysBorder }} />
-                    <span style={{ width: 16, height: 16, borderRadius: 8, background: pSysBorder }} />
+                    <span style={{ width: 16, height: 16, borderRadius: 14, background: pSysBorder }} />
+                    <span style={{ width: 16, height: 16, borderRadius: 14, background: pSysBorder }} />
                   </span>
                 </div>
                 {/* row: sidebar + content */}
@@ -18830,7 +18830,7 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                      {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 6, background: i === 0 ? pT.accent : pSysBorder }} />)}
+                      {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 14, background: i === 0 ? pT.accent : pSysBorder }} />)}
                     </div>
                   </div>
                   {/* rounded content panel with the background image (mirrors the 22px content area) */}
@@ -18853,7 +18853,7 @@ ${jobsCtx || "No jobs found."}`;
                     {(() => { const renderMock = (which) => which === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
                       {/* content toolbar — New Job lives here (on the screen), not in the header */}
                       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "7px 14px" }}>+ New Job</span>
+                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 14, padding: "7px 14px" }}>+ New Job</span>
                       </div>
                       {[[70, 56, 82], [62, 78, 48, 66], [74, 50, 60]].map((rowWidths, sec) => {
                         const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
@@ -18861,7 +18861,7 @@ ${jobsCtx || "No jobs found."}`;
                           {/* group header — blank label + count chip */}
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
                             <div style={{ height: 9, width: 88, borderRadius: 4, background: pT.text, opacity: 0.55 }} />
-                            <div style={{ height: 15, width: 24, borderRadius: 8, background: pT.accent + "2e" }} />
+                            <div style={{ height: 15, width: 24, borderRadius: 14, background: pT.accent + "2e" }} />
                           </div>
                           {/* frosted section panel */}
                           <div style={{ background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden" }}>
@@ -18884,7 +18884,7 @@ ${jobsCtx || "No jobs found."}`;
                                 <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
                                 <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
                                 <div style={{ height: 6, borderRadius: 3, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 3 }} /></div>
-                                <div style={{ width: 16, height: 16, borderRadius: 8, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
+                                <div style={{ width: 16, height: 16, borderRadius: 14, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
                               </div>
                             ))}
                           </div>
@@ -18893,11 +18893,11 @@ ${jobsCtx || "No jobs found."}`;
                     </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12 }}>
                       {/* schedule toolbar — Select / Today + filter + search */}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 8, padding: "6px 14px" }}>Select</span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 8, padding: "6px 12px", opacity: 0.75 }}>Today</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 14, padding: "6px 14px" }}>Select</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 14, padding: "6px 12px", opacity: 0.75 }}>Today</span>
                         <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                          <span style={{ width: 22, height: 22, borderRadius: 6, background: pT.border }} />
-                          <span style={{ width: 22, height: 22, borderRadius: 6, background: pT.border }} />
+                          <span style={{ width: 22, height: 22, borderRadius: 14, background: pT.border }} />
+                          <span style={{ width: 22, height: 22, borderRadius: 14, background: pT.border }} />
                         </span>
                       </div>
                       {/* gantt panel (frosted) — left roster + timeline with bars */}
@@ -18914,7 +18914,7 @@ ${jobsCtx || "No jobs found."}`;
                           {SCHED_GROUPS.map((rows, gi) => <div key={gi}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", background: hexA(pT.text, 0.05) }}>
                               <div style={{ height: 7, width: 54, borderRadius: 3, background: pT.text, opacity: 0.5 }} />
-                              <div style={{ height: 12, width: 20, borderRadius: 6, background: pT.accent + "2e" }} />
+                              <div style={{ height: 12, width: 20, borderRadius: 14, background: pT.accent + "2e" }} />
                             </div>
                             {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                               <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
@@ -18947,7 +18947,7 @@ ${jobsCtx || "No jobs found."}`;
                               {/* body: job + client + status */}
                               <div style={{ height: 6, width: "86%", borderRadius: 3, background: pT.textDim, opacity: 0.3 }} />
                               <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 3, background: ac, opacity: 0.5 }} /></div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 6, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 3, background: pT.textDim, opacity: 0.25 }} /></div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 14, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 3, background: pT.textDim, opacity: 0.25 }} /></div>
                             </div>;
                           })}
                         </div>
@@ -19081,8 +19081,8 @@ ${jobsCtx || "No jobs found."}`;
                 {exportSelSearch && <button onClick={() => setExportSelSearch("")} style={{ background: "none", border: "none", color: T.textDim, cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>}
               </div>
               {/* Select / Clear */}
-              <button onClick={() => { if (allVisibleSelected) { setExportSelRows(prev => { const n = new Set(prev); visibleJobs.forEach(j => n.delete(j.id)); return n; }); } else { setExportSelRows(prev => { const n = new Set(prev); visibleJobs.forEach(j => n.add(j.id)); return n; }); } }} style={{ height: 30, padding: "0 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: allVisibleSelected ? T.accent + "22" : "transparent", color: allVisibleSelected ? T.accent : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>{allVisibleSelected ? "Deselect All" : "Select All"}</button>
-              {exportSelRows.size > 0 && <button onClick={() => setExportSelRows(new Set())} style={{ height: 30, padding: "0 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear</button>}
+              <button onClick={() => { if (allVisibleSelected) { setExportSelRows(prev => { const n = new Set(prev); visibleJobs.forEach(j => n.delete(j.id)); return n; }); } else { setExportSelRows(prev => { const n = new Set(prev); visibleJobs.forEach(j => n.add(j.id)); return n; }); } }} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: allVisibleSelected ? T.accent + "22" : "transparent", color: allVisibleSelected ? T.accent : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>{allVisibleSelected ? "Deselect All" : "Select All"}</button>
+              {exportSelRows.size > 0 && <button onClick={() => setExportSelRows(new Set())} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear</button>}
               <div style={{ flex: 1 }} />
               {/* Export buttons */}
               <div style={{ display: "flex", gap: 6 }}>
@@ -19167,7 +19167,7 @@ ${jobsCtx || "No jobs found."}`;
       const CANVAS_W = 760;
       const scale = dims ? Math.min(1, CANVAS_W / dims.w) : 1;
       const ELBL = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 7 };
-      const EBTN = { padding: "0 12px", height: 30, borderRadius: T.radiusXs, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
+      const EBTN = { padding: "0 12px", height: 30, borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font };
       const palette = [
         { type: "title", label: "Title", w: 420, h: 40, group: "Elements" },
         { type: "subtitle", label: "Subtitle", w: 420, h: 28, group: "Elements" },
@@ -19236,7 +19236,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Left rail: Add elements + Layers */}
               <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 16 }}>
                 <div>
-                  <button onClick={() => { if (!exportAddOpen) setExportAddSeq(s => s + 1); setExportAddOpen(o => !o); }} title={exportAddOpen ? "Close the element picker" : "Add an element to this page"} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 34, borderRadius: 8, border: `1px solid ${exportAddOpen ? T.accent : T.accent + "66"}`, background: exportAddOpen ? T.accent : T.accent + "14", color: exportAddOpen ? T.accentText : T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s ease" }} onMouseEnter={ev => { if (!exportAddOpen) ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; }} onMouseLeave={ev => { ev.currentTarget.style.boxShadow = "none"; }}><span style={{ fontSize: 16, lineHeight: 1 }}>{exportAddOpen ? "×" : "+"}</span>{exportAddOpen ? "Close" : "Add Element"}</button>
+                  <button onClick={() => { if (!exportAddOpen) setExportAddSeq(s => s + 1); setExportAddOpen(o => !o); }} title={exportAddOpen ? "Close the element picker" : "Add an element to this page"} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 34, borderRadius: T.radiusPill, border: `1px solid ${exportAddOpen ? T.accent : T.accent + "66"}`, background: exportAddOpen ? T.accent : T.accent + "14", color: exportAddOpen ? T.accentText : T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s ease" }} onMouseEnter={ev => { if (!exportAddOpen) ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; }} onMouseLeave={ev => { ev.currentTarget.style.boxShadow = "none"; }}><span style={{ fontSize: 16, lineHeight: 1 }}>{exportAddOpen ? "×" : "+"}</span>{exportAddOpen ? "Close" : "Add Element"}</button>
                   <div style={{ display: "grid", gridTemplateRows: exportAddOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
                    <div style={{ overflow: "hidden", minHeight: 0 }}>
                     <div key={exportAddSeq} style={{ marginTop: exportAddOpen ? 12 : 0, transition: "margin-top 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
@@ -19281,7 +19281,7 @@ ${jobsCtx || "No jobs found."}`;
                               {b.type === "panel" && <>{chk("Operations (tasks)", "ops")}{chk("Dates", "dates")}{chk("Hours", "hours")}</>}
                               {b.type === "hours" && <>
                                 {chk("Department column", "department")}
-                                <button onClick={() => setExportPtoMode(m => !m)} title="Click day cells on the sheet to mark/unmark PTO (yellow)" style={{ marginTop: 8, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, height: 30, padding: "0 10px", borderRadius: T.radiusSm, border: `1px solid ${ptoActive ? "#f59e0b" : T.border}`, background: ptoActive ? "#f59e0b" : T.bg, color: ptoActive ? "#fff" : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.18s, border-color 0.18s, color 0.18s" }}>
+                                <button onClick={() => setExportPtoMode(m => !m)} title="Click day cells on the sheet to mark/unmark PTO (yellow)" style={{ marginTop: 8, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, height: 30, padding: "0 10px", borderRadius: T.radiusPill, border: `1px solid ${ptoActive ? "#f59e0b" : T.border}`, background: ptoActive ? "#f59e0b" : T.bg, color: ptoActive ? "#fff" : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.18s, border-color 0.18s, color 0.18s" }}>
                                   <span style={{ width: 12, height: 12, borderRadius: 3, background: "#fde68a", border: "1px solid rgba(0,0,0,0.2)", display: "inline-block", flexShrink: 0 }} />
                                   {ptoActive ? "PTO highlight ON — click cells" : "Highlight PTO"}
                                 </button>
@@ -19316,7 +19316,7 @@ ${jobsCtx || "No jobs found."}`;
                   const size = f.size || ds;
                   const bold = f.bold != null ? f.bold : (tgt?.type === "title");
                   const al = f.align || (tgt?.type === "datetime" ? "right" : tgt?.type === "logo" ? "center" : "left");
-                  const fb = (active, onClick, child, title, enabled) => <button key={title} disabled={!enabled} onMouseDown={ev => ev.preventDefault()} onClick={enabled ? onClick : undefined} title={enabled ? title : `${title} (select text)`} style={{ minWidth: 30, height: 28, padding: "0 7px", borderRadius: 6, border: `1px solid ${active && enabled ? T.accent : T.border}`, background: active && enabled ? T.accent : T.bg, color: active && enabled ? T.accentText : T.text, cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.38, fontSize: 14, fontFamily: T.font, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease" }}>{child}</button>;
+                  const fb = (active, onClick, child, title, enabled) => <button key={title} disabled={!enabled} onMouseDown={ev => ev.preventDefault()} onClick={enabled ? onClick : undefined} title={enabled ? title : `${title} (select text)`} style={{ minWidth: 30, height: 28, padding: "0 7px", borderRadius: T.radiusPill, border: `1px solid ${active && enabled ? T.accent : T.border}`, background: active && enabled ? T.accent : T.bg, color: active && enabled ? T.accentText : T.text, cursor: enabled ? "pointer" : "default", opacity: enabled ? 1 : 0.38, fontSize: 14, fontFamily: T.font, display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease, color 0.2s ease" }}>{child}</button>;
                   const aSvg = (a, b2, c, d, e2, f2) => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1={a} y1="12" x2={b2} y2="12"/><line x1={c} y1="18" x2={d} y2="18"/><line x1={e2} y1="9" x2={f2} y2="9" style={{ opacity: 0 }}/></svg>;
                   return <div onMouseDown={ev => ev.preventDefault()} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 10px", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 6px 20px rgba(0,0,0,0.45)", fontFamily: T.font }}>
                     {fb(al === "left", () => setFmt(tgt, { align: "left" }), aSvg(3, 14, 3, 18, 0, 0), "Align left", isAlignable)}
@@ -19333,9 +19333,9 @@ ${jobsCtx || "No jobs found."}`;
                   </div>;
                 })()}
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                  {(layout.pages || []).map((_, i) => <button key={i} onClick={() => { setExportPageIdx(i); setExportSelId(null); }} style={{ height: 26, padding: "0 10px", borderRadius: 6, border: `1px solid ${i === pageIdx ? T.accent : "#ffffff44"}`, background: i === pageIdx ? T.accent : "#ffffff18", color: i === pageIdx ? T.accentText : "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Page {i + 1}</button>)}
-                  <button onClick={() => { const n = (layout.pages || []).length; pushExportHistory(); setExportLayout(L => ({ ...L, pages: [...L.pages, { blocks: [] }] })); setExportPageIdx(n); }} style={{ height: 26, padding: "0 10px", borderRadius: 6, border: "1px solid #ffffff44", background: "#ffffff18", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Page</button>
-                  {(layout.pages || []).length > 1 && <button onClick={() => { pushExportHistory(); setExportLayout(L => ({ ...L, pages: L.pages.filter((_, i) => i !== pageIdx) })); setExportPageIdx(p => Math.max(0, p - 1)); }} style={{ height: 26, padding: "0 10px", borderRadius: 6, border: "1px solid #ffffff44", background: "#ffffff18", color: "#fca5a5", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Remove Page</button>}
+                  {(layout.pages || []).map((_, i) => <button key={i} onClick={() => { setExportPageIdx(i); setExportSelId(null); }} style={{ height: 26, padding: "0 10px", borderRadius: T.radiusPill, border: `1px solid ${i === pageIdx ? T.accent : "#ffffff44"}`, background: i === pageIdx ? T.accent : "#ffffff18", color: i === pageIdx ? T.accentText : "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Page {i + 1}</button>)}
+                  <button onClick={() => { const n = (layout.pages || []).length; pushExportHistory(); setExportLayout(L => ({ ...L, pages: [...L.pages, { blocks: [] }] })); setExportPageIdx(n); }} style={{ height: 26, padding: "0 10px", borderRadius: T.radiusPill, border: "1px solid #ffffff44", background: "#ffffff18", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Page</button>
+                  {(layout.pages || []).length > 1 && <button onClick={() => { pushExportHistory(); setExportLayout(L => ({ ...L, pages: L.pages.filter((_, i) => i !== pageIdx) })); setExportPageIdx(p => Math.max(0, p - 1)); }} style={{ height: 26, padding: "0 10px", borderRadius: T.radiusPill, border: "1px solid #ffffff44", background: "#ffffff18", color: "#fca5a5", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Remove Page</button>}
                 </div>
                 <div onDragOver={ev => ev.preventDefault()} onPointerDown={ev => { if (ev.target === ev.currentTarget) setExportSelId(null); }} onDrop={ev => { ev.preventDefault(); const i = parseInt(ev.dataTransfer.getData("text/plain"), 10); const item = palette[i]; if (!item) return; const rect = ev.currentTarget.getBoundingClientRect(); const g = layout.grid || 16; const snp = v => layout.snap !== false ? Math.round(v / g) * g : Math.round(v); const x = Math.max(0, snp((ev.clientX - rect.left) / scale)); const y = Math.max(0, snp((ev.clientY - rect.top) / scale)); const blk = blockFromItem(item, x, y); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }}
                   style={{ position: "relative", width: dims.w * scale, height: dims.h * scale, flexShrink: 0, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", backgroundColor: "#fff", backgroundImage: layout.snap !== false ? "linear-gradient(to right, rgba(0,0,0,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(0,0,0,0.06) 1px, transparent 1px)" : "none", backgroundSize: `${(layout.grid || 16) * scale}px ${(layout.grid || 16) * scale}px` }}>
@@ -19540,7 +19540,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 4 }}>
                     {[["text","Text"],["number","Number"],["date","Date"],["checkbox","Checkbox"]].map(([t, lbl]) => (
                       <button key={t} onClick={() => doInsert(t, lbl, t === "checkbox" ? [] : [])}
-                        style={{ padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}
+                        style={{ padding: "5px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, cursor: "pointer", fontFamily: T.font, textAlign: "left" }}
                         onMouseEnter={e => { e.currentTarget.style.background = T.hoverStrong; e.currentTarget.style.borderColor = T.accent + "66"; }}
                         onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>
                         {lbl}
@@ -19552,7 +19552,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                     {COL_TEMPLATES.map(tpl => (
                       <button key={tpl.label} onClick={() => doInsert(tpl.type, tpl.label, tpl.options)}
-                        style={{ padding: "5px 10px", borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.text, fontSize: 12, cursor: "pointer", fontFamily: T.font, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}
+                        style={{ padding: "5px 10px", borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.text, fontSize: 12, cursor: "pointer", fontFamily: T.font, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}
                         onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <span style={{ fontSize: 9, color: T.textDim, background: T.card, padding: "1px 4px", borderRadius: 3, border: `1px solid ${T.border}` }}>{tpl.type === "select" ? "LIST" : tpl.type === "checkbox" ? "✓" : tpl.type === "number" ? "NUM" : "TXT"}</span>
@@ -19733,7 +19733,7 @@ ${jobsCtx || "No jobs found."}`;
           style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", marginBottom: 18 }}
         />
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-          <button onClick={() => setClockTimeModal(null)} style={{ padding: "9px 18px", borderRadius: T.radiusXs, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setClockTimeModal(null)} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={async () => {
             const { personId, action, ts } = clockTimeModal;
             if (!ts) return;
@@ -19754,7 +19754,7 @@ ${jobsCtx || "No jobs found."}`;
                 } else { alert(res.error || "Clock-out failed"); }
               }
             } catch { alert("Network error"); }
-          }} style={{ padding: "9px 20px", borderRadius: T.radiusXs, border: "none", background: clockTimeModal.action === "in" ? "#22c55e" : "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+          }} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: clockTimeModal.action === "in" ? "#22c55e" : "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
             Confirm {clockTimeModal.action === "in" ? "Clock In" : "Clock Out"}
           </button>
         </div>
@@ -19775,7 +19775,7 @@ ${jobsCtx || "No jobs found."}`;
           A detailed notification will be sent to all admins for <strong style={{ color: T.text }}>{finishApproval.title}</strong>. They can approve or decline directly inside TRAQS.
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => setFinishApproval(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setFinishApproval(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={() => { requestFinishApproval(finishApproval.id); setFinishApproval(null); }} style={{ flex: 1, padding: "11px", border: "none", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Send Request</button>
         </div>
       </div>
@@ -19842,7 +19842,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setSplitModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => setSplitModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={doSplit} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Split</button>
           </div>
         </div>
@@ -19900,7 +19900,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setWorkedHoursModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusSm, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => setWorkedHoursModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={applyWorked} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Set</button>
           </div>
         </div>
@@ -19926,7 +19926,7 @@ ${jobsCtx || "No jobs found."}`;
                   const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
                   const newHpd = Math.max(0.5, parseFloat((parseH(orgSettings.workEnd || "15:00") - parseH(newStart)).toFixed(2)));
                   setOrgSettings(s => ({ ...s, workStart: newStart, hpd: newHpd }));
-                }} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
+                }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 12, color: T.textDim }}>Closes</span>
@@ -19935,7 +19935,7 @@ ${jobsCtx || "No jobs found."}`;
                   const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
                   const newHpd = Math.max(0.5, parseFloat((parseH(newEnd) - parseH(orgSettings.workStart || "07:00")).toFixed(2)));
                   setOrgSettings(s => ({ ...s, workEnd: newEnd, hpd: newHpd }));
-                }} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
+                }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
               <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>= {orgSettings.hpd} hrs/day</span>
             </div>
@@ -19953,7 +19953,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               ))}
             </div>
-            <button onClick={() => setOrgSettings(s => ({ ...s, breaks: [...(s.breaks || []), { time: "10:00", durationMinutes: 15 }] }))} style={{ marginTop: 10, padding: "4px 10px", borderRadius: 6, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Add Break</button>
+            <button onClick={() => setOrgSettings(s => ({ ...s, breaks: [...(s.breaks || []), { time: "10:00", durationMinutes: 15 }] }))} style={{ marginTop: 10, padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>+ Add Break</button>
           </div>
           {/* Lunch */}
           <div>
@@ -20207,7 +20207,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, background: s.done ? "#10b98118" : T.surface, color: s.done ? "#10b981" : T.textDim, border: `1px solid ${s.done ? "#10b98140" : T.border}` }}>{s.done ? "✓" : i + 1}</span>
                 <input value={s.label} onChange={e => setStep(i, e.target.value)} placeholder={`Step ${i + 1}`} style={{ ...fld, padding: "7px 10px", fontSize: 13 }} />
                 <AssigneeDrop value={s.assigneeId || ""} onChange={pid => setStepAssignee(i, pid)} people={people} />
-                <button onClick={() => delStep(i)} title="Remove step" style={{ width: 26, height: 26, flexShrink: 0, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 14, cursor: "pointer", lineHeight: 1 }}>×</button>
+                <button onClick={() => delStep(i)} title="Remove step" style={{ width: 26, height: 26, flexShrink: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.danger, fontSize: 14, cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>)}
               {(m.steps || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim, fontStyle: "italic", padding: "6px 2px" }}>No steps yet — add the approval steps above.</div>}
             </div>
@@ -20250,7 +20250,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               ))}
             </div>
-            <button onClick={() => setSignOffTemplateEditing({ name: "", steps: [""] })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 0", borderRadius: T.radiusSm, border: `2px dashed ${T.accent}44`, background: T.accent + "06", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
+            <button onClick={() => setSignOffTemplateEditing({ name: "", steps: [""] })} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "10px 0", borderRadius: T.radiusPill, border: `2px dashed ${T.accent}44`, background: T.accent + "06", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent; }}
               onMouseLeave={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "44"; }}>
               + New Template
@@ -20276,7 +20276,7 @@ ${jobsCtx || "No jobs found."}`;
                       {(signOffTemplateEditing.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>✕</button>}
                     </div>
                   ))}
-                  <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))} style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 10px", borderRadius: 6, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Step</button>
+                  <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))} style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Step</button>
                 </div>
               </div>
             </div>
@@ -20324,7 +20324,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 11, color: T.textDim }}>AI scheduling assistant</div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-            {(askHistory.length > 0 || pendingActions) && <button onClick={() => { setAskHistory([]); setPendingActions(null); }} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 6, color: T.textDim, fontSize: 11, padding: "3px 8px", cursor: "pointer", fontFamily: T.font }}>Clear</button>}
+            {(askHistory.length > 0 || pendingActions) && <button onClick={() => { setAskHistory([]); setPendingActions(null); }} style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.textDim, fontSize: 11, padding: "3px 8px", cursor: "pointer", fontFamily: T.font }}>Clear</button>}
             <button onClick={() => setAskOpen(false)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
           </div>
         </div>
@@ -20339,7 +20339,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.6 }}>Ask about workloads, scheduling conflicts, job assignments, or anything about your team's capacity.</div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%", maxWidth: 320 }}>
-              {["Who is overbooked this week?", "Which jobs are at risk of running late?", "Who has capacity to take on more work?", "Mark [job name] as finished", "Assign [person] to [job]"].map(s => <button key={s} onClick={() => { setAskQ(s); askInputRef.current?.focus(); }} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "9px 14px", cursor: "pointer", fontSize: 12, color: T.textSec, textAlign: "left", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.text; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>{s}</button>)}
+              {["Who is overbooked this week?", "Which jobs are at risk of running late?", "Who has capacity to take on more work?", "Mark [job name] as finished", "Assign [person] to [job]"].map(s => <button key={s} onClick={() => { setAskQ(s); askInputRef.current?.focus(); }} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "9px 14px", cursor: "pointer", fontSize: 12, color: T.textSec, textAlign: "left", fontFamily: T.font, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.text; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>{s}</button>)}
             </div>
           </div>}
           {askHistory.map((msg, i) => {
@@ -20381,7 +20381,7 @@ ${jobsCtx || "No jobs found."}`;
               ))}
             </div>
             <div style={{ padding: "8px 14px 14px", display: "flex", gap: 8 }}>
-              <button onClick={() => setPendingActions(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={() => setPendingActions(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={executeConfirmedActions} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Confirm & Apply</button>
             </div>
           </div>
@@ -20410,7 +20410,7 @@ ${jobsCtx || "No jobs found."}`;
           <InputField label="Template Name" value={templateNameInput} onChange={v => setTemplateNameInput(v)}
             placeholder='e.g. Standard 3-Op, Riverside Job' />
           <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-            <button onClick={() => setSaveTemplateModal(false)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusSm,
+            <button onClick={() => setSaveTemplateModal(false)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusPill,
               border: `1px solid ${T.border}`, background: "transparent", color: T.textSec,
               fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button disabled={!templateNameInput.trim()}
@@ -20581,7 +20581,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Ambient glow orb */}
           {!isMobile && <div style={{ position: "absolute", top: -100, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, background: `radial-gradient(circle, ${T.accent}18 0%, transparent 65%)`, pointerEvents: "none" }} />}
           {/* Close */}
-          <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); }} style={{ position: "absolute", top: isMobile ? 14 : 20, right: isMobile ? 16 : 24, width: 32, height: 32, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, zIndex: 2 }}>✕</button>
+          <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); }} style={{ position: "absolute", top: isMobile ? 14 : 20, right: isMobile ? 16 : 24, width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, zIndex: 2 }}>✕</button>
 
           {/* Title — "FAST" as glowing text + TRAQS wordmark tinted to accent, both aligned to cap-height */}
           {(() => {
@@ -20619,7 +20619,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* BEGIN button */}
           <button
             onClick={() => { setFastTraqsExiting(true); setTimeout(() => { setFastTraqsPhase("input"); setFastTraqsExiting(false); }, 420); }}
-            style={{ width: "100%", padding: isMobile ? "14px 0" : "17px 0", borderRadius: 16, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: isMobile ? 16 : 18, fontWeight: 900, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.06em", animation: "glow-pulse 2.4s ease-in-out infinite", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, transition: "transform 0.15s ease" }}
+            style={{ width: "100%", padding: isMobile ? "14px 0" : "17px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: isMobile ? 16 : 18, fontWeight: 900, cursor: "pointer", fontFamily: T.font, letterSpacing: "0.06em", animation: "glow-pulse 2.4s ease-in-out infinite", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, transition: "transform 0.15s ease" }}
             onMouseEnter={e => e.currentTarget.style.transform = "scale(1.02)"}
             onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
             onMouseDown={e => e.currentTarget.style.transform = "scale(0.97)"}
@@ -20635,14 +20635,14 @@ ${jobsCtx || "No jobs found."}`;
         <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 620, maxHeight: "88vh", overflow: "auto", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14` }}>
           {/* Header */}
           <div style={{ padding: "18px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-            <Tip label="Back"><button onClick={() => setFastTraqsPhase("intro")} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
+            <Tip label="Back"><button onClick={() => setFastTraqsPhase("intro")} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "0.04em" }}>FAST TRAQS</span>
               </div>
               <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>Type a description OR drop in a file — FAST TRAQS detects jobs, panels, and assignments automatically</div>
             </div>
-            <button onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, flexShrink: 0 }}>✕</button>
+            <button onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, flexShrink: 0 }}>✕</button>
           </div>
 
           {/* Body */}
@@ -20726,7 +20726,7 @@ ${jobsCtx || "No jobs found."}`;
           <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 760, maxHeight: "90vh", overflow: "hidden", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14`, display: "flex", flexDirection: "column" }}>
             {/* Header */}
             <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-              <Tip label="Back to input"><button onClick={() => setFastTraqsPhase("input")} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
+              <Tip label="Back to input"><button onClick={() => setFastTraqsPhase("input")} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "0.04em" }}>REVIEW EXTRACTION</div>
                 <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>
@@ -20736,7 +20736,7 @@ ${jobsCtx || "No jobs found."}`;
                   {_checkedClients.length > 0 && ` · ${_checkedClients.length} new client${_checkedClients.length !== 1 ? "s" : ""}`}
                 </div>
               </div>
-              <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); setPreviewData(null); }} style={{ width: 32, height: 32, borderRadius: 8, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, flexShrink: 0 }}>✕</button>
+              <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); setPreviewData(null); }} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.bgText, fontFamily: T.font, flexShrink: 0 }}>✕</button>
             </div>
 
             {/* Body */}
@@ -20871,7 +20871,7 @@ ${jobsCtx || "No jobs found."}`;
           <br /><span style={{ color: T.danger, fontSize: 12 }}>This cannot be undone.</span>
         </p>
         <div style={{ display: "flex", gap: 12 }}>
-          <button onClick={() => setConfirmClearChat(null)} style={{ flex: 1, padding: "11px 0", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setConfirmClearChat(null)} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={async () => {
             const { threadKey, isGroup, groupId } = confirmClearChat;
             try { await deleteThread(threadKey, getToken, orgCode); } catch {}
@@ -20884,7 +20884,7 @@ ${jobsCtx || "No jobs found."}`;
               setPinnedGroups(p => { const n = p.filter(id => id !== groupId); localStorage.setItem("tq_pinned_groups", JSON.stringify(n)); return n; });
             }
             setConfirmClearChat(null);
-          }} style={{ flex: 1, padding: "11px 0", borderRadius: 10, border: "none", background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 4px 16px rgba(239,68,68,0.35)" }}>
+          }} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: "none", background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 4px 16px rgba(239,68,68,0.35)" }}>
             {confirmClearChat.isGroup ? "Delete Group" : "Clear Chat"}
           </button>
         </div>
@@ -20899,7 +20899,7 @@ ${jobsCtx || "No jobs found."}`;
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Download
         </a>
-        <button onClick={async () => { const url = `${window.location.origin}/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`; try { if (navigator.share) { await navigator.share({ title: lightboxAtt.filename, url }); } else if (navigator.clipboard) { await navigator.clipboard.writeText(url); alert("Link copied to clipboard"); } else { prompt("Copy this link:", url); } } catch {} }} style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 9, padding: "8px 14px", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: T.font, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <button onClick={async () => { const url = `${window.location.origin}/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`; try { if (navigator.share) { await navigator.share({ title: lightboxAtt.filename, url }); } else if (navigator.clipboard) { await navigator.clipboard.writeText(url); alert("Link copied to clipboard"); } else { prompt("Copy this link:", url); } } catch {} }} style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: T.radiusPill, padding: "8px 14px", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: T.font, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
           Share
         </button>
@@ -20935,7 +20935,7 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
             {panelPhotoUploading ? "Uploading…" : (atts.length > 0 ? "Take Another Photo" : "Take Photo")}
           </button>
-          <button onClick={() => setPanelPhotoPrompt(null)} style={{ width: "100%", padding: "11px 0", marginTop: 10, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>{atts.length > 0 ? "Done" : "Skip"}</button>
+          <button onClick={() => setPanelPhotoPrompt(null)} style={{ width: "100%", padding: "11px 0", marginTop: 10, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>{atts.length > 0 ? "Done" : "Skip"}</button>
         </div>
       </div>;
     })()}</FadeOnClose>
@@ -21002,7 +21002,7 @@ ${jobsCtx || "No jobs found."}`;
               {quickChat.participants.length > 7 && <span style={{ fontSize: 10, color: T.textDim, marginLeft: 2 }}>+{quickChat.participants.length - 7}</span>}
             </div>
           </div>
-          <Tip label="Open in Messages tab"><button onClick={() => { setChatThread(quickChat); setView("messages"); markThreadRead(quickChat.threadKey); setQuickChat(null); }} style={{ background: T.accent + "18", border: `1px solid ${T.accent}44`, color: T.accent, borderRadius: 8, padding: "5px 11px", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>Full View →</button></Tip>
+          <Tip label="Open in Messages tab"><button onClick={() => { setChatThread(quickChat); setView("messages"); markThreadRead(quickChat.threadKey); setQuickChat(null); }} style={{ background: T.accent + "18", border: `1px solid ${T.accent}44`, color: T.accent, borderRadius: T.radiusPill, padding: "5px 11px", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>Full View →</button></Tip>
           <button onClick={() => setQuickChat(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}>✕</button>
         </div>
         {/* Messages scroll area */}
@@ -21262,7 +21262,7 @@ ${jobsCtx || "No jobs found."}`;
                 for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id !== it.id && (op.team||[]).includes(p.id) && op.status !== "Finished" && op.start <= it.end && op.end >= it.start) { busy = true; } } } }
                 if (!busy) { const pp = people.find(x => x.id === p.id); if (pp) for (const to of (pp.timeOff||[])) { if (to.start <= it.end && to.end >= it.start) { busy = true; break; } } }
               }
-              return <button key={p.id} onClick={() => { if (busy) return; setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs||[]).map(panel => ({ ...panel, subs: (panel.subs||[]).map(op => op.id === it.id ? { ...op, team: sel ? [] : [p.id] } : op) })) }))); setReassignModal(null); }} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : T.surface, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.45 : 1, transition: "all 0.12s", textAlign: "left" }} onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = T.accent; }} onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = sel ? T.accent : T.border; }}>
+              return <button key={p.id} onClick={() => { if (busy) return; setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs||[]).map(panel => ({ ...panel, subs: (panel.subs||[]).map(op => op.id === it.id ? { ...op, team: sel ? [] : [p.id] } : op) })) }))); setReassignModal(null); }} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusPill, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : T.surface, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.45 : 1, transition: "all 0.12s", textAlign: "left" }} onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = T.accent; }} onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = sel ? T.accent : T.border; }}>
                 <div style={{ width: 32, height: 32, borderRadius: 9, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.text, display: "flex", alignItems: "center", gap: 6 }}>
@@ -21384,7 +21384,7 @@ ${jobsCtx || "No jobs found."}`;
                 return <button key={p.id} onClick={() => setQuickAddSub(prev => ({
                   ...prev,
                   team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id]
-                }))} style={{ padding: "4px 10px", borderRadius: 8, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? T.accent : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                }))} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? T.accent : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
                   <span style={{ width: 16, height: 16, borderRadius: 5, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</span>
                   {p.name}
                   {isBackup && <span style={{ fontSize: 8, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 3, padding: "0 4px", letterSpacing: "0.04em", marginLeft: 2 }}>BACKUP</span>}
@@ -21394,7 +21394,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setQuickAddSub(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setQuickAddSub(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={() => {
             if (!quickAddSub.title.trim()) return;
             const newItem = { id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: quickAddSub.team || [], hpd: 7.5, notes: "", deps: [] };
@@ -21410,7 +21410,7 @@ ${jobsCtx || "No jobs found."}`;
               )})));
             }
             setQuickAddSub(null);
-          }} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusXs, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+          }} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
             {quickAddSub.type === "panel" ? "Add Panel" : "Add Operation"}
           </button>
         </div>
@@ -21527,7 +21527,7 @@ ${jobsCtx || "No jobs found."}`;
             {(ed.timeOff || []).map((to, i) => <div key={i} style={{ display: "flex", gap: 10, alignItems: "end", marginBottom: 10, padding: 12, background: T.surface, borderRadius: T.radiusSm, border: "1px solid #a78bfa22" }}>
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>From</label><TraqsDatePicker compact value={to.start} onChange={v => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], start: v }; setEd(p => ({ ...p, timeOff: nto })); }} /></div>
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>To</label><TraqsDatePicker compact value={to.end} onChange={v => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], end: v }; setEd(p => ({ ...p, timeOff: nto })); }} /></div>
-              <div><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Type</label><div style={{ display: "flex", gap: 4 }}>{["PTO", "UTO"].map(t => { const active = (to.type || "PTO") === t; const c = t === "PTO" ? "#10b981" : "#f59e0b"; return <button key={t} type="button" onClick={() => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], type: t }; setEd(p => ({ ...p, timeOff: nto })); }} style={{ padding: "8px 11px", borderRadius: T.radiusXs, border: `1px solid ${active ? c + "66" : T.border}`, background: active ? c + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: active ? 700 : 400, color: active ? c : T.textSec }}>{t}</button>; })}</div></div>
+              <div><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Type</label><div style={{ display: "flex", gap: 4 }}>{["PTO", "UTO"].map(t => { const active = (to.type || "PTO") === t; const c = t === "PTO" ? "#10b981" : "#f59e0b"; return <button key={t} type="button" onClick={() => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], type: t }; setEd(p => ({ ...p, timeOff: nto })); }} style={{ padding: "8px 11px", borderRadius: T.radiusPill, border: `1px solid ${active ? c + "66" : T.border}`, background: active ? c + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: active ? 700 : 400, color: active ? c : T.textSec }}>{t}</button>; })}</div></div>
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Reason</label><input value={to.reason} onChange={e => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], reason: e.target.value }; setEd(p => ({ ...p, timeOff: nto })); }} placeholder="Vacation, Sick..." style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} /></div>
               <Btn variant="danger" size="sm" onClick={() => { const nto = ed.timeOff.filter((_, j) => j !== i); setEd(p => ({ ...p, timeOff: nto })); }}>✕</Btn>
             </div>)}
@@ -21563,7 +21563,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ marginLeft: "auto" }}>
             <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Type</label>
             <div style={{ display: "flex", gap: 4 }}>
-              {["PTO", "UTO"].map(t => <button key={t} onClick={() => setTimeOffEdit(p => ({ ...p, type: t }))} style={{ padding: "5px 14px", borderRadius: 6, border: `1px solid ${timeOffEdit.type === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "66" : T.border}`, background: timeOffEdit.type === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: timeOffEdit.type === t ? 700 : 400, color: timeOffEdit.type === t ? (t === "PTO" ? "#10b981" : "#f59e0b") : T.textSec }}>{t}</button>)}
+              {["PTO", "UTO"].map(t => <button key={t} onClick={() => setTimeOffEdit(p => ({ ...p, type: t }))} style={{ padding: "5px 14px", borderRadius: T.radiusPill, border: `1px solid ${timeOffEdit.type === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "66" : T.border}`, background: timeOffEdit.type === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: timeOffEdit.type === t ? 700 : 400, color: timeOffEdit.type === t ? (t === "PTO" ? "#10b981" : "#f59e0b") : T.textSec }}>{t}</button>)}
             </div>
           </div>
         </div>
@@ -21604,8 +21604,8 @@ ${jobsCtx || "No jobs found."}`;
               : `You are signed in as ${loggedInUser?.name || ""}. Are you sure you want to log out?`}
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button onClick={() => setConfirmLogout(false)} style={{ padding: "9px 20px", borderRadius: T.radiusXs, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={() => { setConfirmLogout(false); handleLogout(); }} style={{ padding: "9px 20px", borderRadius: T.radiusXs, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Log Out</button>
+            <button onClick={() => setConfirmLogout(false)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => { setConfirmLogout(false); handleLogout(); }} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Log Out</button>
           </div>
         </div>
       </div>
@@ -21948,7 +21948,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {people.map(p => {
             const sel = newGroupPeople.includes(p.id);
-            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: 20, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
               <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{p.name[0]}</div>
               <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? T.accent : T.textSec }}>{p.name}</span>
             </button>;
@@ -21975,7 +21975,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
           {people.map(p => {
             const sel = editGroupModal.memberIds.includes(p.id);
-            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: 20, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
               <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{p.name[0]}</div>
               <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? T.accent : T.textSec }}>{p.name}</span>
             </button>;
@@ -22015,7 +22015,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 12, fontWeight: 800, color: T.text, letterSpacing: "0.03em", textTransform: "uppercase" }}>Place New Tasks</div>
               <div style={{ fontSize: 11, color: T.textDim }}>Drag each onto the schedule · {pendingScheduleItems.length} left</div>
             </div>
-            <button onClick={() => setPendingScheduleItems([])} title="Cancel" style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>✕</button>
+            <button onClick={() => setPendingScheduleItems([])} title="Cancel" style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", lineHeight: 1 }}>✕</button>
           </div>
           {/* Cards list */}
           <div className="tq-hide-scrollbar" style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -22227,7 +22227,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details and edit panels &amp; operations</div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 12, flexShrink: 0 }}>
-                <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
                   Attachments{(() => { const n = (ej.subs || []).reduce((s, p) => s + (p.attachments?.length || 0), 0); return n ? ` (${n})` : ""; })()}
                 </button>
                 <button onClick={() => setEditJobModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
@@ -22263,7 +22263,7 @@ ${jobsCtx || "No jobs found."}`;
                     {(() => {
                       const selPm = people.find(p => p.id === ej.projectManagerId);
                       return (
-                        <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
+                        <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
                           {selPm
                             ? <><div style={{ width: 22, height: 22, borderRadius: 6, background: selPm.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: accentText(selPm.color), flexShrink: 0 }}>{selPm.name[0]}</div><span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: "left" }}>{selPm.name}</span></>
                             : <span style={{ flex: 1, fontSize: 14, color: T.textDim, textAlign: "left" }}>— No PM —</span>}
@@ -22338,11 +22338,11 @@ ${jobsCtx || "No jobs found."}`;
                           {colorDropId === `editPanel-${panel.id}` && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 2300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: 10, width: 220, display: "flex", flexDirection: "column", gap: 8, animation: "menuIn 0.15s ease-out" }}>
                             <HexColorPicker color={pColor} onChange={c => updPanel(pi, { color: c })} style={{ width: "100%", height: 160 }} />
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                              {COLORS.map(c => <button key={c} onClick={() => updPanel(pi, { color: c })} title={c} style={{ width: 20, height: 20, borderRadius: 5, background: c, border: pColor?.toLowerCase() === c.toLowerCase() ? `2px solid ${T.text}` : `1px solid ${T.border}`, cursor: "pointer", padding: 0 }} />)}
+                              {COLORS.map(c => <button key={c} onClick={() => updPanel(pi, { color: c })} title={c} style={{ width: 20, height: 20, borderRadius: T.radiusPill, background: c, border: pColor?.toLowerCase() === c.toLowerCase() ? `2px solid ${T.text}` : `1px solid ${T.border}`, cursor: "pointer", padding: 0 }} />)}
                             </div>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-                              <button onClick={() => updPanel(pi, { color: ej.color })} style={{ padding: "4px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Reset to job</button>
-                              <button onClick={() => setColorDropId(null)} style={{ padding: "4px 12px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
+                              <button onClick={() => updPanel(pi, { color: ej.color })} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Reset to job</button>
+                              <button onClick={() => setColorDropId(null)} style={{ padding: "4px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
                             </div>
                           </div>}
                         </div>); })()}
@@ -22377,12 +22377,12 @@ ${jobsCtx || "No jobs found."}`;
                               <input type="number" min="0" step="0.5" value={op.hpd ?? ""} onChange={e => updOp(pi, oi, { hpd: e.target.value === "" ? null : parseFloat(e.target.value) })} placeholder="hrs" title="Hours per day" style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box", textAlign: "right", MozAppearance: "textfield" }} />
                               <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600 }}>h</span>
                             </div>
-                            <button onClick={() => removeOp(pi, oi)} title="Delete op" style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusXs, border: "none", background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <button onClick={() => removeOp(pi, oi)} title="Delete op" style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
                               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                             </button>
                           </div>);
                         })}
-                        <button onClick={() => addOp(pi)} style={{ alignSelf: "flex-start", padding: "4px 10px", borderRadius: T.radiusXs, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 4, animation: editPopBtn === `addOp-${pi}` ? "popBounce 0.32s ease-out" : "none" }}>
+                        <button onClick={() => addOp(pi)} style={{ alignSelf: "flex-start", padding: "4px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: "transparent", color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", gap: 4, animation: editPopBtn === `addOp-${pi}` ? "popBounce 0.32s ease-out" : "none" }}>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                           Add Operation
                         </button>
@@ -22437,7 +22437,7 @@ ${jobsCtx || "No jobs found."}`;
             <textarea value={reminderNote} onChange={e => setReminderNote(e.target.value)} placeholder="Please complete this job." rows={3} style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 13, padding: "10px 12px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
           </div>
           <div style={{ padding: "0 24px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button onClick={() => { setReminderModal(null); setReminderNote(""); }} style={{ padding: "9px 20px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => { setReminderModal(null); setReminderNote(""); }} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={() => sendReminder(reminderModal.item, reminderNote)} disabled={reminderSending || recipients.length === 0} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: reminderSending || recipients.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, opacity: reminderSending || recipients.length === 0 ? 0.6 : 1 }}>{reminderSending ? "Sending…" : "Send Reminder"}</button>
           </div>
         </div>
@@ -22446,9 +22446,9 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Floating bulk delete button(s) */}
     {(selJobs.size > 0 || selClients.size > 0 || selPeople.size > 0) && <div style={{ position: "fixed", bottom: 32, right: 32, zIndex: 1200, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end", animation: "ghost-fade-in 0.2s ease" }}>
-      {selJobs.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "jobs", ids: [...selJobs], count: selJobs.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selJobs.size} Job{selJobs.size !== 1 ? "s" : ""}</button>}
-      {selClients.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "clients", ids: [...selClients], count: selClients.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selClients.size} Client{selClients.size !== 1 ? "s" : ""}</button>}
-      {selPeople.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "people", ids: [...selPeople], count: selPeople.size })} style={{ padding: "11px 22px", borderRadius: T.radiusSm, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selPeople.size} Person{selPeople.size !== 1 ? "s" : ""}</button>}
+      {selJobs.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "jobs", ids: [...selJobs], count: selJobs.size })} style={{ padding: "11px 22px", borderRadius: T.radiusPill, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selJobs.size} Job{selJobs.size !== 1 ? "s" : ""}</button>}
+      {selClients.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "clients", ids: [...selClients], count: selClients.size })} style={{ padding: "11px 22px", borderRadius: T.radiusPill, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selClients.size} Client{selClients.size !== 1 ? "s" : ""}</button>}
+      {selPeople.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "people", ids: [...selPeople], count: selPeople.size })} style={{ padding: "11px 22px", borderRadius: T.radiusPill, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selPeople.size} Person{selPeople.size !== 1 ? "s" : ""}</button>}
     </div>}
     {/* Bulk delete confirmation modal */}
     {bulkDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBulkDeleteConfirm(null)}>
@@ -22487,7 +22487,7 @@ ${jobsCtx || "No jobs found."}`;
             return (
               <div key={cond.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface, border: `1px solid ${cond.enabled ? T.accent + "33" : T.border}`, borderRadius: T.radiusSm, transition: "border-color 0.15s" }}>
                 <button className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, conditions: (s.conditions || []).map(c => c.id === cond.id ? { ...c, enabled: !c.enabled } : c) }))}
-                  style={{ width: 36, height: 20, borderRadius: 10, border: "none", background: cond.enabled ? T.accent : T.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                  style={{ width: 36, height: 20, borderRadius: T.radiusPill, border: "none", background: cond.enabled ? T.accent : T.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                   <div style={{ width: 14, height: 14, borderRadius: 7, background: "#fff", position: "absolute", top: 3, left: cond.enabled ? 19 : 3, transition: "left 0.2s" }} />
                 </button>
                 {cond.formatBgColor && <div style={{ width: 12, height: 12, borderRadius: 3, background: cond.formatBgColor, border: `1px solid ${T.border}`, flexShrink: 0 }} />}
@@ -22499,11 +22499,11 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 <button onClick={() => { setCondWizard({ step: 1, ...cond }); setConditionsOpen(false); }}
-                  style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
                 <button onClick={() => setOrgSettings(s => ({ ...s, conditions: (s.conditions || []).filter(c => c.id !== cond.id) }))}
-                  style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`, background: "transparent", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                 </button>
               </div>
@@ -22512,7 +22512,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ padding: "12px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
           <button onClick={() => { setCondWizard({ step: 1, id: null, name: "", triggerField: "status", triggerOp: "equals", triggerValue: "", applyTo: "row", formatBgColor: "", formatTextColor: "", formatBold: false, formatStrike: false }); setConditionsOpen(false); }}
-            style={{ width: "100%", padding: "8px 0", borderRadius: T.radiusSm, border: `1.5px dashed ${T.accent}`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            style={{ width: "100%", padding: "8px 0", borderRadius: T.radiusPill, border: `1.5px dashed ${T.accent}`, background: T.accent + "08", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
             + New Condition
           </button>
         </div>
@@ -22576,7 +22576,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               {condApplyCols.map(col => (
                 <button key={col.key} onClick={() => setCondWizard(w => ({ ...w, applyTo: col.key }))}
-                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: T.radiusSm, border: `1.5px solid ${condWizard.applyTo === col.key ? T.accent : T.border}`, background: condWizard.applyTo === col.key ? T.accent + "10" : T.surface, cursor: "pointer", fontFamily: T.font, transition: "all 0.1s", textAlign: "left" }}>
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", borderRadius: T.radiusPill, border: `1.5px solid ${condWizard.applyTo === col.key ? T.accent : T.border}`, background: condWizard.applyTo === col.key ? T.accent + "10" : T.surface, cursor: "pointer", fontFamily: T.font, transition: "all 0.1s", textAlign: "left" }}>
                   <div style={{ width: 15, height: 15, borderRadius: "50%", border: `2px solid ${condWizard.applyTo === col.key ? T.accent : T.border}`, background: condWizard.applyTo === col.key ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     {condWizard.applyTo === col.key && <div style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />}
                   </div>
@@ -22593,11 +22593,11 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
                 <Tip label="None">
                 <button onClick={() => setCondWizard(w => ({ ...w, formatBgColor: "" }))}
-                  style={{ width: 28, height: 28, borderRadius: 6, border: `2px solid ${!condWizard.formatBgColor ? T.accent : T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, fontSize: 12, fontWeight: 700 }}>✕</button>
+                  style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `2px solid ${!condWizard.formatBgColor ? T.accent : T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, fontSize: 12, fontWeight: 700 }}>✕</button>
                 </Tip>
                 {COND_FORMAT_COLORS.map(c => (
                   <button key={c.label} title={c.label} onClick={() => setCondWizard(w => ({ ...w, formatBgColor: c.bg }))}
-                    style={{ width: 28, height: 28, borderRadius: 6, border: `2px solid ${condWizard.formatBgColor === c.bg ? c.text : "transparent"}`, background: c.bg, cursor: "pointer", outline: condWizard.formatBgColor === c.bg ? `2px solid ${c.text}` : "none", outlineOffset: 2, boxSizing: "border-box" }} />
+                    style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `2px solid ${condWizard.formatBgColor === c.bg ? c.text : "transparent"}`, background: c.bg, cursor: "pointer", outline: condWizard.formatBgColor === c.bg ? `2px solid ${c.text}` : "none", outlineOffset: 2, boxSizing: "border-box" }} />
                 ))}
               </div>
             </div>
@@ -22606,19 +22606,19 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center" }}>
                 <Tip label="None">
                 <button onClick={() => setCondWizard(w => ({ ...w, formatTextColor: "" }))}
-                  style={{ width: 28, height: 28, borderRadius: 6, border: `2px solid ${!condWizard.formatTextColor ? T.accent : T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, fontSize: 12, fontWeight: 700 }}>✕</button>
+                  style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `2px solid ${!condWizard.formatTextColor ? T.accent : T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim, fontSize: 12, fontWeight: 700 }}>✕</button>
                 </Tip>
                 {COND_FORMAT_COLORS.map(c => (
                   <button key={c.label} title={c.label} onClick={() => setCondWizard(w => ({ ...w, formatTextColor: c.text }))}
-                    style={{ width: 28, height: 28, borderRadius: 6, border: `2px solid ${condWizard.formatTextColor === c.text ? c.text : "transparent"}`, background: c.text, cursor: "pointer", outline: condWizard.formatTextColor === c.text ? `2px solid ${c.text}` : "none", outlineOffset: 2, boxSizing: "border-box" }} />
+                    style={{ width: 28, height: 28, borderRadius: T.radiusPill, border: `2px solid ${condWizard.formatTextColor === c.text ? c.text : "transparent"}`, background: c.text, cursor: "pointer", outline: condWizard.formatTextColor === c.text ? `2px solid ${c.text}` : "none", outlineOffset: 2, boxSizing: "border-box" }} />
                 ))}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
               <button onClick={() => setCondWizard(w => ({ ...w, formatBold: !w.formatBold }))}
-                style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1.5px solid ${condWizard.formatBold ? T.accent : T.border}`, background: condWizard.formatBold ? T.accent + "15" : T.surface, color: condWizard.formatBold ? T.accent : T.text, fontSize: 13, fontWeight: condWizard.formatBold ? 800 : 600, cursor: "pointer", fontFamily: T.font }}>Bold</button>
+                style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, border: `1.5px solid ${condWizard.formatBold ? T.accent : T.border}`, background: condWizard.formatBold ? T.accent + "15" : T.surface, color: condWizard.formatBold ? T.accent : T.text, fontSize: 13, fontWeight: condWizard.formatBold ? 800 : 600, cursor: "pointer", fontFamily: T.font }}>Bold</button>
               <button onClick={() => setCondWizard(w => ({ ...w, formatStrike: !w.formatStrike }))}
-                style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusSm, border: `1.5px solid ${condWizard.formatStrike ? T.accent : T.border}`, background: condWizard.formatStrike ? T.accent + "15" : T.surface, color: condWizard.formatStrike ? T.accent : T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textDecoration: condWizard.formatStrike ? "line-through" : "none" }}>Strikethrough</button>
+                style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, border: `1.5px solid ${condWizard.formatStrike ? T.accent : T.border}`, background: condWizard.formatStrike ? T.accent + "15" : T.surface, color: condWizard.formatStrike ? T.accent : T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textDecoration: condWizard.formatStrike ? "line-through" : "none" }}>Strikethrough</button>
             </div>
             {(condWizard.formatBgColor || condWizard.formatTextColor || condWizard.formatBold || condWizard.formatStrike) && (
               <div style={{ padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: condWizard.formatBgColor || T.surface }}>
@@ -22629,7 +22629,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Footer */}
         <div style={{ padding: "12px 24px 20px", display: "flex", gap: 8, justifyContent: "flex-end", borderTop: `1px solid ${T.border}` }}>
-          <button onClick={() => setConditionsOpen(true)} style={{ padding: "8px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setConditionsOpen(true)} style={{ padding: "8px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           {condWizard.step > 1 && <button onClick={() => setCondWizard(w => ({ ...w, step: w.step - 1 }))} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back</button>}
           {condWizard.step < 3 && <button onClick={() => setCondWizard(w => ({ ...w, step: w.step + 1 }))} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Next →</button>}
           {condWizard.step === 3 && <button onClick={() => {
@@ -22764,7 +22764,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Team Member</label>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {shopCrew.map(p => <button key={p.id} onClick={() => setToPerson(toPerson === p.id ? null : p.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 8, border: `1px solid ${toPerson === p.id ? T.accent + "66" : T.border}`, background: toPerson === p.id ? T.accent + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, color: T.text, fontWeight: toPerson === p.id ? 600 : 400, transition: "all 0.15s" }}>
+            {shopCrew.map(p => <button key={p.id} onClick={() => setToPerson(toPerson === p.id ? null : p.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${toPerson === p.id ? T.accent + "66" : T.border}`, background: toPerson === p.id ? T.accent + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, color: T.text, fontWeight: toPerson === p.id ? 600 : 400, transition: "all 0.15s" }}>
               <div style={{ width: 18, height: 18, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
               {p.name}
             </button>)}
@@ -22773,7 +22773,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Type</label>
           <div style={{ display: "flex", gap: 6 }}>
-            {["PTO", "UTO"].map(t => <button key={t} onClick={() => setToType(t)} style={{ padding: "7px 18px", borderRadius: 8, border: `1px solid ${toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "66" : T.border}`, background: toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: toType === t ? 700 : 400, color: toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") : T.textSec, transition: "all 0.15s" }}>{t === "PTO" ? "PTO (Paid)" : "UTO (Unpaid)"}</button>)}
+            {["PTO", "UTO"].map(t => <button key={t} onClick={() => setToType(t)} style={{ padding: "7px 18px", borderRadius: T.radiusPill, border: `1px solid ${toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "66" : T.border}`, background: toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, fontWeight: toType === t ? 700 : 400, color: toType === t ? (t === "PTO" ? "#10b981" : "#f59e0b") : T.textSec, transition: "all 0.15s" }}>{t === "PTO" ? "PTO (Paid)" : "UTO (Unpaid)"}</button>)}
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
@@ -22802,7 +22802,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
           <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{to.person.name}</div>
           <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{fm(to.start)} → {fm(to.end)} · {to.reason}</div>
         </div>
-        <button onClick={() => handleRemove(to.person.id, to.idx)} style={{ background: "none", border: "none", color: T.danger, fontSize: 16, cursor: "pointer", padding: "4px 8px", borderRadius: 6 }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>✕</button>
+        <button onClick={() => handleRemove(to.person.id, to.idx)} style={{ background: "none", border: "none", color: T.danger, fontSize: 16, cursor: "pointer", padding: "4px 8px", borderRadius: T.radiusPill }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>✕</button>
       </div>)}
 
       {/* Past time off */}
