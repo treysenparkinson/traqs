@@ -337,7 +337,7 @@ export async function handler(event) {
       if (wasApproved && pIdx !== -1 && Array.isArray(people[pIdx].timeOff)) {
         if (needsReapproval) {
           // Pull the schedule entry until it's re-approved.
-          people[pIdx] = { ...people[pIdx], timeOff: people[pIdx].timeOff.filter((t) => t.reqId !== reqRec.id) };
+          people[pIdx] = { ...people[pIdx], timeOff: people[pIdx].timeOff.filter((t) => t.reqId !== reqRec.id), lastModifiedAt: nowIso() };
         } else {
           // Type/note change while still approved → update the entry in place.
           people[pIdx] = {
@@ -345,6 +345,7 @@ export async function handler(event) {
             timeOff: people[pIdx].timeOff.map((t) => t.reqId === reqRec.id
               ? { ...t, start: newStart, end: newEnd, type: newType, reason: newNote }
               : t),
+            lastModifiedAt: nowIso(),
           };
         }
         peopleChanged = true;
@@ -414,7 +415,7 @@ export async function handler(event) {
             reqId: reqRec.id,
           });
         }
-        people[pIdx] = { ...people[pIdx], timeOff: existing };
+        people[pIdx] = { ...people[pIdx], timeOff: existing, lastModifiedAt: nowIso() };
       }
 
       try {
@@ -485,6 +486,7 @@ export async function handler(event) {
         people[pIdx] = {
           ...people[pIdx],
           timeOff: people[pIdx].timeOff.filter((t) => t.reqId !== reqRec.id),
+          lastModifiedAt: nowIso(),
         };
       }
     }

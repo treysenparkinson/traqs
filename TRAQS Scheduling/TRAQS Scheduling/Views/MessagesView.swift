@@ -60,7 +60,8 @@ struct MessagesView: View {
                     key: key,
                     messages: msgs.sorted { $0.timestamp < $1.timestamp },
                     resolvedTitle: resolveTitle(key: key, myId: myId),
-                    lastReadAt: readMap[key]
+                    lastReadAt: readMap[key],
+                    myId: myId
                 )
             }
             .sorted { ($0.messages.last?.timestamp ?? "") > ($1.messages.last?.timestamp ?? "") }
@@ -569,6 +570,8 @@ struct MessageThread: Identifiable {
     /// ISO timestamp of the last time the current user opened this thread.
     /// Compared against each message's timestamp to compute `unreadCount`.
     var lastReadAt: String? = nil
+    /// The current user's person ID — own messages are never counted as unread.
+    var myId: String? = nil
     var id: String { key }
 
     var displayTitle: String {
@@ -584,8 +587,14 @@ struct MessageThread: Identifiable {
     var isDM: Bool { key.hasPrefix("dm:") }
     var lastMessage: Message? { messages.last }
     var unreadCount: Int {
-        guard let cutoff = lastReadAt else { return messages.count }
-        return messages.filter { $0.timestamp > cutoff }.count
+        guard let cutoff = lastReadAt else {
+            return messages.filter { $0.authorId != myId }.count
+        }
+        return messages.filter { m in
+            guard m.timestamp > cutoff else { return false }
+            if let me = myId, m.authorId == me { return false }
+            return true
+        }.count
     }
 }
 

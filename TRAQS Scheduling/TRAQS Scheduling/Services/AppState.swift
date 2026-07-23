@@ -1098,7 +1098,19 @@ class AppState {
     func refreshReadReceipts() async {
         guard let api else { return }
         if let map = try? await api.fetchReadReceipts() {
-            withoutAnimation { readReceipts = map }
+            withoutAnimation {
+                readReceipts = map
+                // Sync our own server cursor into local threadReadAt so reads
+                // on other devices (web, other iOS) clear this device's badge.
+                if let myId = currentPersonId {
+                    for (threadKey, cursors) in map {
+                        if let serverAt = cursors[myId] {
+                            let localAt = threadReadAt[threadKey] ?? ""
+                            if serverAt > localAt { threadReadAt[threadKey] = serverAt }
+                        }
+                    }
+                }
+            }
         }
     }
 

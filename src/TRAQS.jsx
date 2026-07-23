@@ -566,8 +566,8 @@ animStyle.textContent = `
 }
 @keyframes scheduleGlow {
   0%   { box-shadow: 0 0 0 0px rgba(255,255,255,0); filter: brightness(1); }
-  20%  { box-shadow: 0 0 0 4px rgba(255,255,255,0.9), 0 0 28px 10px var(--glow-color, rgba(255,255,255,0.5)); filter: brightness(1.35); }
-  55%  { box-shadow: 0 0 0 3px rgba(255,255,255,0.6), 0 0 20px 7px var(--glow-color, rgba(255,255,255,0.35)); filter: brightness(1.2); }
+  10%  { box-shadow: 0 0 0 4px rgba(255,255,255,0.9), 0 0 28px 10px var(--glow-color, rgba(255,255,255,0.5)); filter: brightness(1.35); }
+  30%  { box-shadow: 0 0 0 3px rgba(255,255,255,0.6), 0 0 20px 7px var(--glow-color, rgba(255,255,255,0.35)); filter: brightness(1.2); }
   100% { box-shadow: 0 0 0 0px rgba(255,255,255,0); filter: brightness(1); }
 }
 @keyframes glassShimmer {
@@ -3952,21 +3952,18 @@ Extraction rules:
     try {
       await decideTimeOffRequest({ id, action, reason }, getToken, orgCode);
       try { const r = await fetchTimeOffRequests(getToken, orgCode); setTimeOffRequests(r.requests || []); } catch {}
-      // Pull fresh people so the schedule + export reflect the new person.timeOff
-      // entry — but only when there's no unsaved local edit to clobber (same guard
-      // the poll uses). If skipped, the 30s poll reconciles once the admin is clean.
-      if ((action === "approve" || action === "cancel")
-          && saveStatusRef.current !== "saving" && saveStatusRef.current !== "unsaved") {
+      // Always pull fresh people after approve/cancel so the PTO bar appears on
+      // the schedule immediately. pollUpdateRef prevents the setter from being
+      // mistaken for a user edit (which would trigger autosave).
+      if (action === "approve" || action === "cancel") {
         try {
           const np = await fetchPeople(getToken, orgCode);
-          if (saveStatusRef.current !== "saving" && saveStatusRef.current !== "unsaved") {
-            pollUpdateRef.current = true;
-            setPeople(prev => {
-              const norm = normalizePeople(np);
-              if (JSON.stringify(prev) === JSON.stringify(norm)) { pollUpdateRef.current = false; return prev; }
-              return norm;
-            });
-          }
+          pollUpdateRef.current = true;
+          setPeople(prev => {
+            const norm = normalizePeople(np);
+            if (JSON.stringify(prev) === JSON.stringify(norm)) { pollUpdateRef.current = false; return prev; }
+            return norm;
+          });
         } catch {}
       }
     } catch (e) {
@@ -4298,7 +4295,21 @@ Extraction rules:
           pollUpdateRef.current = true;
           setClients(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; } return merged; });
         } else if (entity === "messages") {
-          setMessages((await readSlice("messages")) || []);
+          const freshMsgs = (await readSlice("messages")) || [];
+          setMessages(freshMsgs);
+          setPendingMessages(prev => {
+            if (!prev.length) return prev;
+            return prev.filter(p => {
+              const confirmed = freshMsgs.find(m =>
+                m.threadKey === p.threadKey &&
+                String(m.authorId) === String(p.authorId) &&
+                m.text === p.text &&
+                Math.abs(new Date(m.timestamp) - new Date(p.timestamp)) < 30000
+              );
+              if (confirmed) seenMsgIdsRef.current.add(String(confirmed.id));
+              return !confirmed;
+            });
+          });
         } else if (entity === "groups") {
           setGroups((await readSlice("groups")) || []);
         } else if (entity === "payhours") {
@@ -5842,9 +5853,11 @@ ${jobsCtx || "No jobs found."}`;
   }
 
   function markThreadRead(threadKey) {
-    const updated = { ...lastRead, [threadKey]: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const updated = { ...lastRead, [threadKey]: now };
     setLastRead(updated);
     localStorage.setItem("tq_last_read", JSON.stringify(updated));
+    markThreadReadServer(threadKey, now, getToken, orgCode).catch(() => {});
   }
 
   async function sendChatMessage() {
@@ -9934,7 +9947,7 @@ ${jobsCtx || "No jobs found."}`;
                           const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
                           document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                         }}
-                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, borderRight: !isLast ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, borderLeft: !isFirst ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
+                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, borderRight: !isLast ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, borderLeft: !isFirst ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
                         {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
                           e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
                           const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
@@ -11228,7 +11241,7 @@ ${jobsCtx || "No jobs found."}`;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 2.5s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
                       const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
@@ -11372,11 +11385,21 @@ ${jobsCtx || "No jobs found."}`;
           .map(p => { const { todayBars, nextBar } = getStatusBars(p.id); return todayBars.length > 0 ? { person: p, todayBars, nextBar } : null; })
           .filter(Boolean);
         if (workersToday.length === 0) return null;
-        const navToWeek = (dateStr) => {
-          const d = new Date(dateStr + "T12:00:00");
-          const dow = d.getDay();
-          const mon = addD(dateStr, -(dow === 0 ? 6 : dow - 1));
-          setTMode("week"); setTStart(mon); setTEnd(addD(mon, 6));
+        const highlightJob = (id, start, end) => {
+          if (!id) return;
+          if (start) {
+            const nDays = diffD(tStart, tEnd) + 1;
+            const barLen = end ? diffD(start, end) + 1 : 1;
+            const barMid = addD(start, Math.floor(barLen / 2));
+            const newStart = addD(barMid, -Math.floor(nDays / 2));
+            setTStart(newStart);
+            setTEnd(addD(newStart, nDays - 1));
+          }
+          setScheduleHighlightId(null);
+          setTimeout(() => {
+            setScheduleHighlightId(id);
+            setTimeout(() => setScheduleHighlightId(null), 4000);
+          }, 30);
         };
         const fmRange = (s, e) => {
           const sd = new Date(s + "T12:00:00"), ed = new Date(e + "T12:00:00");
@@ -11410,7 +11433,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ fontSize: 10, fontWeight: 700, color: onBreak ? "#f59e0b" : isActive ? "#10b981" : T.textDim, flexShrink: 0, paddingTop: 2, letterSpacing: "0.03em" }}>{onBreak ? "On break" : isActive ? "Active" : "Not Active"}</div>
                     </div>
                     <div
-                      onClick={() => navToWeek(TD)}
+                      onClick={() => highlightJob(todayBar.id, todayBar.start, todayBar.end)}
                       onMouseEnter={e => e.currentTarget.style.borderColor = todayBar.color + "99"}
                       onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
                       style={{ cursor: "pointer", padding: "10px 10px 8px", borderRadius: T.radiusSm, background: T.surface, border: `1px solid ${T.border}`, transition: "border-color 0.15s" }}
@@ -11432,7 +11455,7 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                     {nextBar && (
                       <div
-                        onClick={() => navToWeek(nextBar.start)}
+                        onClick={() => highlightJob(nextBar.id, nextBar.start, nextBar.end)}
                         onMouseEnter={e => e.currentTarget.style.borderColor = nextBar.color + "99"}
                         onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
                         style={{ cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusSm, background: T.surface, border: `1px solid ${T.border}`, transition: "border-color 0.15s" }}
@@ -14912,7 +14935,7 @@ ${jobsCtx || "No jobs found."}`;
         </span>;
       }
       if (status.kind === "sent") {
-        return <span style={{ ...common, color: T.textDim }}>
+        return <span style={{ ...common, color: T.textDim, animation: "fadeScale 0.3s ease both" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
           Sent
         </span>;
@@ -18082,7 +18105,7 @@ ${jobsCtx || "No jobs found."}`;
       <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: hexLum(Tc.surfaceSolid) > 0.5 ? "brightness(0)" : "none", flexShrink: 0, marginLeft: 45 }} />
       {/* TRAQS bars mark — trailing "=" lockup (ported from iOS TRAQSBarsMark).
           3 grey bars + the 3rd (full-width) bar tracks the user's accent. */}
-      <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: -20, marginTop: 8, flexShrink: 0 }}>
+      <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: -19, marginTop: 8, flexShrink: 0 }}>
         {[0.554, 0.788, 1, 0.451].map((w, i) => (
           <div key={i} style={{ width: 27 * w, height: 4, borderRadius: 1.3, background: i === 2 ? T.accent : hexA(Tc.text, 0.4) }} />
         ))}

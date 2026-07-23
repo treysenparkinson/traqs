@@ -55,9 +55,9 @@ export async function validateToken(event) {
 //     pick up email changes within a few minutes.
 //   - memberCache: (sub, orgCode) → membership result. Short TTL so a removed
 //     user gets locked out within ~30s on every server instance.
-const USERINFO_TTL_MS = 5 * 60 * 1000;
+const USERINFO_TTL_MS = 10 * 60 * 1000;  // 10 min — fewer /userinfo round-trips
 const USERINFO_MAX = 1000;
-const MEMBER_TTL_MS = 30 * 1000;
+const MEMBER_TTL_MS = 5 * 60 * 1000;   // 5 min — still revokes removed users quickly
 const MEMBER_MAX = 2000;
 
 const userinfoCache = new Map();    // sub → { email, at }
@@ -101,12 +101,21 @@ async function emailForToken(event, payload) {
     const res = await fetch(`https://${domain}/userinfo`, {
       headers: { Authorization: authHeader },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Surface the status so the Netlify dev console shows WHY email lookup
+      // failed (e.g. 401 = token not accepted for /userinfo, 429 = rate limit).
+      // Fix: add an Auth0 Post-Login Action that sets the custom claim
+      // `https://traqs.matrixsystems.com/email` on the access token so the
+      // /userinfo round-trip is skipped entirely.
+      console.warn(`[auth] /userinfo returned ${res.status} — email unresolvable. Add an Auth0 Post-Login Action to set the custom email claim on the access token.`);
+      return null;
+    }
     const body = await res.json();
     const email = String(body?.email || "").toLowerCase().trim();
     if (sub && email) _capAndSet(userinfoCache, USERINFO_MAX, sub, { email, at: Date.now() });
     return email || null;
-  } catch {
+  } catch (e) {
+    console.warn("[auth] /userinfo fetch error:", e?.message || e);
     return null;
   }
 }
