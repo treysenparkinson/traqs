@@ -927,16 +927,68 @@ class AppState {
         _ = try? await sendMessageThrowing(msg)
     }
 
-    /// Admin approves a completion request → finish the WHOLE job (job + panels + ops).
-    func approveJobCompletion(jobId: String, requestId: String) async {
+    /// Worker requests completion of a SINGLE task (panel or op). Sends panelId/opId
+    /// in the message so web admin approval marks only that item, not the whole job.
+    func requestTaskCompletion(jobId: String, panelId: String, opId: String?,
+                               panelTitle: String, opTitle: String?) async {
+        guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
+        guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
+        await addGroupMembers(groupName: "Completion Requests", add: members)
+        let group = groups.first(where: { $0.id == created.id }) ?? created
+
+        let reqId = UUID().uuidString
+        let now = Date.nowISO()
+        var job = jobs[idx]
+        var reqs = job.finishRequests ?? []
+        reqs.append(FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
+                                       status: "pending", resolvedBy: nil, resolvedByName: nil,
+                                       resolvedAt: nil, declineReason: nil))
+        job.finishRequests = reqs
+        updateJob(job)
+        cacheJobLocally(job)
+
+        let contextLabel = opTitle.map { "\(panelTitle) › \($0)" } ?? panelTitle
+        let jobNumTxt = job.jobNumber.map { "Job #\($0) — " } ?? ""
+        let msg = Message(
+            id: UUID().uuidString, threadKey: "group:\(group.id)", scope: "group",
+            jobId: jobId, panelId: panelId, opId: opId,
+            text: "Completion requested by \(me.name) for \(jobNumTxt)\(contextLabel)",
+            authorId: me.id, authorName: me.name, authorColor: me.color,
+            participantIds: group.memberIds, attachments: [], timestamp: Date.nowISO(),
+            type: "finish_request", finishRequestId: reqId)
+        _ = try? await sendMessageThrowing(msg)
+    }
+
+    /// Admin approves a completion request.
+    /// When panelId/opId are nil: finishes the whole job tree.
+    /// When panelId is set: finishes only the specific panel (or op if opId is also set).
+    func approveJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
         guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let now = Date.nowISO()
         var job = jobs[idx]
-        job.status = .finished
-        job.subs = job.subs.map { p in
-            var p = p; p.status = .finished
-            p.subs = p.subs.map { o in var o = o; o.status = .finished; return o }
-            return p
+        if let panelId {
+            job.subs = job.subs.map { p in
+                guard p.id == panelId else { return p }
+                var p = p
+                if let opId {
+                    p.subs = p.subs.map { o in
+                        guard o.id == opId else { return o }
+                        var o = o; o.status = .finished; return o
+                    }
+                } else {
+                    p.status = .finished
+                    p.subs = p.subs.map { o in var o = o; o.status = .finished; return o }
+                }
+                return p
+            }
+        } else {
+            job.status = .finished
+            job.subs = job.subs.map { p in
+                var p = p; p.status = .finished
+                p.subs = p.subs.map { o in var o = o; o.status = .finished; return o }
+                return p
+            }
         }
         job.finishRequest = nil
         job.finishRequests = (job.finishRequests ?? []).map { e in
@@ -949,8 +1001,8 @@ class AppState {
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "approved")
     }
 
-    /// Admin denies a completion request → job stays active/overdue.
-    func denyJobCompletion(jobId: String, requestId: String) async {
+    /// Admin denies a completion request → the item stays active/overdue.
+    func denyJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
         guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let now = Date.nowISO()
         var job = jobs[idx]
@@ -965,25 +1017,42 @@ class AppState {
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "declined")
     }
 
-    /// Admin undoes an approved completion → reopen the whole job (best-effort:
-    /// finished panels/ops go back to In Progress since prior statuses aren't
-    /// stored) and return the request to pending so it can be re-approved.
-    func undoJobCompletion(jobId: String, requestId: String) async {
+    /// Admin undoes an approved completion.
+    /// When panelId/opId are nil: reopens the whole job tree.
+    /// When panelId is set: reopens only the specific panel (or op).
+    func undoJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
         guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         var job = jobs[idx]
-        job.status = .inProgress
-        job.subs = job.subs.map { p in
-            var p = p
-            if p.status == .finished { p.status = .inProgress }
-            p.subs = p.subs.map { o in var o = o; if o.status == .finished { o.status = .inProgress }; return o }
-            return p
+        if let panelId {
+            job.subs = job.subs.map { p in
+                guard p.id == panelId else { return p }
+                var p = p
+                if let opId {
+                    p.subs = p.subs.map { o in
+                        guard o.id == opId else { return o }
+                        var o = o; if o.status == .finished { o.status = .inProgress }; return o
+                    }
+                } else {
+                    if p.status == .finished { p.status = .inProgress }
+                    p.subs = p.subs.map { o in var o = o; if o.status == .finished { o.status = .inProgress }; return o }
+                }
+                return p
+            }
+        } else {
+            job.status = .inProgress
+            job.subs = job.subs.map { p in
+                var p = p
+                if p.status == .finished { p.status = .inProgress }
+                p.subs = p.subs.map { o in var o = o; if o.status == .finished { o.status = .inProgress }; return o }
+                return p
+            }
         }
         job.finishRequests = (job.finishRequests ?? []).map { e in
             guard e.id == requestId else { return e }
             var e = e; e.status = "pending"; e.resolvedBy = nil; e.resolvedByName = nil; e.resolvedAt = nil
             return e
         }
-        if let entry = job.finishRequests?.first(where: { $0.id == requestId }) {
+        if panelId == nil, let entry = job.finishRequests?.first(where: { $0.id == requestId }) {
             job.finishRequest = FinishRequestStamp(requestId: entry.id, by: entry.by, byName: entry.byName, at: entry.at)
         }
         // If the whole job is in the past (overdue), pull it forward so it lands

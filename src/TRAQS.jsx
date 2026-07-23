@@ -18867,11 +18867,10 @@ ${jobsCtx || "No jobs found."}`;
                   {/* rounded content panel with the background image (mirrors the 22px content area) */}
                   <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
                     {pAdaptive && <>
-                      {/* Pre-blurred background image (inset past the edges so the blur doesn't feather in).
-                          We blur the IMAGE here rather than backdrop-filtering each card, so the frosted
-                          cards can be plain-translucent and the hue behind them composites NORMALLY —
-                          backdrop-filter only re-samples a snapshot, so it snaps instead of fading. */}
-                      <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: -40, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", filter: "blur(18px) saturate(1.4)", animation: "tqFadeOnly 0.35s ease" }} />
+                      {/* Sharp background image — blur is applied via backdropFilter on each card element
+                          so non-card areas show the image cleanly, and only behind cards does the frosted
+                          glass effect appear. */}
+                      <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", animation: "tqFadeOnly 0.35s ease" }} />
                       {/* Color-Hue wash over the image — its OWN element so background-color (the hue) and
                           opacity (strength = 1 − image opacity) BOTH cross-fade via .tq-preview-anim as you
                           drag the Color Hue / image-opacity sliders. The translucent cards sit over this,
@@ -18895,7 +18894,7 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ height: 15, width: 24, borderRadius: 14, background: pT.accent + "2e" }} />
                           </div>
                           {/* frosted section panel */}
-                          <div style={{ background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden" }}>
+                          <div style={{ background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", ...(pAdaptive ? { backdropFilter: "blur(18px) saturate(1.4)" } : {}) }}>
                             {/* column-header row (blank) */}
                             <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "8px 14px", borderBottom: `1.5px solid ${pT.border}` }}>
                               {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 3, background: pT.textDim, opacity: 0.45 }} />)}
@@ -18932,7 +18931,7 @@ ${jobsCtx || "No jobs found."}`;
                         </span>
                       </div>
                       {/* gantt panel (frosted) — left roster + timeline with bars */}
-                      <div style={{ flex: 1, minHeight: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                      <div style={{ flex: 1, minHeight: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column", ...(pAdaptive ? { backdropFilter: "blur(18px) saturate(1.4)" } : {}) }}>
                         {/* day-number header */}
                         <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                           <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }} />
@@ -18967,7 +18966,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ display: "flex", gap: 10 }}>
                           {[0, 1, 2, 3, 4].map(i => {
                             const ac = pMode === "adaptive" ? pT.accent : pMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[i % BARC.length];
-                            return <div key={i} style={{ width: 124, flexShrink: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, padding: 12, display: "flex", flexDirection: "column", gap: 9 }}>
+                            return <div key={i} style={{ width: 124, flexShrink: 0, background: pFrostBg, border: `1px solid ${pT.border}`, borderRadius: pT.radius, padding: 12, display: "flex", flexDirection: "column", gap: 9, ...(pAdaptive ? { backdropFilter: "blur(18px) saturate(1.4)" } : {}) }}>
                               {/* header: avatar + name + link */}
                               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <div style={{ width: 24, height: 24, borderRadius: "50%", background: ac, flexShrink: 0 }} />

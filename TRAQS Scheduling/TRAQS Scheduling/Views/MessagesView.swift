@@ -2015,7 +2015,7 @@ struct TimeOffRequestBubble: View {
 // MARK: - Completion Request Bubble
 
 /// Renders a `finish_request` message as a card with Approve/Deny for admins.
-/// Approving marks the whole job Finished (see AppState.approveJobCompletion).
+/// For task-level requests (message has panelId/opId), approval marks only that item Finished.
 struct CompletionRequestBubble: View {
     @Environment(AppState.self) private var appState
     let message: Message
@@ -2055,8 +2055,23 @@ struct CompletionRequestBubble: View {
             }
 
             if let job {
-                Text("\(job.jobNumber.map { "Job #\($0) — " } ?? "")\(job.title)")
-                    .font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+                let isTaskLevel = message.panelId != nil
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(job.jobNumber.map { "Job #\($0) — " } ?? "")\(job.title)")
+                        .font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+                    if isTaskLevel {
+                        let panel = job.subs.first { $0.id == message.panelId }
+                        let op = panel?.subs.first { $0.id == message.opId }
+                        let label: String = {
+                            if let op { return "\(panel?.title ?? "") › \(op.title)" }
+                            return panel?.title ?? ""
+                        }()
+                        if !label.isEmpty {
+                            Text(label)
+                                .font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted))
+                        }
+                    }
+                }
             } else {
                 Text(message.text).font(TTypo.sm(13)).foregroundStyle(Color(hex: T.muted))
             }
@@ -2066,12 +2081,12 @@ struct CompletionRequestBubble: View {
                     .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
             }
 
-            // Undo an approval — reopen the job (in case it needs to come back).
+            // Undo an approval — reopen the item (in case it needs to come back).
             if appState.isAdmin && status == "approved" {
                 Button { undo() } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "arrow.uturn.backward")
-                        Text("Undo — reopen job")
+                        Text(message.panelId != nil ? "Undo — reopen task" : "Undo — reopen job")
                     }
                     .font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.accent))
                     .frame(maxWidth: .infinity).padding(.vertical, 11)
@@ -2103,8 +2118,13 @@ struct CompletionRequestBubble: View {
         guard let jobId = message.jobId, let reqId = message.finishRequestId else { return }
         busy = true   // disables buttons during the async; status then drives visibility
         Task {
-            if approve { await appState.approveJobCompletion(jobId: jobId, requestId: reqId) }
-            else { await appState.denyJobCompletion(jobId: jobId, requestId: reqId) }
+            if approve {
+                await appState.approveJobCompletion(jobId: jobId, panelId: message.panelId,
+                                                    opId: message.opId, requestId: reqId)
+            } else {
+                await appState.denyJobCompletion(jobId: jobId, panelId: message.panelId,
+                                                 opId: message.opId, requestId: reqId)
+            }
             busy = false
         }
     }
@@ -2113,7 +2133,8 @@ struct CompletionRequestBubble: View {
         guard let jobId = message.jobId, let reqId = message.finishRequestId else { return }
         busy = true
         Task {
-            await appState.undoJobCompletion(jobId: jobId, requestId: reqId)
+            await appState.undoJobCompletion(jobId: jobId, panelId: message.panelId,
+                                             opId: message.opId, requestId: reqId)
             busy = false
         }
     }

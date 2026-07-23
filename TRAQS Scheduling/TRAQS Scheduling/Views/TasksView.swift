@@ -1280,7 +1280,12 @@ struct TaskCardV1: View {
         guard reqPhase == 0 else { return }
         withAnimation(.easeOut(duration: 0.2)) { reqPhase = 1 }
         Task {
-            await appState.requestJobCompletion(jobId: task.job.id)
+            await appState.requestTaskCompletion(
+                jobId: task.job.id,
+                panelId: task.panel.id,
+                opId: task.op?.id,
+                panelTitle: task.panel.title,
+                opTitle: task.op?.title)
             await MainActor.run { withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { reqPhase = 2 } }
             try? await Task.sleep(nanoseconds: 1_600_000_000)
             await MainActor.run { withAnimation(.easeInOut(duration: 0.25)) { reqPhase = 0 } }
