@@ -546,7 +546,9 @@ private extension MoreView {
         let cal = Calendar.current
         let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
         let groups = Dictionary(grouping: jobSessionsInPeriod) { s -> Date in
-            cal.startOfDay(for: isoDay(s.clockIn) ?? Date())
+            // Fall back to the session's `date` (as jobSessionsInPeriod does) before
+            // today, so a session with a nil clockIn isn't misfiled under today.
+            cal.startOfDay(for: isoDay(s.clockIn) ?? parseISO(s.date ?? "") ?? Date())
         }
         return groups.keys.sorted(by: >).map { day in
             let items = (groups[day] ?? []).map { s -> TimeEntry in

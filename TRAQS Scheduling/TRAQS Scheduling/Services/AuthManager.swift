@@ -111,7 +111,14 @@ class AuthManager: NSObject {
 
         request.httpBody = body.data(using: .utf8)
 
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, urlResponse) = try await URLSession.shared.data(for: request)
+        // Check the HTTP status first: an Auth0 error (e.g. 400 invalid_grant on a
+        // reused/expired code) returns an error JSON, which fed straight into the
+        // TokenResponse decoder surfaced only an opaque "data couldn't be read".
+        if let http = urlResponse as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw NSError(domain: "Auth0", code: http.statusCode,
+                          userInfo: [NSLocalizedDescriptionKey: "Sign-in failed (HTTP \(http.statusCode)). Please try signing in again."])
+        }
         let response = try JSONDecoder().decode(TokenResponse.self, from: data)
 
         accessToken = response.accessToken

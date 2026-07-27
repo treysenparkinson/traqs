@@ -29,7 +29,8 @@ export async function handler(event) {
   if (event.httpMethod === "POST") {
     try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
-      const clients = JSON.parse(event.body);
+      let clients;
+      try { clients = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
       if (!Array.isArray(clients)) return err(400, "Body must be an array");
 
       // Read the current version once. It serves double duty: the empty-overwrite

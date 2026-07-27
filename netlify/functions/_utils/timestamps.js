@@ -134,15 +134,29 @@ export function softDelete(record) {
 export function reconcileDeletions(next, previous, onDelete = softDelete) {
   if (!Array.isArray(next) || !Array.isArray(previous) || previous.length === 0) return next;
 
+  const prevById = new Map();
   const nextIds = new Set();
+  for (const rec of previous) {
+    if (rec && rec.id != null) prevById.set(String(rec.id), rec);
+  }
   for (const rec of next) {
     if (rec && rec.id != null) nextIds.add(String(rec.id));
   }
 
-  const out = next.slice();
+  // Keep incoming records, EXCEPT never let a stale client resurrect one that
+  // was already tombstoned server-side. Without this, a client still holding a
+  // record deleted elsewhere re-sends it as live; it's "still present" so the
+  // tombstone was skipped, and stampArray then re-stamped the live copy — the
+  // deleted record reappeared on every device. Pin such records to the stored
+  // tombstone instead.
+  const out = next.map(rec => {
+    if (!rec || rec.id == null) return rec;
+    const prev = prevById.get(String(rec.id));
+    return (prev && prev.deletedAt && !rec.deletedAt) ? prev : rec;
+  });
   for (const rec of previous) {
     if (!rec || rec.id == null) continue;      // untracked id → can't detect deletion
-    if (nextIds.has(String(rec.id))) continue; // still present → not a deletion
+    if (nextIds.has(String(rec.id))) continue; // still present → handled above
     out.push(rec.deletedAt ? rec : onDelete(rec));
   }
   return out;

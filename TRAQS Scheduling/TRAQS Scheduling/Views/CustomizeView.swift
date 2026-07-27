@@ -203,6 +203,10 @@ extension Color {
         let uiColor = UIColor(self)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
-        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        // Clamp to 0…1 before scaling: a wide-gamut (P3) color from the picker can
+        // return components outside 0…1, which made Int(r*255) exceed 255 (or go
+        // negative) and produced a malformed hex like "#115…".
+        let clamp = { (v: CGFloat) in Int((max(0, min(1, v)) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", clamp(r), clamp(g), clamp(b))
     }
 }

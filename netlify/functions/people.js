@@ -8,6 +8,15 @@ import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
 import { encryptPin, decryptPin } from "./_utils/pin.js";
 
+// Escalation-sensitive person fields a non-admin must never set on themselves
+// or anyone: PTO must flow through timeoff.js approval, and pay/permissions/
+// department are admin-managed. Enforced on both POST (full roster) and PATCH.
+const PROTECTED_PERSON_FIELDS = [
+  "timeOff", "payType", "cap", "adminPerms", "canClockInOut", "canSignOff",
+  "noAutoSchedule", "autoSchedule", "teamNumber", "userRole", "role",
+  "department", "isEngineer", "isTeamLead",
+];
+
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
 // without this the admin "Live status" break timer has nothing to count from.
@@ -80,13 +89,15 @@ export async function handler(event) {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
-      const incoming = JSON.parse(event.body);
+      let incoming;
+      try { incoming = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
       if (!Array.isArray(incoming)) return err(400, "Invalid people data");
       if (incoming.length === 0) return err(400, "Refusing to overwrite people with empty array");
 
       // Check for userRole changes — only admins may change them.
       const existing = (await readJson(s3Key)) ?? [];
       const existingMap = new Map(existing.map(p => [p.id, p]));
+      const callerId = member?.personId != null ? String(member.personId) : null;
       const hasRoleChange = incoming.some(p => {
         const old = existingMap.get(p.id);
         // New person being added as admin, or existing person's role changing.
@@ -118,6 +129,25 @@ export async function handler(event) {
         if (stored) {
           np = { ...np, activeClockIn: stored.activeClockIn ?? null, activeJobClock: stored.activeJobClock ?? null };
         }
+        // Non-admins may only edit SAFE fields (name/email/phone/color/image/
+        // pushToken) on their OWN record. Other people's records are preserved
+        // verbatim, and escalation-sensitive fields on their own record are
+        // pinned to the stored value. Admins bypass this.
+        if (!member.isAdmin && stored) {
+          const isSelf = callerId != null && String(p.id) === callerId;
+          if (!isSelf) {
+            np = { ...stored };
+          } else {
+            for (const k of PROTECTED_PERSON_FIELDS) {
+              if (k in stored) np[k] = stored[k];
+              else delete np[k];
+            }
+          }
+        }
+        // Keep the desktop's canonical `department` in sync with `role` (the two
+        // are one field; iOS only stores/encodes `role`). Fill it from role when
+        // absent so an admin's role edit propagates and department isn't dropped.
+        if (np.role != null && np.department == null) np.department = np.role;
         // Store PINs reversibly encrypted. encryptPin is idempotent (leaves an
         // already-encrypted value as-is), so a newly-typed plaintext PIN gets
         // encrypted and any legacy plaintext PIN preserved above is upgraded in
@@ -135,7 +165,11 @@ export async function handler(event) {
       // not linger at rest, and (belt-and-suspenders with timeclock's live-only
       // PIN identify) a pinless tombstone also can't authenticate a kiosk clock-in.
       const tombstoneWithoutPin = ({ pin: _pin, ...rest }) => softDelete(rest);
-      const reconciled = reconcileDeletions(merged, existing, tombstoneWithoutPin);
+      // Non-admins can't create people — drop any incoming record with no stored
+      // counterpart. (They still send the full roster, so existing rows aren't
+      // tombstoned by this.)
+      const safeMerged = member.isAdmin ? merged : merged.filter(p => existingMap.has(p.id));
+      const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(member.orgCode, "people", { ids: changedIds(reconciled, existing) });
       // Phase 5: silent background-sync push to org members (best-effort).
@@ -181,6 +215,13 @@ export async function handler(event) {
       // Role changes still require admin even via PATCH.
       if ("userRole" in allowedFields && allowedFields.userRole !== existing[idx].userRole) {
         if (!member.isAdmin) return err(403, "Only admins can change user roles");
+      }
+
+      // Non-admins may only patch SAFE profile fields on their own row — strip
+      // any escalation-sensitive fields (PTO/pay/permissions/department/…) so a
+      // self-PATCH can't bypass the timeoff.js approval flow or grant permissions.
+      if (!member.isAdmin) {
+        for (const k of PROTECTED_PERSON_FIELDS) delete allowedFields[k];
       }
 
       existing[idx] = withBreakStart({ ...existing[idx], ...allowedFields }, existing[idx]);

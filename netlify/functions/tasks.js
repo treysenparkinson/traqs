@@ -38,7 +38,8 @@ export async function handler(event) {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
-      const tasks = JSON.parse(event.body);
+      let tasks;
+      try { tasks = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
       if (!Array.isArray(tasks)) return err(400, "Invalid tasks data");
 
       // Read the current version once. It serves double duty: the empty-overwrite

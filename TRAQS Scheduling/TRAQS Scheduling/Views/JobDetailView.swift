@@ -2,6 +2,7 @@ import SwiftUI
 
 struct JobDetailView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
     /// Frozen snapshot pushed onto the NavigationStack path — seed/fallback only.
     private let seedJob: Job
     /// When set (e.g. arrived via a Schedule block), highlight + auto-expand this panel.
@@ -26,6 +27,11 @@ struct JobDetailView: View {
     private var job: Job { appState.jobs.first(where: { $0.id == seedJob.id }) ?? seedJob }
 
     var client: Client? { appState.client(for: job) }
+
+    /// May the current user edit or delete this job? Mirrors JobEditView.canEditDeps.
+    private var canManageJob: Bool {
+        appState.isAdmin || (appState.currentPerson?.adminPerms?.editJobs == true)
+    }
 
     /// Department tag styling for this job, mapped to a bright revamp pill kind.
     private var dept: (label: String, kind: TagKind) {
@@ -142,15 +148,20 @@ struct JobDetailView: View {
         #endif
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        // Editing/deleting a job is admin (or explicit editJobs permission) only —
+        // same gate JobEditView uses for its dependency editor. Without this any
+        // worker could delete any job from its detail screen.
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") { showEdit = true }
-                    .foregroundColor(Color(hex: T.accentGradientStart))
-            }
-            ToolbarItem {
-                Button(role: .destructive) { showDeleteConfirm = true } label: {
-                    Image(systemName: "trash")
-                        .foregroundColor(Color(hex: T.red))
+            if canManageJob {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { showEdit = true }
+                        .foregroundColor(Color(hex: T.accentGradientStart))
+                }
+                ToolbarItem {
+                    Button(role: .destructive) { showDeleteConfirm = true } label: {
+                        Image(systemName: "trash")
+                            .foregroundColor(Color(hex: T.red))
+                    }
                 }
             }
         }
@@ -160,6 +171,10 @@ struct JobDetailView: View {
         .confirmationDialog("Delete \(job.title)?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete Job", role: .destructive) {
                 appState.deleteJob(id: job.id)
+                // Pop back — the job is gone, so this screen would otherwise sit
+                // on a stale seedJob fallback with a live Edit button that could
+                // resurrect the deleted job on Save.
+                dismiss()
             }
         }
     }

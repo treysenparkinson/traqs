@@ -168,8 +168,13 @@ struct GanttView: View {
                             hpd: max(op.hpd > 0 ? op.hpd : panel.hpd, 0.5)))
                     }
                 } else if me == nil
-                          || panel.team.contains(me!)
-                          || job.team.contains(me!) {
+                          || panel.team.contains(me!) {
+                    // NB: intentionally NOT falling back to job.team here.
+                    // Job-level membership (typical for admins/watchers with no
+                    // actual panel/op assignment) isn't scheduled work; including
+                    // it packed every panel of every job they're loosely attached
+                    // to into their timeline — the same inflation TasksView.myTasks
+                    // was fixed to avoid. Keep the two views consistent.
                     items.append(_ScheduleItem(
                         job: job, panel: panel, op: nil,
                         title: panel.title.isEmpty ? job.title : panel.title,
@@ -458,10 +463,16 @@ private struct DayTimeline: View {
 
     private var startHour: Double { workStart }
 
-    /// Hard-cap the timeline at the org's workEnd. Any blocks the packer puts
-    /// past this point are clipped — the schedule's visible window must match
-    /// the configured shift, not silently scroll into the evening.
-    private var endHour: Double { workEnd }
+    /// The timeline runs from workStart to workEnd, but EXPANDS to fit any blocks
+    /// the packer placed past workEnd when a day is overbooked. The packer
+    /// deliberately refuses to cap at workEnd (dropping overflow was the original
+    /// "missing jobs" bug); hard-capping the timeline here re-hid exactly those
+    /// tasks (and mis-counted them against the header). Growing endHour keeps
+    /// every packed block visible — the lane just scrolls into the evening.
+    private var endHour: Double {
+        let lastBlockEnd = blocks.map(\.end).max() ?? workEnd
+        return max(workEnd, lastBlockEnd.rounded(.up))
+    }
 
     var body: some View {
         let totalH = endHour - startHour
@@ -503,10 +514,10 @@ private struct DayTimeline: View {
                     .padding(.horizontal, 6)
                     .offset(y: lunchTop)
 
-                // Blocks — tap to open the job-detail popup. Blocks whose start
-                // is already past workEnd are dropped (nothing to show); blocks
-                // that overflow workEnd are clamped to the visible lane so the
-                // schedule never bleeds past the configured shift.
+                // Blocks — tap to open the job-detail popup. endHour already
+                // grows to cover the last packed block, so the filter/clamp below
+                // are effectively no-ops now (kept as a floor guard) — every
+                // packed block, including overflow past workEnd, renders.
                 ForEach(blocks.filter { $0.start < endHour }) { b in
                     let clampedEnd = min(b.end, endHour)
                     let top = CGFloat(b.start - startHour) * pxPerHour + 2
@@ -809,9 +820,14 @@ private struct WeekGrid: View {
     private let gutter:    CGFloat = 24
     private let cal = Calendar.current
 
-    /// Hard-cap at workEnd. Overflow blocks are clipped — the week grid
-    /// should mirror the configured shift, not silently expand.
-    private var endHour: Double { workEnd }
+    /// Runs workStart→workEnd but EXPANDS to fit the latest packed block across
+    /// the whole week, so an overbooked day's overflow tasks stay visible instead
+    /// of being clipped (the "missing jobs" symptom). Shared across all columns
+    /// so the grid rows stay aligned.
+    private var endHour: Double {
+        let maxEnd = weekDates.flatMap { blocksFor($0) }.map(\.end).max() ?? workEnd
+        return max(workEnd, maxEnd.rounded(.up))
+    }
 
     var body: some View {
         VStack(spacing: 0) {

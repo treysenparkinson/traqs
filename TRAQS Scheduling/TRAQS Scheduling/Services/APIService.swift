@@ -656,7 +656,13 @@ struct APIService {
     /// Resolve which orgs an authenticated user belongs to, by email. Used by
     /// the mobile app after Auth0 login to skip the manual org-code prompt.
     static func lookupOrgByEmail(email: String, token: String) async throws -> [OrgMatch] {
-        let encoded = email.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? email
+        // `.urlQueryAllowed` does NOT encode +, &, or = (they're legal query
+        // chars), so a "+"-addressed email (alex+work@…) reaches Node with the +
+        // decoded as a space and matches no org — forcing the user to hand-enter
+        // an org code. Remove the sub-delimiters so the value round-trips intact.
+        var allowed = CharacterSet.urlQueryAllowed
+        allowed.remove(charactersIn: "+&=?#")
+        let encoded = email.addingPercentEncoding(withAllowedCharacters: allowed) ?? email
         guard let url = URL(string: "\(AppConfig.netlifyBase)/org-lookup?email=\(encoded)") else {
             throw URLError(.badURL)
         }

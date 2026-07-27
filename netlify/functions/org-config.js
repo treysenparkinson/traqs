@@ -22,8 +22,11 @@ export async function handler(event) {
   try {
     const config = await readJson(`orgs/${member.orgCode}/config.json`);
     if (!config) return err(404, "Organization not found");
+    // Strip admin PII — the whole reason this endpoint exists is so the client
+    // never receives adminEmail(s); it relies on the server-derived isAdmin below.
+    const { adminEmail, adminEmails, ...safeConfig } = config;
     return json(200, {
-      ...config,
+      ...safeConfig,
       // Server-derived authorization signals. The client should rely on
       // these, not on comparing emails locally.
       isMember: member.personId != null,

@@ -683,6 +683,11 @@ struct ThreadDetailView: View {
     @State private var baselineIds: Set<String> = []
     @State private var animatedIds: Set<String> = []
     @State private var didCaptureBaseline = false
+    // True while the bottom anchor is on-screen (user is at/near the newest
+    // message). Drives auto-follow: a message from someone else that arrives via
+    // the poll only scrolls when we're already at the bottom, so it can't yank
+    // the user down while they're reading older history.
+    @State private var isAtBottom = true
     private static let bottomAnchor = "chat_bottom_anchor"
 
     // #3 read receipts. `pendingIds` = my messages still in flight (show
@@ -804,6 +809,13 @@ struct ThreadDetailView: View {
     /// that I send) while I'm here.
     private func captureBaselineIfNeeded() {
         guard !didCaptureBaseline else { return }
+        // Wait for messages to actually be present before snapshotting the
+        // baseline. Deep-linking (or a push tap) into an uncached thread hits
+        // .onAppear with liveMessages empty — capturing an empty baseline then
+        // meant the whole backlog, when it loaded via the poll, counted as "new"
+        // and every bubble animated in at once. Capturing on the first non-empty
+        // snapshot instead treats that backlog as the baseline (no animation).
+        guard !liveMessages.isEmpty else { return }
         baselineIds = Set(liveMessages.map { $0.id })
         didCaptureBaseline = true
     }
@@ -934,6 +946,8 @@ struct ThreadDetailView: View {
                         Color.clear
                             .frame(height: 1)
                             .id(Self.bottomAnchor)
+                            .onAppear { isAtBottom = true }
+                            .onDisappear { isAtBottom = false }
                     }
                     .padding()
                 }
@@ -954,11 +968,26 @@ struct ThreadDetailView: View {
                 // id swap on the last message re-pins to the bottom. A new
                 // message also means there's something new to mark read.
                 .onChange(of: liveMessages.count) {
-                    scrollToBottom(proxy, animated: true)
+                    // Capture the baseline the first time messages appear (handles
+                    // opening into an uncached thread whose backlog loads after
+                    // .onAppear), so that backlog doesn't animate in wholesale.
+                    captureBaselineIfNeeded()
+                    // Only auto-follow if we're already at the bottom, or the new
+                    // message is mine (I just sent it) — don't yank the user down
+                    // while they're reading older history.
+                    if isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
+                        scrollToBottom(proxy, animated: true)
+                    }
                     appState.markThreadRead(threadKey)   // keep inbox badge clear while viewing
                     Task { await markThreadReadNow() }
                 }
-                .onChange(of: liveMessages.last?.id) { scrollToBottom(proxy, animated: true) }
+                .onChange(of: liveMessages.last?.id) {
+                    // Same guard — but always follow the optimistic→server id swap
+                    // of my OWN latest message so its bubble doesn't jump.
+                    if isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
+                        scrollToBottom(proxy, animated: true)
+                    }
+                }
                 // Keyboard opening shrinks the viewport — re-pin so the newest
                 // message stays visible above the composer. Drive this off the
                 // keyboard's OWN will-show notification (not a focus change +
@@ -2880,12 +2909,16 @@ extension String {
     /// any earlier day → full month + day, e.g. "June 30".
     var threadDateStamp: String {
         guard let date = Date.fromFlexibleISO8601(self) else { return self }
+        let cal = Calendar.current
         let df = DateFormatter()
-        if Calendar.current.isDateInToday(date) {
+        if cal.isDateInToday(date) {
             df.dateFormat = "h:mma"          // "9:30PM"
             return "Today at \(df.string(from: date))"
         }
-        df.dateFormat = "MMMM d"             // "June 30"
+        // Include the year outside the current year (matches sectionStamp) so an
+        // old thread doesn't read as the same "June 30" as this year's.
+        df.dateFormat = cal.component(.year, from: date) == cal.component(.year, from: Date())
+            ? "MMMM d" : "MMMM d, yyyy"
         return df.string(from: date)
     }
 

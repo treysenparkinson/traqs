@@ -104,10 +104,12 @@ struct Operation: Codable, Identifiable, Equatable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id     = try c.decode(String.self, forKey: .id)
-        title  = try c.decode(String.self, forKey: .title)
-        start  = try c.decode(String.self, forKey: .start)
-        end    = try c.decode(String.self, forKey: .end)
+        // Lenient: flex-decode the id and default title/start/end so one malformed
+        // op can't throw and drop ALL sibling ops (subs is decoded via try?).
+        id     = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        title  = (try? c.decode(String.self, forKey: .title)) ?? ""
+        start  = (try? c.decode(String.self, forKey: .start)) ?? ""
+        end    = (try? c.decode(String.self, forKey: .end)) ?? ""
         status = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri    = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team   = c.decodeFlexIDs(forKey: .team)
@@ -183,10 +185,12 @@ struct Panel: Codable, Identifiable, Equatable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id          = try c.decode(String.self, forKey: .id)
-        title       = try c.decode(String.self, forKey: .title)
-        start       = try c.decode(String.self, forKey: .start)
-        end         = try c.decode(String.self, forKey: .end)
+        // Lenient: flex-decode id, default title/start/end so one malformed panel
+        // can't drop every sibling panel on the job (subs decoded via try?).
+        id          = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        title       = (try? c.decode(String.self, forKey: .title)) ?? ""
+        start       = (try? c.decode(String.self, forKey: .start)) ?? ""
+        end         = (try? c.decode(String.self, forKey: .end)) ?? ""
         status      = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri         = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team        = c.decodeFlexIDs(forKey: .team)
@@ -210,6 +214,18 @@ struct FinishRequestStamp: Codable, Equatable {
     var by: String
     var byName: String
     var at: String
+    init(requestId: String, by: String, byName: String, at: String) {
+        self.requestId = requestId; self.by = by; self.byName = byName; self.at = at
+    }
+    // Defensive decode: `by` can be a numeric person id. Decoded via try? on Job,
+    // so a strict throw silently lost the pending finish stamp.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        requestId = (try? c.decode(String.self, forKey: .requestId)) ?? ""
+        by        = (try? c.decodeFlexID(forKey: .by)) ?? ""
+        byName    = (try? c.decode(String.self, forKey: .byName)) ?? ""
+        at        = (try? c.decode(String.self, forKey: .at)) ?? ""
+    }
 }
 
 /// One entry in a job's `finishRequests` history (mirrors the web shape). Status:
@@ -224,6 +240,27 @@ struct FinishRequestEntry: Codable, Equatable, Identifiable {
     var resolvedByName: String?
     var resolvedAt: String?
     var declineReason: String?
+    init(id: String, by: String, byName: String, at: String, status: String,
+         resolvedBy: String? = nil, resolvedByName: String? = nil,
+         resolvedAt: String? = nil, declineReason: String? = nil) {
+        self.id = id; self.by = by; self.byName = byName; self.at = at; self.status = status
+        self.resolvedBy = resolvedBy; self.resolvedByName = resolvedByName
+        self.resolvedAt = resolvedAt; self.declineReason = declineReason
+    }
+    // Defensive decode: id/by may be numeric, and a missing `status` shouldn't
+    // drop the whole finish-request history (decoded via try? [FinishRequestEntry]).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id             = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        by             = (try? c.decodeFlexID(forKey: .by)) ?? ""
+        byName         = (try? c.decode(String.self, forKey: .byName)) ?? ""
+        at             = (try? c.decode(String.self, forKey: .at)) ?? ""
+        status         = (try? c.decode(String.self, forKey: .status)) ?? "pending"
+        resolvedBy     = try? c.decodeIfPresent(String.self, forKey: .resolvedBy)
+        resolvedByName = try? c.decodeIfPresent(String.self, forKey: .resolvedByName)
+        resolvedAt     = try? c.decodeIfPresent(String.self, forKey: .resolvedAt)
+        declineReason  = try? c.decodeIfPresent(String.self, forKey: .declineReason)
+    }
 }
 
 // MARK: - Job (Level 0)
@@ -255,10 +292,12 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id        = try c.decode(String.self, forKey: .id)
-        title     = try c.decode(String.self, forKey: .title)
-        start     = try c.decode(String.self, forKey: .start)
-        end       = try c.decode(String.self, forKey: .end)
+        // Lenient: flex-decode id, default title/start/end so one malformed job
+        // can't abort the whole [Job] decode (which would blank every job).
+        id        = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        title     = (try? c.decode(String.self, forKey: .title)) ?? ""
+        start     = (try? c.decode(String.self, forKey: .start)) ?? ""
+        end       = (try? c.decode(String.self, forKey: .end)) ?? ""
         status    = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri       = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team      = c.decodeFlexIDs(forKey: .team)
@@ -337,6 +376,18 @@ struct TimeOffEntry: Codable, Identifiable {
     var end: String
     var type: String   // "PTO" | "UTO"
     var reason: String?
+    init(start: String, end: String, type: String, reason: String? = nil) {
+        self.start = start; self.end = end; self.type = type; self.reason = reason
+    }
+    // Defensive decode so one malformed entry can't drop a person's whole timeOff
+    // array (decoded via try? [TimeOffEntry] on Person).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        start  = (try? c.decode(String.self, forKey: .start)) ?? ""
+        end    = (try? c.decode(String.self, forKey: .end)) ?? ""
+        type   = (try? c.decode(String.self, forKey: .type)) ?? "PTO"
+        reason = try? c.decodeIfPresent(String.self, forKey: .reason)
+    }
 }
 
 // MARK: - Time Clock
@@ -344,11 +395,30 @@ struct TimeOffEntry: Codable, Identifiable {
 struct ClockEvent: Codable, Equatable {
     var type: String   // "lunchStart" | "lunchEnd" | "breakStart" | "breakEnd"
     var ts: String     // ISO8601
+    init(type: String, ts: String) { self.type = type; self.ts = ts }
+    // Defensive decode so one malformed event can't drop the whole events array
+    // (decoded via try? [ClockEvent] inside ActiveClockIn).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = (try? c.decode(String.self, forKey: .type)) ?? ""
+        ts   = (try? c.decode(String.self, forKey: .ts)) ?? ""
+    }
 }
 
 struct JobRef: Codable, Equatable {
     var jobId: String
     var jobName: String
+    init(jobId: String, jobName: String) { self.jobId = jobId; self.jobName = jobName }
+    // Defensive decode: the web stores some ids as Int. A strict `String` decode
+    // would throw, and because JobRef is decoded inside `[JobRef]` (try? → nil),
+    // one numeric jobId silently emptied a clocked-in worker's ENTIRE job list
+    // (and could null out the whole ActiveClockIn). Flex-decode the id + default
+    // the name so a single odd element never drops the rest.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        jobId   = (try? c.decodeFlexID(forKey: .jobId)) ?? ""
+        jobName = (try? c.decode(String.self, forKey: .jobName)) ?? ""
+    }
 }
 
 struct ActiveClockIn: Codable, Equatable {
@@ -670,6 +740,26 @@ struct Client: Codable, Identifiable, Equatable, Hashable {
     var color: String
     var notes: String
 
+    init(id: String, name: String, contact: String, email: String,
+         phone: String, color: String, notes: String) {
+        self.id = id; self.name = name; self.contact = contact; self.email = email
+        self.phone = phone; self.color = color; self.notes = notes
+    }
+    // Defensive decode: JS routinely omits empty/undefined fields when
+    // serializing, and ids can arrive as Int. Strict synthesized Codable threw on
+    // the first missing key (e.g. a client with no phone/notes), which failed the
+    // ENTIRE clients list decode. Default every field + flex-decode the id.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id      = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        name    = (try? c.decode(String.self, forKey: .name)) ?? ""
+        contact = (try? c.decode(String.self, forKey: .contact)) ?? ""
+        email   = (try? c.decode(String.self, forKey: .email)) ?? ""
+        phone   = (try? c.decode(String.self, forKey: .phone)) ?? ""
+        color   = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
+        notes   = (try? c.decode(String.self, forKey: .notes)) ?? ""
+    }
+
     static func == (lhs: Client, rhs: Client) -> Bool { lhs.id == rhs.id }
 }
 
@@ -681,6 +771,18 @@ struct Attachment: Codable, Identifiable, Equatable {
     var filename: String
     var mimeType: String
     var size: Int
+    init(key: String, filename: String, mimeType: String, size: Int) {
+        self.key = key; self.filename = filename; self.mimeType = mimeType; self.size = size
+    }
+    // Defensive decode so a null/omitted `size` (or missing field) can't drop the
+    // whole `attachments` array on a message (decoded via try? [Attachment]).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key      = (try? c.decode(String.self, forKey: .key)) ?? ""
+        filename = (try? c.decode(String.self, forKey: .filename)) ?? ""
+        mimeType = (try? c.decode(String.self, forKey: .mimeType)) ?? "application/octet-stream"
+        size     = (try? c.decode(Int.self, forKey: .size)) ?? 0
+    }
 }
 
 // MARK: - Message

@@ -50,18 +50,34 @@ final class RealtimeService {
 
         // Preflight probe so a "real-time not configured" (503) degrades cleanly
         // instead of spinning Ably's auth-retry loop forever.
-        do {
-            _ = try await api.fetchAblyTokenData()
-        } catch let e as APIError {
-            if case .httpError(503) = e {
-                degraded = true
-                onStatus(.degraded)
-                print("[ably] disabled — /ably-token returned 503 (real-time not configured). No live updates.")
-                return
+        // Retry a 503 a few times before latching `degraded`. A single transient
+        // 503 (e.g. the ably-token function cold-starting, or a momentary S3/env
+        // hiccup) previously disabled realtime for the ENTIRE session — no live
+        // updates until force-quit/relogin. Only a PERSISTENT 503 means "not
+        // configured", which is what should actually degrade.
+        var preflightAttempt = 0
+        preflight: while true {
+            do {
+                _ = try await api.fetchAblyTokenData()
+                break preflight
+            } catch let e as APIError {
+                if case .httpError(503) = e {
+                    preflightAttempt += 1
+                    if preflightAttempt >= 3 {
+                        degraded = true
+                        onStatus(.degraded)
+                        print("[ably] disabled — /ably-token returned 503 after \(preflightAttempt) attempts (real-time not configured). No live updates.")
+                        return
+                    }
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)   // 1s backoff, then retry
+                    continue preflight
+                }
+                print("[ably] token preflight error (connecting anyway): \(e)")
+                break preflight
+            } catch {
+                print("[ably] token preflight error (connecting anyway): \(error)")
+                break preflight
             }
-            print("[ably] token preflight error (connecting anyway): \(e)")
-        } catch {
-            print("[ably] token preflight error (connecting anyway): \(error)")
         }
 
         let options = ARTClientOptions()

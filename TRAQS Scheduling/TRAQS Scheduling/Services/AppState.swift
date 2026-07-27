@@ -369,6 +369,15 @@ class AppState {
     /// re-runs configure()).
     func clearForLogout() {
         teardownRealtime()
+        // Stop the foreground degraded poll (and any pending job save) FIRST. They
+        // hold the still-valid session token, so a tick firing after we clear the
+        // cache would fullResync and repopulate the just-emptied arrays with the
+        // previous account's data behind the login screen. isForeground=false also
+        // stops updateDegradedPoll from restarting it.
+        isForeground = false
+        degradedPollTask?.cancel(); degradedPollTask = nil
+        staleForegroundTask?.cancel(); staleForegroundTask = nil
+        saveTask?.cancel(); saveTask = nil
         currentPersonId = nil
         UserDefaults.standard.removeObject(forKey: "traqs_currentPersonId")
         localCache?.clearAll()
@@ -584,16 +593,21 @@ class AppState {
             // the race where the user taps START TIMER mid-fetch — by the
             // time we get the people response, the local mutation has
             // already happened and we can preserve it.
-            let snap: (personId: String, clock: ActiveJobClock?, brk: ActiveBreak?)? = {
+            let snap: (personId: String, clock: ActiveJobClock?, brk: ActiveBreak?, payClock: ActiveClockIn?)? = {
                 guard let last = clockChangeAt, Date().timeIntervalSince(last) < 12,
                       let p = currentPerson else { return nil }
-                return (p.id, p.activeJobClock, p.activeBreak)
+                return (p.id, p.activeJobClock, p.activeBreak, p.activeClockIn)
             }()
             withoutAnimation {
                 people = r
                 if let snap, let idx = people.firstIndex(where: { $0.id == snap.personId }) {
                     people[idx].activeJobClock = snap.clock
                     people[idx].activeBreak = snap.brk
+                    // Preserve the optimistic PAY clock too — the Home shift card
+                    // reads currentPerson.activeClockIn directly, so without this a
+                    // pull-to-refresh right after Clock In reverted the card to
+                    // "offline" with a dead timer until the next rehydrate.
+                    people[idx].activeClockIn = snap.payClock
                 }
             }
         }
@@ -642,7 +656,31 @@ class AppState {
         // into one save (adversarial #5) and share this one snapshot.
         if rollbackSnapshot == nil { rollbackSnapshot = jobs }
         jobs = newJobs
+        // Mirror the edit into the cache IMMEDIATELY, before the debounced save.
+        // Otherwise a concurrent inbound Ably delta (which writes the cache and
+        // rehydrates `jobs` from it) reads the PRE-edit copy of these jobs and
+        // silently reverts the in-flight edit — then persistJobs saves the
+        // reverted array, losing the change permanently. The completion-request
+        // flows already guard this per-job via cacheJobLocally; do the same here
+        // for every general edit path (drag/schedule, sign-off, panel photo, …).
+        cacheJobsLocally(newJobs)
         scheduleSave()
+    }
+
+    /// Batch variant of `cacheJobLocally` — writes the whole edited jobs array
+    /// through to the SwiftData cache in one pass. `applyBatch` skips no-op
+    /// rewrites (unchanged payloads), so re-caching the full array on each rapid
+    /// edit is cheap on the write side, and a later server delta (different
+    /// `lastModifiedAt`) still overwrites these entries normally.
+    private func cacheJobsLocally(_ jobs: [Job]) {
+        guard let cache = localCache else { return }
+        let now = Date()
+        let incoming: [LocalCache.Incoming] = jobs.compactMap { job in
+            guard let data = try? JSONEncoder().encode(job) else { return nil }
+            return LocalCache.Incoming(id: job.id, lastModifiedAt: now, deletedAt: nil, payload: data)
+        }
+        guard !incoming.isEmpty else { return }
+        _ = cache.applyBatch(SyncedJob.self, incoming)
     }
 
     func updateJob(_ job: Job, sendNotification: Bool = false, clientName: String? = nil) {
@@ -1127,6 +1165,13 @@ class AppState {
             // Swap the optimistic local message for the canonical server message.
             if let i = messages.firstIndex(where: { $0.id == message.id }) {
                 messages[i] = serverMsg
+            } else if !messages.contains(where: { $0.id == serverMsg.id }) {
+                // A concurrent refresh (applyServerMessages does `messages = r`)
+                // dropped the optimistic bubble before the POST returned, so the
+                // swap-by-id found nothing. Re-insert the canonical message so it
+                // doesn't vanish until the next poll — guarded against the case
+                // where that refresh already carried the stored message.
+                messages.append(serverMsg)
             }
             return serverMsg.id
         } catch {
@@ -1164,6 +1209,15 @@ class AppState {
 
     /// Pull the read-cursor map for every thread I'm in. Cheap (a small map);
     /// called while a thread is open and on the realtime "reads" signal.
+    /// Compare two ISO8601 read-cursor timestamps as instants, tolerating one
+    /// side having fractional seconds and the other not (a lexicographic compare
+    /// gets that wrong: "…01.500Z" sorts BEFORE "…01Z"). Falls back to string
+    /// order only when a value is empty/unparseable.
+    private func isoGreater(_ a: String, than b: String) -> Bool {
+        if let da = Date.fromFlexibleISO8601(a), let db = Date.fromFlexibleISO8601(b) { return da > db }
+        return a > b
+    }
+
     func refreshReadReceipts() async {
         guard let api else { return }
         if let map = try? await api.fetchReadReceipts() {
@@ -1175,7 +1229,7 @@ class AppState {
                     for (threadKey, cursors) in map {
                         if let serverAt = cursors[myId] {
                             let localAt = threadReadAt[threadKey] ?? ""
-                            if serverAt > localAt { threadReadAt[threadKey] = serverAt }
+                            if isoGreater(serverAt, than: localAt) { threadReadAt[threadKey] = serverAt }
                         }
                     }
                 }
@@ -1190,7 +1244,7 @@ class AppState {
         guard let api, let myId = currentPersonId else { return }
         var map = readReceipts
         var cursors = map[threadKey] ?? [:]
-        if let prev = cursors[myId], prev >= at { /* already read this far */ }
+        if let prev = cursors[myId], !isoGreater(at, than: prev) { /* already read this far (at <= prev) */ }
         else {
             cursors[myId] = at
             map[threadKey] = cursors
@@ -1784,7 +1838,14 @@ class AppState {
     /// is already correct from loadAll(), and this only refreshes the cache so
     /// the NEXT launch paints the right state.
     private func persistClockChangeToCache() async {
-        _ = await runDeltaSync()
+        let didWrite = await runDeltaSync()
+        // deltaSync coalesces: if a concurrent Ably-driven change (another user's
+        // job/message edit) piggybacked on THIS run, its writes landed in the
+        // cache but no one rehydrated them — they'd stay invisible until the next
+        // poll. Rehydrate when anything was written. Our own pay-clock flags are
+        // grace-guarded (reconcilePayClock bails for 12s after clockChangeAt), so
+        // re-reading our person from cache can't flip the CTA back.
+        if didWrite { deferRehydrate() }
     }
 
     /// Clock the current user IN for pay from iOS. Optimistic: flips the CTA

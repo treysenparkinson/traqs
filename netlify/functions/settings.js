@@ -34,7 +34,8 @@ export async function handler(event) {
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     if (!member.isAdmin) return err(403, "Only admins can change org settings");
     try {
-      const settings = JSON.parse(event.body);
+      let settings;
+      try { settings = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
       if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
         return err(400, "Body must be an object");
       }

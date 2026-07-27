@@ -173,26 +173,26 @@ struct JobEditView: View {
         isSaving = true
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
-        let updated = Job(
-            id: job?.id ?? UUID().uuidString,
-            title: title.trimmingCharacters(in: .whitespaces),
-            jobNumber: jobNumber.isEmpty ? nil : jobNumber,
-            poNumber: poNumber.isEmpty ? nil : poNumber,
-            start: df.string(from: start),
-            end: df.string(from: end),
-            dueDate: dueDate.map { df.string(from: $0) },
-            status: status,
-            pri: priority,
-            team: job?.team ?? [],
-            color: color,
-            hpd: job?.hpd ?? 7.5,
-            notes: notes,
-            clientId: selectedClientId,
-            deps: Array(editDeps),
-            subs: job?.subs ?? [],
-            moveLog: job?.moveLog,
-            jobType: job?.jobType
-        )
+        // Start from the EXISTING job and mutate only the edited fields, so
+        // fields this editor doesn't surface — loggedHours, projectManagerId,
+        // finishRequest, finishRequests, team, hpd, subs, moveLog, jobType — are
+        // preserved. Rebuilding via the memberwise init dropped them to nil and
+        // updateJob persists the whole object, silently wiping the PM assignment
+        // and any pending completion requests on every edit.
+        var updated = job ?? Job(id: UUID().uuidString, title: "",
+                                 start: df.string(from: start), end: df.string(from: end))
+        updated.title = title.trimmingCharacters(in: .whitespaces)
+        updated.jobNumber = jobNumber.isEmpty ? nil : jobNumber
+        updated.poNumber = poNumber.isEmpty ? nil : poNumber
+        updated.start = df.string(from: start)
+        updated.end = df.string(from: end)
+        updated.dueDate = dueDate.map { df.string(from: $0) }
+        updated.status = status
+        updated.pri = priority
+        updated.color = color
+        updated.notes = notes
+        updated.clientId = selectedClientId
+        updated.deps = Array(editDeps)
         let clientName = appState.clients.first(where: { $0.id == selectedClientId })?.name
         appState.updateJob(updated, sendNotification: true, clientName: clientName)
         isSaving = false

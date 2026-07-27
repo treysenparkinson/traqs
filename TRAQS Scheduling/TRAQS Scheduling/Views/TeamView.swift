@@ -593,19 +593,24 @@ struct PersonEditView: View {
     }
 
     private func save() {
-        let updated = Person(
-            id: person?.id ?? "p" + UUID().uuidString.prefix(8).lowercased(),
-            name: name.trimmingCharacters(in: .whitespaces),
-            role: role, email: email, cap: cap,
-            color: color, userRole: userRole,
-            adminPerms: person?.adminPerms,
-            isEngineer: isEngineer,
-            isTeamLead: isTeamLead,
-            autoSchedule: person?.autoSchedule,
-            teamNumber: person?.teamNumber,
-            timeOff: person?.timeOff ?? [],
-            pushToken: person?.pushToken
-        )
+        // Start from the EXISTING person and mutate only the edited fields, so
+        // fields this editor doesn't surface — payType, phone, image,
+        // canClockInOut, canSignOff, noAutoSchedule, hasPin, and the live clock
+        // state — are preserved. Rebuilding via the memberwise init dropped them
+        // to nil, and updatePeople POSTs the whole array (a full-record overwrite
+        // the server honors for everything except role/clock), so a single edit
+        // silently flipped salaried workers to hourly and reset permissions.
+        var updated = person ?? Person(id: "p" + UUID().uuidString.prefix(8).lowercased(),
+                                       name: "", role: "", email: "", cap: cap,
+                                       color: color, userRole: userRole)
+        updated.name = name.trimmingCharacters(in: .whitespaces)
+        updated.role = role
+        updated.email = email
+        updated.cap = cap
+        updated.color = color
+        updated.userRole = userRole
+        updated.isEngineer = isEngineer
+        updated.isTeamLead = isTeamLead
         var list = appState.people
         if let i = list.firstIndex(where: { $0.id == updated.id }) {
             list[i] = updated
