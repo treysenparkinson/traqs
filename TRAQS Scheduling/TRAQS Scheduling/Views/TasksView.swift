@@ -44,18 +44,34 @@ struct TasksView: View {
             VStack(spacing: 0) {
                 // ("Jobs" title is rendered statically by JobsHubView above.)
 
-                // The job being worked on right now sits at the top as a pinned
-                // hero; excluded from the lists below so it isn't shown twice.
-                if let activeTask {
-                    NavigationLink(value: activeTask.job) {
-                        TaskCardV1(task: activeTask, onOpen: { onOpenJob(activeTask.job) })
+                // TODAY — the specific tasks SCHEDULED for you today (per the web
+                // scheduler) pinned at the very top of the page, as your individual
+                // task cards (not the parent job). Per-user: each person sees their
+                // own today schedule.
+                if !myTodayTasks.isEmpty {
+                    sectionHeader("Today").padding(.horizontal, 16).padding(.top, 4)
+                    cardStack(myTodayTasks)
+                        .padding(.top, 12)     // breathing room below the "Today" header
+                        .padding(.bottom, 14)
+                }
+
+                // Jobs being worked on right now (ANY user) sit below Today as
+                // cards; excluded from the ALL JOBS list below so they aren't
+                // shown twice. The current user's own active job keeps its hero
+                // slot here (with its live timer).
+                if !workingTasks.isEmpty {
+                    VStack(spacing: 12) {
+                        ForEach(workingTasks) { task in
+                            NavigationLink(value: task.job) {
+                                TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
-                    .buttonStyle(.plain)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 14)
-                    // Slide UP into the hero slot when a job is logged into
-                    // (and slide back down on clock-out); the list below closes
-                    // the gap in the same ease-in-out beat.
+                    // Slide UP when a job is logged into (and back down on
+                    // clock-out); the list below closes the gap in the same beat.
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(1)
                 }
@@ -74,10 +90,10 @@ struct TasksView: View {
             }
             .padding(.top, 2)
             .padding(.bottom, 96)   // clear the bottom-right calendar FAB
-            // Smooth slow→fast→slow reorder when the active job changes (pinned
-            // to the top). Keyed on the active task so logging in/out animates
-            // instead of hard-clipping into place.
-            .animation(.easeInOut(duration: 0.42), value: activeTaskId)
+            // Smooth slow→fast→slow reorder when the set of worked-on jobs changes
+            // (pinned to the top). Keyed on the working set so a clock-in/out
+            // animates the card up/down instead of hard-clipping into place.
+            .animation(.easeInOut(duration: 0.42), value: workingJobIds)
         }
         .scrollIndicators(.visible)
         .topFadeMask()   // app-wide soft fading header
@@ -105,6 +121,39 @@ struct TasksView: View {
         return TaskAssignment(job: job, panel: panel, op: op)
     }
     private var activeTaskId: String? { activeTask?.id }
+
+    /// The card pinned up top for a job I'm actively clocked into (with its live
+    /// timer). ONLY my own — other people's live jobs (e.g. Caleb's) belong in
+    /// the lists below, not pinned to the top of my page.
+    private var workingTasks: [TaskAssignment] {
+        activeTask.map { [$0] } ?? []
+    }
+
+    /// The job id I'm actively clocked into — the only "working" job pinned up
+    /// top, so only it is excluded from the lists below. Other people's active
+    /// jobs are NOT excluded and appear normally in All Jobs.
+    private var workingJobIds: Set<String> {
+        guard let jid = appState.myActiveJobClock?.jobId, !jid.isEmpty else { return [] }
+        return [jid]
+    }
+
+    /// The specific TASKS I'm assigned to (op or panel level) that are SCHEDULED
+    /// for TODAY — pinned at the top of the page as individual task cards, NOT the
+    /// whole parent job with all its panels. Own-active and being-worked tasks are
+    /// shown in the being-worked section instead; finished tasks are dropped.
+    private var myTodayTasks: [TaskAssignment] {
+        let working = workingJobIds
+        let todayStart = cal.startOfDay(for: Date())
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: todayStart) ?? todayStart
+        return myTasks
+            .filter { $0.status != .finished && $0.id != activeTaskId && !working.contains($0.job.id) }
+            .filter { t in
+                guard let s = t.startDate, let e = t.endDate else { return false }
+                return s < tomorrow && e >= todayStart   // the task's own dates cover today
+            }
+            .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
+    }
+    private var myTodayTaskIds: Set<String> { Set(myTodayTasks.map { $0.id }) }
 
     // ── Today: original card stack ─────────────────────────────────────────
 
@@ -232,26 +281,37 @@ struct TasksView: View {
         let notStarted = mine.filter { $0.status != .inProgress }
         let today = notStarted.filter { overlapsRange($0, range) }
         let upcoming = notStarted.filter { !overlapsRange($0, range) }
+        // Job-level ("owner") assignments — bucketed by the JOB's own status/dates
+        // and shown alongside your panel/op tasks in the same Today/In Progress/
+        // Upcoming sections so a job assigned to you at the job level appears.
+        let jobLevel = myJobLevelJobs
+        let jobInProgress = jobLevel.filter { $0.status == .inProgress }
+        let jobRest = jobLevel.filter { $0.status != .inProgress }
+        let jobToday = jobRest.filter { jobOverlapsRange($0, range) }
+        let jobUpcoming = jobRest.filter { !jobOverlapsRange($0, range) }
         let others = allJobsList
         return VStack(spacing: 16) {
-            if mine.isEmpty && others.isEmpty {
+            if mine.isEmpty && jobLevel.isEmpty && others.isEmpty {
                 VStack(spacing: 6) {
                     NoJobsPlaceholder(text: "No jobs scheduled")
                     diagnosticLine
                 }
                 .padding(.horizontal, 16).padding(.top, 8)
             }
-            if !today.isEmpty {
+            if !today.isEmpty || !jobToday.isEmpty {
                 sectionHeader(windowLabel).padding(.horizontal, 16)
                 cardStack(today)
+                jobCardStack(jobToday)
             }
-            if !inProgress.isEmpty {
+            if !inProgress.isEmpty || !jobInProgress.isEmpty {
                 sectionHeader("In Progress").padding(.horizontal, 16)
                 cardStack(inProgress)
+                jobCardStack(jobInProgress)
             }
-            if !upcoming.isEmpty {
+            if !upcoming.isEmpty || !jobUpcoming.isEmpty {
                 sectionHeader("Upcoming").padding(.horizontal, 16)
                 cardStack(upcoming)
+                jobCardStack(jobUpcoming)
             }
             if !others.isEmpty {
                 sectionHeader("All Jobs").padding(.horizontal, 16)
@@ -272,6 +332,7 @@ struct TasksView: View {
         return appState.jobs.filter { job in
             if job.status == .finished { return false }
             if isMineJob(job) { return false }
+            if workingJobIds.contains(job.id) { return false }   // shown up top instead
             if !q.isEmpty {
                 let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
                 if !hay.contains(q) { return false }
@@ -374,6 +435,53 @@ struct TasksView: View {
             || job.subs.contains { p in p.team.contains(me) || p.subs.contains { $0.team.contains(me) } }
     }
 
+    /// Jobs assigned to the current user at the JOB level (on `job.team`) but not
+    /// on any specific panel/op. The desktop surfaces these as "your" jobs, but
+    /// `myTasks` (panel/op only) skips them AND `isMineJob` excludes them from ALL
+    /// JOBS — so a job assigned to you at the job level was invisible on iOS. We
+    /// render these as job cards inside YOUR TASKS. Jobs already shown up top as
+    /// being-worked, and completed jobs, are excluded.
+    private var myJobLevelJobs: [Job] {
+        guard let me = appState.currentPersonId else { return [] }
+        let working = workingJobIds
+        let q = searchText.lowercased()
+        return appState.jobs.filter { job in
+            if job.status == .finished { return false }
+            if working.contains(job.id) { return false }
+            guard job.team.contains(me) else { return false }
+            let onPanelOrOp = job.subs.contains { p in
+                p.team.contains(me) || p.subs.contains { $0.team.contains(me) }
+            }
+            if onPanelOrOp { return false }          // already surfaced via myTasks
+            if !q.isEmpty {
+                let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
+                if !hay.contains(q) { return false }
+            }
+            return true
+        }
+        .sorted { ($0.start.asDate ?? .distantPast) < ($1.start.asDate ?? .distantPast) }
+    }
+
+    /// Does a JOB's own [start, end] overlap the window? (job-level scheduling —
+    /// used to bucket job-level assignments into Today vs Upcoming.)
+    private func jobOverlapsRange(_ job: Job, _ range: Range<Date>) -> Bool {
+        guard let s = job.start.asDate, let e = job.end.asDate else { return false }
+        return s < range.upperBound && e >= range.lowerBound
+    }
+
+    /// Renders job-level assignments (owner jobs) as collapsible job cards.
+    @ViewBuilder
+    private func jobCardStack(_ jobs: [Job]) -> some View {
+        if !jobs.isEmpty {
+            VStack(spacing: 12) {
+                ForEach(jobs) { job in
+                    AllJobsCard(job: job, panels: panelsFor(job))
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
     /// The visible date window for the current segment. Day = just today;
     /// Week = the work-week around the selected date; Month / Year = the
     /// calendar month or year containing it. The whole list (YOUR TASKS +
@@ -414,8 +522,14 @@ struct TasksView: View {
     /// date — the date grouping happens in rangeContent so a rescheduled job
     /// moves between sections instead of vanishing.
     private var myActiveTasks: [TaskAssignment] {
-        myTasks
-            .filter { $0.status != .finished && $0.id != activeTaskId }
+        // Tasks shown up top are excluded here so they don't also appear in the
+        // In Progress / Upcoming sections below: the exact today-tasks (by task
+        // id) plus anything on a being-worked job (by job id).
+        let excludeTasks = myTodayTaskIds
+        let excludeJobs = workingJobIds
+        return myTasks
+            .filter { $0.status != .finished && $0.id != activeTaskId
+                && !excludeTasks.contains($0.id) && !excludeJobs.contains($0.job.id) }
             .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
     }
 
