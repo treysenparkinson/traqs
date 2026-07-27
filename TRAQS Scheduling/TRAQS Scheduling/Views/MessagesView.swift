@@ -49,11 +49,12 @@ struct MessagesView: View {
         // (a session that loaded before the server fix shipped, or a
         // dev/test environment still hitting an unfiltered endpoint).
         return Dictionary(grouping: appState.messages, by: \.threadKey)
-            .filter { key, _ in
+            .filter { key, msgs in
                 Self.canViewThread(key,
                                    myId: myId,
                                    jobs: appState.jobs,
-                                   groups: appState.groups)
+                                   groups: appState.groups,
+                                   messages: msgs)
             }
             .map { key, msgs in
                 MessageThread(
@@ -71,10 +72,25 @@ struct MessagesView: View {
     /// `appState.messages` array can't expose threads the user shouldn't
     /// see. Closed by default — unrecognized threadKey prefixes are
     /// hidden, matching the server.
+    ///
+    /// `messages` is the thread's own delivered messages. When the entity a
+    /// scoped thread references (group/job/panel/op) isn't loaded into
+    /// `appState` yet, we can't verify membership against it — but the server
+    /// already authorized delivery, so rather than HIDE the thread we fall back
+    /// to the message's own participant roster. This is what fixes freshly
+    /// created threads vanishing: a time-off request (and any completion
+    /// request) spins up a brand-new group and drops its bubble in the SAME
+    /// instant, so the message routinely arrives a beat before the group syncs
+    /// into `appState.groups`. Without the fallback the whole thread — and its
+    /// Approve/Deny actions — disappears until the next full groups sync.
+    /// The fallback is safe (not a hole in the ACL): `participantIds` only ever
+    /// lists genuine recipients the server addressed, so a thread we're truly
+    /// not part of never carries our id here.
     static func canViewThread(_ threadKey: String,
                               myId: String?,
                               jobs: [Job],
-                              groups: [ChatGroup]) -> Bool {
+                              groups: [ChatGroup],
+                              messages: [Message] = []) -> Bool {
         guard let myId, !myId.isEmpty else { return false }
         if threadKey.hasPrefix("dm:") {
             return threadKey.dropFirst(3)
@@ -84,17 +100,20 @@ struct MessagesView: View {
         if threadKey.hasPrefix("group:") {
             let ref = String(threadKey.dropFirst(6))
             guard let g = groups.first(where: { $0.name == ref || $0.id == ref })
-            else { return false }
+            else { return inMessageRoster(myId, messages) }   // group not synced yet
             return g.memberIds.contains(myId)
         }
         if threadKey.hasPrefix("job:") {
             let jobId = String(threadKey.dropFirst(4))
-            return jobs.first(where: { $0.id == jobId }).map { userInJob(myId, $0) } ?? false
+            guard let j = jobs.first(where: { $0.id == jobId })
+            else { return inMessageRoster(myId, messages) }   // job not synced yet
+            return userInJob(myId, j)
         }
         if threadKey.hasPrefix("panel:") {
             let panelId = String(threadKey.dropFirst(6))
-            return jobs.first(where: { j in j.subs.contains(where: { $0.id == panelId }) })
-                .map { userInJob(myId, $0) } ?? false
+            guard let j = jobs.first(where: { j in j.subs.contains(where: { $0.id == panelId }) })
+            else { return inMessageRoster(myId, messages) }
+            return userInJob(myId, j)
         }
         if threadKey.hasPrefix("op:") {
             let opId = String(threadKey.dropFirst(3))
@@ -103,9 +122,17 @@ struct MessagesView: View {
                     return userInJob(myId, j)
                 }
             }
-            return false
+            return inMessageRoster(myId, messages)             // op's job not synced yet
         }
         return false
+    }
+
+    /// Fallback authorization for a scoped thread whose backing entity isn't
+    /// loaded yet: trust the server-set participant roster on the thread's own
+    /// messages. Only genuine recipients appear in `participantIds`, so this
+    /// never reveals a thread the user isn't actually part of.
+    private static func inMessageRoster(_ myId: String, _ messages: [Message]) -> Bool {
+        messages.contains { $0.participantIds.contains(myId) }
     }
 
     private static func userInJob(_ myId: String, _ j: Job) -> Bool {
