@@ -3572,6 +3572,15 @@ Extraction rules:
     const id = setInterval(() => setAdminNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [view]);
+  // Live stats ticker: while the Analytics view is open AND someone is clocked
+  // in, tick every 5s so the Efficiency graph grows in real time.
+  const [statsNow, setStatsNow] = useState(Date.now());
+  const anyClockActive = people.some(p => p.activeClockIn?.clockIn || p.activeJobClock?.clockIn);
+  useEffect(() => {
+    if (view !== "analytics" || !anyClockActive) return;
+    const id = setInterval(() => setStatsNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, [view, anyClockActive]);
   const [tsPeriodDays, setTsPeriodDays] = useState(0);
   const [tsSettingsOpen, setTsSettingsOpen] = useState(false);
   const [tsSettingsDraft, setTsSettingsDraft] = useState(null); // local people copy for editing
@@ -11714,10 +11723,33 @@ ${jobsCtx || "No jobs found."}`;
       const dayOf = e => e.date || (e.clockIn ? String(e.clockIn).slice(0, 10) : null);
       const payOk = e => !e.eventType && e.clockIn && e.clockOut && (personId == null || String(e.personId) === String(personId));
       const prodOk = s => (personId == null || String(s.personId) === String(personId));
+      // Live accrual from OPEN clocks — grows the graph while someone is clocked
+      // in. Pay = gross elapsed of an open pay shift; prod = elapsed of an open
+      // job clock (minus paused). Attributed to the clock's start day so it lands
+      // in the right bucket (same day-keying as completed records).
+      const liveAdds = [];
+      people.forEach(p => {
+        if (personId != null && String(p.id) !== String(personId)) return;
+        const ac = p.activeClockIn;
+        if (ac?.clockIn) {
+          const s = new Date(ac.clockIn).getTime();
+          if (s) liveAdds.push({ day: String(ac.clockIn).slice(0, 10), pay: Math.max(0, (statsNow - s) / 3600000), prod: 0 });
+        }
+        const jc = p.activeJobClock;
+        if (jc?.clockIn) {
+          const s = new Date(jc.clockIn).getTime();
+          if (s) {
+            let ms = statsNow - s - (jc.totalPausedMs || 0);
+            if (jc.pausedAt) ms -= (statsNow - new Date(jc.pausedAt).getTime());
+            liveAdds.push({ day: String(jc.clockIn).slice(0, 10), pay: 0, prod: Math.max(0, ms / 3600000) });
+          }
+        }
+      });
       const rows = efficiencyBuckets().map(b => {
         const set = new Set(b.days);
-        const pay = timeclock.filter(e => payOk(e) && set.has(dayOf(e))).reduce((a, e) => a + (e.hours || 0), 0);
-        const prod = productionHours.filter(s => prodOk(s) && set.has(dayOf(s))).reduce((a, s) => a + (s.hours || 0), 0);
+        let pay = timeclock.filter(e => payOk(e) && set.has(dayOf(e))).reduce((a, e) => a + (e.hours || 0), 0);
+        let prod = productionHours.filter(s => prodOk(s) && set.has(dayOf(s))).reduce((a, s) => a + (s.hours || 0), 0);
+        liveAdds.forEach(a => { if (set.has(a.day)) { pay += a.pay; prod += a.prod; } });
         return { label: b.label, pay, prod };
       });
       const totalPay = rows.reduce((a, r) => a + r.pay, 0);
